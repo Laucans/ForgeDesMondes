@@ -1,7 +1,7 @@
 # The CI gates of the agent-native architecture — see docs/ARCHITECTURE.md,
 # "CI gates". Installed by `harness init-repo`; the repository owns it from
-# here. A gate that is `if: false` is declared, not yet implemented: its rule
-# is in its name and its step, and implementing it is a task like any other.
+# here. Every gate runs: a rule is in its name and its step, and a rule the
+# product cannot keep yet is a task like any other, never a gate turned off.
 #
 # The two branch patterns are the harness's: `main_agent` is where finished
 # milestones land, `milestone/**` is what a task's pull request targets.
@@ -43,28 +43,26 @@ jobs:
           validate e-screen-composition.schema.json apps/screens/*.json
           validate f-data-capability.schema.json crates/**/data-capability.json
           validate i-aggregate.schema.json crates/**/aggregate.json
+          # The aggregates drafted at the factory's creation conform before any is built.
+          validate i-aggregate.schema.json mock/data/aggregates/*.aggregate.json
           validate c-persisted-query.schema.json queries/registry.json
           validate m-data-model.schema.json data/model.json
+          validate n-mock-pages.schema.json mock/pages.json
+          validate q-ports.schema.json ports.json
 
-  # Contract B — no Capability depends on another Capability or on the write
-  # side. Read in the one place Rust declares dependencies: Cargo.toml.
+  # Contract B, principle 5 — a slice knows no other slice. Checked on the
+  # graph `cargo metadata` answers, not on a Cargo.toml's text: a Capability
+  # or a DataCapability reaches no other one, directly or transitively, and
+  # only crates of its own system; what it depends on is plumbing, never a
+  # bridge; no inclusion leaves a slice's folder (scripts/isolation.sh).
   capability-isolation:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: A Capability crate depends on no Capability and on nothing of the write side
+      - uses: dtolnay/rust-toolchain@stable
+      - name: A slice depends on no other slice, and only on its own system's plumbing
         shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob globstar
-          failed=0
-          for toml in crates/*/capabilities/*/Cargo.toml; do
-            if grep -nE 'capabilities/|dataguard|dataqueue|resolver' "$toml" | grep -vE '^\s*[0-9]+:\s*#'; then
-              echo "::error file=$toml::a Capability must not depend on another Capability or on the write side"
-              failed=1
-            fi
-          done
-          exit $failed
+        run: bash scripts/isolation.sh
       - name: No Capability manifest names an `invokes` field
         shell: bash
         run: |
@@ -104,15 +102,38 @@ jobs:
           exit $failed
 
   # Contracts A, B — `implements: Risk@3` ⇒ the Concept's fixtures pass
-  # against this Capability. Needs a conformance runner that feeds
-  # concepts/<Concept>/v<n>/fixtures.json to the Capability: it comes with
-  # the DataGuard engine the harness installs, and this gate is switched on
-  # with it.
+  # against this Capability. The runner is crates/platform/conformance
+  # (installed): a Capability that implements a Concept has a test that
+  # calls `platform_conformance::check("<Concept>@<n>", …)`, and that test
+  # runs here, crate by crate. A Capability with no such test fails: a
+  # Concept it claims and never proves is a copy nobody can check.
   semantic-conformance:
-    if: false
     runs-on: ubuntu-latest
     steps:
-      - run: echo "not implemented — every Capability that implements a Concept passes its fixtures"
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Every Capability that implements a Concept passes its fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          failed=0
+          for manifest in crates/*/capabilities/*/capability.json; do
+            ref=$(jq -r '.implements // empty' "$manifest")
+            [ -n "$ref" ] || continue
+            dir=$(dirname "$manifest")
+            if ! grep -rqF 'platform_conformance::check' "$dir"/src "$dir"/tests 2>/dev/null; then
+              echo "::error file=$manifest::implements $ref and has no test calling platform_conformance::check(\"$ref\", …) — the Concept is claimed, never proved"
+              failed=1
+              continue
+            fi
+            name=$(grep -m1 -E '^\s*name\s*=' "$dir/Cargo.toml" | sed -E 's/^[^"]*"([^"]*)".*/\1/')
+            if ! cargo test -p "$name" -- conformance; then
+              echo "::error file=$manifest::$ref: the conformance fixtures fail against $name"
+              failed=1
+            fi
+          done
+          exit $failed
 
   # Contract B — no Capability has write access. Checked where it can be,
   # statically: no write statement in a Capability crate, and no use of the
@@ -140,23 +161,108 @@ jobs:
           done
           exit $failed
 
-  # Contract C — every persisted query is valid against the current schema
-  # and the next one (expand/contract). Needs the schema the DataGuard engine
-  # owns: switched on with it.
-  queries-valid:
-    if: false
+  # Contract C — every read a Capability makes is a declared, persisted
+  # query, registered under the Capability's id with its hash and the
+  # fields it reads: `scripts/queries.sh` writes queries/registry.json from
+  # the manifests' `reads`, and this gate refuses a registry that is not
+  # what the script writes — a query changed, a `reads` entry points
+  # nowhere, a query declares no fields. What the read crate serves is what
+  # is registered.
+  queries-registered:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "not implemented — persisted queries validate against the current and the next schema"
+      - uses: actions/checkout@v4
+      - name: queries/registry.json is what scripts/queries.sh writes
+        shell: bash
+        run: bash scripts/queries.sh --check
 
-  # Contracts C, I — a schema change lists the Capabilities it touches (from
-  # queries/registry.json) and blocks until each one is migrated. Needs the
-  # engine's migration runner: switched on with it.
+  # Contract C — every persisted SQL query of the registry prepares against
+  # the schema this checkout's migrations build (expand/contract: a column a
+  # query reads must exist after the migrations of this very commit). GraphQL
+  # queries are the read crate's to validate; they pass here.
+  queries-valid:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: gates
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every registered SQL query prepares against the migrated schema
+        shell: bash
+        env:
+          PGPASSWORD: gates
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          [ -f queries/registry.json ] || { echo "no registry: nothing to validate"; exit 0; }
+          psql="psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d postgres -q"
+          while IFS= read -r migration; do
+            [ -n "$migration" ] || continue
+            $psql -f "$migration" || { echo "::error file=$migration::the migration does not apply"; exit 1; }
+          done < <(git ls-files -- '*migrations/*.sql' | LC_ALL=C sort)
+          failed=0
+          n=0
+          while IFS=$'\t' read -r capability file; do
+            case "$file" in *.sql) ;; *) continue ;; esac
+            [ -f "$file" ] || { echo "::error file=$file::registered under $capability but absent"; failed=1; continue; }
+            n=$((n + 1))
+            body=$(grep -v '^[[:space:]]*--' "$file" | sed 's/;[[:space:]]*$//')
+            if ! $psql -c "PREPARE gate_q_$n AS $body" > /dev/null 2> err.txt; then
+              echo "::error file=$file::$capability reads through a query the schema refuses: $(tail -n 1 err.txt)"
+              failed=1
+            fi
+          done < <(jq -r '.queries[] | [.capability, .file] | @tsv' queries/registry.json)
+          exit $failed
+
+  # Contracts C, I — a migration that drops, renames or retypes a column
+  # names the Capabilities that read it (from queries/registry.json), and
+  # the same change must carry their queries: a reader left behind blocks.
   schema-impact:
-    if: false
     runs-on: ubuntu-latest
     steps:
-      - run: echo "not implemented — a schema change names the readers it touches"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: A schema change carries every reader it touches
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          [ -f queries/registry.json ] || { echo "no registry: nothing to protect"; exit 0; }
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null || { echo "no base to compare with"; exit 0; }
+          changed=$(git diff --name-only "$base" HEAD)
+          norm() { tr '[:upper:]' '[:lower:]' <<< "$1" | tr -d '_'; }
+          failed=0
+          for migration in $(grep -E 'migrations/.*\.sql$' <<< "$changed" || true); do
+            [ -f "$migration" ] || continue
+            # table.column of every column removed, renamed or retyped.
+            while IFS= read -r touched; do
+              [ -n "$touched" ] || continue
+              key=$(norm "$touched")
+              while IFS=$'\t' read -r capability file fields; do
+                for field in $fields; do
+                  [ "$(norm "$field")" = "$key" ] || continue
+                  if ! grep -qxF "$file" <<< "$changed"; then
+                    echo "::error file=$migration::touches $touched, read by $capability through $file, which this change does not migrate"
+                    failed=1
+                  fi
+                done
+              done < <(jq -r '.queries[] | [.capability, .file, (.fields | join(" "))] | @tsv' queries/registry.json)
+            done < <(awk '
+              BEGIN { IGNORECASE = 1 }
+              /alter[[:space:]]+table/ { match($0, /alter[[:space:]]+table[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?[^[:space:]]+/); split(substr($0, RSTART, RLENGTH), w, /[[:space:]]+/); table = w[length(w)] }
+              /drop[[:space:]]+column[[:space:]]+/ { match($0, /drop[[:space:]]+column[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?[^[:space:],;]+/); split(substr($0, RSTART, RLENGTH), w, /[[:space:]]+/); print table "." w[length(w)] }
+              /rename[[:space:]]+column[[:space:]]+/ { match($0, /rename[[:space:]]+column[[:space:]]+[^[:space:]]+/); split(substr($0, RSTART, RLENGTH), w, /[[:space:]]+/); print table "." w[3] }
+              /alter[[:space:]]+column[[:space:]]+[^[:space:]]+[[:space:]]+(set[[:space:]]+data[[:space:]]+)?type/ { match($0, /alter[[:space:]]+column[[:space:]]+[^[:space:]]+/); split(substr($0, RSTART, RLENGTH), w, /[[:space:]]+/); print table "." w[3] }
+              /drop[[:space:]]+table[[:space:]]+/ { match($0, /drop[[:space:]]+table[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?[^[:space:],;]+/); split(substr($0, RSTART, RLENGTH), w, /[[:space:]]+/); print w[length(w)] ".*" }
+            ' "$migration" | sed 's/"//g')
+          done
+          exit $failed
 
   # Contract B — a Micro-UI's `needs` reference only Capabilities of its own
   # system: each one is the `capability` of a capability.json whose `system`
@@ -223,6 +329,78 @@ jobs:
                 failed=1
               fi
             done
+          done
+          exit $failed
+
+  # Rule 2 — the slices are workspace members by glob, never by name. A
+  # glob matches what is on the disk: a sparse checkout that leaves a slice
+  # out still resolves, and adding one edits no shared file. A slice named
+  # in `members` would break both; a member named by name must be plumbing
+  # (the server, the engine), which every checkout carries.
+  workspace-members-by-glob:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No Capability or DataCapability is a workspace member by name
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f Cargo.toml ] || exit 0
+          failed=0
+          members=$(awk '/^[[:space:]]*members[[:space:]]*=[[:space:]]*\[/,/\]/' Cargo.toml | tr -d '[]"'"'"'' | tr ',' '\n' | sed -E 's/^[[:space:]]*members[[:space:]]*=//; s/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' || true)
+          while read -r member; do
+            [ -n "$member" ] || continue
+            case "$member" in
+              *\**) ;;
+              crates/*/capabilities/*|crates/*/data-capabilities/*)
+                echo "::error file=Cargo.toml::$member is a slice listed by name — list slices by glob (crates/*/capabilities/*), so a narrowed checkout resolves and adding one edits no shared file"
+                failed=1 ;;
+            esac
+          done <<< "$members"
+          exit $failed
+
+  # Contract F, rule 2 — a DataCapability is a folder, never an edit of a
+  # shared file: every crates/<system>/data-capabilities/<name>/ is a workspace
+  # member, its library is named after its folder (what the server's build
+  # script registers it by), and the server depends on it. Two added in
+  # parallel then meet nowhere but on a dependency line that merges on its own.
+  data-capability-registered:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Every DataCapability folder is a member, named after its folder, and a dependency of its server
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          failed=0
+          metadata=$(cargo metadata --format-version 1 --no-deps)
+          root=$(jq -r '.workspace_root' <<< "$metadata")
+          for toml in crates/*/data-capabilities/*/Cargo.toml; do
+            dir=$(dirname "$toml")
+            folder=$(basename "$dir")
+            expected=${folder//-/_}
+            if ! jq -e --arg m "$root/$toml" '.packages[] | select(.manifest_path == $m)' <<< "$metadata" > /dev/null; then
+              echo "::error file=$toml::$dir is not a workspace member — list crates/*/data-capabilities/* by glob in the root Cargo.toml"
+              failed=1
+              continue
+            fi
+            lib=$(jq -r --arg m "$root/$toml" '.packages[] | select(.manifest_path == $m) | .targets[] | select(.kind[] == "lib") | .name' <<< "$metadata")
+            if [ "$lib" != "$expected" ]; then
+              echo "::error file=$toml::the library of $folder is named $lib — name it $expected, as its folder: the server registers it by that name"
+              failed=1
+            fi
+            pkg=$(jq -r --arg m "$root/$toml" '.packages[] | select(.manifest_path == $m) | .name' <<< "$metadata")
+            # A hostless DataCapability (compiled to WebAssembly, loaded by a
+            # plugin or a static app) is nobody's dependency.
+            if [ -f "$dir/data-capability.json" ] && [ "$(jq -r '.host // "server"' "$dir/data-capability.json")" = "hostless" ]; then
+              continue
+            fi
+            if ! jq -e --arg d "$pkg" '[.packages[] | select(.manifest_path | test("/serveur/Cargo.toml$|/server/Cargo.toml$")) | .dependencies[] | select(.name == $d)] | length > 0' <<< "$metadata" > /dev/null; then
+              echo "::error file=$toml::no server depends on $pkg — add it to the server's [dependencies]; its registration is the build script's"
+              failed=1
+            fi
           done
           exit $failed
 
@@ -312,14 +490,16 @@ jobs:
             done
           }
           for aggregate in crates/**/aggregate.json; do
+            # The aggregate's own system: crates/<system>/aggregates/<Aggregate>/aggregate.json.
+            system_dir=$(dirname "$(dirname "$(dirname "$aggregate")")")
             for id in $(jq -r '.invariants[].id' "$aggregate"); do
               tested=0
-              for src in crates/**/*.rs; do
+              for src in "$system_dir"/**/*.rs; do
                 case "$src" in */tests/*) ;; *) grep -qE '#\[(tokio::)?test\]' "$src" || continue ;; esac
                 if grep -qF "$id" "$src"; then tested=1; break; fi
               done
               if [ "$tested" = "0" ]; then
-                echo "::error file=$aggregate::invariant $id is named in no test"
+                echo "::error file=$aggregate::invariant $id is named in no test of $system_dir — the aggregate's own system tests its invariants"
                 failed=1
               fi
             done
@@ -361,3 +541,326 @@ jobs:
             done
           done
           exit $failed
+
+  # Contracts E, N — the mock-up keeps up with the screens: every page
+  # `mock/pages.json` lists is there, and every frozen screen under
+  # `apps/screens/` has a page that names it. The mock-up is where a screen
+  # is designed and annotated before it is built; a screen without one was
+  # built blind.
+  pages-mocked:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Every listed page and micro-frontend exists, every frozen screen and every Micro-UI is mocked
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          failed=0
+          manifest=mock/pages.json
+          if [ ! -f "$manifest" ]; then
+            if compgen -G "apps/screens/*.json" > /dev/null; then
+              echo "::error file=$manifest::the mock-up has no pages.json, and there are screens to mock"
+              exit 1
+            fi
+            exit 0
+          fi
+          for page in $(jq -r '.pages[].path' "$manifest"); do
+            if [ ! -f "mock/$page" ]; then
+              echo "::error file=$manifest::lists $page, which is not under mock/"
+              failed=1
+            fi
+          done
+          for fragment in $(jq -r '.components[]?.fragment' "$manifest"); do
+            if [ ! -f "mock/$fragment" ]; then
+              echo "::error file=$manifest::lists the micro-frontend $fragment, which is not under mock/"
+              failed=1
+            fi
+          done
+          # Before any Micro-UI is built, a hand-written micro-frontend already names its parts
+          # (contract D) and reads one fixture per Capability it needs, fixtures/<Capability>.json —
+          # what the mock server answers it with and the rules' tests start from.
+          for name in $(jq -r '.components[]? | select((.source // "") == "") | .name' "$manifest"); do
+            entry=$(jq -c --arg n "$name" '.components[] | select(.name == $n)' "$manifest")
+            fragment=$(jq -r '.fragment // empty' <<< "$entry")
+            [ -n "$fragment" ] && [ -f "mock/$fragment" ] || continue
+            text=$(tr '\n' ' ' < "mock/$fragment")
+            for key in actions needs; do
+              attr=reads
+              [ "$key" = actions ] && attr=writes
+              for unit in $(jq -r --arg k "$key" '.[$k][]?' <<< "$entry"); do
+                if ! grep -qiE "data-$attr[^;]{0,160}${unit//./\\.}" <<< "$text"; then
+                  echo "::error file=$manifest::the micro-frontend $name names no part data-$attr=\"$unit\" in mock/$fragment (contract D)"
+                  failed=1
+                fi
+              done
+            done
+            for need in $(jq -r '.needs[]?' <<< "$entry"); do
+              if ! jq -e --arg f "fixtures/$need.json" '.fixtures // [] | index($f)' <<< "$entry" > /dev/null; then
+                echo "::error file=$manifest::the micro-frontend $name needs $need and lists no fixtures/$need.json"
+                failed=1
+              fi
+            done
+            for fixture in $(jq -r '.fixtures[]?' <<< "$entry"); do
+              if [ ! -f "mock/$fixture" ]; then
+                echo "::error file=$manifest::the micro-frontend $name lists $fixture, which is not under mock/"
+                failed=1
+              fi
+            done
+          done
+          for name in $(jq -r '[.pages[].components[]?] | unique[]' "$manifest"); do
+            if ! jq -e --arg n "$name" '.components[]? | select(.name == $n)' "$manifest" > /dev/null; then
+              echo "::error file=$manifest::a page injects $name, a micro-frontend components does not list"
+              failed=1
+            fi
+          done
+          for screen in apps/screens/*.json; do
+            name=$(jq -r '.screen' "$screen")
+            if ! jq -e --arg s "$name" '.pages[] | select(.screen == $s)' "$manifest" > /dev/null; then
+              echo "::error file=$screen::screen $name has no page in $manifest — mock it first"
+              failed=1
+            fi
+          done
+          for ui in apps/**/micro-ui.json; do
+            name=$(jq -r '.microUi' "$ui")
+            fragment=$(jq -r --arg n "$name" '.components[]? | select(.name == $n) | .fragment' "$manifest")
+            if [ -z "$fragment" ]; then
+              echo "::error file=$ui::the Micro-UI $name has no micro-frontend in $manifest — mock it: its real code on the mock server"
+              failed=1
+              continue
+            fi
+            if [ ! -f "mock/$fragment" ]; then
+              echo "::error file=$manifest::the micro-frontend $name has no fragment at mock/$fragment"
+              failed=1
+              continue
+            fi
+            # Its parts are named (contract D): each action tied to an actuator, each need to a part that shows it.
+            # A hand-written fragment names the unit in the attribute itself; the real code's bundle reaches
+            # it through its identifiers (one file names them), so it carries the attribute and the unit's id.
+            bundle="mock/${fragment%.html}.js"
+            text=$(tr '\n' ' ' < "mock/$fragment")
+            if [ -f "$bundle" ]; then text="$text $(tr '\n' ' ' < "$bundle")"; fi
+            for key in actions needs; do
+              attr=reads
+              [ "$key" = actions ] && attr=writes
+              for unit in $(jq -r --arg k "$key" '.[$k][]? | if type=="string" then . else (.capability // .dataCapability // .id // empty) end' "$ui"); do
+                if [ -f "$bundle" ]; then
+                  named=0
+                  grep -qE "(data-$attr|dataset\.$attr)" <<< "$text" && grep -qiF "$unit" <<< "$text" && named=1
+                else
+                  named=0
+                  grep -qiE "(data-$attr|dataset\.$attr)[^;]{0,160}${unit//./\\.}" <<< "$text" && named=1
+                fi
+                if [ "$named" = 0 ]; then
+                  echo "::error file=$ui::the micro-frontend $name names no part data-$attr=\"$unit\" — tie the part that does it to its unit (contract D)"
+                  failed=1
+                fi
+              done
+            done
+            # The listing says the same needs and actions as the manifest.
+            for key in needs actions; do
+              ours=$(jq -c --arg k "$key" '[.[$k][]? | if type=="string" then . else (.capability // .dataCapability // .id // empty) end] | sort' "$ui")
+              theirs=$(jq -c --arg n "$name" --arg k "$key" '[.components[]? | select(.name == $n) | .[$k][]?] | sort' "$manifest")
+              if [ "$ours" != "$theirs" ]; then
+                echo "::error file=$manifest::the micro-frontend $name lists other $key than $ui — keep the listing in sync"
+                failed=1
+              fi
+            done
+          done
+          exit $failed
+      # The bundles are the real Micro-UIs' code: a change under apps/ or
+      # mock/src/ without a rebuild would show stale code on the easel.
+      - name: The micro-frontends' bundles are rebuilt from the Micro-UIs' code
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f mock/build.sh ] || exit 0
+          [ -f package.json ] && npm ci --no-audit --no-fund --loglevel=error
+          sh mock/build.sh
+          if ! git diff --exit-code --stat -- mock/components; then
+            echo "::error file=mock/build.sh::the bundles under mock/components/ are stale — run mock/build.sh and commit them"
+            exit 1
+          fi
+
+  # Contract O — the design system has one writer. `mock/design/` and
+  # `mock/kit/` are written on the `design-system` branch and carried onto
+  # `main_agent` by the harness when the human publishes; every branch in
+  # progress finds them on its next sync, and a branch that never changes
+  # them never meets them in a merge. A pull request that changes them
+  # would make two writers: a kit component is recoded on `design-system`.
+  design-system-single-writer:
+    if: github.event_name == 'pull_request' && github.head_ref != 'design-system'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: A pull request leaves mock/design/ and mock/kit/ to the design-system branch
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "origin/$BASE...HEAD" -- mock/design mock/kit)
+          [ -z "$changed" ] && exit 0
+          while read -r file; do
+            echo "::error file=$file::$file belongs to the design-system branch — the harness carries it here on publish; recode a kit component on design-system, never on this branch"
+          done <<< "$changed"
+          exit 1
+
+  # Contract P — every rule of rules.json has its test, of its family, its
+  # criterion copied as it is (scripts/rules-gate.mjs coverage).
+  # Contract Q — every dependency outside the product is a port: the units
+  # name theirs and each port lists them back, a Capability never reads a
+  # stateful one, and every port has its fake and its contract tests.
+  ports-declared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The ports and the units that use them agree
+        run: node scripts/ports-gate.mjs declared
+      - name: Every port has its fake and its contract tests
+        run: node scripts/ports-gate.mjs contracts
+
+  # Contract Q — nothing reaches outside the product but through a port's
+  # adapter: no HTTP client, provider SDK or database client elsewhere, no
+  # network call from a Micro-UI. What keeps ports.json true.
+  externals-behind-ports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Nothing reaches outside the product but through a port
+        run: node scripts/ports-gate.mjs behind
+
+  # Contract Q — the ports' secrets are committed encrypted with sops, or
+  # not at all.
+  secrets-encrypted:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Every committed secret is sops-encrypted
+        run: node scripts/ports-gate.mjs secrets
+
+  rules-covered:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Every rule has its test, its criterion copied as it is
+        run: node scripts/rules-gate.mjs coverage
+
+  # Contract P — the rules hold: a rule's test runs once every unit it needs
+  # is built and the runtime serves the product, and must pass; a rule marked
+  # `conform` may stay red in a task, never where a milestone lands.
+  rules-hold:
+    runs-on: ubuntu-latest
+    # The store the runtime builds its scratch database on, as in ci.yml.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Serve the product for the rules' tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/rules-runtime.sh serve | tee rules-env
+          cat rules-env >> "$GITHUB_ENV"
+      - name: The business rules hold
+        shell: bash
+        env:
+          RULES_STATUS: ${{ github.workspace }}/target/rules-status.jsonl
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tests=(tests/rules/business/tests/*.rs)
+          if [ -f tests/rules/business/Cargo.toml ] && [ ${#tests[@]} -gt 0 ]; then
+            cargo test --manifest-path tests/rules/business/Cargo.toml
+          fi
+      - name: The journey rules hold
+        if: always()
+        shell: bash
+        env:
+          RULES_STATUS: ${{ github.workspace }}/target/rules-status.jsonl
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          specs=(tests/rules/journey/**/*.spec.ts)
+          if [ ${#specs[@]} -gt 0 ]; then
+            cd tests/rules/journey
+            npm install --no-audit --no-fund
+            if [ -n "${RULES_APP_URL:-}" ]; then npx playwright install --with-deps chromium; fi
+            npx playwright test
+          fi
+      - name: Each rule's state
+        if: always()
+        shell: bash
+        env:
+          RULES_STATUS: ${{ github.workspace }}/target/rules-status.jsonl
+          # Strict where a milestone lands (its pull request into main_agent),
+          # never on the rules' own change: a changed rule's test lands red.
+          STRICT: ${{ github.event_name == 'pull_request' && github.base_ref == 'main_agent' && !contains(github.event.pull_request.labels.*.name, 'harness:rules') && '--strict' || '' }}
+        run: node scripts/rules-gate.mjs status $STRICT
+      - name: Stop the product
+        if: always()
+        run: bash scripts/rules-runtime.sh stop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rules-status
+          path: rules-status.json
+          if-no-files-found: ignore
+
+  # Contract P — only the rules' task (label harness:rules) writes rules.json
+  # and the rules' tests: a development conforms to them, or contests them
+  # with CONTEST.md — which opens a `Rules contested` issue for the rules'
+  # task, and holds the change until it is settled.
+  rule-tests-untouched:
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'harness:rules')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The rules and their tests are left alone
+        run: node scripts/rules-gate.mjs untouched "origin/${{ github.base_ref }}"
+      - name: No rule's test is contested
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/rules-gate.mjs contest "${{ github.event.pull_request.number }}"
