@@ -1,8 +1,8 @@
 # Agent-native application architecture
 
-Reference document · installed by `harness init-repo` · version 1
+Reference document · installed by `harness init-repo` · version 2 — the layout and the contracts; the engine's manual is `docs/DATA-INTEGRITY.md`
 
-<!-- harness:architecture v1 -->
+<!-- harness:architecture v2 -->
 
 ## Intent and principles
 
@@ -34,8 +34,10 @@ independently, and data protected by a single layer.**
 8. Every mutation goes through the **DataQueue**, then the DataGuard.
 9. A pure addition follows a **fast path**; any mutation of existing data goes
    through the **Resolver**.
-10. A command is never rejected because of concurrency: it waits for its turn,
-    and its author confirms whether it overwrites a value declared ahead of it.
+10. A command is never rejected **for concurrency**: it waits for its turn,
+    and its author confirms whether it overwrites a value declared ahead of
+    it. It is rejected at the head, and only there, when an invariant of
+    the aggregate does not hold on the real state.
 11. AI may propose a reconciliation but never decides a critical change alone.
 12. Contracts are verified automatically in CI; that is what lets many agents
     work without a human review of every change.
@@ -66,7 +68,13 @@ and in the language the stack says: Rust for Capabilities, DataCapabilities,
 the Data layer and infrastructure, TypeScript for Micro-UIs. When no server
 can run a Rust unit, it is compiled to WebAssembly and the host loads it; the
 build and the loading step are part of the unit's task, and its manifest sits
-at the same place as on a server.
+at the same place as on a server. Such a task says so in its `## Architecture`
+section (`host: hostless`) and its DataCapability manifest carries
+`"host": "hostless"`: the server's dependency line is not asked of it, and
+its closure holds no server. What stays: the reads, the Concepts, the
+mock-up, every gate but the server's. What does not: the DataQueue, the
+holds, the credentials — a hostless program writes through its host's own
+store, behind the same manifests.
 
 ## UI / Micro-UI
 
@@ -89,6 +97,49 @@ be read, computed or enriched. It consumes Capabilities and declares the actions
 Example: the goal "assess whether we can raise this customer's limit"
 produces a screen composed of `RiskBadge`, `LatePaymentsList` and
 `LimitReviewForm`.
+
+### The mock-up
+
+Every screen exists twice: once built, under `apps/`, and once **mocked**,
+under `mock/` — a static frontend with no backend, that any file server
+runs. One HTML page per screen under `mock/pages/`, plain HTML and
+JavaScript, its data read from JSON fixtures under `mock/fixtures/`; no
+build step, no framework the page must compile. `mock/pages.json`
+(contract N) lists every page: its file, its title, the objective it was
+created from, the screen it mocks once that screen is frozen, the
+micro-frontends it injects.
+
+A **micro-frontend** is a Micro-UI as the mock shows it, declared in
+`mock/pages.json` with the `needs`, `actions` and `props` its manifest
+(contract D) carries. Once the Micro-UI is built, the micro-frontend is
+**its real code**: an entry `mock/src/<MicroUi>.js` mounts it on the shell
+client over the **mock server** `harness init-repo` installs
+(`mock/src/server.js`), which answers the shell's wire protocol in memory
+and behaves as the DataGuard engine does — reads from `mock/fixtures/` or the
+product's `mock/src/reads.js`; commands judged by the aggregate's invariants
+(`mock/fixtures/aggregates/<Aggregate>.json`) and by `mock/src/commands.js`,
+one queue per partition with the states of contract G (`queued`,
+`awaiting_confirmation`, `parked`, `awaiting_review`, …), the messages of
+contract L, a DataCapability nobody handles **rejected**; applied,
+`dataVersion` bumped so every micro-frontend on the page refetches — with
+the installed **screen host** (`mock/src/screen.js`: the `$ctx.<name>`
+context a frozen screen composes with, contract E); `mock/build.sh` bundles
+it into `mock/components/<MicroUi>.js`, committed with a `builtFrom` digest
+of the code it came from, which the gates recompute. Before it is built, the micro-frontend is
+a hand-written fragment, drawn from its spec. A page is static HTML plus the
+micro-frontends it injects, each a
+`<div data-component="<MicroUi>" data-props='{…}'></div>` that `mock/mock.js`
+fills from the fragment. A human designs micro-frontends in the factory
+view and drops them on pages; the Micro-UI task then builds what the
+fragment shows, and replaces the fragment with the real code.
+
+The mock-up is where the screen is **designed before it is built**: the
+human creates a page from an objective, annotates its components, asks for
+a simulation — a request whose result is shown by editing the page — and
+may save the pages as they want them on a `mockup/*` branch. A task that
+builds a Micro-UI or a composition reads the mock-up first and keeps it
+true to what it builds. A screen under `apps/screens/` with no page in
+`mock/pages.json` fails the gates.
 
 ## Capabilities
 
@@ -213,7 +264,7 @@ A DataCapability is a **typed command** that declares its effect — `insert`,
 | DataCapability | Who may create it | Review |
 |---|---|---|
 | `effect: insert`, no `touches` | A read agent may propose it | Auto-approved if the CI gates pass |
-| `update`, `delete`, `upsert`, or with `touches` | The DataGuard agent | Human review mandatory |
+| `update`, `delete`, `upsert`, or with `touches` | The DataGuard agent | Agent review and CI gates, merged one at a time; the human is told and may revert |
 
 This split keeps the fast path open to parallel agents without opening the
 mutation of existing data.
@@ -242,140 +293,55 @@ Authorisation and permissions, validation, business invariants, concurrency,
 classification of the effect, orchestration of the Resolver and the DataQueue,
 audit. **No write bypasses it.**
 
-## Resolver
+## Resolver, DataQueue and concurrency
 
-Every modification, deletion or addition that touches existing data goes
-through the Resolver. It checks three things and produces an **impact plan**:
-the dependencies, the consequences on links, then the invariants on the final
-state.
+How a mutation of existing data is planned, queued, confirmed, parked,
+applied and told — the Resolver, the DataQueue, the holds, the
+confirmations, the messages — is the engine's manual:
+`docs/DATA-INTEGRITY.md`. It is read by whoever builds the engine or an
+aggregate, never by a Capability or a Micro-UI: for them, principle 10 and
+contracts F, H and I say everything they need.
 
-### Dependencies
+## Ports: what the product reaches outside
 
-| Level | Question | Source |
-|---|---|---|
-| Structural | Which Capabilities read this table or field? | The registry of persisted queries |
-| Instance | Does someone depend on this row right now? | Queued commands on the row, incoming references, holds |
+Everything outside the product — a third-party API, a SaaS, payment, mail,
+object storage, an LLM, identity, and the product's own PostgreSQL — is
+reached through a **port**, and `ports.json` (contract Q) lists them all:
+what is outside, who provides it, what wraps it, what it costs, which
+secrets it needs, and which units use it. Seeing the dependencies is the
+first purpose; switching a provider the second; refusing the calls that
+bypass a port is how the list stays true.
 
-The instance level cannot be guessed: a workflow in progress declares it with a
-**hold** (for example a credit review open on customer 881). A hold is an entry
-of the DataQueue: it freezes the partition from its position, has a `ttl`, can
-be renewed and disappears at expiry.
-
-### Consequences on links
-
-Every relation declares its policy (`restrict`, `cascade`, `nullify`,
-`archive`) and can be marked `semantic` when the link exists outside a foreign
-key. The Resolver walks the incoming references, computes the complete effect
-and lists the derived values to invalidate.
-
-### Decision
-
-The impact plan ends in `auto`, `confirm`, `human_review`, `blocked` or
-`rejected`. A `blocked` is not a rejection: the command keeps its place in the
-DataQueue.
-
-### Deletion
-
-Deletion is a **soft delete** by default (archive with a tombstone). A hard
-delete is rare and goes through human review. Everything stays reversible
-thanks to the command journal. **The Data layer filters tombstones**: no
-persisted query sees an archived row unless it asks for it explicitly.
-
-## DataQueue and concurrency
-
-A command is never rejected because of concurrency. It takes a place in a queue
-ordered **by partition — one partition per aggregate** — keeps it, and its
-author confirms whether it overwrites a value declared ahead of it. Different
-partitions advance in parallel.
-
-### Roles
-
-| Component | Role |
-|---|---|
-| DataQueue | FIFO queue per partition; no global order |
-| Integrity DataGuard | Watches the queue: computes the projected state, detects stale commands, checks invariants, emits the messages |
-| DataResolver | Processes the head of the queue: final check, cascades, application. **One applier** for the whole store, which is what makes `dataVersion` a single sequence and lets an invariant spanning several aggregates be checked on the real state at application |
-
-### Rules
-
-1. **Fixed position.** A command keeps its place while it waits for a
-   confirmation. It blocks nobody as long as it is not at the head.
-2. **Two-layer projected view.** A command submitted behind others sees the
-   confirmed projected state, plus the list of commands awaiting confirmation
-   placed ahead of it.
-3. **Overwrite confirmation.** If a value is declared ahead of its command, the
-   author is notified and confirms or cancels. A confirmed command overwrites
-   in its turn.
-4. **Parked.** A command that reaches the head without confirmation is set
-   aside and the queue goes on. The author is notified.
-5. **Back in the queue.** The author of a parked command may ask for a recompute
-   of the projected state: the command returns to the end of the queue, with a
-   new base, and they confirm against this new view.
-6. **Expiry.** A parked command with no action before its `ttl` disappears; the
-   author is told.
-7. **Holds.** A hold freezes the partition from its position, can be renewed,
-   and disappears at expiry.
-8. **Double check of the invariants.** At enqueue, on the projected state, to
-   warn early; at application, on the real state, which alone decides.
-
-A confirmed command advances in its place up to the head. Only a command that
-reaches the head unconfirmed leaves the queue, and comes back only at the end,
-after a recompute. The author may also cancel at any time before application.
-
-**Relative commands** (`stock -= 2`) compose with the commands ahead instead of
-overwriting them: they are never stale and **need no confirmation**; only the
-invariants are checked, at application.
-
-### Default durations
-
-| What | Default |
-|---|---|
-| A hold's `ttl` | 1 minute, renewable while the workflow that holds it is alive |
-| A parked command's `ttl` | 24 hours — a human confirmation takes hours, not seconds |
-
-### Why a confirmation stays valid
-
-The queue is FIFO and a parked command only comes back at the end. The set of
-commands ahead of a command can therefore only shrink: nothing can slip in.
-When the author confirms, they have seen everything that can still apply before
-them. Their confirmation covers every scenario and never needs to be asked
-again.
-
-A confirmation is not a guarantee of application: the DataResolver may still
-reject at the head if an invariant or a cascade forbids it, and the
-`CommandRejected` message says why.
-
-### Two distinct confirmations
-
-- **Overwrite confirmation**, by the author: they accept to overwrite what is
-  declared ahead of them.
-- **Critical review**, by an approver role: required for `critical` fields or
-  an impact plan in `human_review`. It adds to the first; AI may propose a
-  reconciliation, a human decides.
-
-### Messages of the Integrity DataGuard
-
-| Message | Recipients | When |
-|---|---|---|
-| `CommandQueued` | Author | At enqueue |
-| `InvariantAtRisk` | Author | The projected state violates an invariant |
-| `ValueDeclaredAhead` | Author | A value is declared ahead of their command |
-| `BlockedByHold` | Author, hold owner | The partition is frozen |
-| `HoldExpiring` | Hold owner | Before the end of the `ttl` |
-| `ReviewRequired` | Approvers | Critical field or `human_review` |
-| `Parked` | Author | Reached the head unconfirmed |
-| `ParkedExpiring` | Author | Before the end of the `ttl` |
-| `Expired` | Author | Parked command withdrawn |
-| `AheadResolved` | Author | Optional: a command ahead was applied or cancelled |
-| `CommandApplied` | Author, infrastructure components concerned | Application; invalidates caches |
-| `CommandRejected` | Author | Rejection at the head, with the reason |
-
-Messages travel over **server-sent events** from the Integrity DataGuard, one
-subscription per author; infrastructure components subscribe the same way.
+- **Named by function, never by provider.** `payments`, `mail`,
+  `object-storage`, `llm`, `identity`, `database`. Changing Stripe for
+  Mollie renames nothing.
+- **A port is a crate, `crates/ports/<port>/`**: the trait the product
+  calls, its **contract tests** (one suite every adapter of the port must
+  pass), and a **fake** the tests, the CI, the rules' runtime and the
+  mock-up run on — no secret, no cost, no network. An **adapter** wraps one
+  provider in `crates/ports/<port>/<provider>/`.
+- **Stateful or not.** A provider that keeps state (a customer, a file, a
+  user) is `stateful`: our Data stays the truth. Only a DataCapability
+  writes through the port, after the DataGuard, and the Capabilities read
+  our mirror, never the provider. A stateless port (an LLM, a geocoder) may
+  be called by a Capability directly. Each unit names its ports in its
+  manifest (`ports`), and each port lists them back (`usedBy`).
+- **PostgreSQL is a port, listed, not abstracted.** The Data layer keeps
+  what PostgreSQL gives (the DataQueue as a table, `LISTEN/NOTIFY`, views):
+  the port makes it visible, not interchangeable.
+- **Secrets by name.** A port lists the secrets it needs; their values live
+  encrypted with sops in `secrets/<env>.enc.yaml`, provided by a human.
+  No agent ever sees one, and the tests never need one.
+- **A new port is a human's decision.** The factory's design proposes the
+  ports and the human chooses the providers; a port a development finds it
+  needs is approved by a human before it exists.
+- **Switching provider** is one task: a new adapter behind the same port,
+  green on the port's contract tests and the rules' tests; for a stateful
+  port, our state replayed to the new provider.
 
 ## Interface contracts
 
-Twelve contracts define every frontier. They live as **JSON Schema (draft
+Fourteen contracts define every frontier. They live as **JSON Schema (draft
 2020-12) in `contracts/`**, one file per contract; the examples below are YAML
 for readability. Contracts A, B, F and I fix the frontier between reading and
 writing: they are the first to stabilise.
@@ -394,6 +360,11 @@ writing: they are the first to stabilise.
 | J. Impact plan | Resolver ↔ DataGuard | Resolver |
 | K. Reconciliation proposal | AI ↔ approver | Integrity DataGuard |
 | L. Message | Integrity DataGuard ↔ users and infrastructure components | Integrity DataGuard |
+| M. Data model | Data ↔ the agents' understanding of it | Read agents, migrations |
+| N. Mock pages | Mock-up ↔ screens | Human, UI agents |
+| O. Design system and kit | Tokens and visual components ↔ every screen | Human, UI agents |
+| P. Rules | What the product keeps ↔ the tests that prove it | Human (in the factory's design), rules' agent |
+| Q. Ports | The product ↔ everything outside it | Human (in the factory's design, and every new port), the agents that build adapters |
 
 ### A. Concept
 
@@ -443,6 +414,17 @@ actions: [credit.requestLimitReview]
 props:   { customerId: ID }
 ```
 
+What a Micro-UI renders says which part does what, in the markup's own
+words: every actuator — a button, a form, a toggle that triggers a write —
+carries `data-writes="<DataCapability>"`, and every part that shows what a
+Capability answers carries `data-reads="<Capability>"` (several, space
+separated, when one part does both). Every entry of `actions` has at least
+one `data-writes` and every entry of `needs` at least one `data-reads`: the
+factory view ties each part to its rules — the invariants a write meets,
+what a read returns — and a gate checks the micro-frontend carries them.
+The real code names the unit through its identifiers, never a literal
+outside them (`'data-writes': AJOUTER_PJ.dataCapability`).
+
 ### E. Screen composition
 
 ```yaml
@@ -472,36 +454,10 @@ callableBy: [credit.*]
 idempotencyKey: required
 ```
 
-### G. DataQueue entry
+### G, H. DataQueue entry, command result
 
-```yaml
-command: c_130
-dataCapability: credit.requestLimitChange@2
-by: carol
-partition: Account/881
-position: 3
-basedOn: { version: 10, values: { creditLimit: 5000 } }
-projection:
-  confirmed: { creditLimit: 8000, after: [c_120] }
-  pendingAhead:
-    - { command: c_123, by: bob, value: 3000, state: awaiting_confirmation }
-yourValue: 4500
-state: awaiting_confirmation  # queued | awaiting_confirmation | confirmed | awaiting_review
-                              # | parked | applied | rejected | cancelled | expired
-confirmation: { by: carol }
-parked: { ttl: 24h, onExpire: drop }
-requeuedFrom: null            # the original commandId if requeued
-```
-
-### H. Command result
-
-```yaml
-commandId: c_130
-status: applied               # applied | rejected | expired | cancelled
-dataVersion: 1043             # for the consistent read after write
-violations: []                # violated invariants if rejected
-reviewId: null
-```
+In `docs/DATA-INTEGRITY.md`. H is what every caller sees: five fields —
+`commandId`, `status`, `dataVersion`, `violations`, `reviewId`.
 
 ### I. Aggregate: criticality, invariants, relations
 
@@ -524,62 +480,162 @@ relations:
 holds: { maxTtl: 1m, renewable: true }
 ```
 
-### J. Impact plan
+### J, K, L. Impact plan, reconciliation proposal, message
+
+In `docs/DATA-INTEGRITY.md`.
+
+### N. Mock pages
 
 ```yaml
-command: c_201                # credit.archiveCustomer(881)
-classification: delete
-dependencies:
-  readers: [customer.calculateRisk, billing.invoiceList, crm.timeline]
-  holds:   [{ by: credit.limitReview, id: w_77, expires: 2026-10-09 }]
-  pendingCommands: [c_198]
-cascade:
-  - { relation: Payment, rows: 42, policy: restrict, blocking: true }
-  - { relation: Note, rows: 3, policy: cascade }
-  - { relation: Document, rows: 1, policy: review, semantic: true }
-invalidates: [Risk@3(customer:881), Dashboard(customer:881)]
-invariantsAfter: ok
-decision: blocked             # auto | confirm | human_review | blocked | rejected
-reasons: ["active hold w_77", "Payment restrict"]
+version: 1
+pages:
+  - path: pages/credit-review.html
+    title: Credit review
+    objective: "Assess whether we can raise this customer's limit"
+    screen: credit-review          # once the composition is frozen
+    components: [RiskBadge, LatePaymentsList, LimitReviewForm]
+components:
+  - name: RiskBadge
+    system: credit
+    description: "Shows a customer's risk score and level"
+    fragment: components/RiskBadge.html
+    fixture: fixtures/RiskBadge.json
+    needs: [credit.calculateRisk]
+    actions: [credit.requestLimitReview]
+    props: { customerId: ID }
 ```
 
-### K. Reconciliation proposal
+### O. Design system and kit
+
+On the `design-system` branch, one for the product. `mock/design/tokens.json`
+holds the design tokens (W3C design tokens format); `mock/design/tokens.css`
+is derived from it, one CSS variable per token (`--color-primary`), and every
+screen, Micro-UI and kit component reads its colours, fonts, spacings, radii
+and shadows through those variables, never through a literal. `mock/kit/`
+holds the **kit**: visual primitives below the Micro-UI (a button, a menu, a
+carousel), each a fragment `kit/<Name>.html` a page or a micro-frontend
+injects with `<div data-kit="<Name>">`, with no data of its own and no
+network — what loads from a server is a micro-frontend. A kit component is
+reused as it is by the real frontend when it passes the kit's static check
+(no network, no external script or style, colours only through `var(--…)`);
+otherwise it is recoded for real and the fragment rewritten to match, with
+one line under `recoded`.
+
+The design system has **one writer**. It is written on `design-system` only,
+and when the human publishes it the harness carries `mock/design/` and
+`mock/kit/` whole onto `main_agent`, in one commit that touches nothing
+else. A branch in progress finds them on its next sync with `main_agent`,
+and since it never changes them, no merge ever conflicts on them — a gate
+(`design-system-single-writer`) refuses a pull request that does. The real
+frontend loads `mock/design/tokens.css` and `mock/kit/kit.css` (every
+fragment's `<style>`, derived on publish, scoped under the fragment's root
+class `kit-<name>`) once, from the shell; a Micro-UI writes the kit's
+markup and classes with its own data, so a token changed or a component
+generated again restyles the product without touching a screen.
 
 ```yaml
-review: r_45
-aggregate: Account/881
-field: creditLimit
-base:    { version: 10, value: 5000 }
-candidates:
-  - { command: c_120, by: alice, value: 8000 }
-  - { command: c_123, by: bob,   value: 3000 }
-proposal:
-  by: ai
-  value: 3000
-  rationale: "Risk went HIGH between the two requests; c_120 was based on a stale Risk"
-  invariantsChecked: [limit-under-ceiling]
-decision: { status: pending, approver: role:credit-manager }
+# mock/design/design.json
+version: 1
+state: validated                   # none | candidate | validated
+source: generated                  # injected | generated (from a moodboard and a logo)
+brief: "warm, artisanal, speaks to game masters"
+moodboard: [moodboard/table.png, moodboard/ink.jpg]
+logo: logo.svg
+candidate: false                   # a candidate.json waits beside the validated tokens
+validatedAt: 2026-10-10T18:00:00Z
+issue: https://github.com/…/issues/42   # the roadmap task that installs it
+# mock/kit/kit.json
+version: 1
+checked: [button, input, menu, card]   # the harness's bases ticked
+components:
+  - name: Menu
+    base: menu
+    title: Navigation menu
+    what: "A horizontal navigation bar with a brand, links and the current one marked."
+    state: generated               # pending | running | generated | failed
+  - name: HeroBanner
+    prompt: "A full-width banner with the campaign's title over its map"
+    reference: HeroBanner.reference.png
+    state: generated
+    recoded: "the banner reads its map from the shell's image service"
 ```
 
-### L. Message
+### P. Rules
+
+`rules.json`: the rules the product must keep, as the human validated them
+in the factory's design — each a step of a user's **journey** or a
+**business** rule (an invariant, a computation), with the **criterion** a
+test proves it by, in three parts (given, when, then), and the pages and
+micro-frontends that carry it.
 
 ```yaml
-message: ValueDeclaredAhead
-to: [bob]
-command: c_123
-field: Account/881.creditLimit
-yourValue: 3000
-declaredAhead: { value: 8000, by: alice, command: c_120 }
-actions: [confirm_overwrite, cancel, edit]
+version: 1
+rules:
+  - id: R3
+    title: A campaign archived leaves the list
+    family: business                  # journey | business
+    criterion:
+      given: a campaign in the list
+      when: the DM archives it
+      then: it is no longer listed
+    pages: [pages/campaigns.html]
+    components: [CampaignList]
+    # state: conform                  # the rule changed: its tests ahead of the code
+```
+
+**The rules are proved before they are built.** One task — the rules'
+task, labelled `harness:rules`, the first of the roadmap — writes every
+rule's tests before any development, from the criteria alone, and lands
+them; every development after conforms to them:
+
+- a **business** rule's test is Rust, in `tests/rules/business/tests/`; a
+  **journey** rule's is a browser test (Playwright) in `tests/rules/journey/`.
+  Both suites are their own, and reach the product only the way a Micro-UI
+  does — **by identifier**, over the shell's wire protocol
+  (`POST /capabilities/<id>`, `POST /commands`, `GET /commands/<id>`) and by
+  screen name — through the kit installed beside them;
+- every test names its rule (`rule("R3", needs, …)`), the units it needs
+  (`data-capability:ArchiveCampaign`, `capability:ListCampaigns`,
+  `micro-ui:…`, `screen:…`, `aggregate:…`) and copies the criterion as it is,
+  in three comment lines `given: …`, `when: …`, `then: …`;
+- a test is **pending** while a unit it needs is not built (no manifest names
+  it) or the product is not served yet: it passes, and says so. Once
+  everything it needs exists, it runs and must hold;
+- the product is served by `scripts/rules-runtime.sh`, installed whole and
+  changed by nobody (the gate *Rule tests untouched*). It starts what the
+  layout fixes: `crates/server`, the one binary serving the wire protocol
+  and `GET /health` (it reads `PORT`, `DATABASE_URL`, and `FIXTURES_DIR`,
+  the mock-up's fixtures it loads as it starts), on a scratch database the
+  migrations build; then `apps/shell`, the frontend's host (`npm run build`,
+  `npm run serve` on `PORT`, reaching the server at `SERVER_URL`, a frozen
+  screen at `/screens/<screen>`). Until `crates/server` exists it serves
+  nothing; never the mock server, which would make every rule hold without
+  the product;
+- the data a test starts from is the mock-up's (`mock/fixtures/`), loaded by
+  the runtime, plus what a `given` asks;
+- a development never writes `rules.json` or `tests/rules/`: a test it cannot
+  meet is **contested**, and the rules' task settles it. A rule changed after
+  the start is rewritten with its tests by the rules' task and marked
+  `conform` until a task brings the code to it.
+
+### Q. Ports
+
+```json
+{"version": 1, "ports": [{
+  "id": "payments", "purpose": "charge the subscription", "stateful": true,
+  "provider": "Stripe", "tech": {"kind": "sdk", "name": "async-stripe", "version": "0.39"},
+  "adapter": "crates/ports/payments/stripe", "fake": "crates/ports/payments",
+  "secrets": ["STRIPE_SECRET_KEY"], "cost": "1.5% + 0.25€ per charge",
+  "usedBy": ["billing.chargeSubscription"]
+}]}
 ```
 
 ## CI gates
 
 Contracts protect only if they are verified automatically. These gates block
 any agent contribution that violates them. They live in
-`.github/workflows/gates.yml`; the ones that can be checked mechanically today
-are implemented there, the others are declared with their rule and switched
-off until an agent implements them.
+`.github/workflows/gates.yml`, and every one of them runs: a rule the product
+cannot keep yet is a task like any other, never a gate turned off.
 
 | Gate | Checks | Contracts |
 |---|---|---|
@@ -591,21 +647,46 @@ off until an agent implements them.
 | System frontier | `needs:` — a Micro-UI references only the authorised Capabilities of its system | B |
 | Write actions | `actions:` references existing DataCapabilities, with compatible `callableBy` and `permissions`; no Capability has an `invokes` field | D, F |
 | Effect classification | An `insert` DataCapability without `touches` contains no update, upsert or trigger | F |
-| Ownership | An `update`, `delete`, `upsert` DataCapability, or one with `touches`, requires a DataGuard and a human review | F, I |
+| Ownership | An `update`, `delete`, `upsert` DataCapability, or one with `touches`, requires a DataGuard and the agent review of the write side | F, I |
 | Invariants | Every declared invariant has tests; every DataCapability lists the ones it may affect | F, I |
 | Relations | Every foreign key has a declared `onDelete` and `onUpdate` policy | I |
 | Compositions | Every Micro-UI of a frozen screen exists in the referenced version | D, E |
+| Pages mocked | `mock/pages.json` validates; every page and every micro-frontend it lists exists; every frozen screen has a page; every Micro-UI has a micro-frontend whose listing says its needs and actions; the bundles are rebuilt from the Micro-UIs' code | D, E, N |
+| Ports declared | Every port a unit names is in `ports.json`, every port lists its users back, a Capability never reads a stateful port, every port has its fake and contract tests (`scripts/ports-gate.mjs declared`, `contracts`) | Q, B, F |
+| Externals behind ports | No HTTP client, provider SDK or database client outside a port's adapter (the Data layer and the DataGuard for PostgreSQL), no network call from a Micro-UI (`behind`) | Q |
+| Secrets encrypted | Only sops-encrypted `secrets/<env>.enc.yaml` and no `.env` file are committed (`secrets`) | Q |
+| Rules covered | Every rule of `rules.json` has a test of its family naming it, its criterion copied as it is; no test names a rule `rules.json` has not (`scripts/rules-gate.mjs coverage`) | P |
+| Rules hold | Every rule's test whose units are built runs on the product the runtime serves, and passes; each rule's state (pending, green, red) is kept as `rules-status.json`; a rule marked `conform` may be red in a task, never where a milestone lands (`scripts/rules-gate.mjs status`) | P |
+| Rule tests untouched | A change that is not the rules' task leaves `rules.json` and `tests/rules/` alone (`scripts/rules-gate.mjs untouched`), and carries no `CONTEST.md` — which opens the `Rules contested` issue the rules' task settles (`contest`) | P |
+
+Beside the gates, the project's own CI (`.github/workflows/ci.yml`) judges
+the code and its tests, not the contracts: format and lint; the tests a
+change can break (`scripts/test-scope.sh`); the dead code the compiler lets
+through — a dependency no crate uses (`cargo machete`), a `pub` item no
+crate of the workspace calls (`scripts/dead-code.sh`); and the tests
+themselves, by mutation — every function the change touches is rewritten
+wrong by `cargo mutants`, and a rewrite no test catches fails the build
+(`.cargo/mutants.toml` says what is never mutated). A session runs the
+same checks through `scripts/quiet.sh`: one line when a check passes, every
+line of its errors when it fails, the full log kept — the CI keeps its whole
+logs. The code no change
+touches is judged in rotation: each run mutates one bucket of files, the
+bucket a hash of the path, so runs in parallel judge disjoint files
+(`scripts/mutants-rotation.sh`); what it misses never fails the build, it
+becomes a `harness:test-debt` issue per file (`scripts/test-debt.sh`).
+Dead code is removed, not allowed; a missed mutant is answered with a test.
 
 ## Organisation of the agents
 
-Many agents in parallel on the read side, few agents and a human review on the
-truth side.
+Many agents in parallel on the read side, few agents and an agent review on the
+truth side, one change at a time. During development no review waits on a
+human: each is told what landed, and acts after the fact.
 
 | Agent | Number | Produces | Review |
 |---|---|---|---|
 | Read agents | Many, one per system or per Capability | Capabilities, persisted queries, Micro-UIs, pure-addition DataCapabilities | CI gates only |
-| Semantic agent | One | Concepts, conformance fixtures | Human |
-| DataGuard agent | One | Mutating DataCapabilities, invariants, relations, schema, migrations | Human, mandatory |
+| Semantic agent | One | Concepts, conformance fixtures | Agent review and CI gates; the human is told |
+| DataGuard agent | One | Mutating DataCapabilities, invariants, relations, schema, migrations | Agent review and CI gates, one at a time; the human is told and may revert |
 | Composer agent | At run time or at design time | Screen compositions | Validation before freezing |
 | Reconciliation AI | At run time | Reconciliation proposals | Human approver |
 
@@ -615,8 +696,8 @@ touching a shared component outside the Concepts and the DataGuard.
 
 In the harness that drives this repository, a task on the read side carries
 `harness:read-side` and runs in parallel with its peers; a task on the write
-side carries `harness:write-side`, runs alone, and its pull request waits for a
-human merge.
+side carries `harness:write-side`, runs alone, and its pull request is merged
+by the harness once the agent review is clean and every gate green.
 
 ## Technology choices
 
@@ -644,7 +725,7 @@ Kept as simple as the rules allow:
 - **Write latency.** The asynchronous write, the holds and the human review
   suit a back office, not real-time transactional work.
 - **Point of concentration.** The DataGuard, the schema and the Concepts
-  concentrate the risk and the human review load. It is intended, but their
+  concentrate the risk and the review load. It is intended, but their
   throughput bounds that of the agents as soon as an evolution touches the
   write side.
 

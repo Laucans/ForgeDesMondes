@@ -1,110 +1,118 @@
-<!-- harness:architecture v1 -->
+<!-- harness:architecture v3 -->
 ## Agent-native architecture — the rules every change is checked against
 
-This repository follows the agent-native application architecture described in
-`docs/ARCHITECTURE.md`. Read it once; these are the rules a diff is reviewed
-against, and the CI gates in `.github/workflows/gates.yml` enforce the ones
-that can be checked mechanically.
+This repository follows the agent-native architecture of
+`docs/ARCHITECTURE.md` (layout and contracts; `docs/DATA-INTEGRITY.md` is
+the write side's manual). Each rule below names the gate of
+`.github/workflows/gates.yml` that enforces it. The detail of one unit —
+its folder, its manifest, what it may know, its gates — is its **rule
+card**, injected into the prompt of the task that builds it
+(`--- ARCHITECTURE RULES ---`).
 
 ### Stack
 
-- **Rust** for everything but the UI: Capabilities, the Data layer, the
-  DataQueue, the DataGuard, the Resolver, the DataCapabilities. Edition 2024,
-  one Cargo workspace, `cargo clippy --workspace --all-targets -- -D warnings`
-  and `cargo fmt --all -- --check` clean before every commit.
-- **TypeScript** for the Micro-UIs and the screen composer, strict mode,
-  `tsc --noEmit` and the project's lint clean before every commit. A Micro-UI
-  calls Capabilities and DataCapabilities **by identifier only**: it never
-  imports their code.
-- **PostgreSQL** alone as the store: the DataQueue is a table, invalidations
-  travel over `LISTEN/NOTIFY`, read models are views. No message broker.
-  Locally it runs **in Docker**, provided by the harness and reached through
-  `DATABASE_URL` / `DATABASE_URL_READONLY`: never install, start or
-  configure a database yourself, and never create by hand what a migration
-  would not recreate.
-- **These rules bind every new unit, even where the existing code predates
-  them.** A repository that began as one TypeScript program (a plugin, a
-  static app) is the Micro-UI shell; every Capability, DataCapability or
-  infrastructure unit it gains is a Rust crate at its place in the layout.
-  When no server runs it, the crate is compiled to WebAssembly
-  (`wasm-bindgen`, `wasm-pack`) and the TypeScript side loads it. Writing the
-  unit in TypeScript because that is where the code is today is a violation,
-  not a pragmatic choice.
+- **Rust** for everything but the UI, one Cargo workspace, edition 2024;
+  `cargo clippy --workspace --all-targets -- -D warnings` and
+  `cargo fmt --all -- --check` clean before every commit.
+- **TypeScript** (strict) for the Micro-UIs and the screen composer;
+  `tsc --noEmit` and the lint clean. A Micro-UI calls Capabilities and
+  DataCapabilities **by identifier only**, never by importing their code.
+- **PostgreSQL** alone: the DataQueue is a table, invalidations travel over
+  `LISTEN/NOTIFY`, read models are views, no broker. It runs **in Docker**,
+  provided by the harness (`DATABASE_URL` / `DATABASE_URL_READONLY`): never
+  install, start or configure a database yourself.
+- **These rules bind every new unit**, even beside older code: a unit is a
+  Rust crate at its place in the layout; with no server to run it, it is
+  compiled to WebAssembly (`host: hostless`). Writing it in TypeScript
+  because the code around it is TypeScript is a violation.
 
 ### Layout
 
 ```
-apps/<system>/<micro-ui>/          one Micro-UI (TypeScript) + micro-ui.json (contract D)
-apps/screens/<screen>.json         one frozen screen composition (contract E)
-crates/<system>/capabilities/<name>/   one Capability crate + capability.json (contract B)
-crates/<system>/queries/<name>.graphql persisted queries, registered in queries/registry.json (contract C)
-crates/<system>/<name>/            one infrastructure crate of the system (an adapter, a source, the Data layer's plumbing)
-crates/dataguard/                  the write side: DataQueue, DataGuard, Resolver
-crates/dataguard/data-capabilities/<name>/  one DataCapability + data-capability.json (contract F)
-crates/dataguard/aggregates/<Aggregate>/aggregate.json   criticality, invariants, relations (contract I)
-concepts/<Concept>/v<n>/concept.json + fixtures.json      a versioned Concept (contract A)
-data/model.json                    the data model: what every table and field is for (contract M)
-scripts/dump-schema.sh             prints the schema the migrations build (pg_dump --schema-only)
-contracts/*.schema.json            the thirteen contracts, JSON Schema 2020-12
+apps/<system>/<micro-ui>/               a Micro-UI + micro-ui.json (D)
+apps/screens/<screen>.json              a frozen screen composition (E)
+apps/shell/                             the frontend's host (npm build, serve)
+crates/<system>/capabilities/<name>/    a Capability + capability.json (B)
+crates/<system>/queries/<name>.graphql  persisted queries, queries/registry.json (C)
+crates/<system>/<name>/                 a system's plumbing (adapter, source, read crate)
+crates/<system>/data-capabilities/<name>/  a DataCapability + data-capability.json (F), system `dataguard`
+crates/<system>/aggregates/<Aggregate>/aggregate.json  invariants, relations (I)
+crates/data/  crates/dataguard/         the Data layer; the DataQueue, DataGuard, Resolver
+crates/server/                          the one binary: the shell's wire protocol, GET /health
+crates/ports/<port>/[<provider>/]       a port (trait, fake, contract tests) and its adapters
+crates/platform/conformance/            the Concepts' conformance runner
+concepts/<Concept>/v<n>/                concept.json + fixtures.json (A)
+data/model.json                         the data model (M)
+mock/                                   the mock-up: pages.json (N), pages/, components/, src/, design/ and kit/ (O)
+rules.json  tests/rules/                the product's rules and their tests (P)
+ports.json  .sops.yaml  secrets/        the ports (Q) and their encrypted secrets
+contracts/*.schema.json                 the seventeen contracts
+scripts/                                queries.sh, isolation.sh, dump-schema.sh, rules-runtime.sh
 ```
 
 ### Rules
 
-1. **One unit per task.** A task builds exactly one unit of the architecture —
-   the `## Architecture` section of its issue says which — and nothing beside
-   it. Need a second unit? That is a second task.
-2. **A Capability reads, and only reads.** It uses read-only credentials, reads
-   through its persisted queries only, and never imports, invokes or
-   references another Capability, a DataCapability, the DataQueue, the
-   DataGuard or the Resolver. Its `Cargo.toml` depends on no other crate under
-   `capabilities/` and on nothing under `crates/dataguard/`.
-3. **A Capability's logic is local.** Shared *meaning* is a Concept with
-   conformance fixtures, never a shared library of business code. Duplicate the
-   computation; declare the Concept it implements; pass its fixtures.
-4. **Every read is a persisted query**, declared in its Capability's manifest
-   and registered by hash. No free-form query anywhere.
-5. **Only DataCapabilities write**, always behind the DataGuard, always through
-   the DataQueue. A DataCapability declares its `effect` and the existing
-   fields it `touches`. `insert` with empty `touches` is the fast path and may
-   be proposed by a read agent; everything else is the DataGuard agent's and a
-   human reviews it.
-6. **Invariants live in the DataGuard**, declared on the aggregate, each with
-   tests. Never in a Capability, never in a Micro-UI.
-7. **Every relation declares `onDelete` and `onUpdate`.** Deletion is a soft
-   delete with a tombstone unless a human approves otherwise.
-8. **A command is never rejected for concurrency.** It queues per aggregate,
-   keeps its position, and its author confirms an overwrite. Relative commands
-   need no confirmation. Parked commands expire after 24 hours, holds after 1
-   minute unless renewed.
-9. **Every value classifies itself**: derived (recomputed, carries its Concept
-   version) or authoritative (canonical, mutated only through the DataGuard).
-   Prefer derived when a stored value could be deduced from other rows.
-10. **A Micro-UI declares `needs` and `actions`** and reads the Data through
-    nothing else. Screens are composed from the registry and frozen in a
-    versioned manifest; a frozen screen is replayed, never regenerated.
-11. **Contracts first.** A unit lands with its manifest or contract file and
-    passes the gate that validates it. A change to a contract schema is its
-    own task and lists the units it touches.
-12. **Read side merges on green gates; write side waits for a human.** In the
-    harness, `harness:read-side` tasks run in parallel and merge on their own;
-    `harness:write-side` tasks run one at a time and their pull request is
-    merged by a human.
-13. **The data model is described in the task that changes it.** A migration
-    that adds, renames or changes a table or a field updates `data/model.json`
-    (contract M) in the same pull request: the field's `type` and `nullable`
-    as the migration makes them, its `purpose` in a sentence, its business
-    rules, the field it `references`. The structure is not copied there by
-    hand for its own sake: after every merge the harness dumps the real schema
-    (`scripts/dump-schema.sh`), archives it with the model on the branch
-    `harness/data-model`, and compares the two — a divergence sends an agent
-    to find out which side is wrong. Keep `scripts/dump-schema.sh` printing
-    the schema the migrations build when the stack changes.
+1. **One unit per task**, the one the issue's `## Architecture` names.
+   A second unit is a second task.
+2. **A Capability reads, and only reads**: read-only credentials, its
+   persisted queries, its system's read crate; it reaches no other
+   Capability, DataCapability or system, and no slice is listed by name in
+   the workspace. Gates: `capability-isolation`, `read-only`,
+   `workspace-members-by-glob`, `data-capability-registered`.
+3. **A Capability's logic is local**: shared meaning is a Concept with
+   fixtures, never a shared library. Gates: `concepts-documented`,
+   `semantic-conformance`.
+4. **Every read is a persisted query**, registered by hash
+   (`bash scripts/queries.sh`). Gate: `queries-registered`.
+5. **Only DataCapabilities write**, behind the DataGuard, through the
+   DataQueue, declaring `effect` and `touches`. Gates:
+   `effect-classification`, `ownership`.
+6. **Invariants live in the DataGuard**, declared on the aggregate, each
+   with a test naming its id. Gate: `invariants-tested`.
+7. **Every relation declares `onDelete` and `onUpdate`**; deletion is a
+   soft delete with a tombstone unless a human approves.
+8. **A command is never rejected for concurrency**: it queues per
+   aggregate, keeps its position, its author confirms an overwrite;
+   relative commands need no confirmation; parked commands expire after
+   24 hours, holds after 1 minute unless renewed.
+9. **Every value classifies itself**, derived or authoritative; prefer
+   derived when other rows could recompute it.
+10. **A Micro-UI declares `needs` and `actions`** and reads through nothing
+    else; a frozen screen is replayed, never regenerated. Gates:
+    `system-frontier`, `write-actions`, `compositions-resolve`.
+11. **The rules are tests, written first**: `rules.json` and `tests/rules/`
+    are the rules' task's (`harness:rules`). A rule's test you cannot meet
+    is contested in `CONTEST.md`, never edited. Gates: `rules-hold`,
+    `rule-tests-untouched`.
+12. **Contracts first**: a unit lands with its manifest, valid against
+    `contracts/`. A schema change is its own task. Gate:
+    `manifests-conform-to-contracts`.
+13. **Read side merges on green gates; write side after its agent review**
+    (`harness:to-review`). Nothing waits on a human; they may revert.
+14. **The data model is described in the task that changes it**: a
+    migration updates `data/model.json` in the same pull request; the
+    harness compares it with the real schema after every merge.
+15. **Every screen is mocked before it is built, and stays mocked**
+    (`mock/pages.json`); a built Micro-UI is shown as its real code. Read a
+    `mockup/*` branch before building the screen it names. Gate:
+    `pages-mocked`.
+16. **Everything outside the product goes through a port** of `ports.json`,
+    named by its business function, with its fake and contract tests;
+    secrets are encrypted with sops. A port your task needs and `ports.json`
+    lacks is not yours to add: stop with
+    `AGENT_LOOP_STOP: port <id> — <provider>, <cost>, <why>`. Gates:
+    `ports-declared`, `externals-behind-ports`, `secrets-encrypted`.
 
 ### What a session does before writing code
 
-- Read `docs/ARCHITECTURE.md` and the `## Architecture` section of the issue.
-- Find the unit's place in the layout above; create its manifest from the
-  matching `contracts/*.schema.json` first, the code second.
-- Run the gates locally where they exist (`npx ajv-cli validate` on the
-  manifest, the isolation check), then the project's own tests.
+- Read the issue's `## Architecture` and the unit's rule card in the prompt;
+  open `docs/ARCHITECTURE.md` only where the card sends you, or when no
+  card was injected.
+- The working tree may be **narrowed** to the unit's closure (the prompt's
+  `--- WORKING TREE ---`). A file the plan names and the tree lacks: stop
+  with `AGENT_LOOP_STOP: missing <path>`; the harness widens it.
+- Manifest first, from its `contracts/*.schema.json`, then the code.
+- For a Micro-UI or a screen, open its page under `mock/pages/` first.
+- Run the gates locally where they exist (the manifest's `ajv` validation,
+  `scripts/isolation.sh`), then the project's tests.
 <!-- /harness:architecture -->
