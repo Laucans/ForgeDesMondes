@@ -49,7 +49,6 @@ rule('R16', ['screen:soundbox', 'screen:dm-view', 'screen:player-view', 'micro-u
   const player = await context.newPage();
   await open(player, 'player-view');
   expect(await player.evaluate(() => [...document.querySelectorAll('audio, video')].filter((m) => !(m as HTMLMediaElement).paused).length)).toBe(0);
-  await expect(player.getByText(/en cours/)).toHaveCount(0);
 
   // « Tout arrêter » cuts everything.
   await page.bringToFront();

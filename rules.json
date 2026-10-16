@@ -545,7 +545,7 @@
         "then": "le rail est toujours replié après le rechargement, et sous 960 px le tiroir s'ouvre au-dessus de la fiche puis se referme sans la masquer",
         "when": "le DM replie le rail et recharge la page, puis réduit la fenêtre sous 960 px, ouvre le tiroir et le referme"
       },
-      "family": "business",
+      "family": "journey",
       "id": "R94",
       "pages": [
         "pages/fiche-entite.html"
@@ -562,7 +562,7 @@
         "then": "« Rester » garde la fiche et la modification affichées, « Abandonner » ouvre l'élément choisi et la modification est perdue, et « Enregistrer et continuer » enregistre la modification avant d'ouvrir l'élément choisi",
         "when": "le DM clique sur un autre élément du rail et choisit tour à tour « Rester », « Abandonner » puis, après une nouvelle modification, « Enregistrer et continuer »"
       },
-      "family": "business",
+      "family": "journey",
       "id": "R95",
       "pages": [
         "pages/fiche-entite.html"
@@ -579,7 +579,7 @@
         "then": "au premier clic, les éléments PJ sont masqués, le triangle à gauche du titre indique que la section est fermée, et les sections PNJ, lieux et événements restent ouvertes ; au second clic, les éléments PJ réapparaissent et le triangle indique que la section est ouverte",
         "when": "le DM clique sur le titre « PJ », puis clique de nouveau sur ce même titre"
       },
-      "family": "business",
+      "family": "journey",
       "id": "R96",
       "pages": [
         "pages/fiche-entite.html"
