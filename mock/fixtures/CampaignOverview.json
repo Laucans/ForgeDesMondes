@@ -1,0 +1,10 @@
+{
+  "campaign": {
+    "id": "cendres-valombre", "name": "Les Cendres de Valombre", "type": "campagne", "cover": "ill-cover", "art": "ember", "glyph": "V",
+    "pitch": "Un bourg couvert de cendres, un moulin incendié, et la Tour d’Ébène qui tire les ficelles.",
+    "createdAt": "2026-08-20", "lastExport": "2026-10-04",
+    "counts": { "sessions": 4, "players": 4, "characters": 9, "places": 4, "events": 3, "media": 7, "sounds": 12 },
+    "nextSession": { "id": "s4", "order": 4, "title": "L’embuscade du Gué", "date": "2026-10-17" }
+  },
+  "archive": { "file": "les-cendres-de-valombre-2026-10-14.fdm.zip", "size": "18,6 Mo" }
+}

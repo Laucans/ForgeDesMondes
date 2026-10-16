@@ -1,0 +1,93 @@
+<section class="panel mf-tocreate" id="to-create" aria-labelledby="to-create-title">
+  <div class="panel__head">
+    <h2 id="to-create-title">Entités à créer</h2>
+    <span class="small muted" id="to-create-count"></span>
+  </div>
+  <p class="small muted">Issues des briefs de séance. Créez-les depuis le brief, ou affinez d’abord la description à l’oral ou à l’écrit.</p>
+  <ul class="mf-tocreate__list" id="to-create-items" data-reads="campaign.listEntitiesToCreate"></ul>
+</section>
+<style>
+  .mf-tocreate__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+  .mf-tocreate__item { display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) dashed var(--color-accent); border-radius: var(--radius-medium); }
+  .mf-tocreate__item.is-created { border-style: solid; border-color: var(--color-success); }
+  .mf-tocreate__refine { display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface-2); border-radius: var(--radius-medium); }
+  .mf-tocreate__proposal { display: grid; gap: var(--space-2); }
+  .mf-tocreate__proposal dt { font-family: var(--font-family-heading); text-transform: uppercase; font-size: var(--font-size-small); color: var(--color-accent); }
+  .mf-tocreate__proposal dd { margin: 0 0 var(--space-2); }
+  .mf-tocreate .kit-statblock { max-width: none; }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const props = Mock.props(root);
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  const TYPES = { pnj: 'PNJ', lieu: 'Lieu', 'événement': 'Événement' };
+  let data, items = [], open = {};
+
+  function proposalHTML(it, p) {
+    let html = `<dl class="mf-tocreate__proposal" id="to-create-${esc(it.id)}-proposal"><dt>Description</dt><dd>${esc(p.description)}</dd>`;
+    if (p.aliases) html += `<dt>Alias proposés</dt><dd>${esc(p.aliases.join(', '))}</dd>`;
+    if (p.background) html += `<dt>Background</dt><dd>${esc(p.background)}</dd><dt>Comportement, pour l’interpréter</dt><dd>${esc(p.behavior)}</dd>`;
+    html += '</dl>';
+    if (p.statblock) html += Mock.kitHTML('StatBlock', Object.assign({ name: it.name }, p.statblock));
+    return html;
+  }
+  function itemHTML(it) {
+    const done = it.status === 'created';
+    const st = open[it.id] || {};
+    let body = `<p class="quote">${esc(it.excerpt)}</p>`;
+    if (done) {
+      body += (st.proposal ? proposalHTML(it, st.proposal) : '') + Mock.kitHTML('Button', { small: true, items: [{ label: 'Ouvrir la fiche', href: it.entity ? 'fiche-entite.html?id=' + it.entity : 'fiche-entite.html?new=' + (it.type === 'lieu' ? 'lieu' : 'pnj') + '&name=' + encodeURIComponent(it.name), variant: 'secondary' }] });
+    } else if (st.refining) {
+      body += `<div class="mf-tocreate__refine" id="to-create-${esc(it.id)}-refine">` +
+        Mock.kitHTML('MicButton', { id: 'to-create-' + it.id + '-mic', label: 'Dicter la description', compact: true }) +
+        Mock.kitHTML('TextArea', { id: 'to-create-' + it.id + '-text', label: 'Description affinée', rows: 3, wide: true, value: st.text || '', placeholder: 'Ajoutez ce que le brief ne disait pas…' }) +
+        Mock.kitHTML('Button', { small: true, items: [{ label: 'Proposer', action: 'propose-refined', variant: 'primary', 'data-writes': 'ai.createFromBrief' }, { label: 'Annuler', action: 'cancel', variant: 'ghost' }] }) + '</div>';
+    } else {
+      body += Mock.kitHTML('Button', { small: true, items: [{ label: 'Créer depuis le brief', action: 'from-brief', variant: 'primary', 'data-writes': 'ai.createFromBrief' }, { label: 'Affiner', action: 'refine', variant: 'secondary' }] });
+    }
+    return `<li class="mf-tocreate__item${done ? ' is-created' : ''}" id="to-create-${esc(it.id)}" data-id="${esc(it.id)}"><div class="panel__head"><h3>${esc(it.name)}</h3>` +
+      Mock.kitHTML('Badge', { items: [{ label: TYPES[it.type] || it.type, tone: 'accent' }, done ? { label: 'Créé', tone: 'success' } : { label: 'À créer' }] }) +
+      `</div><p class="small muted">${esc(it.sessionTitle)}</p>${body}</li>`;
+  }
+  function render() {
+    $('#to-create-items').innerHTML = items.map(itemHTML).join('');
+    $('#to-create-count').textContent = items.filter(i => i.status !== 'created').length + ' à créer · ' + items.filter(i => i.status === 'created').length + ' créée(s)';
+    Mock.mount($('#to-create-items'));
+  }
+  function create(it, refined) {
+    const p = (data.proposals[it.id] || {})[refined ? 'refined' : 'fromBrief'] || { description: it.excerpt };
+    Mock.command('ai.createFromBrief', { id: it.id, refined }, { label: (refined ? 'Créer « ' : 'Créer depuis le brief « ') + it.name + ' »' }).then(() => {
+      it.status = 'created';
+      open[it.id] = { proposal: p };
+      render();
+    });
+  }
+
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button[data-action]');
+    if (!b) return;
+    const it = items.find(x => x.id === b.closest('[data-id]').dataset.id);
+    const a = b.dataset.action;
+    if (a === 'from-brief') create(it, false);
+    if (a === 'refine') { open[it.id] = { refining: true }; render(); }
+    if (a === 'cancel') { open[it.id] = {}; render(); }
+    if (a === 'propose-refined') create(it, true);
+  });
+  root.addEventListener('kit:mic', e => {
+    if (e.detail.state !== 'paused') return;
+    const li = e.target.closest('[data-id]');
+    const p = data.proposals[li.dataset.id];
+    const f = li.querySelector('textarea');
+    if (p && f) { f.value = p.dictation; open[li.dataset.id].text = p.dictation; }
+  });
+  Mock.on('to-create-added', list => { list.forEach(x => { if (!items.find(i => i.id === x.id)) items.push(x); }); render(); });
+
+  Mock.fixture('fixtures/ToCreateList.json').then(d => {
+    data = d;
+    items = d.items.filter(i => !props.session || i.session === props.session);
+    render();
+  });
+})();
+</script>

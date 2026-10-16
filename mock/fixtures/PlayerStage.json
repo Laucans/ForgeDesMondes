@@ -1,0 +1,9 @@
+{
+  "campaign": { "id": "cendres-valombre", "name": "Les Cendres de Valombre", "cover": "ill-cover" },
+  "session": { "order": 4, "title": "L’embuscade du Gué" },
+  "diffusion": {
+    "base": { "kind": "cover", "id": "ill-cover" },
+    "window": null,
+    "view": null
+  }
+}

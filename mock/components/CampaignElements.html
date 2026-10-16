@@ -1,0 +1,219 @@
+<section class="mf-elements" id="campaign-elements" aria-labelledby="campaign-elements-title">
+  <div class="panel__head">
+    <h2 id="campaign-elements-title">Éléments de la campagne</h2>
+    <div data-kit="Button" data-props='{"small":true,"items":[{"id":"elements-new-pnj","label":"Nouveau PNJ","href":"fiche-entite.html?new=pnj","variant":"secondary"},{"id":"elements-new-place","label":"Nouveau lieu","href":"fiche-entite.html?new=lieu","variant":"ghost"},{"id":"elements-new-event","label":"Nouvel événement","href":"fiche-entite.html?new=evenement","variant":"ghost"}]}'></div>
+  </div>
+  <div id="elements-tabs-host" data-reads="campaign.listPlayers campaign.listCharacters campaign.listPlaces campaign.listEvents media.listMedia soundbox.listSounds"></div>
+</section>
+<div class="mf-rail" id="elements-rail" data-collapsed="false" data-open="false">
+  <button type="button" class="chip mf-rail__open" id="rail-open" aria-controls="rail-panel" aria-expanded="false">☰ Éléments</button>
+  <div class="mf-rail__veil" id="rail-veil" hidden></div>
+  <nav class="mf-rail__panel" id="rail-panel" aria-label="Éléments de la campagne">
+    <div class="mf-rail__bar">
+      <button type="button" class="icon-btn" id="rail-toggle" aria-controls="rail-body" aria-expanded="true" title="Replier la liste">«</button>
+      <h2 id="rail-title">Éléments</h2>
+    </div>
+    <span class="mf-rail__strip" id="rail-strip" aria-hidden="true">Éléments</span>
+    <div class="mf-rail__body" id="rail-body">
+      <div id="rail-search"></div>
+      <p class="small muted" id="rail-count" aria-live="polite"></p>
+      <div class="mf-rail__groups" id="rail-groups" data-reads="campaign.listCharacters campaign.listPlaces campaign.listEvents"></div>
+      <div class="mf-rail__new" id="rail-new" data-kit="Button" data-props='{"small":true,"items":[{"id":"rail-new-pnj","label":"Nouveau PNJ","variant":"secondary"},{"id":"rail-new-place","label":"Nouveau lieu","variant":"ghost"},{"id":"rail-new-event","label":"Nouvel événement","variant":"ghost"}]}'></div>
+    </div>
+  </nav>
+</div>
+<style>
+  .mf-elements { display: grid; gap: var(--space-3); }
+  .mf-elements__grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-5) * 6), 1fr)); gap: var(--space-2); }
+  .mf-elements__entry { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3); align-items: center; padding: var(--space-2) var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); color: var(--color-text); text-decoration: none; }
+  .mf-elements__entry:hover { border-color: var(--color-primary); }
+  .mf-elements__thumb { width: calc(var(--space-5) + var(--space-2)); height: calc(var(--space-5) + var(--space-2)); border-radius: var(--radius-pill); overflow: hidden; }
+  .mf-elements__entry b { display: block; }
+  .mf-elements__entry small { display: block; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mf-elements__links { margin-top: var(--space-3); }
+
+  /* Rail mode: a sticky list beside the sheet, folded to a thin strip, a drawer under 960 px. */
+  .mf-rail__panel { display: flex; flex-direction: column; gap: var(--space-3); width: calc(var(--space-5) * 7); max-height: calc(100vh - var(--space-5)); padding: var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-large); box-shadow: var(--shadow-low); }
+  .mf-rail__bar { display: flex; align-items: center; gap: var(--space-2); }
+  .mf-rail__bar h2 { font-size: var(--font-size-base); }
+  .mf-rail__strip { display: none; writing-mode: vertical-rl; color: var(--color-text-muted); font-family: var(--font-family-heading); text-transform: uppercase; letter-spacing: 0.08em; }
+  .mf-rail__body { display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; flex: 1; }
+  .mf-rail__body .kit-input { max-width: none; }
+  .mf-rail__groups { overflow-y: auto; min-height: 0; flex: 1; display: grid; gap: var(--space-3); align-content: start; }
+  .mf-rail__group h3 { font-size: var(--font-size-small); color: var(--color-text-muted); margin-bottom: var(--space-1); }
+  .mf-rail__group h3 small { margin-left: var(--space-1); }
+  .mf-rail__group-toggle { display: flex; align-items: center; gap: var(--space-1); width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .mf-rail__group-toggle:hover { color: var(--color-text); }
+  .mf-rail__caret { display: inline-block; width: var(--space-3); flex-shrink: 0; text-align: center; }
+  .mf-rail__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+  .mf-rail__list[hidden] { display: none; }
+  .mf-rail__entry { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: center; padding: var(--space-1) var(--space-2); border: var(--border-width) solid transparent; border-radius: var(--radius-medium); color: var(--color-text); text-decoration: none; }
+  .mf-rail__entry:hover { background: var(--color-surface); border-color: var(--color-border); }
+  .mf-rail__entry.is-current { background: var(--color-surface); border-color: var(--color-primary); }
+  .mf-rail__thumb { width: var(--space-5); height: var(--space-5); border-radius: var(--radius-pill); overflow: hidden; }
+  .mf-rail__thumb .art__glyph { font-size: var(--font-size-base); }
+  .mf-rail__text b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mf-rail__text small { display: block; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mf-rail__new { flex-shrink: 0; padding-top: var(--space-2); border-top: var(--border-width) solid var(--color-border); }
+  .mf-rail__new .kit-button { flex-direction: column; align-items: stretch; }
+  .mf-rail__open, .mf-rail__veil { display: none; }
+  @media (min-width: 961px) {
+    .mf-rail[data-collapsed="true"] .mf-rail__panel { width: calc(var(--space-5) + var(--space-2)); align-items: center; padding: var(--space-2); }
+    .mf-rail[data-collapsed="true"] .mf-rail__bar h2, .mf-rail[data-collapsed="true"] .mf-rail__body { display: none; }
+    .mf-rail[data-collapsed="true"] .mf-rail__strip { display: block; }
+  }
+  @media (max-width: 960px) {
+    .mf-rail__open { display: inline-flex; }
+    .mf-rail[data-open="true"] .mf-rail__veil { display: block; position: fixed; inset: 0; z-index: 149; background: color-mix(in srgb, var(--color-surface) 70%, transparent); }
+    .mf-rail__panel { position: fixed; top: 0; bottom: 0; left: 0; z-index: 150; width: min(85vw, calc(var(--space-5) * 9)); max-height: none; border-radius: 0 var(--radius-large) var(--radius-large) 0; transform: translateX(-105%); visibility: hidden; }
+    .mf-rail[data-open="true"] .mf-rail__panel { transform: none; visibility: visible; }
+  }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  if (Mock.props(root).mode === 'rail') { $('#campaign-elements').remove(); return; }
+  const entry = (href, artSpec, title, sub, id) => `<li><a class="mf-elements__entry" id="${esc(id)}" href="${esc(href)}"><span class="mf-elements__thumb">${Mock.art(artSpec)}</span><span><b>${esc(title)}</b><small>${esc(sub)}</small></span></a></li>`;
+
+  Mock.fixture(['fixtures/entities.json', 'fixtures/media.json', 'fixtures/sounds.json']).then(([e, m, s]) => {
+    const pj = e.characters.filter(c => c.kind === 'pj'), pnj = e.characters.filter(c => c.kind === 'pnj');
+    const players = Mock.kitHTML('Table', { id: 'elements-players-table', html: true, columns: ['Joueur', 'Personnage', 'D&D Beyond', { label: 'Niveau', num: true }],
+      rows: e.players.map(p => {
+        const c = pj.filter(x => x.player === p.id);
+        return { id: 'player-' + p.id, cells: [esc(p.name), c.map(x => `<a href="fiche-entite.html?id=${esc(x.id)}">${esc(x.name)}</a>`).join(', '), c.map(x => (x.ddb ? 'Synchronisé le ' + new Date(x.ddb.syncedAt).toLocaleDateString('fr-FR') : '—')).join(', '), c.map(x => (x.type.match(/niveau (\d+)/) || [])[1] || '—').join(', ')] };
+      }) });
+    const chars = list => '<ul class="mf-elements__grid">' + list.map(c => entry('fiche-entite.html?id=' + c.id, c.art ? { art: c.art, glyph: c.initials } : { art: 'night', glyph: c.initials }, c.name, (c.kind === 'pj' ? 'PJ · ' : 'PNJ · ') + (c.aliases.join(', ') || c.type), 'elements-char-' + c.id)).join('') + '</ul>';
+    const places = '<ul class="mf-elements__grid">' + e.places.map(p => entry('fiche-entite.html?id=' + p.id, { art: p.art, glyph: p.name.replace(/^(La |Le |L’)/, '').charAt(0) }, p.name, p.aliases.join(', '), 'elements-place-' + p.id)).join('') + '</ul>';
+    const events = '<ul class="mf-elements__grid">' + e.events.map(v => entry('fiche-entite.html?id=' + v.id, { art: 'blood', glyph: '!' }, v.name, v.aliases.join(', '), 'elements-event-' + v.id)).join('') + '</ul>';
+    const media = '<ul class="mf-elements__grid">' + m.battlemaps.map(b => entry('medias.html', { art: 'forest', glyph: '⬡' }, b.title, 'Battlemap · ' + b.size, 'elements-media-' + b.id)).join('') +
+      m.illustrations.map(i => entry('medias.html', { art: i.art, glyph: i.glyph }, i.title, 'Illustration · ' + i.size, 'elements-media-' + i.id)).join('') + '</ul>' +
+      `<div class="mf-elements__links">${Mock.kitHTML('Button', { small: true, items: [{ label: 'Gérer les médias et les grilles', href: 'medias.html', variant: 'secondary' }] })}</div>`;
+    const sounds = '<ul class="mf-elements__grid">' + s.sounds.map(x => `<li class="item" id="elements-sound-${esc(x.id)}"><span>♪ ${esc(x.name)}</span><small class="muted">${esc(x.tags.join(' · '))}</small></li>`).join('') + '</ul>' +
+      `<div class="mf-elements__links">${Mock.kitHTML('Button', { small: true, items: [{ label: 'Ouvrir la bibliothèque de sons', href: 'soundbox.html', variant: 'secondary' }] })}</div>`;
+    const panels = [players, chars(pj) + '<h3 class="mf-elements__links">PNJ</h3>' + chars(pnj), places, events, media, sounds];
+    $('#elements-tabs-host').innerHTML = Mock.kitHTML('Tabs', { id: 'elements-tabs', label: 'Éléments par type', selected: 1,
+      tabs: ['Joueurs (' + e.players.length + ')', 'Personnages (' + e.characters.length + ')', 'Lieux (' + e.places.length + ')', 'Événements (' + e.events.length + ')', 'Médias (' + (m.battlemaps.length + m.illustrations.length) + ')', 'Sons (' + s.sounds.length + ')'] },
+      panels.map(p => `<div>${p}</div>`).join(''));
+    Mock.mount($('#elements-tabs-host'));
+  });
+})();
+</script>
+
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const props = Mock.props(root);
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  if (props.mode !== 'rail') { $('#elements-rail').remove(); return; }
+
+  const rail = $('#elements-rail');
+  const mobile = window.matchMedia('(max-width: 960px)');
+  const GROUPS = [['pj', 'PJ'], ['pnj', 'PNJ'], ['place', 'Lieux'], ['event', 'Événements']];
+  let index = [], current = Mock.param('id') || props.current || '', query = '';
+  const shut = new Set();
+
+  // Same approximate match as the DM view's panel: substring on the name or an alias, or a word within one or two letters.
+  function lev(a, b) {
+    const d = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      let prev = d[0];
+      d[0] = i;
+      for (let j = 1; j <= b.length; j++) { const tmp = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = tmp; }
+    }
+    return d[b.length];
+  }
+  function score(e, q) {
+    const qn = Mock.norm(q);
+    if (!qn) return 0;
+    const names = [e.name].concat(e.aliases || []).map(Mock.norm);
+    if (names.some(n => n.includes(qn))) return 2;
+    const words = names.join(' ').split(/[^a-z0-9]+/).filter(w => w.length > 2);
+    const qw = qn.split(/[^a-z0-9]+/).filter(w => w.length > 2);
+    return qw.length && qw.every(w => words.some(x => lev(w, x) <= (w.length > 5 ? 2 : 1))) ? 1 : 0;
+  }
+
+  const entry = e => `<li><a class="mf-rail__entry${e.id === current ? ' is-current' : ''}" id="rail-entry-${esc(e.id)}" href="fiche-entite.html?id=${esc(e.id)}" data-entity="${esc(e.id)}"${e.id === current ? ' aria-current="true"' : ''}>` +
+    `<span class="mf-rail__thumb">${Mock.art(e.art)}</span><span class="mf-rail__text"><b>${esc(e.name)}</b><small>${esc(e.sub)}</small></span></a></li>`;
+
+  function renderList() {
+    const q = query.trim();
+    const scored = index.map(e => ({ e, s: q ? score(e, q) : 1 })).filter(x => x.s > 0);
+    $('#rail-groups').innerHTML = GROUPS.map(([g, label]) => {
+      const rows = scored.filter(x => x.e.group === g).sort((a, b) => b.s - a.s).map(x => x.e);
+      const closed = shut.has(g);
+      return rows.length ? `<section class="mf-rail__group" id="rail-group-${g}" aria-label="${label}"><h3><button type="button" class="mf-rail__group-toggle" id="rail-group-toggle-${g}" data-group="${g}" aria-expanded="${!closed}" aria-controls="rail-list-${g}"><span class="mf-rail__caret" aria-hidden="true">${closed ? '▸' : '▾'}</span>${label}<small>${rows.length}</small></button></h3><ul class="mf-rail__list" id="rail-list-${g}"${closed ? ' hidden' : ''}>${rows.map(entry).join('')}</ul></section>` : '';
+    }).join('');
+    $('#rail-count').textContent = !q ? '' : scored.length ? scored.length + ' résultat' + (scored.length > 1 ? 's' : '') + ' pour « ' + q + ' »' : 'Rien pour « ' + q + ' »';
+  }
+
+  function toggleGroup(b) {
+    const g = b.dataset.group;
+    if (shut.has(g)) shut.delete(g); else shut.add(g);
+    const closed = shut.has(g);
+    b.setAttribute('aria-expanded', String(!closed));
+    b.querySelector('.mf-rail__caret').textContent = closed ? '▸' : '▾';
+    $('#rail-list-' + g).hidden = closed;
+  }
+
+  function sync() {
+    const open = rail.dataset.open === 'true', folded = rail.dataset.collapsed === 'true';
+    const t = $('#rail-toggle');
+    t.textContent = mobile.matches ? '✕' : folded ? '»' : '«';
+    t.title = mobile.matches ? 'Fermer la liste' : folded ? 'Déplier la liste' : 'Replier la liste';
+    t.setAttribute('aria-expanded', String(mobile.matches ? open : !folded));
+    $('#rail-open').setAttribute('aria-expanded', String(open));
+    $('#rail-veil').hidden = !open;
+  }
+  function setOpen(v) { rail.dataset.open = String(v); sync(); }
+  function setFolded(v) { rail.dataset.collapsed = String(v); Mock.store.set('entity-rail', { collapsed: v }); sync(); }
+
+  root.addEventListener('input', e => { if (e.target.id === 'rail-search-input') { query = e.target.value; renderList(); } });
+  root.addEventListener('click', e => {
+    const a = e.target.closest('a[data-entity]');
+    if (a) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+      e.preventDefault();
+      Mock.emit('open-entity', { id: a.dataset.entity });
+      setOpen(false);
+      return;
+    }
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.group) { toggleGroup(b); return; }
+    if (b.id === 'rail-toggle') { if (mobile.matches) setOpen(false); else setFolded(rail.dataset.collapsed !== 'true'); }
+    if (b.id === 'rail-open') setOpen(true);
+    const fresh = { 'rail-new-pnj': 'pnj', 'rail-new-place': 'lieu', 'rail-new-event': 'evenement' }[b.id];
+    if (fresh) { Mock.emit('open-entity', { new: fresh }); setOpen(false); }
+  });
+  $('#rail-veil').addEventListener('click', () => setOpen(false));
+  root.addEventListener('keydown', e => { if (e.key === 'Escape' && rail.dataset.open === 'true') { setOpen(false); $('#rail-open').focus(); } });
+  mobile.addEventListener('change', () => setOpen(false));
+
+  // The sheet that is open: the editor tells us, so the list follows a click, a « Nouveau… » or the first load.
+  Mock.on('entity-opened', u => {
+    current = u.id || '';
+    root.querySelectorAll('.mf-rail__entry').forEach(a => {
+      const on = a.dataset.entity === current;
+      a.classList.toggle('is-current', on);
+      if (on) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+    });
+  });
+
+  rail.dataset.collapsed = String(!!Mock.store.get('entity-rail', { collapsed: false }).collapsed);
+  sync();
+  Mock.fixture('fixtures/entities.json').then(e => {
+    index = [].concat(
+      e.characters.map(c => ({ id: c.id, group: c.kind, name: c.name, aliases: c.aliases, sub: c.aliases.join(', ') || c.type, art: { art: c.art || 'night', glyph: c.initials } })),
+      e.places.map(p => ({ id: p.id, group: 'place', name: p.name, aliases: p.aliases, sub: p.aliases.join(', '), art: { art: p.art, glyph: p.name.replace(/^(La |Le |L’)/, '').charAt(0) } })),
+      e.events.map(v => ({ id: v.id, group: 'event', name: v.name, aliases: v.aliases, sub: v.aliases.join(', '), art: { art: 'blood', glyph: '!' } }))
+    );
+    $('#rail-search').innerHTML = Mock.kitHTML('Input', { id: 'rail-search-input', label: 'Rechercher', placeholder: 'Nom ou alias', type: 'search' });
+    Mock.mount($('#rail-search'));
+    renderList();
+    Mock.emit('entity-query', {});
+  });
+})();
+</script>

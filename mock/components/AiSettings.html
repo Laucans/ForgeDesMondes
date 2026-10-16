@@ -1,0 +1,147 @@
+<div class="mf-ai layout-2" id="ai-settings">
+  <form class="panel" id="ai-settings-form" aria-labelledby="ai-settings-title" onsubmit="return false">
+    <h2 id="ai-settings-title">Fournisseur de génération</h2>
+    <div id="ai-provider" data-reads="ai.getSettings"></div>
+    <div class="mf-ai__fields" id="ai-fields" data-reads="ai.getSettings"></div>
+    <div class="mf-ai__detected" id="ai-detected" data-reads="ai.getSettings" aria-live="polite"></div>
+    <div class="row" id="ai-actions" data-kit="Button" data-props='{"items":[{"id":"ai-test","label":"Tester la connexion","variant":"secondary","data-writes":"ai.testConnection"},{"id":"ai-save","label":"Enregistrer","variant":"primary","data-writes":"ai.saveSettings"}]}'></div>
+    <div class="mf-ai__result" id="ai-test-result" data-reads="ai.getSettings" aria-live="polite"></div>
+  </form>
+  <aside class="panel" id="ai-privacy" aria-labelledby="ai-privacy-title">
+    <h2 id="ai-privacy-title">Ce qui sort de la machine</h2>
+    <p class="muted">La transcription et la détection restent locales. Seul du texte part vers le fournisseur choisi.</p>
+    <section id="ai-privacy-local" class="stack">
+      <h3>Reste sur cette machine</h3>
+      <ul class="list" id="ai-local-list" data-reads="ai.getSettings"></ul>
+    </section>
+    <section id="ai-privacy-sent" class="stack">
+      <h3>Part vers le fournisseur, en texte</h3>
+      <ul class="list" id="ai-sent-list" data-reads="ai.getSettings"></ul>
+    </section>
+  </aside>
+</div>
+<style>
+  .mf-ai__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-5) * 6), 1fr)); gap: var(--space-3); }
+  .mf-ai__detected { min-height: var(--space-4); }
+  .mf-ai__result { min-height: var(--space-4); }
+  .mf-ai__result p { padding: var(--space-2) var(--space-3); border-radius: var(--radius-medium); background: var(--color-surface); border: var(--border-width) solid var(--color-border); }
+  .mf-ai__result .is-ok { border-color: var(--color-success); color: var(--color-success); }
+  .mf-ai__result .is-error { border-color: var(--color-danger); color: var(--color-danger); }
+  .mf-ai .list li::before { content: "• "; color: var(--color-secondary); }
+  #ai-local-list li::before { content: "✓ "; color: var(--color-success); }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  let data;
+  const cur = { mode: 'api', binary: 'opencode', url: '', key: '', generationModel: '', summaryModel: '' };
+
+  const hostOf = u => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.host : null; } catch (e) { return null; } };
+
+  // Detects which kind of API sits behind the URL: a known fixture endpoint first, then its name.
+  function detect(url) {
+    const h = hostOf(url);
+    if (!h) return null;
+    const known = Object.keys(data.providers).find(k => hostOf(data.providers[k].url) === h);
+    if (known) return known;
+    return /anthropic/i.test(h) ? 'cloud' : 'opencode';
+  }
+  const binaryProvider = () => cur.binary === 'claude' ? 'cloud' : 'opencode';
+  const providerKey = () => cur.mode === 'api' ? detect(cur.url) : binaryProvider();
+
+  function detected() {
+    if (cur.mode !== 'api') { $('#ai-detected').innerHTML = ''; return; }
+    const k = detect(cur.url);
+    $('#ai-detected').innerHTML = k
+      ? `<span class="kit-badge success" id="ai-detected-badge">Type d’API détecté : ${esc(data.providers[k].label)}</span>`
+      : `<span class="kit-badge danger" id="ai-detected-badge">URL invalide : le type d’API ne peut pas être détecté</span>`;
+  }
+
+  function fields() {
+    const models =
+      Mock.kitHTML('Input', { id: 'ai-generation-model', label: 'Modèle de génération', value: cur.generationModel, wide: true, hint: 'Statblocks, backgrounds, briefs et notes' }) +
+      Mock.kitHTML('Input', { id: 'ai-summary-model', label: 'Modèle de résumé', value: cur.summaryModel, wide: true, hint: 'Résumé du journal à la clôture de séance' });
+    const head = cur.mode === 'api'
+      ? Mock.kitHTML('Input', { id: 'ai-url', label: 'URL de l’API', value: cur.url, wide: true, hint: 'Le type d’API (serveur maison ou cloud) est détecté à partir de l’URL' }) +
+        Mock.kitHTML('Input', { id: 'ai-key', label: 'Clé d’API', value: cur.key, type: 'password', placeholder: 'Aucune clé', wide: true, hint: 'Facultative selon l’API. Stockée sur cette machine uniquement' })
+      : Mock.kitHTML('Select', { id: 'ai-binary', label: 'Binaire', wide: true, hint: 'Programme lancé sur cette machine', options: [
+          { label: 'opencode', value: 'opencode', selected: cur.binary === 'opencode' },
+          { label: 'Claude Code', value: 'claude', selected: cur.binary === 'claude' }] });
+    $('#ai-fields').innerHTML = head + models;
+    Mock.mount($('#ai-fields'));
+    detected();
+    $('#ai-test-result').innerHTML = '';
+  }
+
+  function loadModels(k) {
+    cur.generationModel = data.providers[k].generationModel;
+    cur.summaryModel = data.providers[k].summaryModel;
+  }
+
+  function problem() {
+    if (cur.mode === 'api' && !detect(cur.url)) return 'Renseignez une URL d’API valide (http ou https).';
+    if (!cur.generationModel.trim()) return 'Le modèle de génération est obligatoire.';
+    if (!cur.summaryModel.trim()) return 'Le modèle de résumé est obligatoire.';
+    return '';
+  }
+  const showError = m => { $('#ai-test-result').innerHTML = `<p class="is-error" id="ai-test-message">${esc(m)}</p>`; };
+  const payload = () => ({ mode: cur.mode, provider: providerKey(), binary: cur.mode === 'binary' ? cur.binary : null, url: cur.mode === 'api' ? cur.url : null });
+
+  root.addEventListener('change', e => {
+    if (e.target.name === 'ai-mode') {
+      cur.mode = e.target.value;
+      if (cur.mode === 'binary') loadModels(binaryProvider());
+      fields();
+    }
+    if (e.target.id === 'ai-binary') {
+      cur.binary = e.target.value;
+      loadModels(binaryProvider());
+      fields();
+    }
+  });
+  root.addEventListener('input', e => {
+    const t = e.target;
+    if (t.id === 'ai-url') { cur.url = t.value; detected(); }
+    if (t.id === 'ai-key') cur.key = t.value;
+    if (t.id === 'ai-generation-model') cur.generationModel = t.value;
+    if (t.id === 'ai-summary-model') cur.summaryModel = t.value;
+  });
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.id === 'ai-test') {
+      const p = problem();
+      if (p) return showError(p);
+      const k = providerKey();
+      $('#ai-test-result').innerHTML = '<p class="muted">Test en cours…</p>';
+      Mock.command('ai.testConnection', payload(), { label: 'Tester la connexion' }).then(() => {
+        const r = data.testResults[k];
+        $('#ai-test-result').innerHTML = `<p class="${r.ok ? 'is-ok' : 'is-error'}" id="ai-test-message">${esc(r.message)}</p>`;
+      }).catch(() => showError('Le test de connexion a échoué.'));
+    }
+    if (b.id === 'ai-save') {
+      const p = problem();
+      if (p) return showError(p);
+      const label = cur.mode === 'api' ? 'API ' + data.providers[providerKey()].label : 'binaire ' + (cur.binary === 'claude' ? 'Claude Code' : 'opencode');
+      Mock.command('ai.saveSettings', payload(), { label: 'Enregistrer les paramètres IA (' + label + ')' });
+    }
+  });
+
+  Mock.fixture('fixtures/AiSettings.json').then(d => {
+    data = d;
+    const p = d.providers[d.provider];
+    cur.url = p.url; cur.key = p.key; cur.generationModel = p.generationModel; cur.summaryModel = p.summaryModel;
+    $('#ai-provider').innerHTML = Mock.kitHTML('Radio', { id: 'ai-mode-choice', legend: 'Mode de connexion', name: 'ai-mode', options: [
+      { label: 'API', hint: 'une URL, le type d’API est détecté', value: 'api', checked: true },
+      { label: 'Binaire', hint: 'un programme sur cette machine', value: 'binary', checked: false }] });
+    Mock.mount($('#ai-provider'));
+    fields();
+    const t = d.lastTest;
+    $('#ai-test-result').innerHTML = `<p class="is-ok" id="ai-test-message">Dernier test réussi le ${new Date(t.at).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })} — réponse en ${esc(t.latency)}.</p>`;
+    $('#ai-local-list').innerHTML = d.local.map(x => `<li>${esc(x)}</li>`).join('');
+    $('#ai-sent-list').innerHTML = d.sent.map(x => `<li>${esc(x)}</li>`).join('');
+  });
+})();
+</script>

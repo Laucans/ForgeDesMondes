@@ -1,0 +1,54 @@
+<section class="panel mf-previous" id="previous-summary" aria-labelledby="previous-title">
+  <div class="panel__head">
+    <h2 id="previous-title">Séance précédente</h2>
+    <div data-kit="Button" data-props='{"small":true,"items":[{"id":"previous-journal-open","label":"Journal complet","variant":"secondary"}]}'></div>
+  </div>
+  <p id="previous-summary-text" class="mf-previous__text" data-reads="session.getPreviousSessionSummary"></p>
+  <p class="small muted" id="previous-meta"></p>
+  <div class="layout-2 layout-2--even">
+    <section id="previous-mentions" aria-labelledby="previous-mentions-title" class="stack">
+      <h3 id="previous-mentions-title">Entités mentionnées</h3>
+      <div class="row" id="previous-mentions-list"></div>
+    </section>
+    <section id="previous-threads" aria-labelledby="previous-threads-title" class="stack">
+      <h3 id="previous-threads-title">Fils ouverts</h3>
+      <ul class="list" id="previous-threads-list"></ul>
+    </section>
+  </div>
+  <aside class="mf-previous__journal" id="previous-journal" aria-labelledby="previous-journal-title" hidden>
+    <div class="panel__head">
+      <h2 id="previous-journal-title">Journal transcrit</h2>
+      <button type="button" class="icon-btn" id="previous-journal-close" aria-label="Fermer le journal">×</button>
+    </div>
+    <p class="small muted" id="previous-journal-meta"></p>
+    <ol class="mf-previous__lines" id="previous-journal-lines" data-reads="session.getSessionJournal"></ol>
+  </aside>
+</section>
+<style>
+  .mf-previous__text { font-size: var(--font-size-large); line-height: 1.5; }
+  .mf-previous #previous-threads-list li { padding: var(--space-2) var(--space-3); background: var(--color-surface); border-left: calc(var(--border-width) * 3) solid var(--color-accent); border-radius: var(--radius-small); }
+  .mf-previous__journal { position: fixed; top: 0; right: 0; bottom: 0; z-index: 60; width: min(100%, calc(var(--space-5) * 11)); display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: var(--space-2); padding: var(--space-4); background: var(--color-surface); border-left: var(--border-width) solid var(--color-secondary); box-shadow: var(--shadow-high); }
+  .mf-previous__lines { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: grid; gap: var(--space-2); align-content: start; }
+  .mf-previous__lines li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3); }
+  .mf-previous__lines time { color: var(--color-text-muted); font-variant-numeric: tabular-nums; font-size: var(--font-size-small); }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  Mock.fixture('fixtures/PreviousSummary.json').then(d => {
+    $('#previous-title').textContent = 'Séance ' + d.session.order + ' — ' + d.session.title;
+    $('#previous-summary-text').textContent = d.summary;
+    $('#previous-meta').textContent = new Date(d.session.date + 'T12:00:00').toLocaleDateString('fr-FR', { dateStyle: 'full' }) + ' · ' + d.summaryMeta;
+    $('#previous-mentions-list').innerHTML = d.mentions.map(m => `<a class="chip chip--${m.type === 'pnj' ? 'pnj' : m.type === 'lieu' ? 'lieu' : 'media'}" id="previous-mention-${esc(m.id)}" href="fiche-entite.html?id=${esc(m.id)}">${esc(m.name)}</a>`).join('');
+    $('#previous-threads-list').innerHTML = d.threads.map((t, i) => `<li id="previous-thread-${i + 1}">${esc(t)}</li>`).join('');
+    $('#previous-journal-meta').textContent = d.journalStats;
+    $('#previous-journal-lines').innerHTML = d.journal.map(l => `<li><time>${esc(l.t)}</time><span>${esc(l.text)}</span></li>`).join('');
+  });
+  root.addEventListener('click', e => {
+    if (e.target.closest('#previous-journal-open')) $('#previous-journal').hidden = false;
+    if (e.target.closest('#previous-journal-close')) $('#previous-journal').hidden = true;
+  });
+})();
+</script>

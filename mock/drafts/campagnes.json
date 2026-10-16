@@ -1,0 +1,20 @@
+{
+  "page": "pages/campagnes.html",
+  "version": 2,
+  "name": "",
+  "viewport": 1280,
+  "ops": [
+    {
+      "kind": "remove",
+      "by": "human",
+      "target": "id:site-footer>span:nth-child(1)"
+    },
+    {
+      "kind": "remove",
+      "by": "human",
+      "target": "id:site-footer>span:nth-child(1)"
+    }
+  ],
+  "forks": [],
+  "requests": []
+}

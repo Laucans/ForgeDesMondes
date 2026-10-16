@@ -1,0 +1,17 @@
+{
+  "campaign": "cendres-valombre",
+  "draft": "Valombre — notes en vrac après la séance 2.\nLe moulin a brûlé dans la nuit, le meunier a disparu. Gaspard (le tavernier du Sanglier) dit avoir vu des cavaliers en cape grise.\nMère Ombeline, l’herboriste aveugle à l’orée du bois de Corbière, a soigné les apprentis. Elle sent la fumée sur les gens.\nAerin, le frère d’Elowen, aurait été vu avec ces cavaliers.\nLa Tour d’Ébène : ruine au nord du mont Pourpre, son sceau est un œil fermé.\nÀ creuser : le péage illégal au gué, 5 po par tête.",
+  "proposals": [
+    { "id": "np-gaspard", "type": "pnj", "name": "Gaspard Grosmollet", "excerpt": "Gaspard (le tavernier du Sanglier) dit avoir vu des cavaliers…", "existing": "gaspard", "checked": false },
+    { "id": "np-ombeline", "type": "pnj", "name": "Mère Ombeline", "excerpt": "l’herboriste aveugle à l’orée du bois de Corbière…", "existing": null, "checked": true },
+    { "id": "np-aerin", "type": "pnj", "name": "Aerin Ventargent", "excerpt": "Aerin, le frère d’Elowen, aurait été vu avec ces cavaliers.", "existing": null, "checked": true },
+    { "id": "np-tour", "type": "lieu", "name": "La Tour d’Ébène", "excerpt": "ruine au nord du mont Pourpre, son sceau est un œil fermé.", "existing": "tour-ebene", "checked": false },
+    { "id": "np-bois", "type": "lieu", "name": "Le bois de Corbière", "excerpt": "à l’orée du bois de Corbière…", "existing": null, "checked": true },
+    { "id": "np-incendie", "type": "événement", "name": "L’incendie du moulin", "excerpt": "Le moulin a brûlé dans la nuit, le meunier a disparu.", "existing": "incendie-moulin", "checked": false },
+    { "id": "np-peage", "type": "événement", "name": "Le péage du gué", "excerpt": "le péage illégal au gué, 5 po par tête.", "existing": null, "checked": true }
+  ],
+  "imports": [
+    { "id": "imp-1", "date": "2026-09-14", "title": "Notes de campagne — été 2026", "chars": 6420, "proposed": 14, "created": 11 },
+    { "id": "imp-2", "date": "2026-09-20", "title": "Dictée — PNJ du marché", "chars": 1180, "proposed": 4, "created": 3 }
+  ]
+}

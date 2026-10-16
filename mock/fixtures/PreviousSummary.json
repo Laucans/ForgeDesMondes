@@ -1,0 +1,36 @@
+{
+  "session": { "id": "s3", "order": 3, "title": "Le marché noir", "date": "2026-10-03" },
+  "summary": "Le groupe a suivi la piste de l’incendie jusqu’au marché noir caché sous le pont de Valombre. Morlox, après avoir nié pendant une heure, a avoué qu’on lui avait commandé de l’huile de lampe en grande quantité la veille de l’incendie. Sirielle a reconnu sur une caisse le sceau de la Tour d’Ébène. La séance s’est terminée à la Taverne du Sanglier, où Gaspard a promis de se renseigner sur les cavaliers vus au Gué des Corbeaux.",
+  "summaryMeta": "Généré à la clôture par qwen2.5-14b-instruct (opencode maison), retouché le 4 oct. 2026",
+  "mentions": [
+    { "id": "morlox", "type": "pnj", "name": "Morlox" },
+    { "id": "gaspard", "type": "pnj", "name": "Gaspard Grosmollet" },
+    { "id": "taverne-sanglier", "type": "lieu", "name": "La Taverne du Sanglier" },
+    { "id": "tour-ebene", "type": "lieu", "name": "La Tour d’Ébène" },
+    { "id": "incendie-moulin", "type": "événement", "name": "L’incendie du moulin" },
+    { "id": "marche-noir", "type": "événement", "name": "Le marché noir de Morlox" }
+  ],
+  "threads": [
+    "Morlox a promis de montrer le passage sous le moulin contre 40 po.",
+    "Qui a commandé l’huile ? Le sceau de la Tour d’Ébène désigne un acheteur puissant.",
+    "Aerin, le frère d’Elowen, aurait été vu avec des cavaliers près du Gué des Corbeaux.",
+    "Kael doit 6 po d’ardoise à Gaspard."
+  ],
+  "journalStats": "3 h 12 min · 1 846 lignes transcrites en local",
+  "journal": [
+    { "t": "20:04", "text": "On reprend sous le pont, ça sent le poisson et la cire chaude." },
+    { "t": "20:06", "text": "Morlox vous accueille les bras ouverts : « Mes bons ssseigneurs ! »" },
+    { "t": "20:11", "text": "Elowen : je regarde ce qu’il y a dans les caisses derrière lui." },
+    { "t": "20:12", "text": "Fais-moi un jet de Perception… 17, tu vois des jarres d’huile de lampe, une bonne vingtaine." },
+    { "t": "20:31", "text": "Kael : on sait que c’est toi qui as vendu l’huile, Morlox." },
+    { "t": "20:33", "text": "Il nie, il jure sur la tête de sa mère, il recule vers la rivière." },
+    { "t": "21:02", "text": "Sirielle : attends, ce sceau-là, l’œil fermé… c’est celui de la Tour d’Ébène." },
+    { "t": "21:05", "text": "Morlox finit par avouer : quarante jarres, payées d’avance, la veille de l’incendie." },
+    { "t": "21:40", "text": "Pause." },
+    { "t": "22:10", "text": "Retour à la Taverne du Sanglier, Gaspard vous sert sans rien demander." },
+    { "t": "22:18", "text": "Gaspard : des cavaliers, au gué des Corbeaux, avec des capes grises. Je me renseigne." },
+    { "t": "22:25", "text": "Elowen : des cavaliers… et mon frère était avec eux ?" },
+    { "t": "22:31", "text": "Gaspard hausse les épaules, mais il essuie sa chope un peu trop longtemps." },
+    { "t": "23:16", "text": "On s’arrête là, prochaine séance le 17." }
+  ]
+}

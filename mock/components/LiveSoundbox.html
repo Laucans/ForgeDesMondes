@@ -1,0 +1,94 @@
+<section class="mf-live-sb" id="live-soundbox" aria-labelledby="soundbox-title">
+  <div class="panel__head">
+    <h2 id="soundbox-title">Soundbox</h2>
+    <span class="small muted" id="soundbox-playing-count">Le son sort uniquement de cette vue</span>
+  </div>
+  <div class="mf-live-sb__bar" id="soundbox-controls">
+    <div id="soundbox-search"></div>
+    <div id="soundbox-master" data-writes="soundbox.setMasterVolume"></div>
+    <div data-kit="Button" data-props='{"items":[{"id":"soundbox-stop-all","label":"Tout arrêter","variant":"danger","data-writes":"soundbox.stopAll"}]}'></div>
+  </div>
+  <div class="row" id="soundbox-tags" role="group" aria-label="Filtrer par tag"></div>
+  <ul class="mf-live-sb__grid" id="soundbox-grid" data-reads="soundbox.listSounds"></ul>
+</section>
+<style>
+  .mf-live-sb { display: grid; gap: var(--space-3); }
+  .mf-live-sb__bar { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) auto; gap: var(--space-3); align-items: end; }
+  .mf-live-sb__bar .kit-input { max-width: none; }
+  .mf-live-sb__grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-5) * 4.5), 1fr)); gap: var(--space-3); }
+  .mf-live-sb__box { position: relative; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); overflow: hidden; }
+  .mf-live-sb__box.is-playing { border-color: var(--color-success); box-shadow: var(--shadow-high); }
+  .mf-live-sb__play { display: grid; gap: var(--space-1); text-align: left; background: none; border: 0; padding: 0; color: var(--color-text); font: inherit; cursor: pointer; }
+  .mf-live-sb__play b { font-size: var(--font-size-base); }
+  .mf-live-sb__play small { color: var(--color-text-muted); }
+  .mf-live-sb__box.is-playing .mf-live-sb__play b::before { content: "▶ "; color: var(--color-success); }
+  .mf-live-sb__vol { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-small); color: var(--color-text-muted); }
+  .mf-live-sb__vol input { flex: 1; accent-color: var(--color-primary); }
+  .mf-live-sb__progress { position: absolute; left: 0; bottom: 0; height: var(--space-1); width: 0; background: var(--color-success); }
+  @media (max-width: 900px) { .mf-live-sb__bar { grid-template-columns: minmax(0, 1fr); } }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  let sounds = [], tags = new Set(), query = '', playing = {};
+
+  function render() {
+    const q = Mock.norm(query);
+    const list = sounds.filter(s => (!q || Mock.norm(s.name + ' ' + s.tags.join(' ')).includes(q)) && (!tags.size || s.tags.some(t => tags.has(t))));
+    $('#soundbox-grid').innerHTML = list.map(s => `<li class="mf-live-sb__box${playing[s.id] ? ' is-playing' : ''}" id="soundbox-${esc(s.id)}" data-id="${esc(s.id)}">` +
+      `<button type="button" class="mf-live-sb__play" data-writes="soundbox.playSound" data-play="${esc(s.id)}"><b>${esc(s.name)}</b><small>${esc(s.tags.join(' · '))} · ${String(s.duration).replace('.', ',')} s</small></button>` +
+      `<label class="mf-live-sb__vol">Vol. <input type="range" min="0" max="100" value="${s.volume}" data-writes="soundbox.setSoundVolume" data-volume="${esc(s.id)}" aria-label="Volume de ${esc(s.name)}"><span>${s.volume}</span></label>` +
+      '<span class="mf-live-sb__progress"></span></li>').join('') || '<li class="muted">Aucun son ne correspond.</li>';
+    count();
+  }
+  function count() {
+    const n = Object.keys(playing).length;
+    $('#soundbox-playing-count').textContent = n ? n + ' son' + (n > 1 ? 's' : '') + ' en cours · le son sort uniquement de cette vue' : 'Le son sort uniquement de cette vue';
+  }
+  function mark(id, on, duration) {
+    const box = root.querySelector('#soundbox-' + id);
+    if (!box) return;
+    box.classList.toggle('is-playing', on);
+    const bar = box.querySelector('.mf-live-sb__progress');
+    bar.getAnimations().forEach(a => a.cancel());
+    if (on) bar.animate([{ width: '0%' }, { width: '100%' }], { duration, easing: 'linear' });
+  }
+  function play(id) {
+    const s = sounds.find(x => x.id === id);
+    if (!s) return;
+    clearTimeout(playing[id]);
+    playing[id] = setTimeout(() => { delete playing[id]; mark(id, false); count(); }, s.duration * 1000);
+    mark(id, true, s.duration * 1000);
+    count();
+  }
+
+  root.addEventListener('input', e => {
+    if (e.target.id === 'soundbox-search-input') { query = e.target.value; render(); }
+    if (e.target.dataset.volume) { e.target.nextElementSibling.textContent = e.target.value; sounds.find(s => s.id === e.target.dataset.volume).volume = +e.target.value; }
+  });
+  root.addEventListener('change', e => {
+    if (e.target.dataset.volume) Mock.command('soundbox.setSoundVolume', { id: e.target.dataset.volume, volume: +e.target.value }, { label: 'Volume de « ' + sounds.find(s => s.id === e.target.dataset.volume).name + ' » : ' + e.target.value + ' %' });
+    if (e.target.name === 'master') Mock.command('soundbox.setMasterVolume', { volume: +e.target.value }, { label: 'Volume global : ' + e.target.value + ' %' });
+  });
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.play) { play(b.dataset.play); Mock.command('soundbox.playSound', { id: b.dataset.play }, { label: 'Jouer « ' + sounds.find(s => s.id === b.dataset.play).name + ' »' }); }
+    if (b.dataset.tag) { const t = b.dataset.tag; if (tags.has(t)) tags.delete(t); else tags.add(t); b.classList.toggle('is-on'); render(); }
+    if (b.id === 'soundbox-stop-all') { Object.keys(playing).forEach(id => { clearTimeout(playing[id]); mark(id, false); }); playing = {}; count(); Mock.command('soundbox.stopAll', {}, { label: 'Tout arrêter' }); }
+  });
+  Mock.on('play-sound', d => play(d.id));
+
+  Mock.fixture('fixtures/sounds.json').then(d => {
+    sounds = d.sounds;
+    $('#soundbox-search').innerHTML = Mock.kitHTML('Input', { id: 'soundbox-search-input', label: 'Rechercher un son', type: 'search', placeholder: 'porte, foule, corbeau…' });
+    $('#soundbox-master').innerHTML = Mock.kitHTML('Slider', { bare: true, fields: [{ id: 'soundbox-master-volume', name: 'master', label: 'Volume global', value: d.masterVolume, min: 0, max: 100, unit: '%' }] });
+    const all = Array.from(new Set(sounds.flatMap(s => s.tags))).sort((a, b) => a.localeCompare(b, 'fr'));
+    $('#soundbox-tags').innerHTML = all.map(t => `<button type="button" class="chip" data-tag="${esc(t)}" id="soundbox-tag-${esc(Mock.norm(t))}">#${esc(t)}</button>`).join('');
+    Mock.mount(root);
+    render();
+  });
+})();
+</script>

@@ -1,0 +1,536 @@
+{
+  "pages": [
+    {
+      "path": "pages/campagnes.html",
+      "title": "Accueil des campagnes",
+      "objective": "Le DM retrouve ses campagnes et oneshots avec leur couverture, en crée une, exporte une campagne en archive ou en importe une",
+      "screen": "",
+      "components": [
+        "CampaignList"
+      ]
+    },
+    {
+      "path": "pages/parametres-ia.html",
+      "title": "Paramètres IA",
+      "objective": "Le DM choisit l’API cloud ou l’endpoint opencode de son serveur maison, renseigne URL, modèles et clé, et teste la connexion",
+      "screen": "",
+      "components": [
+        "AiSettings"
+      ]
+    },
+    {
+      "path": "pages/campagne.html",
+      "title": "Campagne",
+      "objective": "Le DM parcourt les séances et les éléments de sa campagne, crée ou lance une séance, importe ses notes et traite les entités à créer",
+      "screen": "",
+      "components": [
+        "CampaignOverview",
+        "SessionList",
+        "CampaignElements",
+        "ToCreateList",
+        "NoteImport"
+      ]
+    },
+    {
+      "path": "pages/fiche-entite.html",
+      "title": "Fiche d’entité",
+      "objective": "Le DM renseigne un personnage, un lieu ou un événement, dicte le prompt initial pour obtenir background et statblock, importe un PJ de D&D Beyond et annule un changement de l’IA",
+      "screen": "",
+      "components": [
+        "CampaignElements",
+        "VersionHistory",
+        "EntityEditor"
+      ]
+    },
+    {
+      "path": "pages/preparation-seance.html",
+      "title": "Préparation de séance",
+      "objective": "Le DM relit la séance précédente, raconte son brief au micro, vérifie les scènes et les entités détectées, crée les manquantes et place les tokens sur la battlemap d’une scène",
+      "screen": "",
+      "components": [
+        "PreviousSummary",
+        "OralBrief",
+        "SceneBoard",
+        "VersionHistory",
+        "ToCreateList",
+        "Battlemap"
+      ]
+    },
+    {
+      "path": "pages/medias.html",
+      "title": "Médias et réglage de battlemap",
+      "objective": "Le DM téléverse ses battlemaps et illustrations et règle la grille hexagonale de chaque carte avec un aperçu en direct",
+      "screen": "",
+      "components": [
+        "MediaLibrary",
+        "GridSettings"
+      ]
+    },
+    {
+      "path": "pages/soundbox.html",
+      "title": "Soundbox",
+      "objective": "Le DM téléverse ses effets sonores, les nomme et leur donne des tags",
+      "screen": "",
+      "components": [
+        "SoundLibrary"
+      ]
+    },
+    {
+      "path": "pages/dm-view.html",
+      "title": "DM view",
+      "objective": "Le DM fait rouler la séance : il ouvre les éléments suggérés par le micro, déplace les tokens, mène le combat, joue les sons et envoie cartes et illustrations aux joueurs",
+      "screen": "",
+      "components": [
+        "LiveSessionBar",
+        "ElementsPanel",
+        "TableSheet",
+        "Battlemap",
+        "LiveSoundbox",
+        "SuggestionPill"
+      ]
+    },
+    {
+      "path": "pages/player-view.html",
+      "title": "Player view",
+      "objective": "Les joueurs voient la couverture, la battlemap ou l’illustration envoyée par le DM ; dans l’onglet piloté, le DM y déplace tokens et fenêtre et cadre la carte",
+      "screen": "",
+      "components": [
+        "PlayerStage",
+        "Battlemap"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "name": "CampaignList",
+      "system": "campaign",
+      "description": "Les campagnes et oneshots avec leur couverture ; création, export et import d’archive",
+      "fragment": "components/CampaignList.html",
+      "fixture": "fixtures/CampaignList.json",
+      "needs": [
+        "campaign.listCampaigns"
+      ],
+      "actions": [
+        "campaign.createCampaign",
+        "campaign.exportCampaign",
+        "campaign.importCampaign"
+      ],
+      "props": {}
+    },
+    {
+      "name": "AiSettings",
+      "system": "ai",
+      "description": "Le fournisseur de génération (API cloud ou opencode maison), ses modèles et sa clé, le test de connexion et ce qui sort de la machine",
+      "fragment": "components/AiSettings.html",
+      "fixture": "fixtures/AiSettings.json",
+      "needs": [
+        "ai.getSettings"
+      ],
+      "actions": [
+        "ai.saveSettings",
+        "ai.testConnection"
+      ],
+      "props": {}
+    },
+    {
+      "name": "CampaignOverview",
+      "system": "campaign",
+      "description": "La couverture, le résumé chiffré de la campagne, l’accès à la prochaine séance et l’export en archive",
+      "fragment": "components/CampaignOverview.html",
+      "fixture": "fixtures/CampaignOverview.json",
+      "needs": [
+        "campaign.getCampaign"
+      ],
+      "actions": [
+        "campaign.exportCampaign"
+      ],
+      "props": {}
+    },
+    {
+      "name": "SessionList",
+      "system": "session",
+      "description": "Les séances dans l’ordre avec leur résumé et leurs PJ présents ; création d’une séance avec choix des PJ",
+      "fragment": "components/SessionList.html",
+      "fixture": [
+        "fixtures/SessionList.json",
+        "fixtures/entities.json"
+      ],
+      "needs": [
+        "session.listSessions",
+        "campaign.listCharacters"
+      ],
+      "actions": [
+        "session.createSession"
+      ],
+      "props": {}
+    },
+    {
+      "name": "CampaignElements",
+      "system": "campaign",
+      "description": "Les éléments de la campagne : en grille à onglets (joueurs, personnages, lieux, événements, médias, sons) ou en rail collant à gauche d’une fiche (PJ, PNJ, lieux, événements ; recherche floue, repliable, tiroir sous 960 px)",
+      "fragment": "components/CampaignElements.html",
+      "fixture": [
+        "fixtures/entities.json",
+        "fixtures/media.json",
+        "fixtures/sounds.json"
+      ],
+      "needs": [
+        "campaign.listPlayers",
+        "campaign.listCharacters",
+        "campaign.listPlaces",
+        "campaign.listEvents",
+        "media.listMedia",
+        "soundbox.listSounds"
+      ],
+      "actions": [],
+      "props": {
+        "mode": "\"tabs\" | \"rail\" — grille à onglets (défaut) ou rail latéral qui ouvre la fiche sur place"
+      }
+    },
+    {
+      "name": "NoteImport",
+      "system": "ai",
+      "description": "L’import de notes en texte libre, tapées, collées ou dictées ; extraction par l’IA puis validation en lot, la note brute conservée",
+      "fragment": "components/NoteImport.html",
+      "fixture": "fixtures/NoteImport.json",
+      "needs": [
+        "campaign.listImportedNotes"
+      ],
+      "actions": [
+        "ai.extractFromNotes",
+        "campaign.createEntitiesFromNote"
+      ],
+      "props": {}
+    },
+    {
+      "name": "ToCreateList",
+      "system": "ai",
+      "description": "Les PNJ, lieux et événements issus des briefs, à créer depuis le brief ou après une description affinée à l’oral ou à l’écrit",
+      "fragment": "components/ToCreateList.html",
+      "fixture": "fixtures/ToCreateList.json",
+      "needs": [
+        "campaign.listEntitiesToCreate"
+      ],
+      "actions": [
+        "ai.createFromBrief"
+      ],
+      "props": {
+        "session": "string — id de la séance d’origine, vide pour toute la campagne"
+      }
+    },
+    {
+      "name": "EntityEditor",
+      "system": "campaign",
+      "description": "La fiche d’un personnage, d’un lieu ou d’un événement : identité, alias, prompt initial dicté, fiche de stats, token, notes et D&D Beyond ; s’ouvre sur place depuis le rail, avec une barre de confirmation si la fiche est modifiée et non enregistrée",
+      "fragment": "components/EntityEditor.html",
+      "fixture": [
+        "fixtures/entities.json",
+        "fixtures/EntityEditor.json",
+        "fixtures/media.json"
+      ],
+      "needs": [
+        "campaign.getEntity",
+        "campaign.listPlayers",
+        "media.listMedia"
+      ],
+      "actions": [
+        "campaign.saveEntity",
+        "ai.proposeCharacter",
+        "dndbeyond.importCharacter",
+        "dndbeyond.resyncCharacter"
+      ],
+      "props": {
+        "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse"
+      }
+    },
+    {
+      "name": "VersionHistory",
+      "system": "campaign",
+      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour en arrière",
+      "fragment": "components/VersionHistory.html",
+      "fixture": [
+        "fixtures/VersionHistory.json",
+        "fixtures/entities.json"
+      ],
+      "needs": [
+        "campaign.listEntityVersions"
+      ],
+      "actions": [
+        "campaign.restoreEntityVersion"
+      ],
+      "props": {
+        "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse",
+        "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
+      }
+    },
+    {
+      "name": "PreviousSummary",
+      "system": "session",
+      "description": "Le résumé de la séance précédente, ses entités mentionnées, ses fils ouverts et son journal transcrit en panneau latéral",
+      "fragment": "components/PreviousSummary.html",
+      "fixture": "fixtures/PreviousSummary.json",
+      "needs": [
+        "session.getPreviousSessionSummary",
+        "session.getSessionJournal"
+      ],
+      "actions": [],
+      "props": {}
+    },
+    {
+      "name": "OralBrief",
+      "system": "ai",
+      "description": "Le brief raconté au micro, transcrit en local, puis découpé en scènes avec les entités reconnues, mises à jour ou manquantes",
+      "fragment": "components/OralBrief.html",
+      "fixture": "fixtures/OralBrief.json",
+      "needs": [
+        "session.getLastBrief"
+      ],
+      "actions": [
+        "ai.analyzeBrief"
+      ],
+      "props": {}
+    },
+    {
+      "name": "SceneBoard",
+      "system": "session",
+      "description": "Les PJ présents et les scènes ordonnées de la séance, avec leurs lieux, PNJ, événements, médias, notes et instance de battlemap",
+      "fragment": "components/SceneBoard.html",
+      "fixture": [
+        "fixtures/SceneBoard.json",
+        "fixtures/entities.json",
+        "fixtures/media.json",
+        "fixtures/ToCreateList.json",
+        "fixtures/Battlemap.json"
+      ],
+      "needs": [
+        "session.getSession",
+        "session.listScenes",
+        "campaign.listCharacters",
+        "media.listMedia",
+        "table.getBattlemapInstance"
+      ],
+      "actions": [
+        "session.addPresentCharacter",
+        "session.removePresentCharacter",
+        "session.addScene",
+        "session.reorderScenes",
+        "table.createBattlemapInstance"
+      ],
+      "props": {}
+    },
+    {
+      "name": "Battlemap",
+      "system": "table",
+      "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », instances × N, fiche d’instance, combat et carrousel d’initiative",
+      "fragment": "components/Battlemap.html",
+      "fixture": [
+        "fixtures/Battlemap.json",
+        "fixtures/media.json",
+        "fixtures/entities.json"
+      ],
+      "needs": [
+        "table.getBattlemapInstance",
+        "media.getBattlemap",
+        "campaign.listCharacters"
+      ],
+      "actions": [
+        "table.moveToken",
+        "table.placeTokens",
+        "table.removeToken",
+        "table.renameToken",
+        "table.setTokenVisibility",
+        "table.setTokenCondition",
+        "table.changeHitPoints",
+        "table.startCombat",
+        "table.nextTurn",
+        "table.reorderInitiative",
+        "table.addParticipant",
+        "table.removeParticipant",
+        "table.endCombat",
+        "table.resetBattlemap",
+        "live.showOnPlayerView"
+      ],
+      "props": {
+        "instance": "string — id de l’instance de battlemap",
+        "view": "\"dm\" | \"prep\" | \"player\"",
+        "pilot": "boolean — onglet player view piloté par le DM",
+        "fill": "boolean — occupe tout l’écran"
+      }
+    },
+    {
+      "name": "MediaLibrary",
+      "system": "media",
+      "description": "Le téléversement et la liste des battlemaps et illustrations de la campagne, chacune rattachable à un lieu ; si le lieu est dans la séance, le média l’est aussi",
+      "fragment": "components/MediaLibrary.html",
+      "fixture": [
+        "fixtures/media.json",
+        "fixtures/SceneBoard.json",
+        "fixtures/entities.json"
+      ],
+      "needs": [
+        "media.listMedia",
+        "session.listScenes",
+        "campaign.listPlaces"
+      ],
+      "actions": [
+        "media.uploadMedia",
+        "media.setMediaPlace",
+        "session.addPlaceToSession"
+      ],
+      "props": {}
+    },
+    {
+      "name": "GridSettings",
+      "system": "media",
+      "description": "Le réglage de la grille hexagonale d’une battlemap (taille, décalage, orientation, couleur, opacité) avec un aperçu en direct",
+      "fragment": "components/GridSettings.html",
+      "fixture": "fixtures/media.json",
+      "needs": [
+        "media.getBattlemap"
+      ],
+      "actions": [
+        "media.saveGridSettings"
+      ],
+      "props": {
+        "battlemap": "string — id de la battlemap à régler"
+      }
+    },
+    {
+      "name": "SoundLibrary",
+      "system": "soundbox",
+      "description": "La bibliothèque des effets sonores : téléversement, nom, tags et volume propre",
+      "fragment": "components/SoundLibrary.html",
+      "fixture": "fixtures/sounds.json",
+      "needs": [
+        "soundbox.listSounds"
+      ],
+      "actions": [
+        "soundbox.addSound",
+        "soundbox.updateSound",
+        "soundbox.removeSound"
+      ],
+      "props": {}
+    },
+    {
+      "name": "LiveSessionBar",
+      "system": "session",
+      "description": "La séance en direct : ses scènes, ce que voient les joueurs, l’ouverture de la player view et la clôture avec le résumé à retoucher",
+      "fragment": "components/LiveSessionBar.html",
+      "fixture": [
+        "fixtures/LiveSessionBar.json",
+        "fixtures/media.json",
+        "fixtures/Battlemap.json"
+      ],
+      "needs": [
+        "session.getLiveSession",
+        "live.getDiffusion"
+      ],
+      "actions": [
+        "live.showCover",
+        "live.closeWindow",
+        "session.closeSession"
+      ],
+      "props": {}
+    },
+    {
+      "name": "ElementsPanel",
+      "system": "live",
+      "description": "Le panneau gauche de la DM view : la séance scène par scène, puis toute la campagne par type, avec une recherche approximative sur les noms et alias",
+      "fragment": "components/ElementsPanel.html",
+      "fixture": [
+        "fixtures/entities.json",
+        "fixtures/media.json",
+        "fixtures/SceneBoard.json",
+        "fixtures/Battlemap.json"
+      ],
+      "needs": [
+        "session.listScenes",
+        "campaign.listCharacters",
+        "campaign.listPlaces",
+        "campaign.listEvents",
+        "media.listMedia"
+      ],
+      "actions": [
+        "live.showOnPlayerView",
+        "live.showWindowOnPlayerView"
+      ],
+      "props": {}
+    },
+    {
+      "name": "TableSheet",
+      "system": "live",
+      "description": "La fiche d’un élément en lecture, optimisée pour la table, avec édition et envoi de l’illustration aux joueurs",
+      "fragment": "components/TableSheet.html",
+      "fixture": [
+        "fixtures/entities.json",
+        "fixtures/media.json"
+      ],
+      "needs": [
+        "campaign.getEntity",
+        "media.listMedia"
+      ],
+      "actions": [
+        "live.showOnPlayerView",
+        "live.showWindowOnPlayerView"
+      ],
+      "props": {
+        "type": "\"character\" | \"place\" | \"event\" | \"illustration\"",
+        "id": "string — élément ouvert au départ"
+      }
+    },
+    {
+      "name": "LiveSoundbox",
+      "system": "soundbox",
+      "description": "L’onglet Soundbox de la DM view : cases de sons, recherche, filtre par tags, volume global et par son, « Tout arrêter »",
+      "fragment": "components/LiveSoundbox.html",
+      "fixture": "fixtures/sounds.json",
+      "needs": [
+        "soundbox.listSounds"
+      ],
+      "actions": [
+        "soundbox.playSound",
+        "soundbox.stopAll",
+        "soundbox.setSoundVolume",
+        "soundbox.setMasterVolume"
+      ],
+      "props": {}
+    },
+    {
+      "name": "SuggestionPill",
+      "system": "live",
+      "description": "La pastille en bas à droite : les 5 dernières entités ou sons entendus au micro, leur historique, et le bouton marche/pause du micro",
+      "fragment": "components/SuggestionPill.html",
+      "fixture": "fixtures/SuggestionPill.json",
+      "needs": [
+        "live.listSuggestions"
+      ],
+      "actions": [
+        "live.setMicrophone",
+        "soundbox.playSound"
+      ],
+      "props": {}
+    },
+    {
+      "name": "PlayerStage",
+      "system": "live",
+      "description": "L’écran des joueurs : couverture, battlemap ou illustration en scène, et fenêtre d’illustration flottante déplaçable et redimensionnable",
+      "fragment": "components/PlayerStage.html",
+      "fixture": [
+        "fixtures/PlayerStage.json",
+        "fixtures/media.json"
+      ],
+      "needs": [
+        "live.getDiffusion",
+        "campaign.getCampaign",
+        "media.listMedia"
+      ],
+      "actions": [
+        "live.moveWindow",
+        "live.resizeWindow"
+      ],
+      "props": {
+        "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse"
+      }
+    }
+  ]
+}

@@ -1,0 +1,290 @@
+<div class="mf-entity" id="entity-editor" data-reads="campaign.getEntity">
+  <div class="mf-entity__unsaved" id="entity-unsaved" role="alert" hidden>
+    <p id="entity-unsaved-text"></p>
+    <div data-kit="Button" data-props='{"small":true,"items":[{"id":"entity-unsaved-save","label":"Enregistrer et continuer","variant":"primary","data-writes":"campaign.saveEntity"},{"id":"entity-unsaved-discard","label":"Abandonner","variant":"secondary"},{"id":"entity-unsaved-stay","label":"Rester","variant":"ghost"}]}'></div>
+  </div>
+  <header class="mf-entity__head" id="entity-head"></header>
+  <div class="layout-2">
+    <div class="stack">
+      <form class="panel" id="entity-identity" aria-labelledby="entity-identity-title" onsubmit="return false"></form>
+      <section class="panel" id="entity-prompt" aria-labelledby="entity-prompt-title" hidden></section>
+      <section class="panel" id="entity-sheet" aria-labelledby="entity-sheet-title" hidden></section>
+    </div>
+    <div class="stack">
+      <section class="panel" id="entity-ddb" aria-labelledby="entity-ddb-title" hidden></section>
+      <section class="panel" id="entity-table" aria-labelledby="entity-table-title"></section>
+    </div>
+  </div>
+  <div class="row" id="entity-footer" data-kit="Button" data-props='{"items":[{"id":"entity-save","label":"Enregistrer la fiche","variant":"primary","data-writes":"campaign.saveEntity"},{"id":"entity-back","label":"Retour à la campagne","href":"campagne.html","variant":"ghost"}]}'></div>
+</div>
+<style>
+  .mf-entity { display: grid; gap: var(--space-4); }
+  .mf-entity__unsaved { position: sticky; top: var(--space-2); z-index: 20; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-left: calc(var(--border-width) * 4) solid var(--color-accent); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); }
+  .mf-entity__head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-4); align-items: center; }
+  .mf-entity__portrait { width: calc(var(--space-5) * 2.5); height: calc(var(--space-5) * 2.5); border-radius: var(--radius-pill); overflow: hidden; border: calc(var(--border-width) * 3) solid var(--color-secondary); box-shadow: var(--shadow-high); }
+  .mf-entity__title { display: grid; gap: var(--space-1); }
+  .mf-entity__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-5) * 5), 1fr)); gap: var(--space-3); }
+  .mf-entity__abilities { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-2); }
+  .mf-entity__abilities .kit-input label { font-size: var(--font-size-small); }
+  .mf-entity__abilities .kit-input input { width: 100%; text-align: center; padding: var(--space-1); }
+  .mf-entity__features { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+  .mf-entity__features li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: start; padding: var(--space-2) var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); }
+  .mf-entity__features b { color: var(--color-accent); }
+  .mf-entity__token { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3); align-items: center; }
+  .mf-entity__token .kit-token { padding: 0; background: transparent; }
+  .mf-entity__token .kit-token__portrait { transform-origin: center; }
+  .mf-entity__kept { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); font-size: var(--font-size-small); }
+  .mf-entity__kept li::before { content: "✓ "; color: var(--color-success); }
+  .mf-entity .kit-statblock { max-width: none; }
+  @media (max-width: 760px) { .mf-entity__abilities { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const props = Mock.props(root);
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  const K = Mock.kitHTML;
+  let E, kind, data, players, media, ents;
+  let dirty = false, pending = null, want = null;
+
+  const val = id => { const el = root.querySelector('#' + id); return el ? el.value : ''; };
+  function setVal(id, v) { const el = root.querySelector('#' + id); if (el) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } }
+  const isChar = () => kind === 'character';
+  const isPj = () => isChar() && E.kind === 'pj';
+
+  function head() {
+    const type = isChar() ? (E.kind === 'pj' ? 'PJ' : 'PNJ') : kind === 'place' ? 'Lieu' : 'Événement';
+    const player = isPj() ? (players.find(p => p.id === E.player) || {}).name : null;
+    $('#entity-head').innerHTML = `<div class="mf-entity__portrait" data-reads="media.listMedia">${Mock.art({ art: E.art || (kind === 'event' ? 'blood' : 'night'), glyph: E.initials || (E.name || '?').charAt(0), title: 'Portrait' })}</div>` +
+      `<div class="mf-entity__title">${K('Badge', { items: [{ label: type, tone: 'primary' }].concat(player ? [{ label: 'Joué par ' + player, tone: 'success' }] : []).concat(E.isNew ? [{ label: 'Nouvelle fiche', tone: 'accent' }] : []) })}` +
+      `<h1 id="entity-title">${esc(E.name || 'Sans nom')}</h1><p class="muted">${esc(E.type || E.aliases.join(', ') || 'Renseignez le nom, les alias et la description.')}</p></div>`;
+    Mock.mount($('#entity-head'));
+  }
+
+  function identity() {
+    let html = `<h2 id="entity-identity-title">Identité</h2><div class="mf-entity__grid">` +
+      K('Input', { id: 'entity-name', label: 'Nom', value: E.name, wide: true }) +
+      K('Input', { id: 'entity-aliases', label: 'Alias', value: E.aliases.join(', '), wide: true, hint: 'Séparés par des virgules — servent à la détection au micro' }) + '</div>';
+    if (isChar()) {
+      html += `<div class="mf-entity__grid">` + K('Radio', { id: 'entity-kind', legend: 'Personnage', name: 'entity-kind', options: [
+        { label: 'PNJ', hint: 'joué par le MJ', value: 'pnj', checked: E.kind === 'pnj' },
+        { label: 'PJ', hint: 'lié à un joueur', value: 'pj', checked: E.kind === 'pj' }] }) +
+        `<div id="entity-player-field" data-reads="campaign.listPlayers"${isPj() ? '' : ' hidden'}>` + K('Select', { id: 'entity-player', label: 'Joueur', value: E.player || players[0].id, options: players.map(p => ({ value: p.id, label: p.name })) }) + '</div></div>';
+    }
+    html += K('TextArea', { id: 'entity-description', label: 'Description', value: E.description, rows: 3, wide: true, max: 600 });
+    if (kind === 'place') {
+      html += K('Select', { id: 'entity-illustration', label: 'Illustration associée', value: E.illustration || '', wide: true, options: [{ value: '', label: 'Aucune' }].concat(media.illustrations.map(i => ({ value: i.id, label: i.title }))) });
+    }
+    $('#entity-identity').innerHTML = html;
+    Mock.mount($('#entity-identity'));
+  }
+
+  function prompt() {
+    const box = $('#entity-prompt');
+    box.hidden = !isChar();
+    if (!isChar()) return;
+    box.innerHTML = `<div class="panel__head"><h2 id="entity-prompt-title">Aide à la création</h2><span class="small muted">Seul le texte transcrit part vers le fournisseur IA</span></div>` +
+      `<p class="small muted">Racontez le personnage à voix haute : l’IA propose un background, un comportement pour l’interpréter${isPj() ? '' : ' et un statblock crédible'}. La fiche est modifiée et la version précédente reste dans l’historique.</p>` +
+      `<div class="row">${K('MicButton', { id: 'entity-prompt-mic', label: 'Raconter le prompt initial', compact: true })}</div>` +
+      K('TextArea', { id: 'entity-prompt-text', label: 'Prompt initial', value: E.prompt, rows: 3, wide: true, placeholder: 'Ex. : un gobelin marchand, nerveux, qui doit de l’argent à des gens dangereux…' }) +
+      K('Button', { items: [{ id: 'entity-propose', label: isPj() ? 'Proposer background et comportement' : 'Proposer background, comportement et statblock', variant: 'primary', 'data-writes': 'ai.proposeCharacter' }] }) +
+      K('TextArea', { id: 'entity-background', label: 'Background', value: E.background, rows: 4, wide: true }) +
+      K('TextArea', { id: 'entity-behavior', label: 'Comportement, pour l’interpréter', value: E.behavior, rows: 3, wide: true });
+    Mock.mount(box);
+  }
+
+  function features() {
+    return E.features.map((f, i) => `<li data-feature="${i}"><span><b>${esc(f.name)}.</b> ${esc(f.text)}</span><button type="button" class="icon-btn" data-remove-feature="${i}" aria-label="Retirer ${esc(f.name)}">×</button></li>`).join('');
+  }
+  function statblock() {
+    const sb = $('#entity-statblock');
+    if (!sb) return;
+    sb.innerHTML = K('StatBlock', { name: val('entity-name') || E.name, type: E.type || 'Humanoïde de taille M',
+      vitals: [{ label: 'CA', value: val('entity-ca') }, { label: 'PV', value: val('entity-pv') }, { label: 'Vitesse', value: val('entity-speed') }],
+      abilities: Object.fromEntries(Mock.abilities.map(k => [k, +val('entity-stat-' + k) || 10])), features: E.features });
+    Mock.mount(sb);
+  }
+  function sheet() {
+    const box = $('#entity-sheet');
+    box.hidden = !isChar();
+    if (!isChar()) return;
+    box.innerHTML = `<div class="panel__head"><h2 id="entity-sheet-title">Fiche</h2><span class="small muted">${isPj() ? 'Mise à jour par D&D Beyond' : 'Sert à l’initiative et aux PV en combat'}</span></div>` +
+      `<div class="mf-entity__abilities" id="entity-abilities">` + Mock.abilities.map(k => K('Input', { id: 'entity-stat-' + k, label: k + ' ' + Mock.mod(E.stats[k]), type: 'number', value: E.stats[k], min: 1, max: 30 })).join('') + '</div>' +
+      `<div class="mf-entity__grid">` + K('Input', { id: 'entity-ca', label: 'CA', type: 'number', value: E.ca }) + K('Input', { id: 'entity-pv', label: 'PV max', type: 'number', value: E.pvMax }) + K('Input', { id: 'entity-speed', label: 'Vitesse', value: E.speed }) + '</div>' +
+      `<h3 id="entity-features-title">Sorts et capacités</h3><ul class="mf-entity__features" id="entity-features">${features()}</ul>` +
+      `<div class="mf-entity__grid" id="entity-feature-add">` + K('Input', { id: 'entity-feature-name', label: 'Nom', placeholder: 'Boule de feu' }) + K('Input', { id: 'entity-feature-text', label: 'Description', placeholder: 'Sphère de 6 m, 8d6 dégâts de feu…', wide: true }) + '</div>' +
+      K('Button', { small: true, items: [{ id: 'entity-feature-submit', label: 'Ajouter le sort ou la capacité', variant: 'secondary' }] }) +
+      (isPj() ? '' : '<div id="entity-statblock"></div>');
+    Mock.mount(box);
+    statblock();
+  }
+
+  function ddb() {
+    const box = $('#entity-ddb');
+    box.hidden = !isPj();
+    if (!isPj()) return;
+    const d = E.ddb || {};
+    box.innerHTML = `<h2 id="entity-ddb-title">D&amp;D Beyond</h2>` +
+      K('Input', { id: 'entity-ddb-url', label: 'URL du personnage', value: d.url || '', placeholder: 'https://www.dndbeyond.com/characters/…', wide: true }) +
+      K('Button', { small: true, items: [{ id: 'entity-ddb-import', label: 'Importer', variant: d.url ? 'ghost' : 'primary', 'data-writes': 'dndbeyond.importCharacter' }, { id: 'entity-ddb-resync', label: 'Resynchroniser', variant: 'primary', disabled: !d.url, 'data-writes': 'dndbeyond.resyncCharacter' }] }) +
+      `<p class="small muted" id="entity-ddb-status">${d.syncedAt ? 'Dernière synchronisation : ' + new Date(d.syncedAt).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' }) : 'Jamais importé'}</p>` +
+      '<p class="small muted">La resynchronisation met à jour les stats, les PV et les sorts. Les alias, les notes et le token définis ici sont conservés.</p><div id="entity-ddb-diff"></div>';
+    Mock.mount(box);
+  }
+
+  function tokenPreview() {
+    const box = $('#entity-token-preview');
+    if (!box) return;
+    const z = +val('entity-crop-zoom') || 100, x = +val('entity-crop-x') || 50, y = +val('entity-crop-y') || 50;
+    box.innerHTML = K('Token', { items: [{ name: (val('entity-name') || E.name).split(' ')[0], initials: E.initials, art: E.portrait ? E.art : null, color: E.color || 'secondary', num: E.kind === 'pnj' ? 1 : null }] });
+    Mock.mount(box);
+    const p = box.querySelector('.kit-token__portrait');
+    if (p) p.style.transform = `scale(${z / 100}) translate(${(50 - x) / 2}%, ${(50 - y) / 2}%)`;
+  }
+  function table() {
+    const box = $('#entity-table');
+    if (!isChar()) {
+      box.innerHTML = `<h2 id="entity-table-title">${kind === 'place' ? 'Illustration' : 'Liens'}</h2>` + (kind === 'place'
+        ? `<div class="mf-entity__portrait" data-reads="media.listMedia">${Mock.art({ art: E.art || 'night', glyph: (E.name || '?').charAt(0) })}</div>` + K('FileDrop', { id: 'entity-illustration-drop', title: 'Nouvelle illustration :', hint: 'Elle pourra être envoyée aux joueurs', types: ['JPG', 'PNG', 'WEBP'], wide: true })
+        : '<p class="muted">Un événement se lie aux scènes depuis la préparation de séance.</p>');
+      Mock.mount(box);
+      return;
+    }
+    const c = E.crop || { zoom: 100, x: 50, y: 50 };
+    box.innerHTML = `<h2 id="entity-table-title">À la table</h2>` +
+      K('FileDrop', { id: 'entity-portrait-drop', title: 'Portrait :', hint: E.portrait ? 'Portrait actuel : ' + (E.name || '').toLowerCase().split(' ')[0] + '-portrait.png' : 'Aucun portrait — pastille de couleur et initiales', types: ['PNG', 'JPG', 'WEBP'], wide: true }) +
+      `<h3>Token</h3><div class="mf-entity__token" id="entity-token"><div id="entity-token-preview"></div>` +
+      K('Slider', { bare: true, fields: [
+        { id: 'entity-crop-zoom', name: 'zoom', label: 'Recadrage — zoom', value: c.zoom, min: 100, max: 220, unit: '%' },
+        { id: 'entity-crop-x', name: 'x', label: 'Centre horizontal', value: c.x, min: 0, max: 100, unit: '%' },
+        { id: 'entity-crop-y', name: 'y', label: 'Centre vertical', value: c.y, min: 0, max: 100, unit: '%' }] }) + '</div>' +
+      K('Button', { small: true, items: [{ id: 'entity-token-image', label: 'Remplacer par une image de token dédiée', variant: 'ghost' }] }) +
+      K('TextArea', { id: 'entity-notes', label: 'Notes du MJ', value: E.notes, rows: 4, wide: true, hint: 'Jamais visibles sur la player view' });
+    Mock.mount(box);
+    tokenPreview();
+  }
+
+  function renderAll() { head(); identity(); prompt(); sheet(); ddb(); table(); }
+
+  // A human edit (a trusted event) makes the sheet dirty; the fields the AI or D&D Beyond fill do not.
+  root.addEventListener('input', e => {
+    const id = e.target.id || '';
+    if (e.isTrusted) dirty = true;
+    if (id.startsWith('entity-crop')) tokenPreview();
+    if (id.startsWith('entity-stat-') || id === 'entity-ca' || id === 'entity-pv' || id === 'entity-speed' || id === 'entity-name') statblock();
+    if (id.startsWith('entity-stat-')) { const k = id.slice(12); E.stats[k] = +e.target.value; const lab = e.target.closest('label'); if (lab) lab.firstChild.textContent = k + ' ' + Mock.mod(+e.target.value); }
+  });
+  root.addEventListener('change', e => {
+    if (e.isTrusted) dirty = true;
+    if (e.target.name === 'entity-kind') { E.kind = e.target.value; renderAll(); }
+  });
+  root.addEventListener('kit:change', e => {
+    dirty = true;
+    if (e.target.querySelector('#entity-player')) { E.player = e.detail.value; head(); }
+  });
+  root.addEventListener('kit:mic', e => {
+    if (e.detail.state === 'paused' && e.target.querySelector('#entity-prompt-mic')) dirty = true;
+    if (e.detail.state === 'paused' && e.target.querySelector('#entity-prompt-mic')) setVal('entity-prompt-text', data.dictations[E.id] || data.dictations.default);
+  });
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.removeFeature != null) { dirty = true; E.features.splice(+b.dataset.removeFeature, 1); $('#entity-features').innerHTML = features(); statblock(); }
+    if (b.id === 'entity-feature-submit' && val('entity-feature-name').trim()) {
+      dirty = true;
+      E.features.push({ name: val('entity-feature-name').trim(), text: val('entity-feature-text').trim() });
+      setVal('entity-feature-name', ''); setVal('entity-feature-text', '');
+      $('#entity-features').innerHTML = features(); statblock();
+    }
+    if (b.id === 'entity-propose') {
+      if (!val('entity-prompt-text').trim()) { $('#entity-prompt-text').focus(); return; }
+      Mock.command('ai.proposeCharacter', { id: E.id, prompt: val('entity-prompt-text') }, { label: 'Proposer depuis le prompt initial' }).then(() => {
+        const p = data.proposals[E.id] || data.proposals.default;
+        setVal('entity-background', p.background);
+        setVal('entity-behavior', p.behavior);
+        if (!isPj()) { Object.assign(E.stats, p.stats); E.ca = p.ca; E.pvMax = p.pvMax; E.features = p.features; sheet(); }
+        Mock.emit('entity-updated', { id: E.id, origin: 'ia', source: 'Prompt initial dicté', changes: isPj() ? p.changes.slice(0, 1) : p.changes });
+      });
+    }
+    if (b.id === 'entity-ddb-import') Mock.command('dndbeyond.importCharacter', { url: val('entity-ddb-url') }, { label: 'Importer depuis D&D Beyond' });
+    if (b.id === 'entity-ddb-resync') {
+      Mock.command('dndbeyond.resyncCharacter', { id: E.id, url: val('entity-ddb-url') }, { label: 'Resynchroniser depuis D&D Beyond' }).then(() => {
+        const r = data.ddbResync[E.id] || data.ddbResync.default;
+        if (r.patch.stats) Object.assign(E.stats, r.patch.stats);
+        if (r.patch.pvMax) E.pvMax = r.patch.pvMax;
+        if (r.patch.type) E.type = r.patch.type;
+        E.ddb.syncedAt = '2026-10-14T21:05:00';
+        sheet(); head(); ddb();
+        $('#entity-ddb-diff').innerHTML = K('DiffView', { title: 'Resynchronisation', meta: r.changes.length + ' champs mis à jour', actions: false, rows: r.changes }) +
+          `<h3>Conservés</h3><ul class="mf-entity__kept" id="entity-ddb-kept"><li>Alias : ${esc(val('entity-aliases'))}</li><li>Notes : ${esc((val('entity-notes') || '').slice(0, 60))}…</li><li>Token : recadrage ${esc(val('entity-crop-zoom'))} %</li></ul>`;
+        Mock.mount($('#entity-ddb-diff'));
+        Mock.emit('entity-updated', { id: E.id, origin: 'dndbeyond', source: 'Resynchronisation D&D Beyond', changes: r.changes });
+      });
+    }
+    if (b.id === 'entity-save') save();
+    if (b.id === 'entity-unsaved-save') { const next = pending; hideBar(); save().then(() => open(next)); }
+    if (b.id === 'entity-unsaved-discard') open(pending);
+    if (b.id === 'entity-unsaved-stay') { pending = null; hideBar(); }
+  });
+
+  function save() {
+    return Mock.command('campaign.saveEntity', { id: E.id }, { label: 'Enregistrer « ' + (val('entity-name') || E.name) + ' »' }).then(() => { dirty = false; });
+  }
+  const nameOf = req => req.new ? 'une nouvelle fiche' : '« ' + ((ents.characters.concat(ents.places, ents.events).find(x => x.id === req.id) || {}).name || req.id) + ' »';
+  function showBar() {
+    $('#entity-unsaved-text').textContent = '« ' + (val('entity-name') || E.name || 'Nouvelle fiche') + ' » a des modifications non enregistrées. Ouvrir ' + nameOf(pending) + ' ?';
+    $('#entity-unsaved').hidden = false;
+  }
+  function hideBar() { $('#entity-unsaved').hidden = true; }
+
+  // A click in the elements rail: the sheet changes in place, after a choice when the current one is unsaved.
+  function request(req) {
+    if (!ents) { want = req; return; }
+    if (!req.new && !E.isNew && req.id === E.id) { pending = null; hideBar(); return; }
+    if (dirty) { pending = req; showBar(); return; }
+    open(req);
+  }
+  Mock.on('open-entity', request);
+  Mock.on('entity-query', () => { if (E) Mock.emit('entity-opened', { id: E.isNew ? null : E.id, name: E.name, kind }); });
+
+  // Fixtures are cloned on every read, so abandoning a sheet gives back the one the fixture holds.
+  function open(req, first) {
+    return Mock.fixture(['fixtures/entities.json', 'fixtures/EntityEditor.json', 'fixtures/media.json']).then(([e, ed, m]) => {
+      ents = e; data = ed; players = e.players; media = m;
+      const fresh = req.new, name = req.name || '';
+      if (fresh === 'lieu') { kind = 'place'; E = { id: 'nouveau-lieu', name, aliases: [], description: '', illustration: null, art: 'night', isNew: true }; }
+      else if (fresh === 'evenement') { kind = 'event'; E = { id: 'nouvel-evenement', name, aliases: [], description: '', isNew: true }; }
+      else if (fresh) {
+        kind = 'character';
+        E = { id: 'nouveau-pnj', name, aliases: [], kind: fresh === 'pj' ? 'pj' : 'pnj', player: null, type: '', description: '', prompt: '', background: '', behavior: '',
+          stats: { FOR: 10, DEX: 10, CON: 10, INT: 10, SAG: 10, CHA: 10 }, ca: 10, pvMax: 8, speed: '9 m', features: [], art: null, color: 'secondary',
+          initials: (name || 'NP').split(' ').map(w => w.charAt(0)).join('').slice(0, 2).toUpperCase(), portrait: false, notes: '', ddb: {}, isNew: true };
+      } else {
+        const id = req.id || ed.defaultEntity;
+        E = e.characters.find(c => c.id === id);
+        kind = 'character';
+        if (!E) { E = e.places.find(p => p.id === id); kind = 'place'; }
+        if (!E) { E = e.events.find(v => v.id === id); kind = 'event'; }
+        if (!E) { E = e.characters.find(c => c.id === ed.defaultEntity); kind = 'character'; }
+      }
+      E.ddb = E.ddb || {};
+      pending = null; hideBar();
+      document.title = (E.name || 'Nouvelle fiche') + ' — Fiche d’entité — ForgeDesMondes';
+      if (!first) {
+        try { history.replaceState(null, '', fresh ? '?new=' + encodeURIComponent(fresh) : '?id=' + encodeURIComponent(E.id)); } catch (err) { /* page in a frame without history access */ }
+        window.scrollTo({ top: 0 });
+      }
+      // Leaving a focused field fires a change event: let it pass, then start clean.
+      if (root.contains(document.activeElement)) document.activeElement.blur();
+      renderAll();
+      dirty = false;
+      Mock.emit('entity-opened', { id: E.isNew ? null : E.id, name: E.name, kind });
+    });
+  }
+
+  open({ id: Mock.param('id') || props.entity, new: Mock.param('new'), name: Mock.param('name') }, true).then(() => {
+    if (want) { const r = want; want = null; request(r); }
+  });
+})();
+</script>

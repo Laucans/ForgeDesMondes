@@ -1,0 +1,89 @@
+{
+  "ports": [
+    {
+      "adapter": "crates/data",
+      "cost": "the host's",
+      "fake": "",
+      "id": "database",
+      "provider": "PostgreSQL 16",
+      "purpose": "The product's store: the Data layer reads it, the DataGuard writes it — listed, not abstracted.",
+      "secrets": [
+        "DATABASE_URL"
+      ],
+      "stateful": true,
+      "tech": {
+        "kind": "sql",
+        "name": "postgres",
+        "version": "16"
+      },
+      "usedBy": []
+    },
+    {
+      "adapter": "crates/ports/llm/anthropic-claude-api-default-claude-sonnet-5-5-for-generation-claude-haiku-4-5-20251001-for-summaries-switchable-to-the-dm-s-home-opencode-server-endpoint-or-to-the-opencode-claude-code-binaries",
+      "cost": "Pay per token on the cloud API (generation model plus a cheaper summary model); free on the home opencode server or with a binary under the DM's existing subscription",
+      "fake": "crates/ports/llm",
+      "id": "llm",
+      "provider": "Anthropic Claude API (default; claude-sonnet-5-5 for generation, claude-haiku-4-5-20251001 for summaries), switchable to the DM's home opencode server endpoint or to the opencode / Claude Code binaries",
+      "purpose": "Text generation from text only: extract entities from imported notes, turn an oral brief into scenes and detect existing or missing NPCs, places and events, propose backgrounds, behaviour and credible NPC statblocks, generate the end-of-session summary, and test the connection. It is reached either by an API URL whose type is auto-detected (cloud API or the home opencode server endpoint) or by a local binary (opencode or Claude Code).",
+      "secrets": [
+        "LLM_API_KEY"
+      ],
+      "stateful": false,
+      "tech": {
+        "kind": "rest",
+        "name": "Anthropic Messages API + OpenAI-compatible chat completions (opencode server); CLI adapters for opencode and claude",
+        "version": "anthropic-version 2023-06-01"
+      },
+      "usedBy": [
+        "ai.testConnection",
+        "ai.extractFromNotes",
+        "ai.analyzeBrief",
+        "ai.createFromBrief",
+        "ai.proposeCharacter",
+        "session.closeSession"
+      ]
+    },
+    {
+      "adapter": "crates/ports/speech-to-text/phonon-local-to-be-evaluated-as-the-decision-requests",
+      "cost": "Free: runs on the DM's machine",
+      "fake": "crates/ports/speech-to-text",
+      "id": "speech-to-text",
+      "provider": "Phonon (local, to be evaluated as the decision requests)",
+      "purpose": "Local French transcription of the microphone, with vocabulary injected from campaign names, aliases and sound names. It feeds live suggestions, the timestamped session journal, the oral brief, dictated character prompts, refinements and dictated notes. No audio leaves the machine.",
+      "secrets": [],
+      "stateful": false,
+      "tech": {
+        "kind": "other",
+        "name": "Local Phonon runtime as a sidecar process, streaming transcription",
+        "version": "to evaluate"
+      },
+      "usedBy": [
+        "live.setMicrophone",
+        "ai.analyzeBrief",
+        "ai.proposeCharacter",
+        "ai.createFromBrief",
+        "ai.extractFromNotes"
+      ]
+    },
+    {
+      "adapter": "crates/ports/character-sheets/d-d-beyond-public-character-json-service",
+      "cost": "Free; requires characters shared as public; unofficial endpoint that may change without notice",
+      "fake": "crates/ports/character-sheets",
+      "id": "character-sheets",
+      "provider": "D&D Beyond (public character JSON service)",
+      "purpose": "Import a player character by its D&D Beyond URL, and resynchronise stats, HP and spells after a level-up. Local aliases, notes and the token are kept, and every change is versioned locally.",
+      "secrets": [],
+      "stateful": true,
+      "tech": {
+        "kind": "rest",
+        "name": "character-service.dndbeyond.com/character/v5/character/{id} (unofficial, public sharing required)",
+        "version": "v5"
+      },
+      "usedBy": [
+        "dndbeyond.importCharacter",
+        "dndbeyond.resyncCharacter"
+      ]
+    }
+  ],
+  "version": 1
+}

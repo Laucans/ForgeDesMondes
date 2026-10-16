@@ -1,0 +1,2844 @@
+{
+  "version": 1,
+  "name": "ForgeDesMondes",
+  "repository": "Laucans/ForgeDesMondes",
+  "kind": "vertical",
+  "brief": "### What is the application, and what problem does it solve?\n\nUne application pour faire rouler mes campagnes ou oneshot DND. Elle offre une aide à la préparation, qui porte les joueurs, personnages, lieux, événements et les organise dans des séances, et aussi un mode pour faire rouler la session en direct.\n\n### Who uses it?\n\n- **Le DM** (moi) : prépare la campagne et fait rouler la session depuis la DM view, avec tous les éléments de la campagne, les suggestions de l'IA et la soundbox.\n- **Les joueurs** : voient la player view, où le DM envoie des battlemaps ou des illustrations. Ils sont utilisateur spectateur, pas d'interaction.\n\n### What do they do with it?\n\n**Préparer une campagne ou un oneshot**\n- Saisir les joueurs, personnages, lieux et événements, et les organiser dans des séances.\n\n**Faire rouler une session**\n- J'ouvre deux pages : la DM view et la player view.\n- Un micro écoute ce qui se passe en temps réel ; une petite fenêtre en bas à droite me propose des éléments à ouvrir pour m'aider. Exemple : je dis un lieu, le lieu apparaît en bas à droite, je peux cliquer dessus et ça ouvre le lieu sur la page principale.\n- À gauche, j'ai tous les éléments de la campagne.\n- Un onglet soundbox me permet de jouer des sons ; l'IA peut aussi proposer des sons de la soundbox qui fittent avec ce qui se passe.\n- Vers la player view, je peux envoyer des battlemaps ou des illustrations que j'ai préconstruites.\n- Les battlemaps ont un overlay hexagonal et des tokens de personnages (joueurs ou non) que je peux déplacer sur la vue.\n- Le MJ peut lancer un combat sur une battlemap, dans ce cas tout les non joueurs ont une initiative aleatoire, tout les joueurs j'ai un champ pour mettre l'initiative. Un carrousel a l'image de celui du plugin foundry apparait sur la vue joueur, je peux le voir sur la vue MJ egalement\n- Lorsque le MJ deplace les tokens, un calcul automatique du nombre d'hexagone de chemin apparait en vert pendant le drag and drop. Il prend son essence ou le token etait placé et calcul par rapport a ou mon curseur est. Le curseur porte d'ailleur le token\n\n### What does it keep, and what does it connect to?\n\n- **Éléments de campagne** : joueurs, personnages, lieux, événements, organisés en séances.\n- **Médias** : battlemaps et illustrations préconstruites ; tokens de personnages (joueurs ou non) ; sons de la soundbox.\n- **Micro** : écoute en temps réel de la session, analysée par une IA pour proposer des éléments et des sons.\n- **Deux vues** ouvertes simultanément : DM view et player view.",
+  "decisions": [
+    {
+      "id": 1,
+      "title": "Mono-utilisateur ou multi-DM",
+      "body": "L'application sert-elle uniquement toi (un seul DM, usage local/personnel), ou doit-elle gérer plusieurs DM avec comptes et authentification ? Choix : (a) un seul DM, pas de comptes ; (b) plusieurs DM avec comptes séparés.",
+      "recommended": "(a) Un seul DM, pas de comptes pour le PoC : tout tourne pour toi seul.",
+      "answer": "(a) Un seul DM, pas de comptes pour le PoC : tout tourne pour toi seul.",
+      "round": 1,
+      "topic": ""
+    },
+    {
+      "id": 2,
+      "title": "Où tournent les deux vues",
+      "body": "La player view est-elle affichée sur un second écran/projecteur branché sur ton ordinateur (même machine, deux fenêtres), ou chaque joueur l'ouvre-t-il sur son propre appareil via un lien réseau ? Choix : (a) même machine, deux fenêtres ; (b) appareils distants via le réseau local ; (c) appareils distants via Internet.",
+      "recommended": "(a) Même machine, deux fenêtres synchronisées localement : c'est le cas de table classique et le plus simple pour le PoC.",
+      "answer": "(a) Même machine, deux fenêtres synchronisées localement : c'est le cas de table classique et le plus simple pour le PoC.",
+      "round": 1,
+      "topic": ""
+    },
+    {
+      "id": 3,
+      "title": "Périmètre du PoC",
+      "body": "Quelles parties doivent absolument être dans la preuve de concept ? Choix : préparation de campagne, DM view avec liste des éléments, envoi vers la player view, battlemap hexagonale avec tokens et calcul de distance, combat avec carrousel d'initiative, soundbox, écoute micro + suggestions IA d'éléments, suggestions IA de sons.",
+      "recommended": "Tout sauf les suggestions IA de sons : préparation, DM view, player view, battlemap hex + tokens + distance, combat/initiative, soundbox manuelle, et micro + suggestions d'éléments (c'est le cœur différenciant).",
+      "answer": "Tout sauf les suggestions IA de sons : préparation, DM view, player view, battlemap hex + tokens + distance, combat/initiative, soundbox manuelle, et micro + suggestions d'éléments (c'est le cœur différenciant). Il faut aussi une aide a la creation des entité, comme la generation des statblock credible des PNJ, une proposition de leurs background par rapport a leur prompt initial... D'ailleur le prompt initial doit pouvoir etre comté à l'oral quand je cree un personnage. Si je cree une session, je dois pouvoir donner un brief a l'oral ca detecte les PNJ deja existant (les mets a jour si necessaire) ou manquant (dans ce cas les mets dans une liste a creer, si je demande de les creer je peux soit raffiner le descriptif avant la proposition, soit il doit se baser sur ce que j'ai decris dans la session)",
+      "round": 1,
+      "topic": ""
+    },
+    {
+      "id": 4,
+      "title": "Hors périmètre explicite",
+      "body": "Lesquels de ces éléments sont explicitement exclus : fiches de personnage complètes (stats, PV, sorts), lancers de dés intégrés, brouillard de guerre, import depuis D&D Beyond/Foundry, génération d'images ou de battlemaps par IA, usage hors ligne, mobile ?",
+      "recommended": "Tous exclus du PoC. Les personnages restent des fiches descriptives simples ; les médias sont importés par toi.",
+      "answer": "Tous exclus du PoC sauf fiche de personnage et import d&d beyond. Les personnages restent des fiches descriptives simples avec stats, PV et sort. L'import depuis D&Dbeyond des personnage joueurs doit se faire egalement en utilisant une URL.",
+      "round": 1,
+      "topic": ""
+    },
+    {
+      "id": 9,
+      "title": "Forme de l'application",
+      "body": "Sous quelle forme l'application tourne-t-elle sur ta machine ? (a) Application web servie en local (localhost) et ouverte dans le navigateur, la player view étant une seconde fenêtre que tu glisses sur l'écran ou la TV des joueurs. (b) Application desktop installée (type Electron/Tauri) qui ouvre elle-même ses deux fenêtres. (c) Autre.",
+      "recommended": "(a) Web app locale dans le navigateur, deux fenêtres synchronisées : c'est le plus simple à livrer, et le micro et l'audio sont bien supportés par le navigateur.",
+      "answer": "(a) Web app locale dans le navigateur, deux fenêtres synchronisées : c'est le plus simple à livrer, et le micro et l'audio sont bien supportés par le navigateur.",
+      "round": 2,
+      "topic": ""
+    },
+    {
+      "id": 10,
+      "title": "Preuve que le PoC fonctionne",
+      "body": "Qu'est-ce qui prouvera que le PoC est réussi ? (a) Tu prépares un vrai oneshot avec l'outil (entités créées à l'oral, statblocks générés, battlemaps) puis tu le fais jouer en entier à ta table sans revenir à tes anciens outils. (b) Une démo scénarisée de chaque fonctionnalité, sans vraie partie. (c) Des critères chiffrés, par exemple : suggestion affichée moins de X secondes après qu'un lieu est nommé, et Y % des entités citées correctement détectées.",
+      "recommended": "(a) complété par deux seuils de (c) : faire jouer un vrai oneshot de bout en bout, avec une suggestion qui apparaît en moins de 3 secondes et au moins 80 % des entités nommées détectées.",
+      "answer": "Je l'utilise pour poursuivre ma campagne actuel et preparer les prochaines sessions, avec une reduction de 50% sur la preparation d'une session.",
+      "round": 2,
+      "topic": ""
+    },
+    {
+      "id": 25,
+      "title": "Reprise de la campagne actuelle",
+      "body": "Le PoC est jugé sur ta campagne en cours. Ce qui existe déjà (PNJ, lieux, séances passées, notes) doit donc entrer dans l'application. Trois options : (a) saisie manuelle et brief oral uniquement ; (b) import de notes en texte libre (collage ou fichiers Markdown/texte) que l'IA découpe en entités (PNJ, lieux, événements, séances passées), modifiées automatiquement avec historique comme les autres propositions ; (c) import structuré depuis un outil précis (World Anvil, Notion, Obsidian…).",
+      "recommended": "(b) Import de texte libre découpé par l'IA en entités, avec le même mécanisme « updated » + diff + revert. Complété par le brief oral pour ce qui n'est écrit nulle part. Ça évite de ressaisir toute la campagne avant de pouvoir tester.",
+      "answer": "Saisie manuelle, brief oral et import de notes en texte libre.",
+      "round": 4,
+      "topic": ""
+    },
+    {
+      "id": 27,
+      "title": "Sauvegarde des données",
+      "body": "Toutes les données (campagnes, médias, journaux de séance, historique des modifications IA) restent locales. Que se passe-t-il pour la sauvegarde ? (a) Rien de spécial, les données restent dans le dossier de l'application ; (b) un export/import d'une campagne complète en archive (données + médias), lancé à la main ; (c) une sauvegarde automatique vers un emplacement choisi, par exemple ton serveur maison.",
+      "recommended": "(b) Un export/import manuel par campagne en une archive. C'est simple, ça protège ta campagne en cours et ça permet de la déplacer entre machines. La sauvegarde automatique (c) viendra plus tard.",
+      "answer": "(b) Un export/import manuel par campagne en une archive. C'est simple, ça protège ta campagne en cours et ça permet de la déplacer entre machines. La sauvegarde automatique (c) viendra plus tard.",
+      "round": 4,
+      "topic": ""
+    },
+    {
+      "id": 5,
+      "title": "Campagne vs oneshot",
+      "body": "Un oneshot est-il simplement une campagne d'une seule séance, ou un type distinct avec un comportement différent ? Et peux-tu avoir plusieurs campagnes en parallèle, chacune avec ses propres éléments ? Choix : (a) même modèle, une campagne contient 1..n séances, plusieurs campagnes possibles ; (b) deux types distincts.",
+      "recommended": "(a) Même modèle : un oneshot est une campagne à une séance ; plusieurs campagnes indépendantes possibles.",
+      "answer": "(a) Même modèle : un oneshot est une campagne à une séance ; plusieurs campagnes indépendantes possibles.",
+      "round": 1,
+      "topic": "Préparation de campagne"
+    },
+    {
+      "id": 6,
+      "title": "Joueurs vs personnages",
+      "body": "Distingues-tu le joueur (la personne réelle) de son personnage, et un joueur peut-il avoir plusieurs personnages dans une campagne ? Les PNJ sont-ils des 'personnages' sans joueur ? Choix : (a) joueur = personne, personnage = PJ ou PNJ, PJ rattaché à un joueur ; (b) seulement des personnages, le joueur est un simple champ texte.",
+      "recommended": "(a) Joueur et personnage distincts ; un personnage est PJ (lié à un joueur) ou PNJ ; un joueur peut avoir plusieurs personnages.",
+      "answer": "(a) Joueur et personnage distincts ; un personnage est PJ (lié à un joueur) ou PNJ ; un joueur peut avoir plusieurs personnages.",
+      "round": 1,
+      "topic": "Préparation de campagne"
+    },
+    {
+      "id": 17,
+      "title": "Contenu d'une séance",
+      "body": "Que contient une séance ? (a) Une liste ordonnée de scènes ou événements, chacun rattaché à des lieux, des PNJ et des médias (battlemaps, illustrations, sons), plus des notes libres. (b) Un simple regroupement d'entités existantes, sans ordre ni scènes. (c) Un texte libre de préparation où les entités sont mentionnées et liées automatiquement.",
+      "recommended": "(a) Une liste ordonnée de scènes ou événements, chacune liée à des lieux, des PNJ et des médias, avec des notes libres. La DM view peut alors suivre la séance scène par scène, et le brief oral peut produire directement cette structure.",
+      "answer": "(a) Une liste ordonnée de scènes ou événements, chacune liée à des lieux, des PNJ et des médias, avec des notes libres. La DM view peut alors suivre la séance scène par scène, et le brief oral peut produire directement cette structure.",
+      "round": 3,
+      "topic": "Préparation de campagne"
+    },
+    {
+      "id": 18,
+      "title": "Synchronisation D&D Beyond",
+      "body": "L'import d'un PJ depuis une URL D&D Beyond est-il : (a) un import unique, la fiche devenant ensuite locale et éditable ; (b) un import avec un bouton « Resynchroniser » qui écrase les stats, PV et sorts depuis D&D Beyond tout en gardant les champs locaux (alias, notes, token) ; (c) une synchronisation automatique à chaque ouverture de séance ?",
+      "recommended": "(b) Un import avec un bouton « Resynchroniser » manuel. Les PJ montent de niveau entre les séances : la resynchronisation met à jour les stats, PV et sorts sans perdre les alias, les notes et le token définis localement.",
+      "answer": "(b) Un import avec un bouton « Resynchroniser » manuel. Les PJ montent de niveau entre les séances : la resynchronisation met à jour les stats, PV et sorts sans perdre les alias, les notes et le token définis localement.",
+      "round": 3,
+      "topic": "Préparation de campagne"
+    },
+    {
+      "id": 38,
+      "title": "Traitement des notes importées",
+      "body": "Quand tu importes des notes en texte libre de ta campagne actuelle, que fait l'application ? (a) Elle les stocke comme une note brute de la campagne ; (b) l'IA en extrait les entités (PNJ, lieux, événements, séances passées), crée les nouvelles et met à jour les existantes, avec l'historique et le diff habituels ; (c) comme (b), mais tout passe d'abord par une liste à valider avant la création.",
+      "recommended": "(c) Une extraction par l'IA vers une liste de propositions à valider en lot, et la note brute est conservée en plus. Pour un import massif, une validation préalable évite de polluer la campagne de doublons, contrairement aux mises à jour au fil de l'eau.",
+      "answer": "(c) Une extraction par l'IA vers une liste de propositions à valider en lot, et la note brute est conservée en plus. Pour un import massif, une validation préalable évite de polluer la campagne de doublons, contrairement aux mises à jour au fil de l'eau.",
+      "round": 5,
+      "topic": "Préparation de campagne"
+    },
+    {
+      "id": 39,
+      "title": "Format des stats et des sorts",
+      "body": "Comment les statblocks et les sorts sont-ils représentés sur une fiche ? (a) En texte libre ; (b) les caractéristiques, la CA, les PV et la vitesse en champs structurés, et les sorts et capacités en liste de noms avec une courte description ; (c) tout est structuré et lié à une base de sorts du SRD.",
+      "recommended": "(b) Les champs chiffrés sont structurés, car ils servent à l'initiative, aux PV en combat et à l'import D&D Beyond. Les sorts et les capacités sont une liste nom + description. La base de sorts du SRD (c) viendra plus tard.",
+      "answer": "(b) Les champs chiffrés sont structurés, car ils servent à l'initiative, aux PV en combat et à l'import D&D Beyond. Les sorts et les capacités sont une liste nom + description. La base de sorts du SRD (c) viendra plus tard.",
+      "round": 5,
+      "topic": "Préparation de campagne"
+    },
+    {
+      "id": 7,
+      "title": "Traitement de l'audio",
+      "body": "L'audio de ta table peut-il être envoyé à un service cloud de transcription/IA (ex. API Claude + un service de speech-to-text), ou doit-il rester sur ta machine ? L'audio et les transcriptions sont-ils conservés après la session ? Choix : (a) cloud, rien de conservé ; (b) cloud, transcription conservée comme journal de session ; (c) local uniquement.",
+      "recommended": "(a) Transcription et IA en cloud pour la qualité, sans conserver ni audio ni transcription : seules les suggestions s'affichent en direct.",
+      "answer": "Local uniquement. Explorer solution Phonon",
+      "round": 1,
+      "topic": "Micro et suggestions IA"
+    },
+    {
+      "id": 11,
+      "title": "Déclenchement des suggestions",
+      "body": "Qu'est-ce qui fait apparaître un élément dans la fenêtre en bas à droite ? (a) Le nom de l'entité, ou un de ses alias, est reconnu dans la transcription, avec une tolérance aux mauvaises transcriptions des noms fantaisistes. (b) Une compréhension du contexte par un modèle de langage, par exemple « la taverne de tout à l'heure » fait remonter l'entité correspondante. (c) Les deux. Et que deviennent les suggestions : une pile des N dernières, ou une disparition après X secondes ?",
+      "recommended": "(a) Noms et alias avec correspondance approximative, chaque entité pouvant recevoir des alias. Les 5 dernières suggestions restent empilées et les plus anciennes sortent. Le (b) attend une version ultérieure.",
+      "answer": "(a) Noms et alias avec correspondance approximative, chaque entité pouvant recevoir des alias. Les 5 dernières suggestions restent empilées et les plus anciennes sortent. Le (b) attend une version ultérieure.",
+      "round": 2,
+      "topic": "Micro et suggestions IA"
+    },
+    {
+      "id": 24,
+      "title": "Activation et transcription",
+      "body": "Pendant la séance, le micro est-il (a) toujours actif dès l'ouverture de la DM view ; (b) activé par un bouton marche/pause bien visible, pour couper pendant les apartés ? La transcription est-elle (i) jetée après détection ; (ii) conservée comme journal de séance consultable, et servant à préparer la séance suivante ?",
+      "recommended": "(b) Un bouton marche/pause visible, et (ii) une transcription conservée comme journal de séance stocké localement. Ce journal alimente la préparation de la séance suivante, ce qui sert directement l'objectif de réduire de 50 % le temps de préparation.",
+      "answer": "(b) Un bouton marche/pause visible, et (ii) une transcription conservée comme journal de séance stocké localement. Ce journal alimente la préparation de la séance suivante, on genere egalement un resumé pour une consultation rapide, ce qui sert directement l'objectif de réduire de 50 % le temps de préparation.",
+      "round": 3,
+      "topic": "Micro et suggestions IA"
+    },
+    {
+      "id": 28,
+      "title": "Langue et noms propres",
+      "body": "La table joue en français, mais les noms propres sont souvent inventés ou anglais (sorts, monstres, lieux). Trois options : (a) transcription en français seulement, et ce sont les alias qui rattrapent les erreurs ; (b) français, avec un vocabulaire personnalisé alimenté automatiquement par les noms et alias des entités de la campagne pour améliorer leur reconnaissance ; (c) détection automatique de la langue, français ou anglais.",
+      "recommended": "(b) Français, avec un vocabulaire injecté automatiquement depuis les noms et alias de la campagne. C'est ce qui rend fiable la détection des entités à l'oral, le cœur différenciant du PoC.",
+      "answer": "(b) Français, avec un vocabulaire injecté automatiquement depuis les noms et alias de la campagne. C'est ce qui rend fiable la détection des entités à l'oral, le cœur différenciant du PoC.",
+      "round": 4,
+      "topic": "Micro et suggestions IA"
+    },
+    {
+      "id": 36,
+      "title": "Résumé et suite de la séance",
+      "body": "Quand et comment le résumé de séance est-il produit, et comment sert-il ensuite ? (a) Il est généré à la clôture de la séance et reste en lecture seule ; (b) il est généré à la clôture, il est modifiable, et il est proposé au début de la préparation de la séance suivante, avec la liste des entités mentionnées et des fils narratifs ouverts ; (c) il est mis à jour en continu pendant la séance.",
+      "recommended": "(b) Un résumé généré à la clôture et modifiable, qui apparaît en tête de la préparation suivante avec les entités mentionnées et les fils ouverts. C'est le levier direct pour réduire de 50 % le temps de préparation.",
+      "answer": "(b) Un résumé généré à la clôture et modifiable, qui apparaît en tête de la préparation suivante avec les entités mentionnées et les fils ouverts. C'est le levier direct pour réduire de 50 % le temps de préparation.",
+      "round": 5,
+      "topic": "Micro et suggestions IA"
+    },
+    {
+      "id": 8,
+      "title": "Source des médias",
+      "body": "Comment les battlemaps, illustrations, images de tokens et sons arrivent-ils dans l'application ? Choix : (a) téléversés par toi et stockés par l'application ; (b) référencés depuis un dossier local de ton ordinateur ; (c) liens externes (URL, YouTube, etc.).",
+      "recommended": "(a) Téléversés et stockés par l'application, rattachés à une campagne.",
+      "answer": "(a) Téléversés et stockés par l'application, rattachés à une campagne.",
+      "round": 1,
+      "topic": "Médias"
+    },
+    {
+      "id": 40,
+      "title": "Image des tokens",
+      "body": "D'où vient l'image d'un token ? (a) Une image téléversée dédiée au token ; (b) un recadrage circulaire du portrait ou de l'illustration du personnage, ou une image dédiée si tu le souhaites ; (c) aucune image, une pastille de couleur avec les initiales.",
+      "recommended": "(b) Un recadrage du portrait du personnage par défaut, remplaçable par une image dédiée. À défaut de portrait, une pastille de couleur avec les initiales et le numéro d'instance.",
+      "answer": "(b) Un recadrage du portrait du personnage par défaut, remplaçable par une image dédiée. À défaut de portrait, une pastille de couleur avec les initiales et le numéro d'instance.",
+      "round": 5,
+      "topic": "Médias"
+    },
+    {
+      "id": 12,
+      "title": "Où tourne l'IA générative",
+      "body": "La génération (statblocks, backgrounds, analyse du brief de séance pour détecter les PNJ existants ou manquants) demande un modèle de langage. L'audio reste local, c'est décidé. Pour la génération : (a) un modèle local aussi (Ollama ou équivalent), entièrement hors ligne mais de qualité moindre et exigeant en matériel ; (b) une API cloud (Claude, par exemple) qui reçoit seulement le texte transcrit, jamais l'audio ; (c) un modèle local par défaut et le cloud en option.",
+      "recommended": "(b) API cloud pour la génération, qui ne reçoit que du texte, tandis que transcription et détection des suggestions restent locales. C'est le meilleur moyen d'obtenir des statblocks crédibles dans le PoC.",
+      "answer": "(b) API cloud pour la génération, qui ne reçoit que du texte, tandis que transcription et détection des suggestions restent locales. C'est le meilleur moyen d'obtenir des statblocks crédibles dans le PoC. Ca doit etre parametrable, j'ai un serveur a la maison qui delivre une api endpoint opencode, je veux pouvoir l'utiliser",
+      "round": 2,
+      "topic": "Aide à la création IA"
+    },
+    {
+      "id": 13,
+      "title": "Édition des règles de référence",
+      "body": "Sur quelle édition se basent les statblocks générés (CR, PV, CA, actions, sorts) ? (a) D&D 5e 2014 (SRD 5.1). (b) D&D 2024 (SRD 5.2). (c) Un choix par campagne.",
+      "recommended": "(c) Un choix par campagne, 2024 par défaut : les fiches D&D Beyond peuvent être dans l'une ou l'autre édition, et une campagne reste cohérente avec elle-même.",
+      "answer": "b pour le moment",
+      "round": 2,
+      "topic": "Aide à la création IA"
+    },
+    {
+      "id": 19,
+      "title": "Validation des propositions IA",
+      "body": "Quand le brief oral d'une séance détecte des PNJ existants à mettre à jour, comment les changements s'appliquent-ils ? (a) Chaque mise à jour est présentée comme un diff (avant/après), que tu acceptes, modifies ou rejettes une par une. (b) Les changements s'appliquent automatiquement avec un historique pour annuler. (c) L'IA se contente d'ajouter une note, sans jamais modifier la fiche. La même règle vaut pour les statblocks et backgrounds générés.",
+      "recommended": "(a) Un diff par entité, à accepter, modifier ou rejeter. Rien n'est écrit sans ton accord : la transcription orale et l'IA peuvent se tromper, et ta campagne en cours ne doit pas se corrompre silencieusement.",
+      "answer": "b, elle se modifie automatiquement et un historique me permet de revenir en arriere si il y a lieu. J'ai une notification sous forme d'un bouton updated, si je clique dessus je peux voir le diff et decider de revert",
+      "round": 3,
+      "topic": "Aide à la création IA"
+    },
+    {
+      "id": 37,
+      "title": "Portée du brief oral de séance",
+      "body": "Le brief oral d'une séance détecte les PNJ existants ou manquants. Que doit-il extraire d'autre ? (a) Seulement les PNJ ; (b) les PNJ, les lieux et les événements, existants ou à créer ; (c) tout cela, et en plus la liste ordonnée des scènes de la séance, déjà liées aux entités.",
+      "recommended": "(c) Les PNJ, les lieux, les événements, et la structure en scènes. Les entités manquantes vont dans la même liste « à créer », avec le même choix : raffiner la description, ou s'appuyer sur le brief.",
+      "answer": "(c) Les PNJ, les lieux, les événements, et la structure en scènes. Les entités manquantes vont dans la même liste « à créer », avec le même choix : raffiner la description, ou s'appuyer sur le brief.",
+      "round": 5,
+      "topic": "Aide à la création IA"
+    },
+    {
+      "id": 14,
+      "title": "Calage de la grille hexagonale",
+      "body": "Les battlemaps téléversées ont parfois déjà une grille dessinée, et une échelle propre. Comment la grille hex se pose-t-elle dessus ? (a) Pour chaque battlemap, tu règles la taille de l'hexagone, le décalage et l'orientation (pointe en haut ou plat en haut) pour l'aligner sur l'image. (b) Une grille fixe, identique pour toutes les cartes. (c) Une détection automatique de la grille existante.",
+      "recommended": "(a) Un réglage manuel par battlemap (taille, décalage, orientation), enregistré avec la carte, et 1 hex = 5 pieds.",
+      "answer": "(a) Un réglage manuel par battlemap (taille, décalage, orientation), enregistré avec la carte, et 1 hex = 5 pieds. je veux pouvoir changer la couleur de la grille egalement ainsi que son opacité",
+      "round": 2,
+      "topic": "Battlemap et combat"
+    },
+    {
+      "id": 15,
+      "title": "Calcul de la distance au drag",
+      "body": "Pendant le glisser-déposer, le nombre vert compte : (a) la distance en hex en ligne droite entre la case d'origine et la case sous le curseur, sans tenir compte des obstacles ; (b) un chemin qui contourne les murs et les obstacles, ce qui suppose de les dessiner sur la carte ; (c) le chemin réellement tracé par le curseur, case par case. Affichage en hex seulement, ou en hex et en pieds ?",
+      "recommended": "(a) La distance en ligne droite en hex, affichée en hex et en pieds (par exemple « 6 hex · 30 pi »), sans gestion des obstacles dans le PoC.",
+      "answer": "(a) La distance en ligne droite en hex, affichée en hex et en pieds (par exemple « 6 hex · 30 pi »), sans gestion des obstacles dans le PoC.",
+      "round": 2,
+      "topic": "Battlemap et combat"
+    },
+    {
+      "id": 16,
+      "title": "Initiative et déroulé des tours",
+      "body": "Quand tu lances un combat : (a) l'initiative d'un PNJ est un d20 pur, ou un d20 + modificateur de DEX tiré de son statblock ? (b) Les égalités se départagent par la DEX, par le hasard ou à la main ? (c) Le tour suivant passe sur ton clic « Suivant », ou autrement ? (d) Peux-tu ajouter ou retirer des participants en cours de combat (renforts, morts) et réordonner le carrousel à la main ?",
+      "recommended": "Un d20 + modificateur de DEX pour les PNJ. Les égalités se départagent par la DEX, puis au hasard. Le tour passe sur ton bouton « Suivant », avec un compteur de rounds. Tu peux ajouter ou retirer des participants et réordonner à la main, et le carrousel se met à jour sur les deux vues.",
+      "answer": "Un d20 + modificateur de DEX pour les PNJ. Les égalités se départagent par la DEX, puis au hasard. Le tour passe sur ton bouton « Suivant », avec un compteur de rounds. Tu peux ajouter ou retirer des participants et réordonner à la main, et le carrousel se met à jour sur les deux vues.",
+      "round": 2,
+      "topic": "Battlemap et combat"
+    },
+    {
+      "id": 22,
+      "title": "Suivi des PV et états en combat",
+      "body": "Pendant un combat, l'application suit-elle (a) rien : seulement l'ordre d'initiative ; (b) les PV courants de chaque participant, modifiables depuis le carrousel côté DM, avec mort ou inconscience à 0 ; (c) PV plus états (empoisonné, à terre, etc.) affichés sur les tokens ? Et que voient les joueurs des PNJ : les PV exacts, un état approximatif (indemne, blessé, en sang), ou rien ?",
+      "recommended": "(b) Suivi des PV courants côté DM, avec les états en badges sur le token et dans le carrousel. Les joueurs voient un état approximatif des PNJ (indemne, blessé, en sang) et les PV exacts des PJ.",
+      "answer": "(b) Suivi des PV courants côté DM, avec les états en badges sur le token et dans le carrousel. Les joueurs voient un état approximatif des PNJ (indemne, blessé, en sang). On ne suit pas les PV des PJ",
+      "round": 3,
+      "topic": "Battlemap et combat"
+    },
+    {
+      "id": 29,
+      "title": "Instances multiples sur la carte",
+      "body": "Un même PNJ ou monstre peut apparaître plusieurs fois sur une carte. Comment crée-t-on ces instances, et comment se comportent-elles ? (a) Glisser la fiche sur la carte crée une instance numérotée automatiquement (Gobelin 1, Gobelin 2…), avec ses propres PV issus du statblock et ses propres états, tandis que la fiche reste partagée ; (b) on choisit un nombre d'instances à placer d'un coup ; (c) les deux. Et à 0 PV : le token est marqué comme mort et reste sur la carte, ou il est retiré.",
+      "recommended": "(c) Glisser-déposer pour une instance, et un champ « × N » pour en placer plusieurs, toutes numérotées automatiquement et renommables. À 0 PV, le token est grisé et marqué mort, il est sauté dans l'initiative et le DM peut le retirer d'un clic.",
+      "answer": "(c) Glisser-déposer pour une instance, et un champ « × N » pour en placer plusieurs, toutes numérotées automatiquement et renommables. À 0 PV, le token est grisé et marqué mort, il est sauté dans l'initiative et le DM peut le retirer d'un clic.",
+      "round": 4,
+      "topic": "Battlemap et combat"
+    },
+    {
+      "id": 30,
+      "title": "Tokens cachés et carrousel",
+      "body": "Un token peut être caché sur la vue joueur. Pendant un combat, un participant caché (une embuscade, par exemple) : (a) apparaît quand même dans le carrousel joueur ; (b) n'apparaît pas dans le carrousel joueur tant qu'il est caché, et apparaît dès qu'on le révèle ; (c) apparaît comme « ??? ».",
+      "recommended": "(b) Il est absent du carrousel joueur tant qu'il est caché, mais toujours visible dans le carrousel DM, signalé par une icône. Le révéler le fait apparaître à sa place dans l'ordre d'initiative.",
+      "answer": "(b) Il est absent du carrousel joueur tant qu'il est caché, mais toujours visible dans le carrousel DM, signalé par une icône. Le révéler le fait apparaître à sa place dans l'ordre d'initiative.",
+      "round": 4,
+      "topic": "Battlemap et combat"
+    },
+    {
+      "id": 31,
+      "title": "Persistance de l'état de la carte",
+      "body": "Quand on quitte une battlemap ou qu'une session se termine au milieu d'un combat, que garde-t-on ? (a) Rien, chaque ouverture repart d'une carte vide ; (b) on garde la position des tokens, leur visibilité, leurs PV et leurs états par battlemap, et un combat en cours (ordre, round, tour actuel) peut être repris à la séance suivante ; (c) seulement la position des tokens.",
+      "recommended": "(b) Tout l'état est conservé par battlemap, combat en cours compris. Un bouton « Réinitialiser la carte » permet de repartir à zéro. Arrêter une session au milieu d'un combat arrive souvent à une vraie table.",
+      "answer": "(b) Tout l'état est conservé par battlemap, combat en cours compris. Un bouton « Réinitialiser la carte » permet de repartir à zéro. Arrêter une session au milieu d'un combat arrive souvent à une vraie table.",
+      "round": 4,
+      "topic": "Battlemap et combat"
+    },
+    {
+      "id": 20,
+      "title": "Zone principale de la DM view",
+      "body": "Quand tu ouvres un élément depuis le panneau de gauche ou une suggestion, que fait la zone principale ? (a) Elle affiche la fiche en lecture, optimisée pour la table (statblock lisible, background, notes), avec un bouton pour passer en édition. (b) Elle affiche directement le formulaire éditable. (c) Elle ouvre des onglets multiples pour garder plusieurs fiches ouvertes. Le panneau de gauche est-il organisé par type d'entité ou par la séance en cours d'abord ?",
+      "recommended": "(a) Une fiche en lecture optimisée pour la table, avec un bouton d'édition, et des onglets pour garder plusieurs fiches ouvertes. Le panneau de gauche montre d'abord les éléments de la séance en cours, puis toute la campagne classée par type.",
+      "answer": "Une fiche en lecture optimisée pour la table avec bouton d'edition. Par contre en mode combat il faut faire attention, il peut y avoir plusieurs fois le meme monstre/pnj sur le battlemap, dans ce cas je dois avoir la possibilité de selectionner une instance ou une autre. Le caroussel de combat est disponible sur la vue MJ je peux naviguer entre les instances des personnage en cliquant dessus directement, les PV restants sont editable en mode combat par le MJ.",
+      "round": 3,
+      "topic": "DM view"
+    },
+    {
+      "id": 34,
+      "title": "Panneau gauche des éléments",
+      "body": "Comment sont organisés les éléments de campagne dans le panneau gauche pendant le jeu ? (a) Par type (PJ, PNJ, lieux, événements, médias) avec une recherche ; (b) d'abord la séance en cours, scène par scène, avec ses éléments liés, puis le reste de la campagne par type ; (c) une seule liste plate avec recherche.",
+      "recommended": "(b) La séance en cours en tête, scène par scène avec ses lieux, PNJ et médias liés, puis tout le reste de la campagne par type, avec une recherche approximative qui utilise aussi les alias. C'est ce qui permet de suivre la séance sans chercher.",
+      "answer": "(b) La séance en cours en tête, scène par scène avec ses lieux, PNJ et médias liés, puis tout le reste de la campagne par type, avec une recherche approximative qui utilise aussi les alias. C'est ce qui permet de suivre la séance sans chercher.",
+      "round": 5,
+      "topic": "DM view"
+    },
+    {
+      "id": 35,
+      "title": "Lancement d'une séance en direct",
+      "body": "Que se passe-t-il quand tu passes en mode jeu ? (a) Tu choisis une séance préparée et tu la « démarres » : le journal, la scène courante et l'état sont rattachés à cette séance ; (b) le mode jeu est libre, sans séance associée ; (c) les deux, avec une séance « improvisée » créée automatiquement si aucune n'est choisie.",
+      "recommended": "(c) Tu démarres une séance préparée, ou bien une séance improvisée est créée automatiquement. Ainsi le journal et le résumé ont toujours une séance à laquelle se rattacher, même quand tu joues sans préparation.",
+      "answer": "a",
+      "round": 5,
+      "topic": "DM view"
+    },
+    {
+      "id": 21,
+      "title": "Visibilité sur la vue joueur",
+      "body": "Sur une battlemap envoyée aux joueurs, que voient-ils ? (a) Tous les tokens posés sur la carte. (b) Chaque token a un interrupteur visible/caché : les PNJ en embuscade restent visibles seulement sur la DM view. (c) Option (b) plus un brouillard de guerre qu'on révèle zone par zone. Et quand rien n'est envoyé, la vue joueur affiche-t-elle un écran neutre (logo, illustration de campagne) ?",
+      "recommended": "(b) Un interrupteur visible/caché par token, sans brouillard de guerre dans le PoC. Quand rien n'est envoyé, la vue joueur affiche l'illustration de couverture de la campagne.",
+      "answer": "(b) Un interrupteur visible/caché par token, sans brouillard de guerre dans le PoC. Quand rien n'est envoyé, la vue joueur affiche l'illustration de couverture de la campagne. La vue joueur peut aussi recevoir des illustrations (de personnage, de lieux...). envoyé depuis la vue MJ. Le MJ peut envoyer les illustration en mode scene, ca prend la vue joueur ou en mode fenetre, une fenetre volante que je peux deplacer et resize( via un drag and drop en gardant les proportion) contient l'illustration. Le MJ a aussi la possibilité d'avoir la vue joueur sur un onglet qui est synchronisé avec les autres onglet, lui permettant de bouger les token illustrations etc. ",
+      "round": 3,
+      "topic": "Vue joueur"
+    },
+    {
+      "id": 23,
+      "title": "Comportement des sons",
+      "body": "Comment se jouent les sons de la soundbox ? (a) Un seul son à la fois. (b) Deux familles : des ambiances en boucle (une seule active, avec fondu enchaîné au changement) et des effets ponctuels qui se superposent, chacun avec son volume. (c) Une superposition libre de n'importe quels sons, tous en boucle possible. Les sons sont-ils classés par tags (taverne, combat, forêt) pour préparer les futures suggestions IA ?",
+      "recommended": "(b) Des ambiances en boucle avec fondu enchaîné et des effets ponctuels superposables, un volume par son et un volume général. Les sons portent des tags dès le PoC, pour préparer les suggestions IA de sons d'une version ultérieure.",
+      "answer": "Des effets ponctuel uniquement dans la premiere version avec un classement par tag. la visualisation c'est un pannel avec des box portant le nom du son, une barre de recherche qui me permet de rechercher dynamiquement,",
+      "round": 3,
+      "topic": "Soundbox"
+    },
+    {
+      "id": 32,
+      "title": "Lecture simultanée et volume",
+      "body": "Pour les effets ponctuels : (a) un seul son à la fois, et un nouveau son coupe le précédent ; (b) plusieurs sons peuvent jouer en même temps, avec un volume global, un volume par son réglé à l'import et un bouton « Tout arrêter » ; (c) la même chose que (b), sans volume par son. Par ailleurs, les sons joués se font-ils entendre sur la vue joueur ou seulement sur la sortie audio de la DM view ?",
+      "recommended": "(b) Plusieurs sons en même temps, un volume global, un volume par son et « Tout arrêter ». Le son sort uniquement depuis la DM view : sur une seule machine, une seule sortie audio suffit et on évite l'écho.",
+      "answer": "(b) Plusieurs sons en même temps, un volume global, un volume par son et « Tout arrêter ». Le son sort uniquement depuis la DM view : sur une seule machine, une seule sortie audio suffit et on évite l'écho. La vue joueur a pour objectif d'etre egalement projeté par la machine du DM via un autre onglet.",
+      "round": 4,
+      "topic": "Soundbox"
+    }
+  ],
+  "scope": "## Goal\n\nCe prototype doit prouver que ForgeDesMondes divise par deux le temps de préparation d'une séance et suffit à faire rouler une vraie séance de la campagne en cours, sans autre outil.\n\n- **Préparation.** Le DM reprend sa campagne actuelle à partir de ses notes, d'une saisie manuelle et de l'import D&D Beyond. Il prépare la séance suivante en grande partie à l'oral :\n  - un brief raconté au micro devient une séance découpée en scènes ;\n  - l'IA repère les PNJ, lieux et événements existants et les met à jour, avec un historique réversible ;\n  - elle place les entités manquantes dans une liste « à créer » ;\n  - elle propose pour les PNJ des statblocks crédibles et un background.\n- **Séance en direct.** La DM view et la player view tournent dans deux onglets synchronisés de la même machine. Le micro, transcrit en local, fait remonter les entités et les sons nommés. Les battlemaps hexagonales portent les tokens, la mesure de distance et le combat avec son carrousel d'initiative. La soundbox joue les effets à la demande.\n- **Après la séance.** Le journal et son résumé nourrissent la préparation suivante.\n\n## Screens\n\n- **Accueil des campagnes**\n  - Le DM voit la liste de ses campagnes et oneshots, chacun avec son illustration de couverture.\n  - Il crée une campagne ou un oneshot. Un oneshot est une campagne à une seule séance.\n  - Il exporte une campagne en une archive, ou importe une archive.\n  - Il accède aux **Paramètres IA**.\n- **Paramètres IA**\n  - Le DM choisit le fournisseur de génération : une API cloud, ou l'endpoint opencode de son serveur maison. Il renseigne l'URL, le modèle de génération, le modèle de résumé et une clé éventuelle.\n  - Un bouton « Tester la connexion » vérifie le réglage.\n  - Un rappel indique que la transcription et la détection restent locales et que seul du texte part vers ce fournisseur.\n- **Campagne**\n  - Le DM voit la liste ordonnée des séances, avec leur résumé.\n  - Il voit les éléments de la campagne par onglets : joueurs, personnages (PJ et PNJ), lieux, événements, médias, sons.\n  - Il crée ou ouvre une séance, ou la lance en direct. À la création d'une séance, il sélectionne dans une liste les PJ présents. Il peut en retirer ou en ajouter plus tard.\n  - Il importe des notes en texte libre, tapées, collées ou dictées dans l'outil. L'IA en extrait des personnages, des lieux et des événements. Il valide la liste proposée en lot avant la création, et la note brute est conservée.\n  - Il voit la liste des **entités à créer** (PNJ, lieux, événements), issue des briefs de séance.\n- **Fiche d'entité (édition)**, pour un personnage, un lieu ou un événement\n  - Le DM renseigne le nom, les alias et la description.\n  - Pour un personnage, il précise s'il s'agit d'un PJ (lié à un joueur) ou d'un PNJ. La fiche reste simple : caractéristiques, CA, PV, sorts et capacités (nom et description). Il ajoute un portrait, le recadrage du token et des notes, les notes dans le cas d'un PNJ.\n  - Un bouton micro permet de **raconter le prompt initial à l'oral**. L'IA propose ensuite un background, un comportement pour pouvoir l'interpreter et, pour un PNJ, un statblock crédible.\n  - Pour un PJ : un champ URL D&D Beyond, avec les boutons « Importer » et « Resynchroniser ». La resynchronisation conserve les alias, les notes et le token locaux.\n  - Quand l'IA a modifié la fiche, un bouton **« Mis à jour »** apparaît. Il ouvre le diff et l'historique des versions, avec la possibilité de revenir en arrière.\n- **Préparation de séance**\n  - En tête, le DM voit le résumé de la séance précédente, avec les entités mentionnées et les fils ouverts. Le journal complet est consultable dans un panneau latéral.\n  - Il voit les PJ présents et la liste ordonnée des scènes. Chaque scène est liée à des lieux, des PNJ, des événements et des médias, et porte des notes libres.\n  - Un bouton **« Brief oral »** lance l'enregistrement. L'IA en tire les scènes et affiche :\n    - les entités existantes détectées, mises à jour si nécessaire, avec leur diff ;\n    - les entités manquantes (PNJ, lieux, événements), ajoutées à la liste « à créer ».\n  - Pour chaque entité manquante, le DM choisit « Créer depuis le brief », ou « Affiner » pour compléter la description à l'oral ou à l'écrit avant la proposition.\n  - Il associe une instance de battlemap à une scène et y place les personnages de cette scène.\n- **Médias et réglage de battlemap**\n  - Le DM téléverse des battlemaps et des illustrations.\n  - Pour chaque battlemap, il règle la grille hexagonale : taille, décalage, orientation, couleur et opacité. Un aperçu en direct accompagne le réglage. La règle est 1 hex = 5 pieds.\n- **Soundbox (bibliothèque)**\n  - Le DM téléverse des sons, les nomme et leur attribue des tags.\n- **DM view (séance en direct)**\n  - **À gauche** : la séance en cours en tête, scène par scène, avec ses lieux, PNJ et médias. Viennent ensuite tous les autres éléments de la campagne par type, avec une recherche approximative qui tient compte des alias.\n  - **Au centre**, selon ce qu'il ouvre :\n    - la fiche d'élément en lecture, optimisée pour la table, avec un bouton d'édition ;\n    - ou la battlemap active.\n  - **Sur la battlemap** :\n    - le DM glisse-dépose les tokens sur la grille ; le curseur porte le token et le compteur vert affiche par exemple « 6 hex · 30 pi » depuis la position de départ ;\n    - il dépose un personnage depuis le panneau gauche, en une seule instance ou en « × N », avec numérotation automatique et nom modifiable ;\n    - chaque token a un interrupteur visible/caché, des badges d'état et, pour un PNJ, ses PV courants ;\n    - les boutons « Lancer le combat » et « Réinitialiser la carte » sont disponibles.\n  - **En combat** :\n    - au lancement, le DM saisit l'initiative des PJ ;\n    - le carrousel d'initiative s'affiche en haut, comme sur la vue joueur, et les tokens cachés y figurent avec une icône ;\n    - un clic sur un participant ouvre la fiche de cette instance précise, avec ses PV modifiables ;\n    - le DM dispose d'un bouton « Suivant », d'un compteur de rounds, et des actions ajouter, retirer et réordonner.\n  - **En bas à droite** :\n    - la pastille des suggestions empile les 5 dernières entités ou sons détectés par leur nom ou leurs alias ;\n    - un clic sur une entité l'ouvre au centre ;\n    - pour un son, un clic déclenche le son ;\n    - Il est possible de voir l'historique des 5 dernieres entites en cliquant sur une icone en haut a droite de la pastille\n    - le bouton marche/pause du micro reste toujours visible.\n  - **Onglet Soundbox** :\n    - des cases portant le nom de chaque son, une recherche dynamique et un filtre par tags ;\n    - plusieurs sons peuvent jouer en même temps, avec un volume global, un volume par son et un bouton « Tout arrêter » ;\n    - le son sort uniquement de la DM view.\n  - **Envoi aux joueurs** :\n    - chaque battlemap ou illustration a un bouton « Envoyer » ;\n    - une illustration part soit en mode **scène**, en plein écran, soit en mode **fenêtre**, dans une fenêtre flottante.\n- **Player view**\n  - Une page plein écran sans interaction pour les joueurs, projetée depuis un autre onglet de la machine du DM.\n  - Elle affiche la couverture de la campagne quand rien n'est envoyé. Sinon, elle affiche la battlemap ou l'illustration envoyée.\n  - Sur une battlemap, elle montre la grille, les tokens visibles et leurs badges, ainsi que l'état approximatif des PNJ (indemne, blessé, en sang), sans les PV.\n  - En combat, le carrousel n'affiche pas les tokens cachés.\n  - Le DM peut ouvrir un onglet player view synchronisé où il agit lui-même :\n    - il déplace les tokens ;\n    - il déplace la fenêtre d'illustration flottante ;\n    - il la redimensionne en gardant ses proportions ;\n    - il zoome, dézoome et se déplace dans la scène, comme sur un canevas.\n\n## Journeys\n\n**1. Reprendre la campagne actuelle**\n1. Le DM crée sa campagne et téléverse l'illustration de couverture.\n2. Il colle ses notes en texte libre, ou les dicte dans l'outil. L'IA propose des PNJ, des lieux et des événements, et il valide la liste en lot.\n3. Il saisit ses joueurs et importe chaque PJ par son URL D&D Beyond. Il ajoute des alias et recadre le portrait pour le token.\n4. Il complète à la main ce qui manque, par exemple « La Taverne du Sanglier » avec l'alias « la taverne ».\n\n**2. Préparer la prochaine séance à l'oral**\n1. Le DM crée la séance suivante et sélectionne les PJ présents. Il relit en tête le résumé de la précédente et ses fils ouverts.\n2. Il clique sur « Brief oral » et raconte la séance pendant quelques minutes.\n3. L'application crée trois scènes ordonnées, liées à des lieux et à des PNJ. Elle met à jour un PNJ existant, et le bouton « Mis à jour » apparaît. Elle ajoute deux PNJ et un lieu manquants à la liste « à créer ».\n4. Il ouvre le diff du PNJ mis à jour et annule l'un des changements.\n5. Il crée le premier PNJ manquant depuis le brief. Pour le second, il choisit « Affiner » et dicte trois phrases de plus. L'IA propose un background et un statblock crédible.\n6. Il téléverse une battlemap et en règle la grille : taille, décalage, orientation, puis couleur et opacité.\n7. Il ajoute quelques sons tagués à la soundbox, dont « porte qui grince ».\n8. Il associe une instance de la battlemap à la scène 3. Il y place les PJ, trois bandits avec « × 3 », et un chef bandit caché.\n\n**3. Faire rouler la séance**\n1. Le DM lance la séance. Il ouvre la DM view, puis la player view dans un second onglet, qu'il projette. La player view montre la couverture de la campagne.\n2. Il active le micro et dit : « Vous entrez dans la taverne. » « La Taverne du Sanglier » apparaît en bas à droite. Il clique dessus et la fiche s'ouvre au centre.\n3. Il envoie l'illustration du tavernier en mode fenêtre. Dans son onglet player view, il la déplace et la redimensionne. Il envoie ensuite la salle en mode scène.\n4. Il dit « la porte grince ». Le son apparaît dans la pastille et il le déclenche, par-dessus un bruit de foule lancé depuis la soundbox.\n5. Les joueurs évoquent Morlox, un PNJ de la séance précédente. Morlox apparaît en bas à droite et sa fiche s'ouvre au centre d'un clic. Le DM le glisse depuis le panneau gauche sur la battlemap de la scène 3.\n\n**4. Mener un combat**\n1. Le DM envoie aux joueurs l'instance de battlemap de la scène 3 : Bandit 1, Bandit 2, Bandit 3, Chef bandit 1 (caché), Morlox et les PJ.\n2. Il fait glisser un PJ : le compteur affiche « 4 hex · 20 pi ». Le token se fixe et apparaît au même endroit sur la player view.\n3. Il lance le combat. Les PNJ tirent d20 + DEX, et il saisit l'initiative des PJ. Le carrousel apparaît sur les deux vues ; le chef caché ne figure que sur la vue DM.\n4. Il clique sur Bandit 2 dans le carrousel et retire 7 PV. Côté joueurs, Bandit 2 passe à « blessé ». Il ajoute l'état « à terre ».\n5. Bandit 2 tombe à 0 PV. Le token est grisé et marqué mort, puis sauté au tour suivant. Le DM le retire d'un clic.\n6. Il révèle le chef, qui prend sa place dans le carrousel joueur. Il clique sur « Suivant », et le compteur de rounds avance.\n7. Il ferme l'application en plein combat. Au retour, la carte et le combat sont intacts.\n\n**5. Après la séance**\n1. Le DM met le micro en pause et clôt la séance. Le journal transcrit est conservé. Un résumé est généré avec le modèle de résumé configuré, et le DM le retouche.\n2. Les PJ montent de niveau. Il clique sur « Resynchroniser » : les stats, les PV et les sorts sont mis à jour, et les alias, les notes et le token sont conservés.\n3. Il exporte la campagne en archive.\n\n## Data\n\n- **Campagne** : nom, type (campagne ou oneshot), illustration de couverture.\n- **Séance** : campagne, titre, ordre, PJ présents, brief (texte), journal de transcription horodaté, résumé modifiable, entités mentionnées, fils ouverts.\n- **Scène** : séance, ordre, titre, notes, lieux, personnages, événements, médias et instance de battlemap liés.\n- **Joueur** : nom.\n- **Personnage** :\n  - identité : nom, alias, PJ ou PNJ, joueur associé, description ;\n  - aide IA : prompt initial, background ;\n  - fiche : caractéristiques, CA, PV max, sorts et capacités (nom et description) ;\n  - table : portrait, recadrage ou image de token, notes ;\n  - D&D Beyond : URL, date de dernière synchronisation.\n- **Lieu** : nom, alias, description, illustration associée.\n- **Événement** : nom, alias, description.\n- **Entité à créer** : type (PNJ, lieu ou événement), nom, extrait du brief, séance d'origine, description affinée.\n- **Note importée** : campagne, texte brut, date, propositions extraites et leur statut.\n- **Version d'entité** : entité, date, origine (IA, manuelle ou D&D Beyond), contenu avant et après, statut vu ou non vu.\n- **Média** : campagne, type (battlemap ou illustration), titre, fichier.\n- **Réglage de grille** : battlemap, taille d'hex, décalage, orientation, couleur, opacité.\n- **Instance de battlemap** : battlemap, séance, scène.\n- **Instance de token** : instance de battlemap, personnage, numéro et nom affiché, position en hex, visible ou caché, PV courants pour un PNJ, états, mort.\n- **Combat** : instance de battlemap, round, participant courant, ordre des participants (instance, initiative, DEX).\n- **Son** : campagne, nom, fichier, tags, volume propre.\n- **Diffusion** : contenu affiché sur la player view (couverture, battlemap ou illustration), mode (scène ou fenêtre), position et taille de la fenêtre, zoom et cadrage.\n- **Paramètres IA** : fournisseur, URL de l'endpoint, modèle de génération, modèle de résumé, clé.\n- **Vocabulaire de détection** : dérivé automatiquement des noms et alias des entités et des noms des sons, sans stockage séparé.\n\n## Left out\n\n- **Suggestions contextuelles d'entités et de sons**, par exemple deviner un lieu ou proposer un son d'ambiance sans qu'on le nomme. Le PoC se limite aux noms et alias, avec correspondance approximative : c'est fiable et local. La compréhension du contexte viendra dans une version ultérieure.\n- **Ambiances en boucle et musique** : la première version ne joue que des effets ponctuels.\n- **Sauvegarde automatique** : l'export et l'import manuels par archive suffisent à protéger la campagne en cours.\n- **Brouillard de guerre, lignes de vue, obstacles dans le calcul de distance, éditeur de battlemaps** : l'interrupteur visible/caché et la distance en ligne droite couvrent le besoin de la table, et les cartes sont préconstruites.\n- **Suivi des PV des PJ** : les joueurs gèrent leurs PV sur leur propre fiche.\n- **Base de sorts du SRD** : les sorts restent une liste nom + description saisie ou importée.\n- **Comptes, plusieurs DM, joueurs à distance** : un seul DM sur une seule machine, avec la player view projetée depuis un onglet.\n- **Fiches de personnage complètes et autres intégrations** : les fiches restent simples (stats, PV, sorts), et D&D Beyond est la seule source externe.\n- **Transcription dans le cloud** : l'audio reste local. Phonon sera exploré pour la transcription.\n\n## Proof\n\n- **Temps de préparation divisé par deux.** Le DM chronomètre la préparation d'une séance avec sa méthode actuelle. Il chronomètre ensuite la séance suivante préparée dans ForgeDesMondes, à partir du brief oral, des entités générées et du résumé de la séance précédente. Le second temps doit être au plus la moitié du premier.\n- **Reprise de la campagne actuelle.** Les notes existantes, les PJ D&D Beyond et les PNJ clés sont dans l'application. Le DM prépare les séances suivantes sans autre outil.\n- **Brief oral.** Sur un brief réel :\n  - les PNJ, lieux et événements existants cités sont reconnus ;\n  - les manquants apparaissent dans la liste « à créer » ;\n  - chaque modification automatique peut être consultée en diff, puis annulée.\n- **Création assistée.** Un PNJ dicté à l'oral reçoit un background cohérent avec son prompt et un statblock que le DM juge jouable tel quel. Cela fonctionne aussi bien avec l'API cloud qu'avec l'endpoint opencode du serveur maison.\n- **Suggestions en direct.** Pendant une scène jouée à voix haute en français, chaque entité ou son nommé par son nom ou un alias apparaît en quelques secondes. Un clic ouvre l'entité au centre, ou déclenche le son. Aucun audio ne quitte la machine.\n- **Battlemap.** Sur trois trajets vérifiés à la main, dont un en diagonale, le compteur donne le bon nombre d'hex et de pieds. Un token déposé apparaît au même endroit sur les deux vues en moins d'une seconde.\n- **Combat.** Un combat complet se déroule sur les deux vues, avec des instances multiples, un PNJ caché puis révélé, et un PNJ tué et sauté. Il survit à une fermeture de l'application en cours de route.\n- **Séparation des vues.** La player view ne montre jamais les notes, les PV des PNJ ni les tokens cachés, et le son ne sort que de la DM view.\n- **Verdict à la table.** Le DM joue une séance complète de sa campagne actuelle dans ForgeDesMondes et répond « oui » à la question « Est-ce que ça m'a aidé à faire rouler la séance ? ».",
+  "requirements": [
+    {
+      "id": 1,
+      "title": "Plusieurs campagnes et oneshots",
+      "body": "Le DM voit ses campagnes et oneshots avec leur illustration de couverture et en crée de nouveaux. Un oneshot est une campagne à une seule séance, et plusieurs campagnes indépendantes coexistent sans compte utilisateur.",
+      "pages": [
+        "pages/campagnes.html"
+      ],
+      "components": [
+        "CampaignList"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "deux campagnes et un oneshot",
+        "when": "le DM ouvre l'accueil",
+        "then": "les trois apparaissent avec leur couverture, le oneshot n'a qu'une séance, et aucun compte n'est demandé."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Export et import d'une campagne en archive",
+      "body": "Une campagne s'exporte en une archive et une archive s'importe, en copie si la campagne existe déjà. Il n'y a pas de sauvegarde automatique, et la date du dernier export est rappelée.",
+      "pages": [
+        "pages/campagnes.html",
+        "pages/campagne.html"
+      ],
+      "components": [
+        "CampaignList",
+        "CampaignOverview"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "une campagne exportée puis importée alors qu'elle existe déjà",
+        "when": "l'import se termine",
+        "then": "une copie distincte est créée, l'originale reste intacte et la date du dernier export est affichée."
+      }
+    },
+    {
+      "id": 3,
+      "title": "Fournisseur de génération paramétrable : API ou binaire",
+      "body": "Le DM choisit entre deux modes de connexion au fournisseur de génération. En mode « API », il saisit l'URL de l'API, qu'il s'agisse d'une API cloud ou de son serveur maison. Le système détecte seul le type d'API et s'y connecte, et le DM complète le modèle de génération, le modèle de résumé et une clé éventuelle. En mode « Binaire », il choisit dans une liste déroulante l'un des deux binaires proposés pour le moment : opencode ou Claude Code. Dans les deux modes, un bouton « Tester la connexion » vérifie le réglage. Un rappel indique que seul du texte part vers ce fournisseur.",
+      "pages": [
+        "pages/parametres-ia.html"
+      ],
+      "components": [
+        "AiSettings"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "l'écran des paramètres IA, d'abord en mode « API » avec l'URL du serveur maison saisie, puis en mode « Binaire »",
+        "when": "le DM teste la connexion en mode « API », puis passe en mode « Binaire », ouvre la liste déroulante, choisit « Claude Code » et teste à nouveau la connexion",
+        "then": "le type d'API détecté et le résultat du premier test s'affichent, la liste déroulante propose exactement « opencode » et « Claude Code », le résultat du second test s'affiche, et le rappel « seul du texte part vers ce fournisseur » reste visible"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Joueurs et personnages distincts",
+      "body": "L'application conserve les joueurs, les personnages, les lieux et les événements d'une campagne, et les présente par onglets. Un personnage est un PJ lié à un joueur ou un PNJ, avec une fiche simple (caractéristiques, CA, PV, sorts et actions), un token et des notes.",
+      "pages": [
+        "pages/campagne.html",
+        "pages/fiche-entite.html"
+      ],
+      "components": [
+        "CampaignElements",
+        "EntityEditor"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un PJ lié à un joueur et un PNJ",
+        "when": "le DM ouvre les onglets de la campagne",
+        "then": "chacun apparaît dans le bon onglet avec sa fiche (caractéristiques, CA, PV, sorts, actions), son token et ses notes."
+      }
+    },
+    {
+      "id": 5,
+      "title": "Reprise depuis des notes en texte libre",
+      "body": "Le DM colle des notes en texte libre, éventuellement issues d'une transcription faite dans l'outil, et l'IA en extrait des personnages, des lieux et des événements. Rien n'est créé avant que le DM ait validé la liste proposée.",
+      "pages": [
+        "pages/campagne.html"
+      ],
+      "components": [
+        "NoteImport"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "des notes collées",
+        "when": "l'IA propose personnages, lieux et événements",
+        "then": "aucune entité n'est créée tant que le DM n'a pas validé la liste, et seules les entités validées le sont."
+      }
+    },
+    {
+      "id": 6,
+      "title": "Alias et vocabulaire de détection",
+      "body": "Chaque entité peut recevoir des alias, par exemple « la taverne » pour « La Taverne du Sanglier ». Les noms et les alias de la campagne forment automatiquement le vocabulaire injecté dans la transcription locale en français.",
+      "pages": [
+        "pages/fiche-entite.html",
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "EntityEditor",
+        "SuggestionPill",
+        "ElementsPanel"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "l'alias « la taverne » sur « La Taverne du Sanglier »",
+        "when": "la transcription démarre",
+        "then": "son vocabulaire contient les noms et les alias de toutes les entités de la campagne."
+      }
+    },
+    {
+      "id": 7,
+      "title": "Prompt initial dicté et création assistée",
+      "body": "Le DM raconte au micro le prompt initial d'un personnage. L'IA propose un background cohérent et, pour un PNJ, un statblock crédible et jouable tel quel. Cela fonctionne quel que soit le fournisseur configuré : une API, cloud ou serveur maison, ou un binaire, opencode ou Claude Code.",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "components": [
+        "EntityEditor"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "un prompt initial dicté pour un PNJ",
+        "when": "le DM demande la proposition, successivement avec une API configurée et avec un binaire configuré",
+        "then": "un background cohérent avec le prompt et un statblock jouable sont proposés dans chacun des deux modes"
+      }
+    },
+    {
+      "id": 8,
+      "title": "Import et resynchronisation D&D Beyond",
+      "body": "Un PJ s'importe par son URL D&D Beyond. Le bouton « Resynchroniser » met à jour les stats, les PV et les sorts après une montée de niveau, sans toucher aux alias, aux notes ni au token définis localement.",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "components": [
+        "EntityEditor"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un PJ importé de D&D Beyond avec alias, notes et token locaux",
+        "when": "le DM clique « Resynchroniser » après une montée de niveau",
+        "then": "stats, PV et sorts sont à jour et alias, notes et token sont inchangés."
+      }
+    },
+    {
+      "id": 9,
+      "title": "Historique, diff et retour arrière",
+      "body": "Toute modification par l'IA ou par D&D Beyond s'applique automatiquement et est versionnée, et un bouton « Mis à jour » le signale. Le DM consulte le diff, annule un changement précis ou revient à une version antérieure.",
+      "pages": [
+        "pages/fiche-entite.html",
+        "pages/preparation-seance.html"
+      ],
+      "components": [
+        "VersionHistory",
+        "OralBrief"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "une modification appliquée par l'IA ou par D&D Beyond",
+        "when": "le DM ouvre l'historique",
+        "then": "une nouvelle version existe avec son diff, et annuler ce changement ou revenir à une version antérieure restaure exactement l'état d'avant."
+      }
+    },
+    {
+      "id": 10,
+      "title": "PJ présents à la séance",
+      "body": "Le DM coche les PJ présents à une séance et peut en ajouter ou en retirer plus tard. Seuls ces PJ sont proposés dans la DM view et sur les battlemaps.",
+      "pages": [
+        "pages/campagne.html",
+        "pages/preparation-seance.html"
+      ],
+      "components": [
+        "SessionList",
+        "SceneBoard"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "une séance avec deux PJ cochés présents sur quatre",
+        "when": "le DM ouvre la DM view ou une battlemap",
+        "then": "seuls ces deux PJ sont proposés, et un PJ ajouté plus tard l'est aussi."
+      }
+    },
+    {
+      "id": 11,
+      "title": "Brief oral découpé en scènes",
+      "body": "Un brief raconté au micro devient une liste ordonnée de scènes. Chaque scène est liée à des lieux, des PNJ, des événements et des médias, porte des notes libres, et peut être réordonnée ou complétée à la main.",
+      "pages": [
+        "pages/preparation-seance.html"
+      ],
+      "components": [
+        "OralBrief",
+        "SceneBoard"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "un brief raconté au micro",
+        "when": "il est traité",
+        "then": "une liste ordonnée de scènes apparaît, chacune liée à ses lieux, PNJ, événements et médias, réordonnable et modifiable à la main."
+      }
+    },
+    {
+      "id": 12,
+      "title": "PNJ existants mis à jour, PNJ manquants à créer",
+      "body": "Le brief reconnaît les PNJ existants cités et les met à jour avec leur diff, et ajoute les PNJ manquants à la liste « à créer ». Pour chacun, le DM choisit « Créer depuis le brief » ou « Affiner » à l'oral ou à l'écrit avant la proposition de background et de statblock.",
+      "pages": [
+        "pages/preparation-seance.html",
+        "pages/campagne.html"
+      ],
+      "components": [
+        "OralBrief",
+        "ToCreateList",
+        "VersionHistory"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un brief citant un PNJ existant et un PNJ inconnu",
+        "when": "il est traité",
+        "then": "le PNJ existant est mis à jour avec son diff et le PNJ inconnu est ajouté à la liste « à créer », sans création automatique."
+      }
+    },
+    {
+      "id": 13,
+      "title": "Journal et résumé de la séance précédente",
+      "body": "Pendant la préparation, le résumé généré et le journal transcrit horodaté de la séance précédente sont consultables dans un panneau latéral. La liste des séances affiche aussi leur résumé.",
+      "pages": [
+        "pages/preparation-seance.html",
+        "pages/campagne.html"
+      ],
+      "components": [
+        "PreviousSummary",
+        "SessionList"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "une séance précédente close",
+        "when": "le DM prépare la suivante",
+        "then": "son résumé et son journal horodaté sont consultables dans le panneau latéral et le résumé figure dans la liste des séances."
+      }
+    },
+    {
+      "id": 14,
+      "title": "Médias téléversés et grille hexagonale réglée",
+      "body": "Le DM téléverse des battlemaps, des illustrations et des tokens rattachés à la campagne. Pour chaque battlemap, il règle la taille, le décalage, l'orientation, la couleur et l'opacité de la grille avec un aperçu en direct, sur la règle 1 hex = 5 pieds.",
+      "pages": [
+        "pages/medias.html"
+      ],
+      "components": [
+        "MediaLibrary",
+        "GridSettings"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "une battlemap téléversée",
+        "when": "le DM règle taille, décalage, orientation, couleur et opacité de la grille",
+        "then": "l'aperçu se met à jour en direct et un hex vaut toujours 5 pieds."
+      }
+    },
+    {
+      "id": 15,
+      "title": "Instance de battlemap dans une scène",
+      "body": "Une battlemap peut avoir une instance dans une scène de séance, sur laquelle le DM place à l'avance les PJ, les PNJ et les monstres.",
+      "pages": [
+        "pages/preparation-seance.html"
+      ],
+      "components": [
+        "SceneBoard",
+        "Battlemap"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "une scène liée à une battlemap",
+        "when": "le DM y place à l'avance PJ, PNJ et monstres",
+        "then": "l'instance de la scène les conserve à leur position, sans modifier la battlemap d'origine."
+      }
+    },
+    {
+      "id": 16,
+      "title": "Soundbox d'effets tagués",
+      "body": "Le DM téléverse des sons, les nomme, les tague et règle leur volume propre. En séance, il les retrouve par une recherche dynamique et un filtre par tags, en joue plusieurs à la fois avec un volume global, un volume par son et « Tout arrêter », et le son ne sort que de la DM view.",
+      "pages": [
+        "pages/soundbox.html",
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "SoundLibrary",
+        "LiveSoundbox"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "trois sons tagués",
+        "when": "le DM filtre par tag et en joue deux à la fois",
+        "then": "chacun respecte son volume propre et le volume global, « Tout arrêter » coupe tout, et aucun son ne sort de la player view."
+      }
+    },
+    {
+      "id": 17,
+      "title": "Conduite de la séance depuis la DM view",
+      "body": "La DM view montre à gauche tous les éléments de la campagne, ceux de la séance en tête, et les scènes à suivre une à une. Au centre s'ouvre une fiche en lecture optimisée pour la table, avec un bouton d'édition, ou la battlemap de la scène.",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "ElementsPanel",
+        "TableSheet",
+        "Battlemap",
+        "LiveSessionBar"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "une séance en cours",
+        "when": "le DM ouvre la DM view",
+        "then": "les éléments de la séance sont en tête à gauche, les scènes défilent une à une, et un clic ouvre au centre la fiche en lecture ou la battlemap de la scène."
+      }
+    },
+    {
+      "id": 18,
+      "title": "Suggestions du micro en direct",
+      "body": "Un micro avec un bouton marche/pause toujours visible transcrit la séance en local, sans qu'aucun audio ne quitte la machine. Chaque entité ou son nommé par son nom ou son alias apparaît en quelques secondes dans une pile des 5 dernières suggestions. Un clic ouvre l'entité au centre, et un son se joue au second clic.",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "SuggestionPill"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "le micro en marche et un PNJ nommé par son alias",
+        "when": "la phrase est prononcée",
+        "then": "il apparaît en quelques secondes dans la pile des 5 dernières suggestions, et aucun audio ne quitte la machine."
+      }
+    },
+    {
+      "id": 19,
+      "title": "Tokens glissés avec mesure de distance",
+      "body": "Le DM glisse-dépose les tokens, le curseur portant le token. Un compteur vert affiche la distance en ligne droite depuis la position de départ, par exemple « 6 hex · 30 pi ». Le token déposé apparaît au même endroit sur la player view en moins d'une seconde.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "components": [
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "un token glissé de 6 hex",
+        "when": "le DM le déplace",
+        "then": "le compteur affiche « 6 hex · 30 pi », et une fois déposé le token apparaît au même endroit sur la player view en moins d'une seconde."
+      }
+    },
+    {
+      "id": 20,
+      "title": "Dépôt de personnages en une ou plusieurs instances",
+      "body": "Un personnage se glisse sur la battlemap, depuis la colonne de gauche ou la fiche, en une instance ou en « × N ». Les instances sont numérotées automatiquement et renommables.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/preparation-seance.html"
+      ],
+      "components": [
+        "Battlemap",
+        "ElementsPanel"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un monstre glissé « × 3 » sur la battlemap",
+        "when": "il est déposé",
+        "then": "trois instances numérotées 1 à 3 apparaissent, chacune renommable sans toucher aux autres."
+      }
+    },
+    {
+      "id": 21,
+      "title": "PV, états, mort et visibilité des tokens",
+      "body": "Chaque token a un interrupteur visible/caché et des badges d'état. Chaque PNJ a des PV courants modifiables côté DM. À 0 PV, le token est grisé, marqué mort et sauté dans l'initiative, et le DM peut le retirer d'un clic. Les PV des PJ ne sont pas suivis.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "components": [
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un PNJ dont les PV tombent à 0",
+        "when": "le DM valide",
+        "then": "son token est grisé, marqué mort et sauté dans l'initiative, et les PV des PJ ne sont jamais suivis."
+      }
+    },
+    {
+      "id": 22,
+      "title": "Combat et carrousel d'initiative",
+      "body": "Au lancement du combat, les PNJ tirent d20 + DEX, le DM saisit l'initiative des PJ, et les égalités se départagent par la DEX puis au hasard. Un carrousel à la Foundry apparaît sur les deux vues, avec « Suivant », un compteur de rounds, et l'ajout, le retrait et le réordonnancement des participants. Un clic sur un participant ouvre la fiche de cette instance précise.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "components": [
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "deux PNJ à égalité d'initiative",
+        "when": "le combat démarre",
+        "then": "ils sont départagés par la DEX puis au hasard, le carrousel apparaît sur les deux vues, et « Suivant » fait avancer le tour et le compteur de rounds."
+      }
+    },
+    {
+      "id": 23,
+      "title": "État de la carte conservé",
+      "body": "Tout l'état d'une battlemap, combat en cours compris, survit à la fermeture de l'application. Un bouton « Réinitialiser la carte » permet de repartir à zéro.",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "Battlemap"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un combat en cours sur une battlemap",
+        "when": "l'application est fermée puis rouverte",
+        "then": "positions, PV, états et initiative sont identiques, et « Réinitialiser la carte » remet l'état à zéro."
+      }
+    },
+    {
+      "id": 24,
+      "title": "Diffusion vers la player view",
+      "body": "La player view affiche la couverture de la campagne quand rien n'est envoyé. Le DM y envoie une battlemap, ou une illustration en mode scène (plein écran) ou en mode fenêtre flottante. Dans un onglet player view synchronisé, il déplace les tokens et la fenêtre, la redimensionne en gardant ses proportions, zoome et se déplace.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "components": [
+        "LiveSessionBar",
+        "ElementsPanel",
+        "TableSheet",
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "rien d'envoyé",
+        "when": "le DM envoie une illustration en fenêtre flottante puis la redimensionne",
+        "then": "la player view passe de la couverture à l'illustration et garde ses proportions."
+      }
+    },
+    {
+      "id": 25,
+      "title": "Séparation des vues DM et joueurs",
+      "body": "La player view ne montre jamais les notes, les PV des PNJ ni les tokens cachés, absents aussi de son carrousel. Elle n'affiche qu'un état approximatif des PNJ (indemne, blessé, en sang). Un token révélé reprend sa place dans l'ordre d'initiative.",
+      "pages": [
+        "pages/player-view.html",
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "PlayerStage",
+        "LiveSoundbox"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un token caché et un PNJ blessé",
+        "when": "la player view s'affiche",
+        "then": "ni notes, ni PV de PNJ, ni token caché n'apparaissent, l'état du PNJ est seulement « blessé », et un token révélé reprend sa place dans l'initiative."
+      }
+    },
+    {
+      "id": 26,
+      "title": "Clôture de séance avec journal et résumé",
+      "body": "Clore la séance met le micro en pause et conserve localement le journal transcrit horodaté. Un résumé est généré avec le modèle configuré, pour nourrir la préparation suivante.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/preparation-seance.html"
+      ],
+      "components": [
+        "LiveSessionBar",
+        "PreviousSummary"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "une séance en cours",
+        "when": "le DM clôt la séance",
+        "then": "le micro passe en pause, le journal horodaté est conservé localement, et un résumé est généré avec le modèle configuré."
+      }
+    },
+    {
+      "id": 77,
+      "title": "Seul du texte part vers le fournisseur",
+      "body": "L'audio du micro est transcrit et analysé sur la machine du DM. Seul du texte est transmis au fournisseur de génération, qu'il soit joint par une API (cloud ou serveur maison) ou par un binaire (opencode ou Claude Code). L'écran des paramètres le rappelle.",
+      "pages": [
+        "pages/parametres-ia.html"
+      ],
+      "components": [
+        "AiSettings"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "le micro actif pendant une séance ou un brief oral, et un fournisseur de génération configuré, d'abord en mode « API », puis en mode « Binaire »",
+        "when": "le DM parle, puis demande une génération (statblock, background, analyse du brief ou résumé) dans chacun des deux modes",
+        "then": "aucune donnée audio ne sort de la machine, et ce qui est transmis à l'API ou au binaire ne contient que du texte"
+      }
+    },
+    {
+      "id": 92,
+      "title": "Détection automatique du type d'API",
+      "body": "En mode « API », le DM ne renseigne que l'URL. Le système interroge cette URL, reconnaît le type d'API (par exemple une API cloud ou un endpoint opencode) et choisit lui-même le protocole de connexion, sans que le DM ait à préciser le type. Si le type n'est pas reconnu, la connexion est refusée et un message l'explique.",
+      "pages": [
+        "pages/parametres-ia.html"
+      ],
+      "components": [
+        "AiSettings"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "deux URL valides, l'une d'une API cloud et l'autre de l'endpoint opencode du serveur maison, ainsi qu'une URL qui ne répond pas à un type d'API connu",
+        "when": "le DM saisit tour à tour chacune de ces URL en mode « API » et teste la connexion, sans préciser le type d'API",
+        "then": "le type correct est détecté et affiché pour chacune des deux premières URL et la connexion réussit, tandis que la troisième URL est refusée avec un message indiquant que le type d'API n'est pas reconnu"
+      }
+    },
+    {
+      "id": 93,
+      "title": "Rail de navigation entre les fiches d'entité",
+      "body": "À gauche de la fiche d'entité, un rail collant liste les éléments de la campagne par catégorie : PJ, PNJ, lieux et événements. Les médias et les sons restent sur la page de la campagne. Une recherche filtre le rail à chaque frappe, avec la même logique approximative que le panneau gauche de la DM view, sur les noms et les alias. Un clic sur un élément charge sa fiche sur place et met à jour l'identifiant dans l'URL, sans rechargement de page. Des boutons « Nouveau… » en bas du rail créent un personnage, un lieu ou un événement.",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "components": [
+        "CampaignElements",
+        "EntityEditor"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "la fiche d'un lieu ouverte, et un PJ « Elowen » portant l'alias « la rôdeuse » dans la campagne",
+        "when": "le DM tape « elowen », puis efface et tape « rodeuse » dans la recherche du rail, et clique sur Elowen",
+        "then": "Elowen figure dans les résultats pour chacune des deux saisies, sa fiche remplace celle du lieu sans rechargement de page, et l'URL porte son identifiant"
+      }
+    },
+    {
+      "id": 94,
+      "title": "Rail repliable et tiroir sur petit écran",
+      "body": "Un bouton en haut à gauche du rail de la fiche d'entité le replie en une bande fine, et cet état est mémorisé d'une visite à l'autre. Sous 960 px de large, le rail devient un tiroir que le DM ouvre et ferme à la demande.",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "components": [
+        "CampaignElements"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "la fiche d'entité ouverte avec son rail déplié",
+        "when": "le DM replie le rail et recharge la page, puis réduit la fenêtre sous 960 px, ouvre le tiroir et le referme",
+        "then": "le rail est toujours replié après le rechargement, et sous 960 px le tiroir s'ouvre au-dessus de la fiche puis se referme sans la masquer"
+      }
+    },
+    {
+      "id": 95,
+      "title": "Confirmation avant de quitter une fiche modifiée",
+      "body": "Si la fiche ouverte a des modifications non enregistrées et que le DM choisit un autre élément dans le rail, une barre intégrée à la fiche propose « Enregistrer et continuer », « Abandonner » ou « Rester ». « Enregistrer et continuer » enregistre la fiche puis ouvre l'élément choisi ; « Abandonner » ouvre l'élément choisi sans enregistrer ; « Rester » laisse la fiche et ses modifications en l'état.",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "components": [
+        "EntityEditor"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "la fiche d'un PNJ dont la description a été modifiée sans être enregistrée",
+        "when": "le DM clique sur un autre élément du rail et choisit tour à tour « Rester », « Abandonner » puis, après une nouvelle modification, « Enregistrer et continuer »",
+        "then": "« Rester » garde la fiche et la modification affichées, « Abandonner » ouvre l'élément choisi et la modification est perdue, et « Enregistrer et continuer » enregistre la modification avant d'ouvrir l'élément choisi"
+      }
+    },
+    {
+      "id": 96,
+      "title": "Sections du rail repliables par catégorie",
+      "body": "Dans le rail de la fiche d'entité, chaque catégorie (PJ, PNJ, lieux, événements) est une section que le DM ferme ou ouvre en cliquant sur son titre. Un petit triangle à gauche du titre indique si la section est ouverte ou fermée. Fermer une section masque ses éléments sans toucher aux autres sections.",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "components": [
+        "CampaignElements"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "la fiche d'entité ouverte avec son rail déplié et les sections PJ, PNJ, lieux et événements toutes ouvertes",
+        "when": "le DM clique sur le titre « PJ », puis clique de nouveau sur ce même titre",
+        "then": "au premier clic, les éléments PJ sont masqués, le triangle à gauche du titre indique que la section est fermée, et les sections PNJ, lieux et événements restent ouvertes ; au second clic, les éléments PJ réapparaissent et le triangle indique que la section est ouverte"
+      }
+    },
+    {
+      "id": 97,
+      "title": "Médias rattachés à la séance par leur lieu",
+      "body": "Chaque média, battlemaps comprises, peut être associé à un lieu de la campagne, depuis sa carte dans la bibliothèque ou depuis le formulaire de téléversement. Un média sans lieu reste valide. Quand un lieu fait partie d'une séance, tous les médias de ce lieu sont associés à cette séance, sans geste supplémentaire. L'association entre lieu et séance est partagée entre la page Médias et la préparation de séance : ajouter un lieu à une séance depuis l'une ou l'autre page associe ses médias à la séance sur les deux pages. La page Médias indique l'association, par exemple « Associé à la séance 4 ». Si le lieu n'est pas encore dans la séance, elle permet de l'y ajouter. Changer le lieu d'un média met à jour son association à la séance.",
+      "pages": [
+        "pages/medias.html",
+        "pages/preparation-seance.html"
+      ],
+      "components": [
+        "MediaLibrary",
+        "SceneBoard"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "une battlemap et une illustration associées à « La Taverne du Sanglier », absente de la séance 4, une seconde battlemap associée à un autre lieu, et un média sans lieu",
+        "when": "le DM ajoute la taverne à une scène de la séance 4 depuis la préparation de séance, puis ouvre la page Médias et y change le lieu de la seconde battlemap pour « La Taverne du Sanglier »",
+        "then": "la battlemap et l'illustration de la taverne sont associées à la séance 4 sur les deux pages, la page Médias affiche « Associé à la séance 4 » sur leurs cartes, la seconde battlemap le devient aussi après son changement de lieu, et le média sans lieu reste valide sans association à la séance"
+      }
+    },
+    {
+      "id": 98,
+      "title": "Pastille des suggestions en surcouche fixe",
+      "body": "Dans la DM view, la pastille des suggestions et le bouton marche/pause du micro forment une surcouche posée au-dessus de la page, ancrée en bas à droite de la fenêtre. Elle garde cette position quel que soit le contenu ouvert au centre (fiche en lecture, battlemap ou onglet Soundbox) et quand le DM fait défiler la page ou le panneau gauche. Elle passe au-dessus de ce contenu sans le décaler, et reste cliquable.",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "SuggestionPill"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "une séance en direct dans la DM view, avec le micro en marche et une entité déjà suggérée dans la pastille",
+        "when": "le DM ouvre au centre une longue fiche en lecture et la fait défiler jusqu'en bas, puis ouvre la battlemap de la scène et enfin l'onglet Soundbox",
+        "then": "la pastille et le bouton marche/pause du micro restent affichés au même endroit en bas à droite de la fenêtre, par-dessus le contenu, sans le décaler, et un clic sur l'entité suggérée l'ouvre toujours au centre"
+      }
+    },
+    {
+      "id": 99,
+      "title": "Tester la connexion au fournisseur",
+      "body": "Depuis les Paramètres IA, le DM vérifie d'un clic que le fournisseur choisi (API cloud ou endpoint opencode maison) répond avec l'URL, les modèles et la clé renseignés.",
+      "pages": [
+        "pages/parametres-ia.html"
+      ],
+      "components": [
+        "AiSettings"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "le DM a renseigné l'URL de son endpoint opencode maison, un modèle de génération et un modèle de résumé",
+        "when": "il clique sur « Tester la connexion »",
+        "then": "l'écran indique si la connexion réussit ou, sinon, la raison de l'échec, sans enregistrer de réglage invalide à son insu"
+      }
+    },
+    {
+      "id": 100,
+      "title": "Création assistée avec les deux fournisseurs",
+      "body": "La proposition de background, de comportement et de statblock d'un PNJ fonctionne de la même façon avec l'API cloud et avec l'endpoint opencode du serveur maison.",
+      "pages": [
+        "pages/fiche-entite.html",
+        "pages/parametres-ia.html"
+      ],
+      "components": [
+        "EntityEditor",
+        "AiSettings"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un PNJ avec un prompt initial dicté, et deux réglages valides : l'API cloud puis l'endpoint opencode",
+        "when": "le DM demande la proposition IA avec chacun des deux fournisseurs",
+        "then": "chaque fournisseur remplit le background, le comportement et un statblock complet (caractéristiques, CA, PV, capacités) dans les mêmes champs de la fiche"
+      }
+    },
+    {
+      "id": 101,
+      "title": "Image de token par défaut",
+      "body": "Le token d'un personnage reprend par défaut le recadrage de son portrait ; une image dédiée peut le remplacer ; sans portrait, il devient une pastille de couleur avec les initiales et le numéro d'instance.",
+      "pages": [
+        "pages/fiche-entite.html",
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "components": [
+        "EntityEditor",
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un PNJ « Bandit » sans portrait ni image de token, placé en trois instances",
+        "when": "les tokens s'affichent sur la battlemap",
+        "then": "chacun est une pastille de couleur portant « B » et son numéro (1, 2, 3), et dès qu'un portrait est ajouté et recadré, les tokens montrent ce recadrage"
+      }
+    },
+    {
+      "id": 102,
+      "title": "Lieux et événements reconnus dans le brief",
+      "body": "Le brief oral reconnaît non seulement les PNJ, mais aussi les lieux et les événements existants, et place les lieux et événements manquants dans la liste « à créer ».",
+      "pages": [
+        "pages/preparation-seance.html",
+        "pages/campagne.html"
+      ],
+      "components": [
+        "OralBrief",
+        "ToCreateList",
+        "SceneBoard"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "une campagne qui contient le lieu « La Taverne du Sanglier » mais pas « Le Pont des Pendus »",
+        "when": "le DM raconte un brief qui cite la taverne, le pont et l'événement « l'embuscade »",
+        "then": "la taverne est liée à la scène correspondante comme lieu existant, et le pont et l'embuscade apparaissent dans la liste « à créer » avec leur type et l'extrait du brief"
+      }
+    },
+    {
+      "id": 103,
+      "title": "Affiner une entité manquante",
+      "body": "Pour une entité de la liste « à créer », le DM peut compléter sa description à l'oral ou à l'écrit avant que l'IA en fasse la proposition.",
+      "pages": [
+        "pages/preparation-seance.html",
+        "pages/campagne.html"
+      ],
+      "components": [
+        "ToCreateList"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "un PNJ manquant dans la liste « à créer », issu du brief",
+        "when": "le DM choisit « Affiner », dicte trois phrases de plus et valide",
+        "then": "la proposition de l'IA (background et statblock) tient compte à la fois de l'extrait du brief et des phrases ajoutées, et l'entité quitte la liste « à créer » une fois créée"
+      }
+    },
+    {
+      "id": 105,
+      "title": "Initiative des PNJ et départage",
+      "body": "Au lancement du combat, chaque PNJ tire d20 + modificateur de DEX ; les égalités se départagent par la DEX, puis au hasard.",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "Battlemap"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "deux PNJ qui obtiennent tous deux 14 à l'initiative, l'un avec DEX 16 et l'autre avec DEX 12, et un PJ dont le DM saisit 14",
+        "when": "le DM lance le combat",
+        "then": "chaque PNJ a une initiative comprise entre 1 + son modificateur et 20 + son modificateur, et le PNJ à DEX 16 passe avant celui à DEX 12 ; une égalité qui subsiste à DEX égale est tranchée au hasard"
+      }
+    },
+    {
+      "id": 106,
+      "title": "Fiche d'une instance précise en combat",
+      "body": "Quand plusieurs instances d'un même PNJ sont sur la carte, un clic sur l'une d'elles dans le carrousel ouvre la fiche de cette instance précise, avec ses PV courants modifiables.",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "Battlemap",
+        "TableSheet"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "un combat en cours avec Bandit 1, Bandit 2 et Bandit 3",
+        "when": "le DM clique sur Bandit 2 dans le carrousel et retire 7 PV",
+        "then": "la fiche ouverte est celle de Bandit 2, seuls les PV de Bandit 2 baissent de 7, et ceux de Bandit 1 et Bandit 3 restent inchangés"
+      }
+    },
+    {
+      "id": 107,
+      "title": "Révélation à sa place dans l'initiative",
+      "body": "Un token caché garde sa place dans l'ordre d'initiative ; le révéler le fait apparaître à cette place dans le carrousel joueur.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "components": [
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un combat où Chef bandit 1, caché, a la deuxième initiative et figure avec une icône dans le carrousel DM seulement",
+        "when": "le DM le rend visible",
+        "then": "il apparaît en deuxième position dans le carrousel de la player view, et l'ordre des autres participants n'a pas changé"
+      }
+    },
+    {
+      "id": 108,
+      "title": "État approximatif des PNJ",
+      "body": "La player view déduit des PV courants un état approximatif pour chaque PNJ visible : indemne, blessé ou en sang, sans jamais montrer les PV.",
+      "pages": [
+        "pages/player-view.html",
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "PlayerStage",
+        "Battlemap"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "un PNJ visible de 20 PV max",
+        "when": "ses PV courants passent à 20, puis à 13, puis à 10, puis à 0",
+        "then": "la player view affiche successivement « indemne », « blessé » (au-dessus de la moitié), « en sang » (à la moitié ou moins), puis le token grisé et marqué mort, sans aucun chiffre de PV"
+      }
+    },
+    {
+      "id": 109,
+      "title": "Historique des suggestions",
+      "body": "Une icône en haut à droite de la pastille ouvre l'historique des 5 dernières entités détectées, que le DM peut rouvrir d'un clic.",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "SuggestionPill"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "le micro a détecté successivement la taverne, Morlox et le tavernier",
+        "when": "le DM clique sur l'icône d'historique de la pastille puis sur la taverne",
+        "then": "l'historique liste ces entités de la plus récente à la plus ancienne, et la fiche de la taverne s'ouvre au centre"
+      }
+    },
+    {
+      "id": 110,
+      "title": "Recherche et tags dans la soundbox",
+      "body": "L'onglet Soundbox présente une case par son, filtrée dynamiquement par la recherche et par les tags.",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "LiveSoundbox"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "une soundbox qui contient « porte qui grince » (tag porte) et « bruit de foule » (tag taverne)",
+        "when": "le DM tape « gri » dans la recherche, puis l'efface et filtre sur le tag taverne",
+        "then": "seule la case « porte qui grince » reste pendant la saisie, puis seule la case « bruit de foule » reste avec le filtre"
+      }
+    },
+    {
+      "id": 111,
+      "title": "Sons simultanés et volumes",
+      "body": "Plusieurs effets jouent en même temps depuis la DM view, chacun à son volume propre multiplié par le volume global, et « Tout arrêter » les coupe tous.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/soundbox.html"
+      ],
+      "components": [
+        "LiveSoundbox",
+        "SuggestionPill",
+        "SoundLibrary"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "« bruit de foule » joue depuis la soundbox",
+        "when": "le DM déclenche « porte qui grince » depuis la pastille, baisse le volume global, puis clique sur « Tout arrêter »",
+        "then": "les deux sons se superposent, tous deux baissent avec le volume global en gardant leur rapport, puis plus aucun son ne joue"
+      }
+    },
+    {
+      "id": 112,
+      "title": "Fenêtre d'illustration proportionnelle",
+      "body": "La fenêtre flottante d'une illustration envoyée en mode fenêtre se déplace et se redimensionne en gardant les proportions de l'image.",
+      "pages": [
+        "pages/player-view.html"
+      ],
+      "components": [
+        "PlayerStage"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "une illustration de 800 × 1200 envoyée en mode fenêtre",
+        "when": "le DM l'agrandit par glisser-déposer dans son onglet player view",
+        "then": "la fenêtre garde un rapport largeur sur hauteur de 2/3, et sa position et sa taille sont les mêmes sur la player view projetée"
+      }
+    },
+    {
+      "id": 113,
+      "title": "Onglet player view piloté par le DM",
+      "body": "Dans un onglet player view synchronisé, le DM déplace les tokens, zoome, dézoome et se déplace dans la scène comme sur un canevas.",
+      "pages": [
+        "pages/player-view.html",
+        "pages/dm-view.html"
+      ],
+      "components": [
+        "PlayerStage",
+        "Battlemap"
+      ],
+      "human": true,
+      "family": "journey",
+      "criterion": {
+        "given": "une battlemap envoyée aux joueurs et un onglet player view ouvert par le DM",
+        "when": "il y déplace un token, zoome et décale le cadrage",
+        "then": "le token est à la nouvelle position dans la DM view, et le zoome et le cadrage sont les mêmes sur la player view projetée"
+      }
+    },
+    {
+      "id": 114,
+      "title": "Synchronisation des onglets sous une seconde",
+      "body": "Tout changement fait dans un onglet (token, carrousel, diffusion, fenêtre) apparaît dans les autres onglets ouverts en moins d'une seconde.",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "components": [
+        "Battlemap",
+        "PlayerStage",
+        "LiveSessionBar"
+      ],
+      "human": true,
+      "family": "business",
+      "criterion": {
+        "given": "la DM view et la player view ouvertes dans deux onglets de la même machine",
+        "when": "le DM dépose un token sur un hex de la DM view",
+        "then": "le token apparaît sur le même hex de la player view en moins d'une seconde"
+      }
+    }
+  ],
+  "pages": [
+    {
+      "title": "Accueil des campagnes",
+      "path": "pages/campagnes.html",
+      "objective": "Le DM retrouve ses campagnes et oneshots avec leur couverture, en crée une, exporte une campagne en archive ou en importe une"
+    },
+    {
+      "title": "Paramètres IA",
+      "path": "pages/parametres-ia.html",
+      "objective": "Le DM choisit l’API cloud ou l’endpoint opencode de son serveur maison, renseigne URL, modèles et clé, et teste la connexion"
+    },
+    {
+      "title": "Campagne",
+      "path": "pages/campagne.html",
+      "objective": "Le DM parcourt les séances et les éléments de sa campagne, crée ou lance une séance, importe ses notes et traite les entités à créer"
+    },
+    {
+      "title": "Fiche d’entité",
+      "path": "pages/fiche-entite.html",
+      "objective": "Le DM renseigne un personnage, un lieu ou un événement, dicte le prompt initial pour obtenir background et statblock, importe un PJ de D&D Beyond et annule un changement de l’IA"
+    },
+    {
+      "title": "Préparation de séance",
+      "path": "pages/preparation-seance.html",
+      "objective": "Le DM relit la séance précédente, raconte son brief au micro, vérifie les scènes et les entités détectées, crée les manquantes et place les tokens sur la battlemap d’une scène"
+    },
+    {
+      "title": "Médias et réglage de battlemap",
+      "path": "pages/medias.html",
+      "objective": "Le DM téléverse ses battlemaps et illustrations et règle la grille hexagonale de chaque carte avec un aperçu en direct"
+    },
+    {
+      "title": "Soundbox",
+      "path": "pages/soundbox.html",
+      "objective": "Le DM téléverse ses effets sonores, les nomme et leur donne des tags"
+    },
+    {
+      "title": "DM view",
+      "path": "pages/dm-view.html",
+      "objective": "Le DM fait rouler la séance : il ouvre les éléments suggérés par le micro, déplace les tokens, mène le combat, joue les sons et envoie cartes et illustrations aux joueurs"
+    },
+    {
+      "title": "Player view",
+      "path": "pages/player-view.html",
+      "objective": "Les joueurs voient la couverture, la battlemap ou l’illustration envoyée par le DM ; dans l’onglet piloté, le DM y déplace tokens et fenêtre et cadre la carte"
+    }
+  ],
+  "components": [
+    {
+      "name": "CampaignList",
+      "system": "campaign",
+      "description": "Les campagnes et oneshots avec leur couverture ; création, export et import d’archive",
+      "needs": [
+        "campaign.listCampaigns"
+      ],
+      "actions": [
+        "campaign.createCampaign",
+        "campaign.exportCampaign",
+        "campaign.importCampaign"
+      ],
+      "fragment": "components/CampaignList.html",
+      "fixtures": [
+        "fixtures/CampaignList.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "AiSettings",
+      "system": "ai",
+      "description": "Le fournisseur de génération (API cloud ou opencode maison), ses modèles et sa clé, le test de connexion et ce qui sort de la machine",
+      "needs": [
+        "ai.getSettings"
+      ],
+      "actions": [
+        "ai.saveSettings",
+        "ai.testConnection"
+      ],
+      "fragment": "components/AiSettings.html",
+      "fixtures": [
+        "fixtures/AiSettings.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "CampaignOverview",
+      "system": "campaign",
+      "description": "La couverture, le résumé chiffré de la campagne, l’accès à la prochaine séance et l’export en archive",
+      "needs": [
+        "campaign.getCampaign"
+      ],
+      "actions": [
+        "campaign.exportCampaign"
+      ],
+      "fragment": "components/CampaignOverview.html",
+      "fixtures": [
+        "fixtures/CampaignOverview.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "SessionList",
+      "system": "session",
+      "description": "Les séances dans l’ordre avec leur résumé et leurs PJ présents ; création d’une séance avec choix des PJ",
+      "needs": [
+        "session.listSessions",
+        "campaign.listCharacters"
+      ],
+      "actions": [
+        "session.createSession"
+      ],
+      "fragment": "components/SessionList.html",
+      "fixtures": [
+        "fixtures/SessionList.json",
+        "fixtures/entities.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "CampaignElements",
+      "system": "campaign",
+      "description": "Les éléments de la campagne : en grille à onglets (joueurs, personnages, lieux, événements, médias, sons) ou en rail collant à gauche d’une fiche (PJ, PNJ, lieux, événements ; recherche floue, repliable, tiroir sous 960 px)",
+      "needs": [
+        "campaign.listPlayers",
+        "campaign.listCharacters",
+        "campaign.listPlaces",
+        "campaign.listEvents",
+        "media.listMedia",
+        "soundbox.listSounds"
+      ],
+      "actions": [],
+      "fragment": "components/CampaignElements.html",
+      "fixtures": [
+        "fixtures/entities.json",
+        "fixtures/media.json",
+        "fixtures/sounds.json"
+      ],
+      "props": {
+        "mode": "\"tabs\" | \"rail\" — grille à onglets (défaut) ou rail latéral qui ouvre la fiche sur place"
+      }
+    },
+    {
+      "name": "NoteImport",
+      "system": "ai",
+      "description": "L’import de notes en texte libre, tapées, collées ou dictées ; extraction par l’IA puis validation en lot, la note brute conservée",
+      "needs": [
+        "campaign.listImportedNotes"
+      ],
+      "actions": [
+        "ai.extractFromNotes",
+        "campaign.createEntitiesFromNote"
+      ],
+      "fragment": "components/NoteImport.html",
+      "fixtures": [
+        "fixtures/NoteImport.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "ToCreateList",
+      "system": "ai",
+      "description": "Les PNJ, lieux et événements issus des briefs, à créer depuis le brief ou après une description affinée à l’oral ou à l’écrit",
+      "needs": [
+        "campaign.listEntitiesToCreate"
+      ],
+      "actions": [
+        "ai.createFromBrief"
+      ],
+      "fragment": "components/ToCreateList.html",
+      "fixtures": [
+        "fixtures/ToCreateList.json"
+      ],
+      "props": {
+        "session": "string — id de la séance d’origine, vide pour toute la campagne"
+      }
+    },
+    {
+      "name": "EntityEditor",
+      "system": "campaign",
+      "description": "La fiche d’un personnage, d’un lieu ou d’un événement : identité, alias, prompt initial dicté, fiche de stats, token, notes et D&D Beyond ; s’ouvre sur place depuis le rail, avec une barre de confirmation si la fiche est modifiée et non enregistrée",
+      "needs": [
+        "campaign.getEntity",
+        "campaign.listPlayers",
+        "media.listMedia"
+      ],
+      "actions": [
+        "campaign.saveEntity",
+        "ai.proposeCharacter",
+        "dndbeyond.importCharacter",
+        "dndbeyond.resyncCharacter"
+      ],
+      "fragment": "components/EntityEditor.html",
+      "fixtures": [
+        "fixtures/entities.json",
+        "fixtures/EntityEditor.json",
+        "fixtures/media.json"
+      ],
+      "props": {
+        "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse"
+      }
+    },
+    {
+      "name": "VersionHistory",
+      "system": "campaign",
+      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour en arrière",
+      "needs": [
+        "campaign.listEntityVersions"
+      ],
+      "actions": [
+        "campaign.restoreEntityVersion"
+      ],
+      "fragment": "components/VersionHistory.html",
+      "fixtures": [
+        "fixtures/VersionHistory.json",
+        "fixtures/entities.json"
+      ],
+      "props": {
+        "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse",
+        "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
+      }
+    },
+    {
+      "name": "PreviousSummary",
+      "system": "session",
+      "description": "Le résumé de la séance précédente, ses entités mentionnées, ses fils ouverts et son journal transcrit en panneau latéral",
+      "needs": [
+        "session.getPreviousSessionSummary",
+        "session.getSessionJournal"
+      ],
+      "actions": [],
+      "fragment": "components/PreviousSummary.html",
+      "fixtures": [
+        "fixtures/PreviousSummary.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "OralBrief",
+      "system": "ai",
+      "description": "Le brief raconté au micro, transcrit en local, puis découpé en scènes avec les entités reconnues, mises à jour ou manquantes",
+      "needs": [
+        "session.getLastBrief"
+      ],
+      "actions": [
+        "ai.analyzeBrief"
+      ],
+      "fragment": "components/OralBrief.html",
+      "fixtures": [
+        "fixtures/OralBrief.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "SceneBoard",
+      "system": "session",
+      "description": "Les PJ présents et les scènes ordonnées de la séance, avec leurs lieux, PNJ, événements, médias, notes et instance de battlemap",
+      "needs": [
+        "session.getSession",
+        "session.listScenes",
+        "campaign.listCharacters",
+        "media.listMedia",
+        "table.getBattlemapInstance"
+      ],
+      "actions": [
+        "session.addPresentCharacter",
+        "session.removePresentCharacter",
+        "session.addScene",
+        "session.reorderScenes",
+        "table.createBattlemapInstance"
+      ],
+      "fragment": "components/SceneBoard.html",
+      "fixtures": [
+        "fixtures/SceneBoard.json",
+        "fixtures/entities.json",
+        "fixtures/media.json",
+        "fixtures/ToCreateList.json",
+        "fixtures/Battlemap.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "Battlemap",
+      "system": "table",
+      "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », instances × N, fiche d’instance, combat et carrousel d’initiative",
+      "needs": [
+        "table.getBattlemapInstance",
+        "media.getBattlemap",
+        "campaign.listCharacters"
+      ],
+      "actions": [
+        "table.moveToken",
+        "table.placeTokens",
+        "table.removeToken",
+        "table.renameToken",
+        "table.setTokenVisibility",
+        "table.setTokenCondition",
+        "table.changeHitPoints",
+        "table.startCombat",
+        "table.nextTurn",
+        "table.reorderInitiative",
+        "table.addParticipant",
+        "table.removeParticipant",
+        "table.endCombat",
+        "table.resetBattlemap",
+        "live.showOnPlayerView"
+      ],
+      "fragment": "components/Battlemap.html",
+      "fixtures": [
+        "fixtures/Battlemap.json",
+        "fixtures/media.json",
+        "fixtures/entities.json"
+      ],
+      "props": {
+        "fill": "boolean — occupe tout l’écran",
+        "instance": "string — id de l’instance de battlemap",
+        "pilot": "boolean — onglet player view piloté par le DM",
+        "view": "\"dm\" | \"prep\" | \"player\""
+      }
+    },
+    {
+      "name": "MediaLibrary",
+      "system": "media",
+      "description": "Le téléversement et la liste des battlemaps et illustrations de la campagne, chacune rattachable à un lieu ; si le lieu est dans la séance, le média l’est aussi",
+      "needs": [
+        "media.listMedia",
+        "session.listScenes",
+        "campaign.listPlaces"
+      ],
+      "actions": [
+        "media.uploadMedia",
+        "media.setMediaPlace",
+        "session.addPlaceToSession"
+      ],
+      "fragment": "components/MediaLibrary.html",
+      "fixtures": [
+        "fixtures/media.json",
+        "fixtures/SceneBoard.json",
+        "fixtures/entities.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "GridSettings",
+      "system": "media",
+      "description": "Le réglage de la grille hexagonale d’une battlemap (taille, décalage, orientation, couleur, opacité) avec un aperçu en direct",
+      "needs": [
+        "media.getBattlemap"
+      ],
+      "actions": [
+        "media.saveGridSettings"
+      ],
+      "fragment": "components/GridSettings.html",
+      "fixtures": [
+        "fixtures/media.json"
+      ],
+      "props": {
+        "battlemap": "string — id de la battlemap à régler"
+      }
+    },
+    {
+      "name": "SoundLibrary",
+      "system": "soundbox",
+      "description": "La bibliothèque des effets sonores : téléversement, nom, tags et volume propre",
+      "needs": [
+        "soundbox.listSounds"
+      ],
+      "actions": [
+        "soundbox.addSound",
+        "soundbox.updateSound",
+        "soundbox.removeSound"
+      ],
+      "fragment": "components/SoundLibrary.html",
+      "fixtures": [
+        "fixtures/sounds.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "LiveSessionBar",
+      "system": "session",
+      "description": "La séance en direct : ses scènes, ce que voient les joueurs, l’ouverture de la player view et la clôture avec le résumé à retoucher",
+      "needs": [
+        "session.getLiveSession",
+        "live.getDiffusion"
+      ],
+      "actions": [
+        "live.showCover",
+        "live.closeWindow",
+        "session.closeSession"
+      ],
+      "fragment": "components/LiveSessionBar.html",
+      "fixtures": [
+        "fixtures/LiveSessionBar.json",
+        "fixtures/media.json",
+        "fixtures/Battlemap.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "ElementsPanel",
+      "system": "live",
+      "description": "Le panneau gauche de la DM view : la séance scène par scène, puis toute la campagne par type, avec une recherche approximative sur les noms et alias",
+      "needs": [
+        "session.listScenes",
+        "campaign.listCharacters",
+        "campaign.listPlaces",
+        "campaign.listEvents",
+        "media.listMedia"
+      ],
+      "actions": [
+        "live.showOnPlayerView",
+        "live.showWindowOnPlayerView"
+      ],
+      "fragment": "components/ElementsPanel.html",
+      "fixtures": [
+        "fixtures/entities.json",
+        "fixtures/media.json",
+        "fixtures/SceneBoard.json",
+        "fixtures/Battlemap.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "TableSheet",
+      "system": "live",
+      "description": "La fiche d’un élément en lecture, optimisée pour la table, avec édition et envoi de l’illustration aux joueurs",
+      "needs": [
+        "campaign.getEntity",
+        "media.listMedia"
+      ],
+      "actions": [
+        "live.showOnPlayerView",
+        "live.showWindowOnPlayerView"
+      ],
+      "fragment": "components/TableSheet.html",
+      "fixtures": [
+        "fixtures/entities.json",
+        "fixtures/media.json"
+      ],
+      "props": {
+        "id": "string — élément ouvert au départ",
+        "type": "\"character\" | \"place\" | \"event\" | \"illustration\""
+      }
+    },
+    {
+      "name": "LiveSoundbox",
+      "system": "soundbox",
+      "description": "L’onglet Soundbox de la DM view : cases de sons, recherche, filtre par tags, volume global et par son, « Tout arrêter »",
+      "needs": [
+        "soundbox.listSounds"
+      ],
+      "actions": [
+        "soundbox.playSound",
+        "soundbox.stopAll",
+        "soundbox.setSoundVolume",
+        "soundbox.setMasterVolume"
+      ],
+      "fragment": "components/LiveSoundbox.html",
+      "fixtures": [
+        "fixtures/sounds.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "SuggestionPill",
+      "system": "live",
+      "description": "La pastille en bas à droite : les 5 dernières entités ou sons entendus au micro, leur historique, et le bouton marche/pause du micro",
+      "needs": [
+        "live.listSuggestions"
+      ],
+      "actions": [
+        "live.setMicrophone",
+        "soundbox.playSound"
+      ],
+      "fragment": "components/SuggestionPill.html",
+      "fixtures": [
+        "fixtures/SuggestionPill.json"
+      ],
+      "props": {}
+    },
+    {
+      "name": "PlayerStage",
+      "system": "live",
+      "description": "L’écran des joueurs : couverture, battlemap ou illustration en scène, et fenêtre d’illustration flottante déplaçable et redimensionnable",
+      "needs": [
+        "live.getDiffusion",
+        "campaign.getCampaign",
+        "media.listMedia"
+      ],
+      "actions": [
+        "live.moveWindow",
+        "live.resizeWindow"
+      ],
+      "fragment": "components/PlayerStage.html",
+      "fixtures": [
+        "fixtures/PlayerStage.json",
+        "fixtures/media.json"
+      ],
+      "props": {
+        "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse"
+      }
+    }
+  ],
+  "pins": [
+    {
+      "kind": "request",
+      "board": "mockup--main-agent--dm-view",
+      "target": "",
+      "text": "Ca doit etre en overlay au dessus de la page et rester en position fixe en bas a droite."
+    },
+    {
+      "kind": "request",
+      "board": "mockup--main-agent--dm-view",
+      "target": "id:dm-elements",
+      "text": "Les composants a l'interieur de cette div semble depasser ne permettant pas d'etre visible pour l'utilisateur. Peux tu aggrandir cette barre"
+    },
+    {
+      "kind": "request",
+      "board": "mockup--main-agent--fiche-entite",
+      "target": "id:page-main",
+      "text": "Rail de navigation des éléments sur la fiche d'entité\n\n**Changement** : ajouter à `CampaignElements` un mode « rail », injecté à gauche de `fiche-entite.html` (collant, en tiroir sous 960 px). La grille à onglets reste sur `campagne.html`. Cliquer un élément charge la fiche sur place et met à jour `?id=`, sans rechargement de page.\n\n**Pourquoi** : passer d'une fiche à l'autre sans retourner à la campagne.\n\n**Contenu du rail**\n- Catégories : PJ, PNJ, Lieux, Événements (Médias et Sons restent sur `campagne`).\n- Recherche filtrant à chaque frappe, avec la logique floue d'`ElementsPanel`.\n- Boutons « Nouveau… » en bas.\n- Bouton en haut à gauche pour replier en bande fine ; état mémorisé via `Mock.store`.\n\n**Contrainte ouverte** : si la fiche a des modifications non enregistrées, une barre intégrée propose « Enregistrer et continuer », « Abandonner » ou « Rester ». Ce comportement reste à valider.\n\n**Critères de fin**\n- Le repli persiste après rechargement.\n- « elowen » et « rodeuse » trouvent Elowen.\n- Un clic change la fiche et l'URL sans rechargement.\n- Le tiroir mobile s'ouvre et se ferme correctement sous 960 px.\n- La barre de confirmation fonctionne pour ses trois choix, « Enregistrer et continuer » compris, non testé jusqu'ici."
+    },
+    {
+      "kind": "request",
+      "board": "mockup--main-agent--fiche-entite",
+      "target": "id:rail-body",
+      "text": "Il faut en cliquant sur le titre, comme PJ fermer et ouvrir la section dans ce format du composant. Un petit triangle indique qu'il est fermé ou ouvert à gauche du titre"
+    },
+    {
+      "kind": "request",
+      "board": "mockup--main-agent--medias",
+      "target": "",
+      "text": "Associer un lieu aux médias et rattacher automatiquement leurs battlemaps à la séance\n\n**Ce qui doit changer**\n- Chaque média (battlemaps comprises) peut être associé à un lieu, depuis sa carte dans la bibliothèque et depuis le formulaire de téléversement.\n- Quand un lieu fait partie d'une séance, tous les médias de ce lieu, battlemaps incluses, sont associés directement à cette séance, sans geste supplémentaire.\n- La page Médias indique clairement l'association (ex. « Associé à la séance 4 ») et permet d'ajouter le lieu à la séance si ce n'est pas fait.\n\n**Pourquoi**\nLe MJ prépare une séance autour de ses lieux. Les battlemaps doivent suivre le lieu pour ne pas être rattachées une à une.\n\n**Contraintes**\n- L'association lieu ↔ séance doit être partagée entre la page Médias et la préparation de séance (`SceneBoard`). Dans la maquette actuelle, elle n'existe que dans le composant Médias : ajouter un lieu à une scène ne se répercute pas sur la page Médias.\n- Un média sans lieu reste valide.\n- Le comportement n'a été vérifié que par la syntaxe et la validité des JSON, pas dans un navigateur.\n\n**Critères de fin**\n- Ajouter un lieu à une séance, depuis l'une ou l'autre page, associe ses médias à la séance sur les deux pages.\n- Changer le lieu d'un média met à jour son association à la séance.\n- Vérifié en navigateur."
+    },
+    {
+      "kind": "request",
+      "board": "mockup--main-agent--parametres-ia",
+      "target": "",
+      "text": "Il faut revoir ce micro-frontend. Serveur maison ou api cloud, on doit y mettre une URL d'api. Le systeme doit detecter automatiquement quel type d'api c'est est le connecter. Cependant il doit aussi fonctionner avec un binaire donc on a deux options, api et binaire. dans le cas binaire une droplist avec deux choix pour le moment, opencode et claude code.  "
+    }
+  ],
+  "design": {
+    "validated_at": "2026-10-13T17:38:34Z",
+    "tokens": 30,
+    "components": [
+      "Button",
+      "Input",
+      "Select",
+      "Checkbox",
+      "Radio",
+      "Toggle",
+      "Menu",
+      "Tabs",
+      "Card",
+      "Table",
+      "Badge",
+      "Breadcrumb",
+      "HexMap",
+      "Token",
+      "MicButton",
+      "DiffView",
+      "Slider",
+      "Dialog",
+      "TextArea",
+      "FileDrop",
+      "StatBlock"
+    ]
+  },
+  "mockup_at": "",
+  "design_at": "",
+  "writes": [
+    {
+      "dataCapability": "ai.analyzeBrief",
+      "effect": "insert",
+      "touches": [
+        "oral_brief.id",
+        "oral_brief.session_id",
+        "oral_brief.transcript",
+        "oral_brief.duration_seconds",
+        "oral_brief.recorded_at",
+        "oral_brief.analyzed_at",
+        "scene.id",
+        "scene.session_id",
+        "scene.position",
+        "scene.title",
+        "scene.notes",
+        "scene_entity.scene_id",
+        "scene_entity.entity_id",
+        "scene_entity.position",
+        "scene_media.scene_id",
+        "scene_media.media_id",
+        "entity_to_create.id",
+        "entity_to_create.campaign_id",
+        "entity_to_create.session_id",
+        "entity_to_create.brief_id",
+        "entity_to_create.scene_id",
+        "entity_to_create.type",
+        "entity_to_create.name",
+        "entity_to_create.excerpt",
+        "entity_to_create.status",
+        "entity_to_create.created_at",
+        "entity.description",
+        "entity.notes",
+        "entity.updated_at",
+        "character.background",
+        "character.behavior",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.created_at"
+      ]
+    },
+    {
+      "dataCapability": "ai.createFromBrief",
+      "effect": "insert",
+      "touches": [
+        "entity_to_create.refinement_text",
+        "entity_to_create.status",
+        "entity_to_create.created_entity_id",
+        "entity.id",
+        "entity.campaign_id",
+        "entity.type",
+        "entity.name",
+        "entity.description",
+        "entity.created_at",
+        "entity.updated_at",
+        "character.entity_id",
+        "character.initial_prompt",
+        "character.background",
+        "character.behavior",
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armor_class",
+        "character.hp_max",
+        "character.actions",
+        "character.token_color",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.created_at",
+        "scene_entity.scene_id",
+        "scene_entity.entity_id",
+        "scene_entity.position"
+      ]
+    },
+    {
+      "dataCapability": "ai.extractFromNotes",
+      "effect": "insert",
+      "touches": [
+        "imported_note.id",
+        "imported_note.campaign_id",
+        "imported_note.raw_text",
+        "imported_note.created_at",
+        "imported_note.analyzed_at",
+        "note_proposal.id",
+        "note_proposal.note_id",
+        "note_proposal.type",
+        "note_proposal.name",
+        "note_proposal.excerpt",
+        "note_proposal.existing_entity_id",
+        "note_proposal.checked"
+      ]
+    },
+    {
+      "dataCapability": "ai.proposeCharacter",
+      "effect": "update",
+      "touches": [
+        "character.initial_prompt",
+        "character.background",
+        "character.behavior",
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armor_class",
+        "character.hp_max",
+        "character.actions",
+        "entity.updated_at",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.created_at"
+      ]
+    },
+    {
+      "dataCapability": "ai.saveSettings",
+      "effect": "upsert",
+      "touches": [
+        "ai_provider.id",
+        "ai_provider.mode",
+        "ai_provider.label",
+        "ai_provider.url",
+        "ai_provider.detected_api_type",
+        "ai_provider.api_key",
+        "ai_provider.binary",
+        "ai_provider.generation_model",
+        "ai_provider.summary_model",
+        "ai_settings.active_provider_id",
+        "ai_settings.updated_at"
+      ]
+    },
+    {
+      "dataCapability": "ai.testConnection",
+      "effect": "update",
+      "touches": [
+        "ai_provider.last_test_ok",
+        "ai_provider.last_test_at",
+        "ai_provider.last_test_message",
+        "ai_provider.last_test_latency_ms"
+      ]
+    },
+    {
+      "dataCapability": "campaign.createCampaign",
+      "effect": "insert",
+      "touches": [
+        "campaign.id",
+        "campaign.name",
+        "campaign.kind",
+        "campaign.pitch",
+        "campaign.art",
+        "campaign.glyph",
+        "campaign.created_at",
+        "campaign.sound_master_volume",
+        "session.id",
+        "session.campaign_id",
+        "session.position",
+        "session.title",
+        "session.status",
+        "session.microphone_on"
+      ]
+    },
+    {
+      "dataCapability": "campaign.createEntitiesFromNote",
+      "effect": "insert",
+      "touches": [
+        "note_proposal.checked",
+        "note_proposal.created_entity_id",
+        "entity.id",
+        "entity.campaign_id",
+        "entity.type",
+        "entity.name",
+        "entity.description",
+        "entity.created_at",
+        "entity.updated_at",
+        "character.entity_id",
+        "character.token_color",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.created_at"
+      ]
+    },
+    {
+      "dataCapability": "campaign.exportCampaign",
+      "effect": "insert",
+      "touches": [
+        "campaign.last_exported_at"
+      ]
+    },
+    {
+      "dataCapability": "campaign.importCampaign",
+      "effect": "insert",
+      "touches": [
+        "campaign.id",
+        "campaign.name",
+        "campaign.kind",
+        "campaign.pitch",
+        "campaign.art",
+        "campaign.glyph",
+        "campaign.cover_media_id",
+        "campaign.created_at",
+        "campaign.last_exported_at",
+        "campaign.imported_at",
+        "campaign.origin_campaign_id",
+        "campaign.sound_master_volume",
+        "player.id",
+        "player.campaign_id",
+        "player.name",
+        "player.notes",
+        "player.created_at",
+        "entity.id",
+        "entity.campaign_id",
+        "entity.type",
+        "entity.name",
+        "entity.description",
+        "entity.notes",
+        "entity.created_at",
+        "entity.updated_at",
+        "character.entity_id",
+        "character.player_id",
+        "character.initial_prompt",
+        "character.background",
+        "character.behavior",
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armor_class",
+        "character.hp_max",
+        "character.spells",
+        "character.actions",
+        "character.portrait_media_id",
+        "character.token_media_id",
+        "character.token_crop",
+        "character.token_color",
+        "character.dndbeyond_id",
+        "character.dndbeyond_synced_at",
+        "entity_alias.id",
+        "entity_alias.entity_id",
+        "entity_alias.alias",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.created_at",
+        "media.id",
+        "media.campaign_id",
+        "media.kind",
+        "media.title",
+        "media.file_path",
+        "media.width_px",
+        "media.height_px",
+        "media.place_id",
+        "media.uploaded_at",
+        "battlemap_grid.media_id",
+        "battlemap_grid.hex_size_px",
+        "battlemap_grid.offset_x",
+        "battlemap_grid.offset_y",
+        "battlemap_grid.orientation",
+        "battlemap_grid.color",
+        "battlemap_grid.opacity",
+        "sound.id",
+        "sound.campaign_id",
+        "sound.name",
+        "sound.file_path",
+        "sound.tags",
+        "sound.volume",
+        "sound.created_at",
+        "session.id",
+        "session.campaign_id",
+        "session.position",
+        "session.title",
+        "session.planned_on",
+        "session.status",
+        "session.started_at",
+        "session.closed_at",
+        "session.microphone_on",
+        "session.summary",
+        "session.summary_model",
+        "session.summary_edited_at",
+        "session_present_character.session_id",
+        "session_present_character.character_id",
+        "session_present_character.added_at",
+        "scene.id",
+        "scene.session_id",
+        "scene.position",
+        "scene.title",
+        "scene.notes",
+        "scene_entity.scene_id",
+        "scene_entity.entity_id",
+        "scene_entity.position",
+        "scene_media.scene_id",
+        "scene_media.media_id",
+        "session_journal_line.id",
+        "session_journal_line.session_id",
+        "session_journal_line.scene_id",
+        "session_journal_line.spoken_at",
+        "session_journal_line.text"
+      ]
+    },
+    {
+      "dataCapability": "campaign.restoreEntityVersion",
+      "effect": "update",
+      "touches": [
+        "entity.name",
+        "entity.description",
+        "entity.notes",
+        "entity.updated_at",
+        "character.player_id",
+        "character.initial_prompt",
+        "character.background",
+        "character.behavior",
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armor_class",
+        "character.hp_max",
+        "character.spells",
+        "character.actions",
+        "character.portrait_media_id",
+        "character.token_media_id",
+        "character.token_crop",
+        "character.token_color",
+        "character.dndbeyond_id",
+        "character.dndbeyond_synced_at",
+        "entity_alias.id",
+        "entity_alias.entity_id",
+        "entity_alias.alias",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.restored_from_version_id",
+        "entity_version.created_at"
+      ]
+    },
+    {
+      "dataCapability": "campaign.saveEntity",
+      "effect": "upsert",
+      "touches": [
+        "entity.id",
+        "entity.campaign_id",
+        "entity.type",
+        "entity.name",
+        "entity.description",
+        "entity.notes",
+        "entity.created_at",
+        "entity.updated_at",
+        "character.entity_id",
+        "character.player_id",
+        "character.initial_prompt",
+        "character.background",
+        "character.behavior",
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armor_class",
+        "character.hp_max",
+        "character.spells",
+        "character.actions",
+        "character.portrait_media_id",
+        "character.token_media_id",
+        "character.token_crop",
+        "character.token_color",
+        "entity_alias.id",
+        "entity_alias.entity_id",
+        "entity_alias.alias",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.created_at",
+        "player.id",
+        "player.campaign_id",
+        "player.name",
+        "player.notes",
+        "player.created_at"
+      ]
+    },
+    {
+      "dataCapability": "dndbeyond.importCharacter",
+      "effect": "upsert",
+      "touches": [
+        "entity.id",
+        "entity.campaign_id",
+        "entity.type",
+        "entity.name",
+        "entity.created_at",
+        "entity.updated_at",
+        "character.entity_id",
+        "character.player_id",
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armor_class",
+        "character.hp_max",
+        "character.spells",
+        "character.actions",
+        "character.token_color",
+        "character.dndbeyond_id",
+        "character.dndbeyond_synced_at",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.created_at"
+      ]
+    },
+    {
+      "dataCapability": "dndbeyond.resyncCharacter",
+      "effect": "update",
+      "touches": [
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armor_class",
+        "character.hp_max",
+        "character.spells",
+        "character.actions",
+        "character.dndbeyond_synced_at",
+        "entity.updated_at",
+        "entity_version.id",
+        "entity_version.entity_id",
+        "entity_version.version_number",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.diff",
+        "entity_version.created_at"
+      ]
+    },
+    {
+      "dataCapability": "live.closeWindow",
+      "effect": null,
+      "touches": [
+        "diffusion.window_media_id",
+        "diffusion.window_x",
+        "diffusion.window_y",
+        "diffusion.window_width",
+        "diffusion.updated_at"
+      ]
+    },
+    {
+      "dataCapability": "live.moveWindow",
+      "effect": null,
+      "touches": [
+        "diffusion.window_x",
+        "diffusion.window_y",
+        "diffusion.updated_at"
+      ]
+    },
+    {
+      "dataCapability": "live.resizeWindow",
+      "effect": null,
+      "touches": [
+        "diffusion.window_width",
+        "diffusion.updated_at"
+      ]
+    },
+    {
+      "dataCapability": "live.setMicrophone",
+      "effect": "upsert",
+      "touches": [
+        "session.microphone_on",
+        "session.status",
+        "session.started_at"
+      ]
+    },
+    {
+      "dataCapability": "live.showCover",
+      "effect": null,
+      "touches": [
+        "diffusion.session_id",
+        "diffusion.base_kind",
+        "diffusion.base_media_id",
+        "diffusion.base_instance_id",
+        "diffusion.updated_at"
+      ]
+    },
+    {
+      "dataCapability": "live.showOnPlayerView",
+      "effect": null,
+      "touches": [
+        "diffusion.session_id",
+        "diffusion.base_kind",
+        "diffusion.base_media_id",
+        "diffusion.base_instance_id",
+        "diffusion.view_zoom",
+        "diffusion.view_pan_x",
+        "diffusion.view_pan_y",
+        "diffusion.updated_at"
+      ]
+    },
+    {
+      "dataCapability": "live.showWindowOnPlayerView",
+      "effect": null,
+      "touches": [
+        "diffusion.window_media_id",
+        "diffusion.window_x",
+        "diffusion.window_y",
+        "diffusion.window_width",
+        "diffusion.updated_at"
+      ]
+    },
+    {
+      "dataCapability": "media.saveGridSettings",
+      "effect": "upsert",
+      "touches": [
+        "battlemap_grid.hex_size_px",
+        "battlemap_grid.offset_x",
+        "battlemap_grid.offset_y",
+        "battlemap_grid.orientation",
+        "battlemap_grid.color",
+        "battlemap_grid.opacity"
+      ]
+    },
+    {
+      "dataCapability": "media.setMediaPlace",
+      "effect": null,
+      "touches": [
+        "media.place_id"
+      ]
+    },
+    {
+      "dataCapability": "media.uploadMedia",
+      "effect": "insert",
+      "touches": [
+        "media.id",
+        "media.campaign_id",
+        "media.kind",
+        "media.title",
+        "media.file_path",
+        "media.width_px",
+        "media.height_px",
+        "media.place_id",
+        "media.uploaded_at",
+        "battlemap_grid.media_id",
+        "battlemap_grid.hex_size_px",
+        "battlemap_grid.offset_x",
+        "battlemap_grid.offset_y",
+        "battlemap_grid.orientation",
+        "battlemap_grid.color",
+        "battlemap_grid.opacity"
+      ]
+    },
+    {
+      "dataCapability": "session.addPlaceToSession",
+      "effect": null,
+      "touches": [
+        "scene_entity.scene_id",
+        "scene_entity.entity_id",
+        "scene_entity.position"
+      ]
+    },
+    {
+      "dataCapability": "session.addPresentCharacter",
+      "effect": "insert",
+      "touches": [
+        "session_present_character.session_id",
+        "session_present_character.character_id",
+        "session_present_character.added_at"
+      ]
+    },
+    {
+      "dataCapability": "session.addScene",
+      "effect": "insert",
+      "touches": [
+        "scene.id",
+        "scene.session_id",
+        "scene.position",
+        "scene.title",
+        "scene.notes"
+      ]
+    },
+    {
+      "dataCapability": "session.closeSession",
+      "effect": "update",
+      "touches": [
+        "session.status",
+        "session.closed_at",
+        "session.microphone_on",
+        "session.summary",
+        "session.summary_model",
+        "sound_playback.stopped_at"
+      ]
+    },
+    {
+      "dataCapability": "session.createSession",
+      "effect": "insert",
+      "touches": [
+        "session.id",
+        "session.campaign_id",
+        "session.position",
+        "session.title",
+        "session.planned_on",
+        "session.status",
+        "session.microphone_on",
+        "session_present_character.session_id",
+        "session_present_character.character_id",
+        "session_present_character.added_at"
+      ]
+    },
+    {
+      "dataCapability": "session.removePresentCharacter",
+      "effect": "delete",
+      "touches": [
+        "session_present_character.session_id",
+        "session_present_character.character_id"
+      ]
+    },
+    {
+      "dataCapability": "session.reorderScenes",
+      "effect": "update",
+      "touches": [
+        "scene.position"
+      ]
+    },
+    {
+      "dataCapability": "soundbox.addSound",
+      "effect": "insert",
+      "touches": [
+        "sound.id",
+        "sound.campaign_id",
+        "sound.name",
+        "sound.file_path",
+        "sound.tags",
+        "sound.volume",
+        "sound.created_at"
+      ]
+    },
+    {
+      "dataCapability": "soundbox.playSound",
+      "effect": "insert",
+      "touches": [
+        "sound_playback.id",
+        "sound_playback.session_id",
+        "sound_playback.sound_id",
+        "sound_playback.origin",
+        "sound_playback.started_at"
+      ]
+    },
+    {
+      "dataCapability": "soundbox.removeSound",
+      "effect": "delete",
+      "touches": [
+        "sound.id"
+      ]
+    },
+    {
+      "dataCapability": "soundbox.setMasterVolume",
+      "effect": "upsert",
+      "touches": [
+        "campaign.sound_master_volume"
+      ]
+    },
+    {
+      "dataCapability": "soundbox.setSoundVolume",
+      "effect": "update",
+      "touches": [
+        "sound.volume"
+      ]
+    },
+    {
+      "dataCapability": "soundbox.stopAll",
+      "effect": "update",
+      "touches": [
+        "sound_playback.stopped_at"
+      ]
+    },
+    {
+      "dataCapability": "soundbox.updateSound",
+      "effect": "update",
+      "touches": [
+        "sound.name",
+        "sound.file_path",
+        "sound.tags",
+        "sound.volume"
+      ]
+    },
+    {
+      "dataCapability": "table.addParticipant",
+      "effect": "insert",
+      "touches": [
+        "initiative_entry.id",
+        "initiative_entry.combat_id",
+        "initiative_entry.token_id",
+        "initiative_entry.roll",
+        "initiative_entry.initiative",
+        "initiative_entry.dex_score",
+        "initiative_entry.tiebreak",
+        "initiative_entry.rank"
+      ]
+    },
+    {
+      "dataCapability": "table.changeHitPoints",
+      "effect": "update",
+      "touches": [
+        "token.hp_current"
+      ]
+    },
+    {
+      "dataCapability": "table.createBattlemapInstance",
+      "effect": "insert",
+      "touches": [
+        "battlemap_instance.id",
+        "battlemap_instance.battlemap_media_id",
+        "battlemap_instance.session_id",
+        "battlemap_instance.scene_id",
+        "battlemap_instance.created_at"
+      ]
+    },
+    {
+      "dataCapability": "table.endCombat",
+      "effect": "update",
+      "touches": [
+        "combat.ended_at",
+        "combat.current_entry_id"
+      ]
+    },
+    {
+      "dataCapability": "table.moveToken",
+      "effect": "update",
+      "touches": [
+        "token.q",
+        "token.r"
+      ]
+    },
+    {
+      "dataCapability": "table.nextTurn",
+      "effect": "update",
+      "touches": [
+        "combat.current_entry_id",
+        "combat.round"
+      ]
+    },
+    {
+      "dataCapability": "table.placeTokens",
+      "effect": "insert",
+      "touches": [
+        "token.id",
+        "token.instance_id",
+        "token.character_id",
+        "token.number",
+        "token.name",
+        "token.q",
+        "token.r",
+        "token.visible",
+        "token.hp_current",
+        "token.hp_max",
+        "token.conditions"
+      ]
+    },
+    {
+      "dataCapability": "table.removeParticipant",
+      "effect": "delete",
+      "touches": [
+        "initiative_entry.id",
+        "initiative_entry.rank",
+        "combat.current_entry_id"
+      ]
+    },
+    {
+      "dataCapability": "table.removeToken",
+      "effect": "delete",
+      "touches": [
+        "token.id",
+        "initiative_entry.id",
+        "initiative_entry.rank",
+        "combat.current_entry_id"
+      ]
+    },
+    {
+      "dataCapability": "table.renameToken",
+      "effect": "update",
+      "touches": [
+        "token.name"
+      ]
+    },
+    {
+      "dataCapability": "table.reorderInitiative",
+      "effect": "update",
+      "touches": [
+        "initiative_entry.rank"
+      ]
+    },
+    {
+      "dataCapability": "table.resetBattlemap",
+      "effect": "delete",
+      "touches": [
+        "battlemap_instance.reset_at",
+        "token.id",
+        "combat.id",
+        "initiative_entry.id"
+      ]
+    },
+    {
+      "dataCapability": "table.setTokenCondition",
+      "effect": "update",
+      "touches": [
+        "token.conditions"
+      ]
+    },
+    {
+      "dataCapability": "table.setTokenVisibility",
+      "effect": "update",
+      "touches": [
+        "token.visible"
+      ]
+    },
+    {
+      "dataCapability": "table.startCombat",
+      "effect": "insert",
+      "touches": [
+        "combat.id",
+        "combat.instance_id",
+        "combat.round",
+        "combat.current_entry_id",
+        "combat.started_at",
+        "initiative_entry.id",
+        "initiative_entry.combat_id",
+        "initiative_entry.token_id",
+        "initiative_entry.roll",
+        "initiative_entry.initiative",
+        "initiative_entry.dex_score",
+        "initiative_entry.tiebreak",
+        "initiative_entry.rank"
+      ]
+    }
+  ],
+  "aggregates": [
+    "Campaign",
+    "Player",
+    "Entity",
+    "NoteImport",
+    "Session",
+    "Media",
+    "BattlemapInstance",
+    "Sound",
+    "SoundPlayback",
+    "Suggestion",
+    "Diffusion",
+    "AiSettings"
+  ],
+  "ports": {
+    "ports": [
+      {
+        "id": "database",
+        "purpose": "The product's store: the Data layer reads it, the DataGuard writes it — listed, not abstracted.",
+        "stateful": true,
+        "provider": "PostgreSQL 16",
+        "tech_kind": "sql",
+        "tech_name": "postgres",
+        "tech_version": "16",
+        "secrets": [
+          "DATABASE_URL"
+        ],
+        "cost": "the host's",
+        "used_by": [],
+        "alternatives": []
+      },
+      {
+        "id": "llm",
+        "purpose": "Text generation from text only: extract entities from imported notes, turn an oral brief into scenes and detect existing or missing NPCs, places and events, propose backgrounds, behaviour and credible NPC statblocks, generate the end-of-session summary, and test the connection. It is reached either by an API URL whose type is auto-detected (cloud API or the home opencode server endpoint) or by a local binary (opencode or Claude Code).",
+        "stateful": false,
+        "provider": "Anthropic Claude API (default; claude-sonnet-5-5 for generation, claude-haiku-4-5-20251001 for summaries), switchable to the DM's home opencode server endpoint or to the opencode / Claude Code binaries",
+        "tech_kind": "rest",
+        "tech_name": "Anthropic Messages API + OpenAI-compatible chat completions (opencode server); CLI adapters for opencode and claude",
+        "tech_version": "anthropic-version 2023-06-01",
+        "secrets": [
+          "LLM_API_KEY"
+        ],
+        "cost": "Pay per token on the cloud API (generation model plus a cheaper summary model); free on the home opencode server or with a binary under the DM's existing subscription",
+        "used_by": [
+          "ai.testConnection",
+          "ai.extractFromNotes",
+          "ai.analyzeBrief",
+          "ai.createFromBrief",
+          "ai.proposeCharacter",
+          "session.closeSession"
+        ],
+        "alternatives": [
+          "OpenAI API",
+          "Mistral API",
+          "Ollama (self-hosted, OpenAI-compatible)"
+        ]
+      },
+      {
+        "id": "speech-to-text",
+        "purpose": "Local French transcription of the microphone, with vocabulary injected from campaign names, aliases and sound names. It feeds live suggestions, the timestamped session journal, the oral brief, dictated character prompts, refinements and dictated notes. No audio leaves the machine.",
+        "stateful": false,
+        "provider": "Phonon (local, to be evaluated as the decision requests)",
+        "tech_kind": "other",
+        "tech_name": "Local Phonon runtime as a sidecar process, streaming transcription",
+        "tech_version": "to evaluate",
+        "secrets": [],
+        "cost": "Free: runs on the DM's machine",
+        "used_by": [
+          "live.setMicrophone",
+          "ai.analyzeBrief",
+          "ai.proposeCharacter",
+          "ai.createFromBrief",
+          "ai.extractFromNotes"
+        ],
+        "alternatives": [
+          "whisper.cpp (whisper-rs) with initial-prompt vocabulary",
+          "faster-whisper local server",
+          "Vosk (French model, runtime grammar)"
+        ]
+      },
+      {
+        "id": "character-sheets",
+        "purpose": "Import a player character by its D&D Beyond URL, and resynchronise stats, HP and spells after a level-up. Local aliases, notes and the token are kept, and every change is versioned locally.",
+        "stateful": true,
+        "provider": "D&D Beyond (public character JSON service)",
+        "tech_kind": "rest",
+        "tech_name": "character-service.dndbeyond.com/character/v5/character/{id} (unofficial, public sharing required)",
+        "tech_version": "v5",
+        "secrets": [],
+        "cost": "Free; requires characters shared as public; unofficial endpoint that may change without notice",
+        "used_by": [
+          "dndbeyond.importCharacter",
+          "dndbeyond.resyncCharacter"
+        ],
+        "alternatives": [
+          "ddb-importer JSON export (Foundry module)",
+          "Manual JSON or PDF sheet import",
+          "Manual entry"
+        ]
+      }
+    ],
+    "from": "R1:Plusieurs campagnes et oneshots|R2:Export et import d'une campagne en archive|R3:Fournisseur de génération paramétrable : API ou binaire|R4:Joueurs et personnages distincts|R5:Reprise depuis des notes en texte libre|R6:Alias et vocabulaire de détection|R7:Prompt initial dicté et création assistée|R8:Import et resynchronisation D&D Beyond|R9:Historique, diff et retour arrière|R10:PJ présents à la séance|R11:Brief oral découpé en scènes|R12:PNJ existants mis à jour, PNJ manquants à créer|R13:Journal et résumé de la séance précédente|R14:Médias téléversés et grille hexagonale réglée|R15:Instance de battlemap dans une scène|R16:Soundbox d'effets tagués|R17:Conduite de la séance depuis la DM view|R18:Suggestions du micro en direct|R19:Tokens glissés avec mesure de distance|R20:Dépôt de personnages en une ou plusieurs instances|R21:PV, états, mort et visibilité des tokens|R22:Combat et carrousel d'initiative|R23:État de la carte conservé|R24:Diffusion vers la player view|R25:Séparation des vues DM et joueurs|R26:Clôture de séance avec journal et résumé|R77:Seul du texte part vers le fournisseur|R92:Détection automatique du type d'API|R93:Rail de navigation entre les fiches d'entité|R94:Rail repliable et tiroir sur petit écran|R95:Confirmation avant de quitter une fiche modifiée|R96:Sections du rail repliables par catégorie|R97:Médias rattachés à la séance par leur lieu|R98:Pastille des suggestions en surcouche fixe|R99:Tester la connexion au fournisseur|R100:Création assistée avec les deux fournisseurs|R101:Image de token par défaut|R102:Lieux et événements reconnus dans le brief|R103:Affiner une entité manquante|R105:Initiative des PNJ et départage|R106:Fiche d'une instance précise en combat|R107:Révélation à sa place dans l'initiative|R108:État approximatif des PNJ|R109:Historique des suggestions|R110:Recherche et tags dans la soundbox|R111:Sons simultanés et volumes|R112:Fenêtre d'illustration proportionnelle|R113:Onglet player view piloté par le DM|R114:Synchronisation des onglets sous une seconde|ai.analyzeBrief=oral_brief.id,oral_brief.session_id,oral_brief.transcript,oral_brief.duration_seconds,oral_brief.recorded_at,oral_brief.analyzed_at,scene.id,scene.session_id,scene.position,scene.title,scene.notes,scene_entity.scene_id,scene_entity.entity_id,scene_entity.position,scene_media.scene_id,scene_media.media_id,entity_to_create.id,entity_to_create.campaign_id,entity_to_create.session_id,entity_to_create.brief_id,entity_to_create.scene_id,entity_to_create.type,entity_to_create.name,entity_to_create.excerpt,entity_to_create.status,entity_to_create.created_at,entity.description,entity.notes,entity.updated_at,character.background,character.behavior,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.created_at|ai.createFromBrief=entity_to_create.refinement_text,entity_to_create.status,entity_to_create.created_entity_id,entity.id,entity.campaign_id,entity.type,entity.name,entity.description,entity.created_at,entity.updated_at,character.entity_id,character.initial_prompt,character.background,character.behavior,character.strength,character.dexterity,character.constitution,character.intelligence,character.wisdom,character.charisma,character.armor_class,character.hp_max,character.actions,character.token_color,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.created_at,scene_entity.scene_id,scene_entity.entity_id,scene_entity.position|ai.extractFromNotes=imported_note.id,imported_note.campaign_id,imported_note.raw_text,imported_note.created_at,imported_note.analyzed_at,note_proposal.id,note_proposal.note_id,note_proposal.type,note_proposal.name,note_proposal.excerpt,note_proposal.existing_entity_id,note_proposal.checked|ai.proposeCharacter=character.initial_prompt,character.background,character.behavior,character.strength,character.dexterity,character.constitution,character.intelligence,character.wisdom,character.charisma,character.armor_class,character.hp_max,character.actions,entity.updated_at,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.created_at|ai.saveSettings=ai_provider.id,ai_provider.mode,ai_provider.label,ai_provider.url,ai_provider.detected_api_type,ai_provider.api_key,ai_provider.binary,ai_provider.generation_model,ai_provider.summary_model,ai_settings.active_provider_id,ai_settings.updated_at|ai.testConnection=ai_provider.last_test_ok,ai_provider.last_test_at,ai_provider.last_test_message,ai_provider.last_test_latency_ms|campaign.createCampaign=campaign.id,campaign.name,campaign.kind,campaign.pitch,campaign.art,campaign.glyph,campaign.created_at,campaign.sound_master_volume,session.id,session.campaign_id,session.position,session.title,session.status,session.microphone_on|campaign.createEntitiesFromNote=note_proposal.checked,note_proposal.created_entity_id,entity.id,entity.campaign_id,entity.type,entity.name,entity.description,entity.created_at,entity.updated_at,character.entity_id,character.token_color,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.created_at|campaign.exportCampaign=campaign.last_exported_at|campaign.importCampaign=campaign.id,campaign.name,campaign.kind,campaign.pitch,campaign.art,campaign.glyph,campaign.cover_media_id,campaign.created_at,campaign.last_exported_at,campaign.imported_at,campaign.origin_campaign_id,campaign.sound_master_volume,player.id,player.campaign_id,player.name,player.notes,player.created_at,entity.id,entity.campaign_id,entity.type,entity.name,entity.description,entity.notes,entity.created_at,entity.updated_at,character.entity_id,character.player_id,character.initial_prompt,character.background,character.behavior,character.strength,character.dexterity,character.constitution,character.intelligence,character.wisdom,character.charisma,character.armor_class,character.hp_max,character.spells,character.actions,character.portrait_media_id,character.token_media_id,character.token_crop,character.token_color,character.dndbeyond_id,character.dndbeyond_synced_at,entity_alias.id,entity_alias.entity_id,entity_alias.alias,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.created_at,media.id,media.campaign_id,media.kind,media.title,media.file_path,media.width_px,media.height_px,media.place_id,media.uploaded_at,battlemap_grid.media_id,battlemap_grid.hex_size_px,battlemap_grid.offset_x,battlemap_grid.offset_y,battlemap_grid.orientation,battlemap_grid.color,battlemap_grid.opacity,sound.id,sound.campaign_id,sound.name,sound.file_path,sound.tags,sound.volume,sound.created_at,session.id,session.campaign_id,session.position,session.title,session.planned_on,session.status,session.started_at,session.closed_at,session.microphone_on,session.summary,session.summary_model,session.summary_edited_at,session_present_character.session_id,session_present_character.character_id,session_present_character.added_at,scene.id,scene.session_id,scene.position,scene.title,scene.notes,scene_entity.scene_id,scene_entity.entity_id,scene_entity.position,scene_media.scene_id,scene_media.media_id,session_journal_line.id,session_journal_line.session_id,session_journal_line.scene_id,session_journal_line.spoken_at,session_journal_line.text|campaign.restoreEntityVersion=entity.name,entity.description,entity.notes,entity.updated_at,character.player_id,character.initial_prompt,character.background,character.behavior,character.strength,character.dexterity,character.constitution,character.intelligence,character.wisdom,character.charisma,character.armor_class,character.hp_max,character.spells,character.actions,character.portrait_media_id,character.token_media_id,character.token_crop,character.token_color,character.dndbeyond_id,character.dndbeyond_synced_at,entity_alias.id,entity_alias.entity_id,entity_alias.alias,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.restored_from_version_id,entity_version.created_at|campaign.saveEntity=entity.id,entity.campaign_id,entity.type,entity.name,entity.description,entity.notes,entity.created_at,entity.updated_at,character.entity_id,character.player_id,character.initial_prompt,character.background,character.behavior,character.strength,character.dexterity,character.constitution,character.intelligence,character.wisdom,character.charisma,character.armor_class,character.hp_max,character.spells,character.actions,character.portrait_media_id,character.token_media_id,character.token_crop,character.token_color,entity_alias.id,entity_alias.entity_id,entity_alias.alias,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.created_at,player.id,player.campaign_id,player.name,player.notes,player.created_at|dndbeyond.importCharacter=entity.id,entity.campaign_id,entity.type,entity.name,entity.created_at,entity.updated_at,character.entity_id,character.player_id,character.strength,character.dexterity,character.constitution,character.intelligence,character.wisdom,character.charisma,character.armor_class,character.hp_max,character.spells,character.actions,character.token_color,character.dndbeyond_id,character.dndbeyond_synced_at,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.created_at|dndbeyond.resyncCharacter=character.strength,character.dexterity,character.constitution,character.intelligence,character.wisdom,character.charisma,character.armor_class,character.hp_max,character.spells,character.actions,character.dndbeyond_synced_at,entity.updated_at,entity_version.id,entity_version.entity_id,entity_version.version_number,entity_version.source,entity_version.snapshot,entity_version.diff,entity_version.created_at|live.closeWindow=diffusion.window_media_id,diffusion.window_x,diffusion.window_y,diffusion.window_width,diffusion.updated_at|live.moveWindow=diffusion.window_x,diffusion.window_y,diffusion.updated_at|live.resizeWindow=diffusion.window_width,diffusion.updated_at|live.setMicrophone=session.microphone_on,session.status,session.started_at|live.showCover=diffusion.session_id,diffusion.base_kind,diffusion.base_media_id,diffusion.base_instance_id,diffusion.updated_at|live.showOnPlayerView=diffusion.session_id,diffusion.base_kind,diffusion.base_media_id,diffusion.base_instance_id,diffusion.view_zoom,diffusion.view_pan_x,diffusion.view_pan_y,diffusion.updated_at|live.showWindowOnPlayerView=diffusion.window_media_id,diffusion.window_x,diffusion.window_y,diffusion.window_width,diffusion.updated_at|media.saveGridSettings=battlemap_grid.hex_size_px,battlemap_grid.offset_x,battlemap_grid.offset_y,battlemap_grid.orientation,battlemap_grid.color,battlemap_grid.opacity|media.setMediaPlace=media.place_id|media.uploadMedia=media.id,media.campaign_id,media.kind,media.title,media.file_path,media.width_px,media.height_px,media.place_id,media.uploaded_at,battlemap_grid.media_id,battlemap_grid.hex_size_px,battlemap_grid.offset_x,battlemap_grid.offset_y,battlemap_grid.orientation,battlemap_grid.color,battlemap_grid.opacity|session.addPlaceToSession=scene_entity.scene_id,scene_entity.entity_id,scene_entity.position|session.addPresentCharacter=session_present_character.session_id,session_present_character.character_id,session_present_character.added_at|session.addScene=scene.id,scene.session_id,scene.position,scene.title,scene.notes|session.closeSession=session.status,session.closed_at,session.microphone_on,session.summary,session.summary_model,sound_playback.stopped_at|session.createSession=session.id,session.campaign_id,session.position,session.title,session.planned_on,session.status,session.microphone_on,session_present_character.session_id,session_present_character.character_id,session_present_character.added_at|session.removePresentCharacter=session_present_character.session_id,session_present_character.character_id|session.reorderScenes=scene.position|soundbox.addSound=sound.id,sound.campaign_id,sound.name,sound.file_path,sound.tags,sound.volume,sound.created_at|soundbox.playSound=sound_playback.id,sound_playback.session_id,sound_playback.sound_id,sound_playback.origin,sound_playback.started_at|soundbox.removeSound=sound.id|soundbox.setMasterVolume=campaign.sound_master_volume|soundbox.setSoundVolume=sound.volume|soundbox.stopAll=sound_playback.stopped_at|soundbox.updateSound=sound.name,sound.file_path,sound.tags,sound.volume|table.addParticipant=initiative_entry.id,initiative_entry.combat_id,initiative_entry.token_id,initiative_entry.roll,initiative_entry.initiative,initiative_entry.dex_score,initiative_entry.tiebreak,initiative_entry.rank|table.changeHitPoints=token.hp_current|table.createBattlemapInstance=battlemap_instance.id,battlemap_instance.battlemap_media_id,battlemap_instance.session_id,battlemap_instance.scene_id,battlemap_instance.created_at|table.endCombat=combat.ended_at,combat.current_entry_id|table.moveToken=token.q,token.r|table.nextTurn=combat.current_entry_id,combat.round|table.placeTokens=token.id,token.instance_id,token.character_id,token.number,token.name,token.q,token.r,token.visible,token.hp_current,token.hp_max,token.conditions|table.removeParticipant=initiative_entry.id,initiative_entry.rank,combat.current_entry_id|table.removeToken=token.id,initiative_entry.id,initiative_entry.rank,combat.current_entry_id|table.renameToken=token.name|table.reorderInitiative=initiative_entry.rank|table.resetBattlemap=battlemap_instance.reset_at,token.id,combat.id,initiative_entry.id|table.setTokenCondition=token.conditions|table.setTokenVisibility=token.visible|table.startCombat=combat.id,combat.instance_id,combat.round,combat.current_entry_id,combat.started_at,initiative_entry.id,initiative_entry.combat_id,initiative_entry.token_id,initiative_entry.roll,initiative_entry.initiative,initiative_entry.dex_score,initiative_entry.tiebreak,initiative_entry.rank|",
+    "validated": true
+  }
+}

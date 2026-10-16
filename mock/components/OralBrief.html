@@ -1,0 +1,78 @@
+<section class="panel mf-brief" id="oral-brief" aria-labelledby="brief-title">
+  <div class="panel__head">
+    <h2 id="brief-title">Brief oral</h2>
+    <span class="small muted" id="brief-last"></span>
+  </div>
+  <p class="small muted">Racontez la séance au micro. L’IA en tire les scènes, reconnaît les PNJ, lieux et événements existants et place les manquants dans la liste « à créer ».</p>
+  <div class="row" id="brief-controls"></div>
+  <ol class="mf-brief__live" id="brief-transcript" aria-live="polite" hidden></ol>
+  <div class="mf-brief__result" id="brief-result" data-reads="session.getLastBrief"></div>
+</section>
+<style>
+  .mf-brief__live { list-style: none; margin: 0; padding: var(--space-3); display: grid; gap: var(--space-1); background: var(--color-surface); border-radius: var(--radius-medium); border-left: calc(var(--border-width) * 3) solid var(--color-danger); max-height: calc(var(--space-5) * 5); overflow-y: auto; }
+  .mf-brief__result { display: grid; gap: var(--space-3); }
+  .mf-brief__cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-5) * 6), 1fr)); gap: var(--space-3); }
+  .mf-brief__col { display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); }
+  .mf-brief__col h3 { font-size: var(--font-size-small); color: var(--color-accent); }
+  .mf-brief__col ol, .mf-brief__col ul { margin: 0; padding-left: var(--space-4); display: grid; gap: var(--space-1); }
+  .mf-brief__col small { color: var(--color-text-muted); }
+  .mf-brief__upd { display: inline-flex; gap: var(--space-2); align-items: center; }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  let data, feed = null, line = 0;
+
+  function result(r, at) {
+    $('#brief-last').textContent = 'Dernier brief : ' + new Date(at).toLocaleString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + ' · ' + data.duration;
+    $('#brief-result').innerHTML = '<div class="mf-brief__cols">' +
+      `<section class="mf-brief__col" id="brief-scenes"><h3>${r.scenes.length} scènes créées</h3><ol>` + r.scenes.map(s => `<li><b>${esc(s.title)}</b><br><small>${esc(s.links.join(' · '))}</small></li>`).join('') + '</ol></section>' +
+      `<section class="mf-brief__col" id="brief-recognized"><h3>${r.recognized.length} entités reconnues</h3><ul>` + r.recognized.map(x => `<li><a href="fiche-entite.html?id=${esc(x.id)}">${esc(x.name)}</a> <small>entendu : « ${esc(x.heard)} »</small>` +
+        (x.updated ? `<br><span class="mf-brief__upd">${Mock.kitHTML('Badge', { label: 'Mis à jour', tone: 'accent' })}<button type="button" class="chip" data-diff="${esc(x.id)}" id="brief-diff-${esc(x.id)}">Voir le diff</button></span><br><small>${esc(x.change)}</small>` : '') + '</li>').join('') + '</ul></section>' +
+      `<section class="mf-brief__col" id="brief-missing"><h3>${r.missing.length} manquantes → « à créer »</h3><ul>` + r.missing.map(x => `<li><a href="#to-create-${esc(x.id)}">${esc(x.name)}</a> <small>${esc(x.type)}</small></li>`).join('') + '</ul></section></div>';
+    Mock.mount($('#brief-result'));
+  }
+
+  root.addEventListener('kit:mic', e => {
+    const live = $('#brief-transcript');
+    if (e.detail.state === 'recording') {
+      if (line === 0) live.innerHTML = '';
+      live.hidden = false;
+      feed = setInterval(() => {
+        if (line >= data.transcript.length) return;
+        live.insertAdjacentHTML('beforeend', `<li>${esc(data.transcript[line++])}</li>`);
+        live.scrollTop = live.scrollHeight;
+      }, 1600);
+      $('#brief-analyse').disabled = true;
+    } else {
+      clearInterval(feed);
+      $('#brief-analyse').disabled = line === 0;
+    }
+  });
+  root.addEventListener('click', e => {
+    const d = e.target.closest('[data-diff]');
+    if (d) Mock.emit('open-versions', { id: d.dataset.diff });
+    if (e.target.closest('#brief-analyse')) {
+      const mic = $('#brief-mic').closest('[data-kit]');
+      mic.mic.set('idle');
+      Mock.command('ai.analyzeBrief', { session: data.session, lines: line }, { label: 'Analyser le brief et découper en scènes', delay: 1200 }).then(() => {
+        line = 0;
+        $('#brief-transcript').hidden = true;
+        result(data.result, new Date().toISOString());
+        Mock.emit('entity-updated', { id: 'morlox', origin: 'ia', source: 'Brief oral — séance ' + data.session.slice(1), changes: [{ field: 'Notes', old: 'Doit 40 po à Vesna. Connaît le passage sous le moulin.', new: 'Doit 40 po à Vesna. Connaît le passage sous le moulin. A vendu aux bandits le plan du gué contre l’effacement de sa dette.' }] });
+        Mock.emit('brief-done', data.result);
+      });
+    }
+  });
+
+  Mock.fixture('fixtures/OralBrief.json').then(d => {
+    data = d;
+    $('#brief-controls').innerHTML = Mock.kitHTML('MicButton', { id: 'brief-mic', label: 'Brief oral', texts: { idle: 'Prêt à écouter', recording: 'J’écoute le brief', paused: 'En pause — reprenez ou analysez' } }) +
+      Mock.kitHTML('Button', { items: [{ id: 'brief-analyse', label: 'Terminer et analyser', variant: 'primary', disabled: true, 'data-writes': 'ai.analyzeBrief' }] });
+    Mock.mount($('#brief-controls'));
+    result(d.result, d.lastRun);
+  });
+})();
+</script>

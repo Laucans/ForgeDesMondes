@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Médias et réglage de battlemap — ForgeDesMondes</title>
+  <link rel="stylesheet" href="../design/tokens.css">
+  <link rel="stylesheet" href="../kit/kit.css">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <header id="site-header">
+    <div data-kit="Menu" data-props='{"brand":"ForgeDesMondes","brandHref":"campagnes.html","navId":"site-nav","label":"Sections","links":[{"label":"Campagnes","href":"campagnes.html"},{"label":"Médias","href":"medias.html","current":true},{"label":"Soundbox","href":"soundbox.html"},{"label":"Paramètres IA","href":"parametres-ia.html"}]}'></div>
+  </header>
+  <main id="page-main" class="page-main">
+    <section class="page-head" id="page-head">
+      <div class="page-head__text">
+        <h1 id="page-title">Médias</h1>
+        <p>Les battlemaps et les illustrations préconstruites de la campagne. Chaque battlemap garde son réglage de grille hexagonale : taille, décalage, orientation, couleur et opacité.</p>
+      </div>
+    </section>
+    <div data-component="MediaLibrary"></div>
+    <div data-component="GridSettings"></div>
+  </main>
+  <footer id="site-footer" class="page-footer">
+    <span>ForgeDesMondes · médias stockés avec la campagne et inclus dans son archive</span>
+    <span>1 hex = 5 pieds</span>
+  </footer>
+  <script src="../mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "campaign": "cendres-valombre",
+  "sessions": [
+    {
+      "id": "s1", "order": 1, "title": "Arrivée à Valombre", "date": "2026-09-05", "status": "played",
+      "present": ["elowen", "brannoc", "sirielle", "kael"],
+      "summary": "Le groupe arrive à Valombre sous une pluie de cendres et se fait engager par le bourgmestre pour escorter un convoi de farine. Première nuit à la Taverne du Sanglier."
+    },
+    {
+      "id": "s2", "order": 2, "title": "Le moulin en flammes", "date": "2026-09-19", "status": "played",
+      "present": ["elowen", "brannoc", "kael"],
+      "summary": "Le moulin brûle pendant la nuit. Le groupe sauve deux apprentis mais le meunier reste introuvable. Des traces de bottes ferrées mènent vers le Gué des Corbeaux."
+    },
+    {
+      "id": "s3", "order": 3, "title": "Le marché noir", "date": "2026-10-03", "status": "played",
+      "present": ["elowen", "brannoc", "sirielle", "kael"],
+      "summary": "Morlox avoue avoir vendu quarante jarres d’huile la veille de l’incendie. Sirielle reconnaît le sceau de la Tour d’Ébène. Gaspard promet de se renseigner sur les cavaliers du gué."
+    },
+    {
+      "id": "s4", "order": 4, "title": "L’embuscade du Gué", "date": "2026-10-17", "status": "prep",
+      "present": ["elowen", "brannoc", "sirielle", "kael"],
+      "summary": "Trois scènes préparées depuis le brief oral : la taverne, la route des Corbeaux, l’embuscade au gué."
+    }
+  ]
+}

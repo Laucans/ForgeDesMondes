@@ -1,0 +1,56 @@
+{
+  "defaultEntity": "morlox",
+  "states": ["À terre", "Empoisonné", "Effrayé", "Étourdi", "Agrippé", "Invisible", "Concentration"],
+  "dictations": {
+    "morlox": "Un gobelin marchand, nerveux, qui parle trop vite et appelle tout le monde « mon bon seigneur ». Il tient une échoppe sous le pont de Valombre et doit de l’argent à des gens dangereux.",
+    "default": "Une ancienne sergente de la garde, balafrée, qui commande une bande de coupe-jarrets au gué. Elle a mis le feu au moulin pour le compte de quelqu’un de la Tour d’Ébène."
+  },
+  "proposals": {
+    "morlox": {
+      "background": "Chassé de sa tribu pour avoir vendu la réserve de champignons du chef, Morlox s’est installé sous le pont de Valombre il y a six ans. Il y a bâti un petit marché noir où passent les objets tirés des ruines de la Tour d’Ébène. Depuis l’incendie du moulin, il a peur : il sait qui a payé les incendiaires, et il a vendu aux bandits le plan du gué pour effacer sa dette.",
+      "behavior": "Parle vite, se frotte les mains, recule d’un pas quand on hausse le ton. Ment par réflexe, mais dit la vérité si on lui promet une protection. Siffle ses « s ». Propose un rabais dès qu’il se sent coupable.",
+      "stats": { "FOR": 8, "DEX": 15, "CON": 10, "INT": 13, "SAG": 9, "CHA": 12 }, "ca": 13, "pvMax": 21,
+      "features": [
+        { "name": "Fuite agile", "text": "Il peut se désengager ou se cacher par une action bonus à chacun de ses tours." },
+        { "name": "Marchandage", "text": "Avantage aux jets de Charisme (Persuasion) pour négocier un prix." },
+        { "name": "Dague empoisonnée", "text": "+4 pour toucher. Touché : 4 (1d4 + 2) dégâts perforants et JS de Constitution DD 11 contre l’état empoisonné." }
+      ],
+      "changes": [
+        { "field": "Background", "old": "…Depuis l’incendie du moulin, il a peur : il sait qui a payé les incendiaires.", "new": "…il sait qui a payé les incendiaires, et il a vendu aux bandits le plan du gué pour effacer sa dette." },
+        { "field": "PV max", "old": "18", "new": "21" },
+        { "field": "Sorts et capacités", "old": "Fuite agile, Marchandage, Dague", "new": "Fuite agile, Marchandage, Dague empoisonnée" }
+      ]
+    },
+    "default": {
+      "background": "Renvoyée de la garde pour avoir refusé de brûler un village, elle a fini par faire ce qu’elle avait refusé : c’est elle qui a mis le feu au moulin, payée par un acheteur de la Tour d’Ébène.",
+      "behavior": "Parle peu, d’une voix basse. Respecte les anciens soldats. Négocie dès qu’elle est blessée.",
+      "stats": { "FOR": 14, "DEX": 16, "CON": 14, "INT": 14, "SAG": 11, "CHA": 15 }, "ca": 15, "pvMax": 65,
+      "features": [
+        { "name": "Attaques multiples", "text": "Trois attaques au corps à corps : deux au cimeterre, une à la dague." },
+        { "name": "Parade", "text": "Réaction : +2 à la CA contre une attaque au corps à corps qu’elle voit venir." }
+      ],
+      "changes": [
+        { "field": "Background", "old": "", "new": "Renvoyée de la garde pour avoir refusé de brûler un village…" },
+        { "field": "Statblock", "old": "", "new": "CA 15 · PV 65 · Attaques multiples, Parade" }
+      ]
+    }
+  },
+  "ddbResync": {
+    "elowen": {
+      "changes": [
+        { "field": "Niveau", "old": "Rôdeuse 5", "new": "Rôdeuse 6" },
+        { "field": "PV max", "old": "44", "new": "52" },
+        { "field": "SAG", "old": "15", "new": "16" },
+        { "field": "Sorts et capacités", "old": "Ennemi juré, Marque du chasseur, Passage sans trace, Attaque supplémentaire", "new": "Ennemi juré, Marque du chasseur, Passage sans trace, Attaque supplémentaire, Explorateur né amélioré, Communication avec les animaux" }
+      ],
+      "patch": { "type": "Elfe des bois, rôdeuse niveau 6", "pvMax": 52, "stats": { "SAG": 16 } }
+    },
+    "default": {
+      "changes": [
+        { "field": "Niveau", "old": "Niveau 5", "new": "Niveau 6" },
+        { "field": "PV max", "old": "—", "new": "+8" }
+      ],
+      "patch": {}
+    }
+  }
+}

@@ -1,0 +1,76 @@
+<section class="panel mf-notes" id="note-import" aria-labelledby="notes-title">
+  <div class="panel__head">
+    <h2 id="notes-title">Importer des notes</h2>
+    <span class="small muted">La note brute est toujours conservée</span>
+  </div>
+  <p class="muted small">Tapez, collez ou dictez vos notes en texte libre. L’IA en extrait les personnages, lieux et événements ; vous validez la liste en lot avant toute création.</p>
+  <div id="notes-input"></div>
+  <div class="row" id="notes-controls"></div>
+  <div id="notes-proposals" class="stack" hidden></div>
+  <section id="notes-history" class="stack" aria-labelledby="notes-history-title">
+    <h3 id="notes-history-title">Notes déjà importées</h3>
+    <ul class="list" id="notes-history-list" data-reads="campaign.listImportedNotes"></ul>
+  </section>
+</section>
+<style>
+  .mf-notes .kit-checkbox fieldset { padding: var(--space-2) var(--space-3); }
+  .mf-notes .kit-checkbox label span small { display: block; color: var(--color-text-muted); }
+  .mf-notes__type { font-family: var(--font-family-heading); text-transform: uppercase; font-size: var(--font-size-small); color: var(--color-secondary); margin-right: var(--space-1); }
+  .mf-notes__dup { color: var(--color-accent); font-size: var(--font-size-small); }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  let data;
+
+  function proposals() {
+    const box = $('#notes-proposals');
+    box.hidden = false;
+    box.innerHTML = `<div class="panel__head"><h3 id="notes-proposals-title">${data.proposals.length} propositions extraites</h3><span class="small muted">Les doublons probables sont décochés</span></div>` +
+      Mock.kitHTML('Checkbox', { id: 'notes-proposals-list', name: 'proposal', html: true, options: data.proposals.map(p => ({ value: p.id, checked: p.checked,
+        label: `<span class="mf-notes__type">${esc(p.type)}</span>${esc(p.name)}${p.existing ? ' <span class="mf-notes__dup">· existe déjà, sera complété</span>' : ''}<small>« ${esc(p.excerpt)} »</small>` })) }) +
+      Mock.kitHTML('Button', { items: [{ id: 'notes-create', label: 'Créer la sélection', variant: 'primary', 'data-writes': 'campaign.createEntitiesFromNote' }, { id: 'notes-cancel', label: 'Tout rejeter', variant: 'ghost' }] });
+    Mock.mount(box);
+    count();
+  }
+  function count() {
+    const n = root.querySelectorAll('input[name="proposal"]:checked').length;
+    const b = $('#notes-create');
+    if (b) { b.textContent = 'Créer la sélection (' + n + ')'; b.disabled = n === 0; }
+  }
+
+  root.addEventListener('change', e => { if (e.target.name === 'proposal') count(); });
+  root.addEventListener('kit:mic', e => {
+    if (e.detail.state !== 'paused') return;
+    const f = $('#notes-text');
+    f.value = (f.value ? f.value + '\n' : '') + 'Dicté : Mère Ombeline garde un herbier de plantes qui ne poussent qu’au pied du mont Pourpre.';
+  });
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.id === 'notes-extract') {
+      if (!$('#notes-text').value.trim()) { $('#notes-text').focus(); return; }
+      Mock.command('ai.extractFromNotes', { chars: $('#notes-text').value.length }, { label: 'Extraire les éléments de la note' }).then(proposals);
+    }
+    if (b.id === 'notes-create') {
+      const ids = Array.from(root.querySelectorAll('input[name="proposal"]:checked')).map(i => i.value);
+      Mock.command('campaign.createEntitiesFromNote', { ids }, { label: 'Créer ' + ids.length + ' éléments et conserver la note brute' }).then(() => {
+        $('#notes-proposals').innerHTML = `<p class="item" id="notes-done">${ids.length} éléments créés · note brute conservée le 14 octobre 2026.</p>`;
+        $('#notes-history-list').insertAdjacentHTML('afterbegin', `<li class="item" id="notes-import-new"><span>Notes en vrac après la séance 2</span><span class="small muted">14 oct. · ${$('#notes-text').value.length} caractères · ${ids.length} créés</span></li>`);
+      });
+    }
+    if (b.id === 'notes-cancel') $('#notes-proposals').hidden = true;
+  });
+
+  Mock.fixture('fixtures/NoteImport.json').then(d => {
+    data = d;
+    $('#notes-input').innerHTML = Mock.kitHTML('TextArea', { id: 'notes-text', label: 'Notes en texte libre', value: d.draft, rows: 7, wide: true, hint: 'Collez vos notes existantes, ou dictez-les avec le micro.' });
+    $('#notes-controls').innerHTML = Mock.kitHTML('MicButton', { id: 'notes-mic', label: 'Dicter', compact: true }) +
+      Mock.kitHTML('Button', { items: [{ id: 'notes-extract', label: 'Extraire les éléments', variant: 'primary', 'data-writes': 'ai.extractFromNotes' }] });
+    $('#notes-history-list').innerHTML = d.imports.map(i => `<li class="item" id="notes-import-${esc(i.id)}"><span>${esc(i.title)}</span><span class="small muted">${new Date(i.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${i.chars} caractères · ${i.created}/${i.proposed} créés</span></li>`).join('');
+    Mock.mount(root);
+  });
+})();
+</script>

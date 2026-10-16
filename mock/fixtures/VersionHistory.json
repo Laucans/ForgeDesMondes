@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "morlox": {
+      "name": "Morlox",
+      "versions": [
+        {
+          "v": 4, "date": "2026-10-14T19:32:00", "origin": "ia", "source": "Brief oral — séance 4", "seen": false,
+          "changes": [
+            { "field": "Notes", "old": "Doit 40 po à Vesna. Connaît le passage sous le moulin.", "new": "Doit 40 po à Vesna. Connaît le passage sous le moulin. A vendu aux bandits le plan du gué contre l’effacement de sa dette." },
+            { "field": "Comportement", "old": "Parle vite, se frotte les mains, recule d’un pas quand on hausse le ton. Ment par réflexe, mais dit la vérité si on lui promet une protection. Siffle ses « s » : « Ssseigneur ».", "new": "Parle vite, se frotte les mains, recule d’un pas quand on hausse le ton. Ment par réflexe, mais dit la vérité si on lui promet une protection. Siffle ses « s » : « Ssseigneur ». Depuis qu’il a trahi le groupe, évite le regard de Kael et propose des rabais sans qu’on les demande." },
+            { "field": "Alias", "old": "le gobelin, le marchand", "new": "le gobelin, le marchand, Morlo" }
+          ]
+        },
+        {
+          "v": 3, "date": "2026-10-03T23:05:00", "origin": "manuelle", "source": "Fiche modifiée à la main après la séance 3", "seen": true,
+          "changes": [ { "field": "Notes", "old": "Doit 40 po à Vesna.", "new": "Doit 40 po à Vesna. Connaît le passage sous le moulin." } ]
+        },
+        {
+          "v": 2, "date": "2026-09-20T15:40:00", "origin": "ia", "source": "Prompt initial dicté", "seen": true,
+          "changes": [
+            { "field": "Background", "old": "", "new": "Chassé de sa tribu pour avoir vendu la réserve de champignons du chef, Morlox s’est installé sous le pont de Valombre il y a six ans…" },
+            { "field": "Statblock", "old": "", "new": "CA 13 · PV 18 · DEX 14 · Fuite agile, Marchandage, Dague" }
+          ]
+        },
+        {
+          "v": 1, "date": "2026-09-14T10:12:00", "origin": "import", "source": "Import de notes « Notes de campagne — été 2026 »", "seen": true,
+          "changes": [ { "field": "Création", "old": "", "new": "Morlox — gobelin marchand du marché noir de Valombre" } ]
+        }
+      ]
+    },
+    "elowen": {
+      "name": "Elowen Ventargent",
+      "versions": [
+        {
+          "v": 3, "date": "2026-09-26T18:12:00", "origin": "dndbeyond", "source": "Resynchronisation D&D Beyond", "seen": true,
+          "changes": [
+            { "field": "Niveau", "old": "Rôdeuse 4", "new": "Rôdeuse 5" },
+            { "field": "PV max", "old": "36", "new": "44" },
+            { "field": "Sorts et capacités", "old": "Ennemi juré, Marque du chasseur", "new": "Ennemi juré, Marque du chasseur, Passage sans trace, Attaque supplémentaire" }
+          ]
+        },
+        {
+          "v": 2, "date": "2026-09-14T10:40:00", "origin": "manuelle", "source": "Alias et recadrage du token", "seen": true,
+          "changes": [ { "field": "Alias", "old": "", "new": "Elowen, la rôdeuse" }, { "field": "Token", "old": "Pastille verte « EV »", "new": "Portrait recadré, zoom 140 %" } ]
+        },
+        {
+          "v": 1, "date": "2026-09-14T10:31:00", "origin": "dndbeyond", "source": "Import D&D Beyond", "seen": true,
+          "changes": [ { "field": "Création", "old": "", "new": "Elowen Ventargent — rôdeuse niveau 4" } ]
+        }
+      ]
+    },
+    "gaspard": {
+      "name": "Gaspard Grosmollet",
+      "versions": [
+        {
+          "v": 2, "date": "2026-09-20T16:02:00", "origin": "ia", "source": "Prompt initial dicté", "seen": true,
+          "changes": [ { "field": "Background", "old": "", "new": "Gaspard a servi vingt ans dans la garde du comte avant de racheter le Sanglier avec sa prime…" } ]
+        },
+        {
+          "v": 1, "date": "2026-09-14T10:12:00", "origin": "import", "source": "Import de notes « Notes de campagne — été 2026 »", "seen": true,
+          "changes": [ { "field": "Création", "old": "", "new": "Gaspard Grosmollet — tavernier du Sanglier" } ]
+        }
+      ]
+    }
+  }
+}

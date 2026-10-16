@@ -1,0 +1,18 @@
+{
+  "campaign": "cendres-valombre",
+  "masterVolume": 80,
+  "sounds": [
+    { "id": "snd-porte", "name": "Porte qui grince", "tags": ["porte", "bois", "intérieur"], "duration": 2.4, "volume": 80, "file": "porte-qui-grince.ogg" },
+    { "id": "snd-foule", "name": "Bruit de foule en taverne", "tags": ["foule", "taverne", "intérieur"], "duration": 9.8, "volume": 55, "file": "foule-taverne.ogg" },
+    { "id": "snd-chope", "name": "Chope qui se brise", "tags": ["taverne", "verre"], "duration": 1.6, "volume": 70, "file": "chope-brisee.ogg" },
+    { "id": "snd-epees", "name": "Épées qui s’entrechoquent", "tags": ["combat", "métal"], "duration": 3.1, "volume": 75, "file": "epees.ogg" },
+    { "id": "snd-fleche", "name": "Flèche qui siffle", "tags": ["combat", "arc"], "duration": 1.2, "volume": 80, "file": "fleche.ogg" },
+    { "id": "snd-corbeau", "name": "Cri de corbeau", "tags": ["animal", "extérieur"], "duration": 2.0, "volume": 65, "file": "corbeau.ogg" },
+    { "id": "snd-loup", "name": "Hurlement de loup", "tags": ["animal", "nuit", "extérieur"], "duration": 4.5, "volume": 60, "file": "loup.ogg" },
+    { "id": "snd-gue", "name": "Pas dans l’eau du gué", "tags": ["eau", "extérieur"], "duration": 3.4, "volume": 70, "file": "pas-dans-l-eau.ogg" },
+    { "id": "snd-tonnerre", "name": "Tonnerre lointain", "tags": ["météo", "extérieur"], "duration": 6.0, "volume": 65, "file": "tonnerre.ogg" },
+    { "id": "snd-pieces", "name": "Pièces qui tintent", "tags": ["argent", "intérieur"], "duration": 1.8, "volume": 75, "file": "pieces.ogg" },
+    { "id": "snd-boule-feu", "name": "Boule de feu", "tags": ["magie", "combat", "feu"], "duration": 2.7, "volume": 85, "file": "boule-de-feu.ogg" },
+    { "id": "snd-cheval", "name": "Cheval qui hennit", "tags": ["animal", "extérieur"], "duration": 2.2, "volume": 70, "file": "cheval.ogg" }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "session": "s4",
+  "lastRun": "2026-10-14T19:31:00",
+  "duration": "04:12",
+  "transcript": [
+    "Bon, séance quatre, l’embuscade du gué.",
+    "On reprend à la Taverne du Sanglier, le lendemain matin. Gaspard a entendu dire que des bandits tiennent le gué des Corbeaux.",
+    "Morlox débarque trempé, il est nerveux, il doit de l’argent à la cheffe des bandits — et en fait il leur a vendu le plan du gué.",
+    "Deuxième scène, sur la route, à la sortie de Valombre : un pèlerin, frère Odric, les arrête pour les prévenir que le gué n’est plus sûr depuis l’incendie du moulin.",
+    "Troisième scène, le gué des Corbeaux, là où la Corbière s’élargit et où les roseaux sont assez hauts pour cacher un cheval.",
+    "Trois bandits sur la rive est, et leur cheffe, Vesna, qu’on appelle la Balafrée, une ancienne sergente de la garde, cachée dans les roseaux.",
+    "Si elle passe sous dix PV elle fuit par le gué. Morlox arrive en courant au troisième round pour négocier."
+  ],
+  "result": {
+    "scenes": [
+      { "order": 1, "title": "Retour à la Taverne du Sanglier", "links": ["La Taverne du Sanglier", "Gaspard Grosmollet", "Morlox", "Le marché noir de Morlox"] },
+      { "order": 2, "title": "La route des Corbeaux", "links": ["Valombre", "L’incendie du moulin", "Frère Odric (à créer)"] },
+      { "order": 3, "title": "L’embuscade au Gué", "links": ["Le Gué des Corbeaux (à créer)", "Bandit", "Vesna la Balafrée (à créer)", "Morlox", "L’embuscade du Gué"] }
+    ],
+    "recognized": [
+      { "id": "taverne-sanglier", "type": "lieu", "name": "La Taverne du Sanglier", "heard": "la Taverne du Sanglier", "updated": false },
+      { "id": "gaspard", "type": "pnj", "name": "Gaspard Grosmollet", "heard": "Gaspard", "updated": false },
+      { "id": "morlox", "type": "pnj", "name": "Morlox", "heard": "Morlox", "updated": true, "change": "Notes, comportement et alias mis à jour" },
+      { "id": "valombre", "type": "lieu", "name": "Valombre", "heard": "Valombre", "updated": false },
+      { "id": "incendie-moulin", "type": "événement", "name": "L’incendie du moulin", "heard": "l’incendie du moulin", "updated": false },
+      { "id": "bandit", "type": "pnj", "name": "Bandit", "heard": "trois bandits", "updated": false }
+    ],
+    "missing": [
+      { "id": "tc-vesna", "type": "pnj", "name": "Vesna la Balafrée" },
+      { "id": "tc-odric", "type": "pnj", "name": "Frère Odric" },
+      { "id": "tc-gue", "type": "lieu", "name": "Le Gué des Corbeaux" }
+    ]
+  }
+}

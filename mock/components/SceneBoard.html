@@ -1,0 +1,132 @@
+<section class="mf-scenes stack" id="scene-board" aria-labelledby="scenes-title" data-reads="session.getSession">
+  <section class="panel" id="scenes-present" aria-labelledby="scenes-present-title">
+    <div class="panel__head"><h2 id="scenes-present-title">PJ présents</h2><span class="small muted" id="scenes-present-count"></span></div>
+    <div class="row" id="scenes-present-list" data-reads="session.getSession campaign.listCharacters"></div>
+    <div class="row" id="scenes-present-add"></div>
+  </section>
+  <section class="panel" id="scenes-list-panel" aria-labelledby="scenes-title">
+    <div class="panel__head">
+      <h2 id="scenes-title">Scènes</h2>
+      <div data-kit="Button" data-props='{"small":true,"items":[{"id":"scenes-add","label":"Ajouter une scène","variant":"secondary","data-writes":"session.addScene"}]}'></div>
+    </div>
+    <ol class="mf-scenes__list" id="scenes-list" data-reads="session.listScenes media.listMedia"></ol>
+  </section>
+</section>
+<style>
+  .mf-scenes__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+  .mf-scenes__scene { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); }
+  .mf-scenes__order { display: grid; gap: var(--space-1); justify-items: center; align-content: start; }
+  .mf-scenes__order b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-primary); line-height: 1; }
+  .mf-scenes__body { display: grid; gap: var(--space-2); min-width: 0; }
+  .mf-scenes__links { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-1) var(--space-3); align-items: center; font-size: var(--font-size-small); }
+  .mf-scenes__links dt { color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .mf-scenes__links dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .mf-scenes__map { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border-radius: var(--radius-medium); border: var(--border-width) dashed var(--color-border); }
+  .mf-scenes__map.is-linked { border-style: solid; border-color: var(--color-success); }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  let S, ents, media, todo, bm;
+  const char = id => ents.characters.find(c => c.id === id);
+  const find = (list, id) => list.find(x => x.id === id) || { id, name: id, title: id };
+
+  function present() {
+    const pjs = ents.characters.filter(c => c.kind === 'pj');
+    $('#scenes-present-list').innerHTML = S.session.present.map(id => `<span class="chip chip--pj" id="scenes-present-${esc(id)}">${esc(char(id).name)} <span class="muted">· ${esc(ents.players.find(p => p.id === char(id).player).name)}</span><button type="button" class="icon-btn" data-writes="session.removePresentCharacter" data-remove-pj="${esc(id)}" aria-label="Retirer ${esc(char(id).name)}">×</button></span>`).join('');
+    const absent = pjs.filter(c => !S.session.present.includes(c.id));
+    $('#scenes-present-count').textContent = S.session.present.length + ' sur ' + pjs.length;
+    $('#scenes-present-add').innerHTML = absent.length ? Mock.kitHTML('Select', { id: 'scenes-present-select', label: 'Ajouter un PJ', options: absent.map(c => ({ value: c.id, label: c.name })) }) + Mock.kitHTML('Button', { small: true, items: [{ id: 'scenes-present-submit', label: 'Ajouter', variant: 'secondary', 'data-writes': 'session.addPresentCharacter' }] }) : '';
+    Mock.mount(root);
+  }
+
+  function chips(sc) {
+    const link = (cls, href, label, id) => `<a class="chip chip--${cls}" href="${esc(href)}" id="${esc(id)}">${esc(label)}</a>`;
+    const rows = [
+      ['Lieux', sc.places.map(id => link('lieu', 'fiche-entite.html?id=' + id, find(ents.places, id).name, sc.id + '-place-' + id))],
+      ['PNJ', sc.characters.map(id => link('pnj', 'fiche-entite.html?id=' + id, char(id).name, sc.id + '-char-' + id))],
+      ['Événements', sc.events.map(id => link('media', 'fiche-entite.html?id=' + id, find(ents.events, id).name, sc.id + '-event-' + id))],
+      ['Médias', sc.media.map(id => link('media', 'medias.html', (media.battlemaps.find(b => b.id === id) || media.illustrations.find(i => i.id === id) || { title: id }).title, sc.id + '-media-' + id))],
+      ['À créer', sc.toCreate.map(id => { const t = todo.find(x => x.id === id) || { name: id }; return `<a class="chip chip--todo" href="#to-create-${esc(id)}" id="${esc(sc.id + '-todo-' + id)}">${esc(t.name)}</a>`; })]
+    ].filter(r => r[1].length);
+    return '<dl class="mf-scenes__links">' + rows.map(r => `<dt>${r[0]}</dt><dd>${r[1].join('')}</dd>`).join('') + '</dl>';
+  }
+  function mapLine(sc) {
+    if (!sc.battlemap) return `<div class="mf-scenes__map" id="${esc(sc.id)}-battlemap"><span class="muted small">Aucune battlemap pour cette scène</span>${Mock.kitHTML('Button', { small: true, items: [{ label: 'Associer une battlemap', action: 'link-map', variant: 'ghost' }] })}</div>`;
+    const inst = bm.instances.find(i => i.id === sc.battlemap);
+    const state = Mock.store.get('map:' + inst.id, inst.state);
+    const map = media.battlemaps.find(b => b.id === inst.battlemap);
+    const hidden = state.tokens.filter(t => !t.visible).length;
+    return `<div class="mf-scenes__map is-linked" id="${esc(sc.id)}-battlemap" data-reads="table.getBattlemapInstance"><span><b>${esc(map.title)}</b> <span class="small muted">· instance de cette scène · ${state.tokens.length} tokens placés${hidden ? ' dont ' + hidden + ' caché' + (hidden > 1 ? 's' : '') : ''}</span></span>` +
+      Mock.kitHTML('Button', { small: true, items: [{ label: 'Placer les personnages', action: 'place', variant: 'secondary' }] }) + '</div>';
+  }
+  function scenes() {
+    $('#scenes-list').innerHTML = S.scenes.map((sc, i) => `<li class="mf-scenes__scene" id="scene-${esc(sc.id)}" data-scene="${esc(sc.id)}">` +
+      `<div class="mf-scenes__order"><button type="button" class="icon-btn" data-writes="session.reorderScenes" data-move="-1" aria-label="Monter"${i === 0 ? ' disabled' : ''}>▲</button><b>${i + 1}</b><button type="button" class="icon-btn" data-writes="session.reorderScenes" data-move="1" aria-label="Descendre"${i === S.scenes.length - 1 ? ' disabled' : ''}>▼</button></div>` +
+      `<div class="mf-scenes__body"><h3>${esc(sc.title)}</h3>${chips(sc)}` +
+      Mock.kitHTML('TextArea', { id: 'scene-' + sc.id + '-notes', label: 'Notes', value: sc.notes, rows: 2, wide: true }) + mapLine(sc) + '</div></li>').join('');
+    Mock.mount($('#scenes-list'));
+  }
+
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.removePj) {
+      const id = b.dataset.removePj;
+      Mock.command('session.removePresentCharacter', { id }, { label: 'Retirer ' + char(id).name + ' des présents' }).then(() => { S.session.present = S.session.present.filter(x => x !== id); present(); });
+    }
+    if (b.id === 'scenes-present-submit') {
+      const id = $('#scenes-present-select').closest('[data-kit]').value;
+      Mock.command('session.addPresentCharacter', { id }, { label: 'Ajouter ' + char(id).name + ' aux présents' }).then(() => { S.session.present.push(id); present(); });
+    }
+    const li = b.closest('[data-scene]');
+    if (b.dataset.move && li) {
+      const i = S.scenes.findIndex(s => s.id === li.dataset.scene), j = i + +b.dataset.move;
+      [S.scenes[i], S.scenes[j]] = [S.scenes[j], S.scenes[i]];
+      Mock.command('session.reorderScenes', { order: S.scenes.map(s => s.id) }, { label: 'Réordonner les scènes' });
+      scenes();
+    }
+    if (b.id === 'scenes-add') {
+      Mock.command('session.addScene', {}, { label: 'Ajouter une scène' }).then(() => {
+        S.scenes.push({ id: 'sc' + (S.scenes.length + 1), title: 'Nouvelle scène', places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: '' });
+        scenes();
+      });
+    }
+    if (b.dataset.action === 'place') {
+      const target = document.getElementById('scene-battlemap');
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (b.dataset.action === 'link-map') {
+      const sc = S.scenes.find(s => s.id === li.dataset.scene);
+      Mock.dialog({ title: 'Associer une battlemap', id: 'scenes-link-dialog',
+        text: 'Une nouvelle instance de la carte est créée pour cette scène : ses tokens et son combat lui sont propres.',
+        html: Mock.kitHTML('Select', { id: 'scenes-link-map', label: 'Battlemap', wide: true, options: media.battlemaps.map(m => ({ value: m.id, label: m.title })) }),
+        actions: [{ label: 'Annuler', variant: 'ghost' }, { label: 'Créer l’instance', 'data-writes': 'table.createBattlemapInstance', onClick(api) {
+          const mapId = api.el.querySelector('#scenes-link-map').closest('[data-kit]').value;
+          api.close();
+          Mock.command('table.createBattlemapInstance', { scene: sc.id, battlemap: mapId }, { label: 'Associer « ' + media.battlemaps.find(m => m.id === mapId).title + ' » à la scène' }).then(() => {
+            const id = 'bmi-' + mapId + '-' + sc.id;
+            bm.instances.push({ id, battlemap: mapId, state: { tokens: [], combat: null } });
+            sc.battlemap = id;
+            if (!sc.media.includes(mapId)) sc.media.push(mapId);
+            scenes();
+          });
+        } }] });
+    }
+  });
+  Mock.store.on('map:bmi-gue-s4', () => {
+    if (!S) return;
+    S.scenes.filter(sc => sc.battlemap).forEach(sc => { const el = document.getElementById(sc.id + '-battlemap'); if (el) el.outerHTML = mapLine(sc); });
+    Mock.mount($('#scenes-list'));
+  });
+
+  Mock.fixture(['fixtures/SceneBoard.json', 'fixtures/entities.json', 'fixtures/media.json', 'fixtures/ToCreateList.json', 'fixtures/Battlemap.json']).then(([s, e, m, t, b]) => {
+    S = s; ents = e; media = m; todo = t.items; bm = b;
+    $('#scenes-title').textContent = 'Scènes de la séance ' + s.session.order + ' — ' + s.session.title;
+    present();
+    scenes();
+  });
+})();
+</script>

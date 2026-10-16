@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Préparation de séance — ForgeDesMondes</title>
+  <link rel="stylesheet" href="../design/tokens.css">
+  <link rel="stylesheet" href="../kit/kit.css">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <header id="site-header">
+    <div data-kit="Menu" data-props='{"brand":"ForgeDesMondes","brandHref":"campagnes.html","navId":"site-nav","label":"Sections","links":[{"label":"Campagnes","href":"campagnes.html","current":true},{"label":"Médias","href":"medias.html"},{"label":"Soundbox","href":"soundbox.html"},{"label":"Paramètres IA","href":"parametres-ia.html"}]}'></div>
+  </header>
+  <main id="page-main" class="page-main">
+    <section class="page-head" id="page-head">
+      <div class="page-head__text">
+        <div id="page-breadcrumb" data-kit="Breadcrumb" data-props='{"items":[{"label":"Campagnes","href":"campagnes.html"},{"label":"Campagne","href":"campagne.html"},{"label":"Préparation de séance"}]}'></div>
+        <h1 id="page-title">Préparation de séance</h1>
+      </div>
+      <div id="page-actions" data-kit="Button" data-props='{"items":[{"id":"prep-launch","label":"Lancer la séance en direct","href":"dm-view.html","variant":"primary"}]}'></div>
+    </section>
+    <div data-component="PreviousSummary"></div>
+    <div class="layout-2" id="prep-layout">
+      <div class="stack" id="prep-main">
+        <div data-component="OralBrief"></div>
+        <div data-component="SceneBoard"></div>
+      </div>
+      <aside class="stack" id="prep-aside" aria-label="Entités à traiter">
+        <section class="panel" id="prep-versions" aria-label="Fiches modifiées par le brief">
+          <div data-component="VersionHistory" data-props='{"entity":"morlox","title":"Fiches modifiées par le brief"}'></div>
+        </section>
+        <div data-component="ToCreateList" data-props='{"session":"s4"}'></div>
+      </aside>
+    </div>
+    <section class="panel" id="scene-battlemap" aria-label="Battlemap de la scène 3">
+      <div data-component="Battlemap" data-props='{"instance":"bmi-gue-s4","view":"prep"}'></div>
+    </section>
+  </main>
+  <footer id="site-footer" class="page-footer">
+    <span>ForgeDesMondes · objectif : préparer une séance en deux fois moins de temps</span>
+    <span>Seul le texte transcrit du brief part vers le fournisseur IA</span>
+  </footer>
+  <script src="../mock.js"></script>
+</body>
+</html>

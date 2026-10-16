@@ -1,0 +1,95 @@
+<aside class="mf-pill" id="suggestions" aria-labelledby="suggestions-title">
+  <div class="mf-pill__card" id="suggestions-card">
+    <div class="mf-pill__head">
+      <h2 id="suggestions-title">Suggestions</h2>
+      <button type="button" class="icon-btn" id="suggestions-history-toggle" aria-expanded="false" aria-controls="suggestions-history" title="Historique des 5 dernières entités">⟲</button>
+    </div>
+    <p class="mf-pill__heard small" id="suggestions-heard" aria-live="polite"></p>
+    <ol class="mf-pill__stack" id="suggestions-stack" data-reads="live.listSuggestions"></ol>
+    <section class="mf-pill__history" id="suggestions-history" aria-labelledby="suggestions-history-title" hidden>
+      <h3 id="suggestions-history-title">5 dernières entités</h3>
+      <ol class="mf-pill__stack" id="suggestions-history-list"></ol>
+    </section>
+  </div>
+  <div class="mf-pill__mic" id="suggestions-mic" data-writes="live.setMicrophone"></div>
+</aside>
+<style>
+  .mf-pill { position: fixed; right: var(--space-3); bottom: var(--space-3); left: auto; top: auto; z-index: 1000; display: grid; gap: var(--space-2); justify-items: end; width: min(calc(100vw - var(--space-4)), calc(var(--space-5) * 8)); max-height: calc(100vh - var(--space-4)); margin: 0; }
+  .mf-pill__card { width: 100%; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); overflow-y: auto; min-height: 0; }
+  .mf-pill__head { display: flex; align-items: center; justify-content: space-between; }
+  .mf-pill__head h2 { font-size: var(--font-size-base); }
+  .mf-pill__heard { color: var(--color-text-muted); font-style: italic; min-height: 1.5em; }
+  .mf-pill__stack { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+  .mf-pill__stack button { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: center; text-align: left; padding: var(--space-2) var(--space-3); background: var(--color-surface-2); color: var(--color-text); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); font: inherit; cursor: pointer; }
+  .mf-pill__stack button:hover { border-color: var(--color-primary); }
+  .mf-pill__stack li:first-child button { border-color: var(--color-accent); }
+  .mf-pill__stack b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mf-pill__stack small { display: block; color: var(--color-text-muted); }
+  .mf-pill__icon { display: grid; place-items: center; width: calc(var(--space-4) + var(--space-2)); height: calc(var(--space-4) + var(--space-2)); border-radius: var(--radius-pill); background: var(--color-secondary); color: var(--color-text); font-family: var(--font-family-heading); }
+  .mf-pill__icon.is-sound { background: var(--color-success); color: var(--color-primary-contrast); }
+  .mf-pill__empty { color: var(--color-text-muted); font-size: var(--font-size-small); }
+  .mf-pill__history { border-top: var(--border-width) solid var(--color-border); padding-top: var(--space-2); display: grid; gap: var(--space-1); }
+  .mf-pill__history h3 { font-size: var(--font-size-small); color: var(--color-text-muted); }
+  .mf-pill__mic { padding: var(--space-2) var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-pill); box-shadow: var(--shadow-high); }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  const ICON = { lieu: 'L', pnj: 'P', 'événement': 'É', pj: 'J' };
+  let feed = [], pos = 0, timer = null, interval = 5, stack = [], history = [];
+
+  const time = () => new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  function row(s, i, prefix) {
+    const sound = s.kind === 'sound';
+    return `<li><button type="button" id="${prefix}-${i}" data-kind="${s.kind}"${s.kind === 'sound' ? ' data-writes="soundbox.playSound"' : ''} data-type="${esc(s.type || '')}" data-id="${esc(s.id)}">` +
+      `<span class="mf-pill__icon${sound ? ' is-sound' : ''}" aria-hidden="true">${sound ? '♪' : ICON[s.type] || '•'}</span>` +
+      `<span><b>${esc(s.name)}</b><small>${sound ? 'Son · cliquer pour jouer' : esc(s.type)} · « ${esc(s.via)} » · ${esc(s.at)}</small></span></button></li>`;
+  }
+  function render() {
+    $('#suggestions-stack').innerHTML = stack.length ? stack.map((s, i) => row(s, i, 'suggestion')).join('') : '<li class="mf-pill__empty">Activez le micro : les entités et les sons nommés apparaîtront ici.</li>';
+    $('#suggestions-history-list').innerHTML = history.length ? history.map((s, i) => row(s, i, 'suggestion-history')).join('') : '<li class="mf-pill__empty">Aucune entité détectée pour l’instant.</li>';
+  }
+  function hear() {
+    if (!feed.length) return;
+    const s = Object.assign({ at: time() }, feed[pos++ % feed.length]);
+    $('#suggestions-heard').textContent = '« ' + s.heard + ' »';
+    stack = [s].concat(stack.filter(x => x.id !== s.id)).slice(0, 5);
+    if (s.kind === 'entity') history = [s].concat(history.filter(x => x.id !== s.id)).slice(0, 5);
+    render();
+  }
+
+  root.addEventListener('kit:mic', e => {
+    clearInterval(timer);
+    if (e.detail.state === 'recording') { setTimeout(hear, 1500); timer = setInterval(hear, interval * 1000); } else $('#suggestions-heard').textContent = 'Micro en pause — rien n’est écouté.';
+    Mock.emit('mic', { state: e.detail.state });
+    Mock.command('live.setMicrophone', { state: e.detail.state }, { label: e.detail.state === 'recording' ? 'Micro en marche (transcription locale)' : 'Micro en pause' });
+  });
+  root.addEventListener('click', e => {
+    if (e.target.closest('#suggestions-history-toggle')) {
+      const h = $('#suggestions-history'), btn = $('#suggestions-history-toggle');
+      h.hidden = !h.hidden;
+      btn.setAttribute('aria-expanded', String(!h.hidden));
+      return;
+    }
+    const b = e.target.closest('button[data-kind]');
+    if (!b) return;
+    if (b.dataset.kind === 'sound') {
+      Mock.emit('play-sound', { id: b.dataset.id });
+      Mock.command('soundbox.playSound', { id: b.dataset.id }, { label: 'Jouer « ' + b.querySelector('b').textContent + ' »' });
+    } else {
+      const t = b.dataset.type;
+      Mock.emit('open', { type: t === 'lieu' ? 'place' : t === 'événement' ? 'event' : 'character', id: b.dataset.id });
+    }
+  });
+
+  Mock.fixture('fixtures/SuggestionPill.json').then(d => {
+    feed = d.feed;
+    interval = d.interval || 5;
+    $('#suggestions-mic').innerHTML = Mock.kitHTML('MicButton', { id: 'suggestions-mic-button', label: 'Micro de séance', compact: true, texts: { idle: 'Éteint · transcription locale', recording: 'Écoute en local', paused: 'En pause' } });
+    Mock.mount($('#suggestions-mic'));
+    render();
+  });
+})();
+</script>

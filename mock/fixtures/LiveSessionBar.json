@@ -1,0 +1,22 @@
+{
+  "session": { "id": "s4", "order": 4, "title": "L’embuscade du Gué", "date": "2026-10-17", "startedAt": "20:02" },
+  "currentScene": 0,
+  "scenes": [
+    { "id": "sc1", "order": 1, "title": "Retour à la Taverne du Sanglier" },
+    { "id": "sc2", "order": 2, "title": "La route des Corbeaux" },
+    { "id": "sc3", "order": 3, "title": "L’embuscade au Gué" }
+  ],
+  "closing": {
+    "journalLines": 2114,
+    "duration": "3 h 27 min",
+    "summaryModel": "qwen2.5-14b-instruct (opencode maison)",
+    "summary": "Au Sanglier, Gaspard a confirmé que des cavaliers en cape grise tiennent le gué ; Morlox, trempé, a fini par avouer avoir vendu le plan du gué à Vesna. Sur la route, frère Odric a mis le groupe en garde et supplié qu’on retrouve sa fille. Au Gué des Corbeaux, l’embuscade a tourné court : deux bandits sont tombés, Vesna s’est révélée au troisième round puis a fui à travers le gué, blessée, en criant qu’elle « n’a fait que ce que la Tour a payé ».",
+    "mentions": ["Gaspard Grosmollet", "Morlox", "Frère Odric", "Vesna la Balafrée", "Le Gué des Corbeaux", "La Tour d’Ébène"],
+    "threads": [
+      "Vesna a fui vers l’est, blessée : où se cache-t-elle ?",
+      "La fille d’Odric n’était pas au gué.",
+      "« La Tour a payé » : qui, à la Tour d’Ébène ?",
+      "Morlox attend toujours ses 40 po."
+    ]
+  }
+}

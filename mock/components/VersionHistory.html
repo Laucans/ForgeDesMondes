@@ -1,0 +1,109 @@
+<div class="mf-versions" id="version-history" data-reads="campaign.listEntityVersions">
+  <div class="panel__head" id="versions-head" hidden><h2 id="versions-title"></h2></div>
+  <div id="versions-trigger"></div>
+  <p class="small muted" id="versions-note" hidden></p>
+</div>
+<style>
+  .mf-versions { display: inline-flex; }
+  .mf-versions.is-panel { display: grid; gap: var(--space-3); }
+  .mf-versions__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+  .mf-versions__item { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); }
+  .mf-versions__item.is-unseen { border-color: var(--color-accent); }
+  .mf-versions__item .panel__head b { font-family: var(--font-family-heading); color: var(--color-accent); }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const props = Mock.props(root);
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  const ORIGIN = { ia: ['IA', 'accent'], manuelle: ['Manuelle', 'primary'], dndbeyond: ['D&D Beyond', 'success'], import: ['Import de notes', null] };
+  const when = d => new Date(d).toLocaleString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  let all = {}, id, ents, wanted = null;
+
+  const entry = () => (all[id] = all[id] || { name: id, versions: [] });
+  function trigger() {
+    const unseen = entry().versions.filter(v => !v.seen).length;
+    $('#versions-trigger').innerHTML = Mock.kitHTML('Button', { small: true, items: [unseen
+      ? { id: 'versions-updated', label: 'Mis à jour' + (unseen > 1 ? ' (' + unseen + ')' : ''), variant: 'primary', title: 'L’IA a modifié la fiche : voir le diff et l’historique' }
+      : { id: 'versions-open', label: 'Historique des versions', variant: 'ghost' }] });
+    Mock.mount($('#versions-trigger'));
+  }
+
+  function open(focus) {
+    const e = entry();
+    const target = focus || e.versions.find(v => !v.seen) || e.versions[0];
+    const html = (target ? `<div id="versions-diff">${Mock.kitHTML('DiffView', { title: 'Version ' + target.v + ' — ' + target.source, meta: when(target.date) + ' · ' + target.changes.length + ' champ(s)', rows: target.changes })}</div>` : '<p>Aucune version.</p>') +
+      `<h3>Historique</h3><ul class="mf-versions__list" id="versions-list">` + e.versions.map((v, i) => {
+        const o = ORIGIN[v.origin] || [v.origin, null];
+        return `<li class="mf-versions__item${v.seen ? '' : ' is-unseen'}" id="version-${v.v}"><div class="panel__head"><b>v${v.v}</b>${Mock.kitHTML('Badge', { items: [{ label: o[0], tone: o[1] }].concat(v.seen ? [] : [{ label: 'Non vue', tone: 'accent' }]) })}</div>` +
+          `<span>${esc(v.source)}</span><span class="small muted">${when(v.date)} · ${v.changes.map(c => c.field).join(', ')}</span>` +
+          Mock.kitHTML('Button', { small: true, items: [{ label: 'Voir le diff', action: 'show:' + v.v, variant: 'ghost' }].concat(i > 0 ? [{ label: 'Revenir à cette version', action: 'restore:' + v.v, variant: 'secondary', 'data-writes': 'campaign.restoreEntityVersion' }] : []) }) + '</li>';
+      }).join('') + '</ul>';
+    const d = Mock.dialog({ title: 'Versions de « ' + e.name + ' »', wide: true, id: 'versions-dialog', html,
+      actions: [{ label: 'Fermer', variant: 'ghost' }, { label: 'Annuler les changements cochés', id: 'versions-revert', 'data-writes': 'campaign.restoreEntityVersion', onClick(api) {
+        const host = api.el.querySelector('#versions-diff [data-kit]');
+        const idx = host && host.reverted ? host.reverted() : [];
+        if (!idx.length || !target) { api.close(); return; }
+        api.close();
+        Mock.command('campaign.restoreEntityVersion', { id, version: target.v - 1, changes: idx }, { label: 'Annuler ' + idx.length + ' changement(s) de la v' + target.v }).then(() => {
+          e.versions.unshift({ v: e.versions[0].v + 1, date: new Date().toISOString(), origin: 'manuelle', source: 'Annulation partielle de la v' + target.v, seen: true,
+            changes: idx.map(i => ({ field: target.changes[i].field, old: target.changes[i].new, new: target.changes[i].old })) });
+          trigger();
+        });
+      } }] });
+    d.el.addEventListener('click', ev => {
+      const b = ev.target.closest('button[data-action]');
+      if (!b) return;
+      const [act, v] = b.dataset.action.split(':');
+      const ver = e.versions.find(x => x.v === +v);
+      if (act === 'show') { d.close(); open(ver); }
+      if (act === 'restore') {
+        d.close();
+        Mock.command('campaign.restoreEntityVersion', { id, version: ver.v }, { label: 'Revenir à la v' + ver.v + ' de « ' + e.name + ' »' }).then(() => {
+          e.versions.unshift({ v: e.versions[0].v + 1, date: new Date().toISOString(), origin: 'manuelle', source: 'Retour à la v' + ver.v, seen: true, changes: [{ field: 'Fiche complète', old: 'v' + (e.versions[0].v), new: 'contenu de la v' + ver.v }] });
+          trigger();
+        });
+      }
+    });
+    e.versions.forEach(v => { v.seen = true; });
+    trigger();
+  }
+
+  root.addEventListener('click', e => { if (e.target.closest('#versions-updated, #versions-open')) open(); });
+  Mock.on('entity-updated', u => {
+    id = u.id;
+    const e = entry();
+    e.versions.unshift({ v: (e.versions[0] ? e.versions[0].v : 0) + 1, date: new Date().toISOString(), origin: u.origin, source: u.source, seen: false, changes: u.changes });
+    trigger();
+  });
+  // The editor opened another sheet in place: follow it, with its own history.
+  function follow(nid, name) {
+    id = nid || 'nouvelle-fiche';
+    const known = ents.characters.concat(ents.places, ents.events).find(x => x.id === id);
+    if (!all[id]) all[id] = { name: known ? known.name : name || 'Nouvelle fiche', versions: [] };
+    trigger();
+  }
+  Mock.on('entity-opened', u => { if (ents) follow(u.id, u.name); else wanted = u; });
+  Mock.on('open-versions', u => { id = u.id; trigger(); open(); });
+
+  Mock.fixture(['fixtures/VersionHistory.json', 'fixtures/entities.json']).then(([v, e0]) => {
+    all = v.entities;
+    ents = e0;
+    id = Mock.param('id') || props.entity || (Mock.param('new') ? 'nouvelle-fiche' : 'morlox');
+    if (!all[id] && Mock.param('new')) all[id] = { name: Mock.param('name') || 'Nouvelle fiche', versions: [] };
+    const known = ents.characters.concat(ents.places, ents.events).find(x => x.id === id);
+    if (known && !all[id]) all[id] = { name: known.name, versions: [] };
+    // Panel mode: a titled panel naming the sheet the last brief changed.
+    if (props.title) {
+      $('.mf-versions').classList.add('is-panel');
+      $('#versions-title').textContent = props.title;
+      $('#versions-head').appendChild($('#versions-trigger'));
+      $('#versions-head').hidden = false;
+      $('#versions-note').textContent = entry().name + ' a été mis à jour par le dernier brief. Ouvrez le diff pour annuler un changement.';
+      $('#versions-note').hidden = false;
+    }
+    if (wanted) follow(wanted.id, wanted.name); else trigger();
+  });
+})();
+</script>

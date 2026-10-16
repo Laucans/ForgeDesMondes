@@ -1,0 +1,60 @@
+<section class="panel mf-sessions" id="session-list" aria-labelledby="sessions-title">
+  <div class="panel__head">
+    <h2 id="sessions-title">Séances</h2>
+    <div data-kit="Button" data-props='{"small":true,"items":[{"id":"sessions-new","label":"Nouvelle séance","variant":"primary","data-writes":"session.createSession"}]}'></div>
+  </div>
+  <ol class="mf-sessions__list" id="sessions-items" data-reads="session.listSessions"></ol>
+</section>
+<style>
+  .mf-sessions__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+  .mf-sessions__item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); }
+  .mf-sessions__item.is-next { border-color: var(--color-primary); box-shadow: var(--shadow-high); }
+  .mf-sessions__num { display: grid; place-items: center; width: calc(var(--space-5) + var(--space-1)); height: calc(var(--space-5) + var(--space-1)); border-radius: var(--radius-pill); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); font-family: var(--font-family-heading); font-size: var(--font-size-large); color: var(--color-accent); }
+  .mf-sessions__main { display: grid; gap: var(--space-2); min-width: 0; }
+  .mf-sessions__summary { color: var(--color-text-muted); }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const $ = s => root.querySelector(s);
+  const esc = Mock.esc;
+  let sessions = [], chars = [];
+  const date = d => new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' });
+  const name = id => (chars.find(c => c.id === id) || { name: id }).name.split(' ')[0];
+
+  function item(s) {
+    const prep = s.status === 'prep';
+    return `<li class="mf-sessions__item${prep ? ' is-next' : ''}" id="session-${esc(s.id)}"><span class="mf-sessions__num">${s.order}</span><div class="mf-sessions__main">` +
+      `<div class="panel__head"><h3>${esc(s.title)}</h3>${Mock.kitHTML('Badge', { items: [{ label: prep ? 'En préparation' : 'Jouée', tone: prep ? 'accent' : 'success' }, { label: date(s.date) }] })}</div>` +
+      `<p class="mf-sessions__summary">${esc(s.summary)}</p><p class="small muted" data-reads="campaign.listCharacters">PJ présents : ${s.present.map(name).join(', ') || '—'}</p>` +
+      Mock.kitHTML('Button', { small: true, items: prep
+        ? [{ label: 'Préparer', href: 'preparation-seance.html', variant: 'secondary' }, { label: 'Lancer en direct', href: 'dm-view.html', variant: 'primary' }]
+        : [{ label: 'Résumé et journal', href: 'preparation-seance.html', variant: 'ghost' }] }) + '</div></li>';
+  }
+  function render() { $('#sessions-items').innerHTML = sessions.map(item).join(''); Mock.mount($('#sessions-items')); }
+
+  root.addEventListener('click', e => {
+    if (!e.target.closest('#sessions-new')) return;
+    const next = sessions.length + 1;
+    Mock.dialog({
+      title: 'Nouvelle séance', id: 'session-create-dialog',
+      html: Mock.kitHTML('Input', { id: 'session-create-title', label: 'Titre', value: 'Séance ' + next, wide: true }) +
+        Mock.kitHTML('Input', { id: 'session-create-date', label: 'Date', type: 'date', value: '2026-10-31' }) +
+        Mock.kitHTML('Checkbox', { id: 'session-create-present', legend: 'PJ présents', name: 'present', options: chars.filter(c => c.kind === 'pj').map(c => ({ label: c.name, value: c.id, checked: true })) }) +
+        '<p class="small muted">Vous pourrez retirer ou ajouter des PJ dans la préparation.</p>',
+      actions: [{ label: 'Annuler', variant: 'ghost' }, { label: 'Créer la séance', id: 'session-create-submit', 'data-writes': 'session.createSession', onClick(api) {
+        const title = api.el.querySelector('#session-create-title').value.trim() || 'Séance ' + next;
+        const present = Array.from(api.el.querySelectorAll('input[name="present"]:checked')).map(i => i.value);
+        const when = api.el.querySelector('#session-create-date').value || '2026-10-31';
+        api.close();
+        Mock.command('session.createSession', { title, present }, { label: 'Créer « ' + title + ' »' }).then(() => {
+          sessions.push({ id: 's' + next, order: next, title, date: when, status: 'prep', present, summary: 'Aucune scène encore. Lancez un brief oral dans la préparation.' });
+          render();
+        });
+      } }]
+    });
+  });
+
+  Mock.fixture(['fixtures/SessionList.json', 'fixtures/entities.json']).then(([s, e]) => { sessions = s.sessions; chars = e.characters; render(); });
+})();
+</script>

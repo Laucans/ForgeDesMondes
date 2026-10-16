@@ -1,0 +1,63 @@
+{
+  "items": [
+    {
+      "id": "tc-vesna", "type": "pnj", "name": "Vesna la Balafrée", "session": "s4", "sessionTitle": "Séance 4 — L’embuscade du Gué",
+      "excerpt": "…les bandits obéissent à une cheffe, Vesna, qu’on appelle la Balafrée, une ancienne sergente de la garde…",
+      "status": "created", "entity": "vesna"
+    },
+    {
+      "id": "tc-odric", "type": "pnj", "name": "Frère Odric", "session": "s4", "sessionTitle": "Séance 4 — L’embuscade du Gué",
+      "excerpt": "…un pèlerin, frère Odric, les arrête à la sortie du bourg pour les prévenir que le gué n’est plus sûr…",
+      "status": "todo", "entity": null
+    },
+    {
+      "id": "tc-gue", "type": "lieu", "name": "Le Gué des Corbeaux", "session": "s4", "sessionTitle": "Séance 4 — L’embuscade du Gué",
+      "excerpt": "…le gué des Corbeaux, là où la Corbière s’élargit et où les roseaux sont assez hauts pour cacher un cheval…",
+      "status": "todo", "entity": null
+    }
+  ],
+  "proposals": {
+    "tc-odric": {
+      "dictation": "Il a une soixantaine d’années et il boite depuis une chute dans la Corbière. En réalité c’est l’ancien meunier, qui a survécu à l’incendie et cache son identité. Il veut qu’on retrouve sa fille, enlevée par les bandits.",
+      "fromBrief": {
+        "description": "Pèlerin de la Forge en robe de bure, bâton ferré. Il prévient les voyageurs que le gué n’est plus sûr.",
+        "background": "Frère Odric arpente la route des Corbeaux depuis l’incendie du moulin. Il prie pour les morts de la nuit du feu et met en garde ceux qui veulent passer le gué.",
+        "behavior": "Parle lentement, bénit les gens sans qu’on lui demande, ne se bat pas.",
+        "statblock": {
+          "type": "Humanoïde (humain) de taille M, loyal bon",
+          "vitals": [ { "label": "CA", "value": "11" }, { "label": "PV", "value": "18 (4d8)" }, { "label": "Vitesse", "value": "9 m" } ],
+          "abilities": { "FOR": 10, "DEX": 10, "CON": 11, "INT": 11, "SAG": 15, "CHA": 13 },
+          "features": [
+            { "name": "Bénédiction", "text": "Trois créatures ajoutent 1d4 à leurs jets d’attaque et de sauvegarde pendant 1 minute." },
+            { "name": "Bâton ferré", "text": "+2 pour toucher. Touché : 3 (1d6) dégâts contondants." }
+          ]
+        }
+      },
+      "refined": {
+        "description": "Vieil homme qui boite, robe de pèlerin trop propre pour un pèlerin. C’est en réalité Odric le meunier, survivant de l’incendie.",
+        "background": "Odric a vu les cavaliers de Vesna verser l’huile sur ses meules. Il s’est jeté dans la Corbière et s’est brisé la hanche sur les rochers. Depuis, il se fait passer pour un pèlerin et guette le gué : les bandits y retiennent sa fille, Line, pour qu’il se taise.",
+        "behavior": "Boite et grimace en s’asseyant. Évite de dire son métier, mais parle de farine et de meules sans s’en rendre compte. S’effondre et dit tout si on prononce le nom de Line.",
+        "statblock": {
+          "type": "Humanoïde (humain) de taille M, neutre bon",
+          "vitals": [ { "label": "CA", "value": "10" }, { "label": "PV", "value": "13 (3d8)" }, { "label": "Vitesse", "value": "6 m (boiteux)" } ],
+          "abilities": { "FOR": 13, "DEX": 8, "CON": 11, "INT": 10, "SAG": 14, "CHA": 11 },
+          "features": [
+            { "name": "Connaissance du moulin", "text": "Connaît la trappe sous les meules et le passage vers la rivière." },
+            { "name": "Bâton ferré", "text": "+3 pour toucher. Touché : 4 (1d6 + 1) dégâts contondants." }
+          ]
+        }
+      }
+    },
+    "tc-gue": {
+      "dictation": "Les roseaux de la rive est sont assez hauts pour cacher un homme à cheval. Le gué est praticable à pied mais les chevaux glissent sur les pierres plates.",
+      "fromBrief": {
+        "description": "Là où la Corbière s’élargit, un passage de pierres plates permet de traverser à pied. Des roseaux hauts bordent la rive est.",
+        "aliases": ["le gué", "les Corbeaux"]
+      },
+      "refined": {
+        "description": "Un passage de pierres plates et glissantes où les chevaux perdent pied. Sur la rive est, des roseaux assez hauts pour cacher un cavalier ; un rocher fendu sert de poste de guet aux bandits.",
+        "aliases": ["le gué", "les Corbeaux", "le passage"]
+      }
+    }
+  }
+}

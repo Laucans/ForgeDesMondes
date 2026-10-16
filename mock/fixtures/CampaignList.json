@@ -1,0 +1,19 @@
+{
+  "campaigns": [
+    {
+      "id": "cendres-valombre", "name": "Les Cendres de Valombre", "type": "campagne", "art": "ember", "glyph": "V",
+      "pitch": "Un bourg couvert de cendres, un moulin incendié, et la Tour d’Ébène qui tire les ficelles.",
+      "sessions": 4, "lastPlayed": "2026-10-03", "next": "2026-10-17"
+    },
+    {
+      "id": "nuit-carnaval", "name": "La Nuit du Carnaval Pourpre", "type": "oneshot", "art": "dusk", "glyph": "C",
+      "pitch": "Un masque volé, une ville en fête, six heures avant l’aube.",
+      "sessions": 1, "lastPlayed": "2026-07-11", "next": null
+    },
+    {
+      "id": "heritiers-ebene", "name": "Les Héritiers de la Tour d’Ébène", "type": "campagne", "art": "night", "glyph": "É",
+      "pitch": "L’ancienne campagne, terminée au niveau 11. Gardée pour ses PNJ.",
+      "sessions": 23, "lastPlayed": "2026-05-30", "next": null
+    }
+  ]
+}

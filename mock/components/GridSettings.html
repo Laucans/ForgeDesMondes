@@ -1,0 +1,66 @@
+<section class="panel mf-grid" id="grid-settings" aria-labelledby="grid-title">
+  <div class="panel__head">
+    <h2 id="grid-title">Réglage de la grille</h2>
+    <span class="small muted">1 hex = 5 pieds · cliquez deux hex de l’aperçu pour vérifier une distance</span>
+  </div>
+  <div class="mf-grid__layout">
+    <form class="stack" id="grid-form" onsubmit="return false"></form>
+    <div id="grid-preview" data-reads="media.getBattlemap"></div>
+  </div>
+</section>
+<style>
+  .mf-grid__layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
+  .mf-grid .kit-hexmap .hm-view { height: auto; min-height: calc(var(--space-5) * 11); }
+  @media (max-width: 960px) { .mf-grid__layout { grid-template-columns: minmax(0, 1fr); } }
+</style>
+<script>
+(() => {
+  const root = document.currentScript.closest('[data-component]');
+  const props = Mock.props(root);
+  const $ = s => root.querySelector(s);
+  const COLORS = [{ value: 'text', label: 'Ivoire' }, { value: 'accent', label: 'Ambre' }, { value: 'primary', label: 'Orange' }, { value: 'secondary', label: 'Violet' }, { value: 'success', label: 'Vert' }];
+  let media, map, hx;
+
+  function load(m) {
+    map = m;
+    const g = map.grid;
+    $('#grid-title').textContent = 'Réglage de la grille — ' + map.title;
+    $('#grid-form').innerHTML =
+      Mock.kitHTML('Slider', { bare: true, fields: [
+        { id: 'grid-size', name: 'size', label: 'Taille d’un hex', value: g.size, min: 16, max: 60, unit: 'px' },
+        { id: 'grid-ox', name: 'ox', label: 'Décalage horizontal', value: g.ox, min: -30, max: 60, unit: 'px' },
+        { id: 'grid-oy', name: 'oy', label: 'Décalage vertical', value: g.oy, min: -30, max: 60, unit: 'px' },
+        { id: 'grid-opacity', name: 'opacity', label: 'Opacité', value: g.opacity, min: 5, max: 100, unit: '%' }] }) +
+      Mock.kitHTML('Radio', { id: 'grid-orient', legend: 'Orientation', name: 'grid-orient', options: [
+        { label: 'Pointe en haut', value: 'pointy', checked: g.orient === 'pointy' }, { label: 'Côté plat en haut', value: 'flat', checked: g.orient === 'flat' }] }) +
+      Mock.kitHTML('Select', { id: 'grid-color', label: 'Couleur de la grille', value: g.color, options: COLORS }) +
+      Mock.kitHTML('Button', { items: [{ id: 'grid-save', label: 'Enregistrer le réglage', variant: 'primary', 'data-writes': 'media.saveGridSettings' }, { id: 'grid-reset', label: 'Annuler les changements', variant: 'ghost' }] });
+    $('#grid-preview').innerHTML = Mock.kitHTML('HexMap', { id: 'grid-preview-map', map, grid: Mock.clone(g), measure: true, hint: 'Glisser pour déplacer · molette pour zoomer · cliquer deux hex pour mesurer' });
+    Mock.mount(root);
+    hx = $('#grid-preview [data-kit]').hexmap;
+  }
+
+  root.addEventListener('input', e => {
+    const n = e.target.name;
+    if (hx && ['size', 'ox', 'oy', 'opacity'].includes(n)) hx.setGrid({ [n]: +e.target.value });
+  });
+  root.addEventListener('change', e => { if (hx && e.target.name === 'grid-orient') hx.setGrid({ orient: e.target.value }); });
+  root.addEventListener('kit:change', e => { if (hx && e.target.querySelector('#grid-color')) hx.setGrid({ color: e.detail.value }); });
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.id === 'grid-save') {
+      const g = hx.grid;
+      Mock.command('media.saveGridSettings', { battlemap: map.id, grid: g }, { label: 'Enregistrer la grille de « ' + map.title + ' » (' + g.size + ' px, ' + (g.orient === 'pointy' ? 'pointe' : 'côté plat') + ', ' + g.opacity + ' %)' })
+        .then(() => { map.grid = Mock.clone(g); });
+    }
+    if (b.id === 'grid-reset') load(map);
+  });
+  Mock.on('grid-edit', d => { const m = d.map || media.battlemaps.find(x => x.id === d.id); if (m) load(m); });
+
+  Mock.fixture('fixtures/media.json').then(m => {
+    media = m;
+    load(m.battlemaps.find(x => x.id === props.battlemap) || m.battlemaps[0]);
+  });
+})();
+</script>
