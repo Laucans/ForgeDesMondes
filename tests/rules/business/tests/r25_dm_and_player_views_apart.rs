@@ -17,6 +17,11 @@ fn r25_dm_and_player_views_apart() {
             "data-capability:table.startCombat",
             "capability:table.getBattlemapInstance",
             "capability:live.getDiffusion",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let map = fresh_instance(s, &["elowen"])?;

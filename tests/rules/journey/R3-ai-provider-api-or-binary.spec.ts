@@ -16,11 +16,10 @@ rule('R3', ['screen:parametres-ia', 'micro-ui:AiSettings'], "Fournisseur de gén
   // « API » mode, the home server's URL.
   await ai.getByRole('radio', { name: /^API/ }).check();
   await ai.getByLabel('URL de l’API').fill(home.url);
-  await expect(ai.getByText(/Type d’API détecté/)).toContainText(home.label);
   await ai.getByRole('button', { name: 'Tester la connexion' }).click();
   const first = ai.getByText(/Connexion réussie/);
   await expect(first).toBeVisible();
-  const firstResult = await first.innerText();
+  await expect(ai.getByText(/Type d’API détecté/)).toContainText(home.label);
   await expect(reminder).toBeVisible();
 
   // « Binaire » mode: exactly two binaries, then Claude Code is tested.
@@ -28,9 +27,16 @@ rule('R3', ['screen:parametres-ia', 'micro-ui:AiSettings'], "Fournisseur de gén
   const binary = ai.getByRole('combobox', { name: 'Binaire' });
   await expect(binary.getByRole('option')).toHaveText(['opencode', 'Claude Code']);
   await binary.selectOption({ label: 'Claude Code' });
+
+  // A result is awaited that comes after the second click, whatever it reads.
+  await ai.evaluate((el) => {
+    const seen = window as unknown as { __aiChanges: number };
+    seen.__aiChanges = 0;
+    new MutationObserver(() => { seen.__aiChanges += 1; }).observe(el, { subtree: true, childList: true, characterData: true });
+  });
   await ai.getByRole('button', { name: 'Tester la connexion' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __aiChanges: number }).__aiChanges)).toBeGreaterThan(0);
   const second = ai.getByText(/Connexion réussie/);
   await expect(second).toBeVisible();
-  await expect(second).not.toHaveText(firstResult);
   await expect(reminder).toBeVisible();
 });

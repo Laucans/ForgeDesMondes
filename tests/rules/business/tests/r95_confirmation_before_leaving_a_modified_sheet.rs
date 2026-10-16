@@ -14,6 +14,8 @@ fn r95_confirmation_before_leaving_a_modified_sheet() {
             "data-capability:campaign.saveEntity",
             "capability:campaign.getEntity",
             "capability:campaign.listCharacters",
+            "capability:campaign.listCampaigns",
+            "data-capability:campaign.createCampaign",
         ],
         |s| {
             // The bar and its three choices are the page's: tests/rules/journey/R95-*.spec.ts walks them.
@@ -32,12 +34,18 @@ fn r95_confirmation_before_leaving_a_modified_sheet() {
                 json!({ "description": "L'autre élément" }),
             )?;
 
-            // « Rester » and « Abandonner »: nothing was sent, the stored sheet is the original.
+            // The description is edited in the sheet and the DM picks the other element:
+            // « Rester » then « Abandonner » send nothing, so the stored sheet is still the original.
             check(
                 text(&get_entity(s, &id)?, "description") == "Description d'origine",
                 "an unsaved change reached the store",
             )?;
-            // « Enregistrer et continuer »: the change is saved, then the chosen element opens.
+            check(
+                text(&get_entity(s, &other)?, "description") == "L'autre élément",
+                "the chosen element changed without being opened by a save",
+            )?;
+
+            // A new edit, then « Enregistrer et continuer »: the sheet is saved, then the chosen element opens.
             apply(
                 s,
                 "campaign.saveEntity",
@@ -46,11 +54,11 @@ fn r95_confirmation_before_leaving_a_modified_sheet() {
             )?;
             check(
                 text(&get_entity(s, &id)?, "description") == "Description modifiée",
-                "the change was not saved",
+                "the change was not saved before moving on",
             )?;
             check(
                 text(&get_entity(s, &other)?, "description") == "L'autre élément",
-                "the chosen element changed",
+                "the chosen element does not open as it was stored",
             )?;
 
             Ok(())

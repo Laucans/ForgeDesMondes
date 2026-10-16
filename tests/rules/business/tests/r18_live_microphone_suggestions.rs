@@ -16,12 +16,23 @@ fn r18_live_microphone_suggestions() {
             "capability:ai.listProviderRequests",
         ],
         |s| {
-            // The sentence the stand-in transcription says, naming an entity by an alias.
+            // The sentence the stand-in transcription says: Vesna, a PNJ, named by her alias « la Balafrée ».
             let feed = items(&fixture("SuggestionPill"), "feed");
             let named_by_alias = feed
                 .iter()
-                .find(|f| text(f, "kind") == "entity" && text(f, "via") != text(f, "name"))
-                .ok_or("the fixtures hold no entity named by an alias")?;
+                .find(|f| text(f, "id") == "vesna" && text(f, "type") == "pnj")
+                .ok_or("the fixtures hold no PNJ named by an alias")?;
+            let aliases = items(&fixture("entities"), "characters")
+                .into_iter()
+                .find(|c| text(c, "id") == "vesna")
+                .map(|c| c["aliases"].clone())
+                .unwrap_or(Value::Null);
+            check(
+                aliases
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|x| x == text(named_by_alias, "via"))),
+                "the phrase does not name the PNJ by one of its aliases",
+            )?;
             let wanted = text(named_by_alias, "id").to_string();
 
             apply(s, "live.setMicrophone", json!({ "on": true }), None)?;

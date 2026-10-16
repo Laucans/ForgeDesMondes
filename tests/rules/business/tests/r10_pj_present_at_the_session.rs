@@ -17,6 +17,10 @@ fn r10_pj_present_at_the_session() {
             "capability:session.getLiveSession",
             "capability:table.getBattlemapInstance",
             "capability:campaign.listCharacters",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             // Two PJ ticked out of the four of the fixtures.

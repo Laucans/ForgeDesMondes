@@ -14,6 +14,11 @@ fn r105_npc_initiative_and_tie_break() {
             "data-capability:table.placeTokens",
             "data-capability:table.startCombat",
             "capability:table.getBattlemapInstance",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             // DEX 16 is the boss (+3), DEX 12 the bandit (+1): both total 14, the PJ enters 14.

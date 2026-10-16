@@ -65,8 +65,8 @@ fn r2_campaign_archive_export_and_import() {
                 "the date of the last export is not shown",
             )?;
             check(
-                shown >= text(&before["campaign"], "lastExport"),
-                "the date of the last export went back",
+                shown > text(&before["campaign"], "lastExport"),
+                "the date of the last export is not the one of the export just made",
             )?;
 
             Ok(())

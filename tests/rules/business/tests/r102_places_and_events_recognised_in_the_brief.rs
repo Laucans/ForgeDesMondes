@@ -15,6 +15,11 @@ fn r102_places_and_events_recognised_in_the_brief() {
             "capability:session.listScenes",
             "capability:campaign.listEntitiesToCreate",
             "capability:campaign.listPlaces",
+            "capability:campaign.listCampaigns",
+            "capability:session.listSessions",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "data-capability:session.createSession",
         ],
         |s| {
             // A campaign of its own, with the tavern and without the bridge.

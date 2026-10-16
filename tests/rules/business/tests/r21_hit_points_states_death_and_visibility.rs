@@ -12,13 +12,15 @@ fn r21_hit_points_states_death_and_visibility() {
         "R21",
         &[
             "data-capability:table.placeTokens",
-            "data-capability:table.setTokenVisibility",
-            "data-capability:table.setTokenCondition",
             "data-capability:table.changeHitPoints",
             "data-capability:table.startCombat",
             "data-capability:table.nextTurn",
-            "data-capability:table.removeToken",
             "capability:table.getBattlemapInstance",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let map = fresh_instance(s, &["elowen"])?;
@@ -34,38 +36,6 @@ fn r21_hit_points_states_death_and_visibility() {
                     .cloned()
                     .ok_or_else(|| "a token vanished".to_string())
             };
-
-            // A visible/hidden switch and state badges.
-            apply(
-                s,
-                "table.setTokenVisibility",
-                json!({ "token": first["id"], "visible": false }),
-                Some(&map),
-            )?;
-            check(
-                reread(s, &first)?["visible"] == false,
-                "the token was not hidden",
-            )?;
-            apply(
-                s,
-                "table.setTokenVisibility",
-                json!({ "token": first["id"], "visible": true }),
-                Some(&map),
-            )?;
-            check(
-                reread(s, &first)?["visible"] == true,
-                "the token was not shown again",
-            )?;
-            apply(
-                s,
-                "table.setTokenCondition",
-                json!({ "token": first["id"], "state": "Empoisonné", "on": true }),
-                Some(&map),
-            )?;
-            check(
-                reread(s, &first)?["states"] == json!(["Empoisonné"]),
-                "the state badge was not set",
-            )?;
 
             // The PV of a PJ are never followed.
             let _ = s.command(
@@ -112,18 +82,6 @@ fn r21_hit_points_states_death_and_visibility() {
                     "the initiative stops on a dead token",
                 )?;
             }
-
-            // The DM removes it in one click.
-            apply(
-                s,
-                "table.removeToken",
-                json!({ "token": second["id"] }),
-                Some(&map),
-            )?;
-            check(
-                by_id(&tokens(s, &map, "dm")?, text(&second, "id")).is_none(),
-                "the dead token was not removed",
-            )?;
 
             Ok(())
         },

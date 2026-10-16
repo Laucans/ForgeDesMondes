@@ -5,7 +5,7 @@ import { component, fx, open } from './helpers';
 // given: une séance en direct dans la DM view, avec le micro en marche et une entité déjà suggérée dans la pastille
 // when: le DM ouvre au centre une longue fiche en lecture et la fait défiler jusqu'en bas, puis ouvre la battlemap de la scène et enfin l'onglet Soundbox
 // then: la pastille et le bouton marche/pause du micro restent affichés au même endroit en bas à droite de la fenêtre, par-dessus le contenu, sans le décaler, et un clic sur l'entité suggérée l'ouvre toujours au centre
-rule('R98', ['screen:dm-view', 'micro-ui:SuggestionPill', 'micro-ui:TableSheet', 'micro-ui:Battlemap', 'micro-ui:LiveSoundbox'], "Pastille des suggestions en surcouche fixe", async ({ page }) => {
+rule('R98', ['screen:dm-view', 'micro-ui:SuggestionPill', 'micro-ui:ElementsPanel', 'micro-ui:TableSheet', 'micro-ui:Battlemap', 'micro-ui:LiveSoundbox'], "Pastille des suggestions en surcouche fixe", async ({ page }) => {
   await open(page, 'dm-view');
   const pill = component(page, 'SuggestionPill').locator('aside');
   const mic = pill.locator('#suggestions-mic').getByRole('button').first();

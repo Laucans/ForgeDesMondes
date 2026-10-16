@@ -15,6 +15,11 @@ fn r20_dropping_one_or_several_instances() {
             "data-capability:table.renameToken",
             "capability:table.getBattlemapInstance",
             "capability:campaign.listCharacters",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let map = fresh_instance(s, &[])?;

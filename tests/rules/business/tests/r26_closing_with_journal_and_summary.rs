@@ -17,6 +17,8 @@ fn r26_closing_with_journal_and_summary() {
             "capability:session.getSessionJournal",
             "capability:session.getPreviousSessionSummary",
             "capability:ai.getSettings",
+            "capability:session.listSessions",
+            "data-capability:session.createSession",
         ],
         |s| {
             let session = new_session(s, CAMPAIGN, &["elowen"])?;

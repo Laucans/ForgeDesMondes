@@ -17,6 +17,12 @@ fn r77_only_text_goes_to_the_provider() {
             "data-capability:session.closeSession",
             "data-capability:live.setMicrophone",
             "capability:ai.listProviderRequests",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "capability:session.listSessions",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "data-capability:session.createSession",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

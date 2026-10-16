@@ -5,7 +5,7 @@ import { component, fx, open } from './helpers';
 // given: une scène liée à une battlemap
 // when: le DM y place à l'avance PJ, PNJ et monstres
 // then: l'instance de la scène les conserve à leur position, sans modifier la battlemap d'origine.
-rule('R15', ['screen:preparation-seance', 'screen:medias', 'micro-ui:SceneBoard', 'micro-ui:Battlemap', 'micro-ui:GridSettings'], "Instance de battlemap dans une scène", async ({ page }) => {
+rule('R15', ['screen:preparation-seance', 'screen:medias', 'micro-ui:SceneBoard', 'micro-ui:Battlemap', 'micro-ui:MediaLibrary', 'micro-ui:GridSettings'], "Instance de battlemap dans une scène", async ({ page }) => {
   const media = fx('media');
   const original = media.battlemaps.find((b: any) => b.id === 'bm-gue');
   await open(page, 'preparation-seance');

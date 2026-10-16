@@ -18,6 +18,11 @@ fn r23_map_state_kept() {
             "data-capability:table.startCombat",
             "data-capability:table.resetBattlemap",
             "capability:table.getBattlemapInstance",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let map = fresh_instance(s, &["elowen"])?;
@@ -51,33 +56,40 @@ fn r23_map_state_kept() {
                 json!({ "initiative": { "elowen": 15 }, "rolls": { text(&bandits[0], "id"): 9, text(&bandits[1], "id"): 4 } }),
                 Some(&map),
             )?;
-            let kept = s.read("table.getBattlemapInstance", json!({ "instance": map }))?;
-
-            // The state lives in the product's store, not in the page: a fresh read after the app was closed.
-            let reopened = s.read("table.getBattlemapInstance", json!({ "instance": map }))?;
-            check(
-                reopened == kept,
-                "the state of the map changed between two openings",
+            let kept = s.read(
+                "table.getBattlemapInstance",
+                json!({ "instance": map, "view": "dm" }),
             )?;
-            let moved = by_id(&tokens(s, &map, "dm")?, text(&pj, "id"))
+
+            // The app is closed, then reopened: a read of its own, carrying nothing of the session that wrote.
+            let reopened = read_reopened(
+                "table.getBattlemapInstance",
+                json!({ "instance": map, "view": "dm" }),
+            )?;
+            let state = instance(&reopened)
+                .get("state")
                 .cloned()
-                .ok_or("the PJ token vanished")?;
+                .unwrap_or(Value::Null);
+            check(
+                state == instance(&kept)["state"],
+                "the state of the map is not the one that was kept",
+            )?;
+            let reopened_tokens = state["tokens"].as_array().cloned().unwrap_or_default();
+            let moved = by_id(&reopened_tokens, text(&pj, "id")).ok_or("the PJ token vanished")?;
             check(moved["q"] == 3 && moved["r"] == 2, "the position was lost")?;
-            let hurt = by_id(&tokens(s, &map, "dm")?, text(&bandits[0], "id"))
-                .cloned()
-                .ok_or("a token vanished")?;
+            let hurt =
+                by_id(&reopened_tokens, text(&bandits[0], "id")).ok_or("a token vanished")?;
             check(
                 hurt["hp"] == hurt["hpMax"].as_i64().unwrap_or(0) - 4,
                 "the PV were lost",
             )?;
-            let scared = by_id(&tokens(s, &map, "dm")?, text(&bandits[1], "id"))
-                .cloned()
-                .ok_or("a token vanished")?;
+            let scared =
+                by_id(&reopened_tokens, text(&bandits[1], "id")).ok_or("a token vanished")?;
             check(
                 scared["states"] == json!(["Effrayé"]),
                 "the states were lost",
             )?;
-            let line = order(&combat(s, &map, "dm")?);
+            let line = order(&state["combat"]);
             check(
                 line.len() == 3 && line[0] == text(&pj, "id"),
                 "the initiative was lost",

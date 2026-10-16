@@ -1,7 +1,7 @@
 //! Rule R96: Sections du rail repliables par catégorie.
 mod common;
 
-use common::*;
+use common::rule;
 
 // given: la fiche d'entité ouverte avec son rail déplié et les sections PJ, PNJ, lieux et événements toutes ouvertes
 // when: le DM clique sur le titre « PJ », puis clique de nouveau sur ce même titre
@@ -10,33 +10,13 @@ use common::*;
 fn r96_rail_sections_fold_by_category() {
     rule(
         "R96",
-        &[
-            "capability:campaign.listCharacters",
-            "capability:campaign.listPlaces",
-            "capability:campaign.listEvents",
-        ],
-        |s| {
-            // Folding is the page's: tests/rules/journey/R96-*.spec.ts clicks the titles.
-            // Here, the four sections the rail groups, each with something to hide.
-            let chars = characters(s, CAMPAIGN)?;
-            check(
-                chars.iter().any(|c| text(c, "kind") == "pj"),
-                "the PJ section is empty",
-            )?;
-            check(
-                chars.iter().any(|c| text(c, "kind") == "pnj"),
-                "the PNJ section is empty",
-            )?;
-            check(
-                !places(s, CAMPAIGN)?.is_empty(),
-                "the places section is empty",
-            )?;
-            check(
-                !events(s, CAMPAIGN)?.is_empty(),
-                "the events section is empty",
-            )?;
-
-            Ok(())
+        &["micro-ui:CampaignElements", "screen:fiche-entite"],
+        |_s| {
+            // Nothing of this criterion is kept by the product over the wire: the sections and their triangles live
+            // in the page alone, and tests/rules/journey/R96-rail-sections-fold-by-category.spec.ts performs it.
+            // Passing here on anything else would assert what the criterion does not say, so the test
+            // stays red once the rail is built, until the rules' owner settles this rule's family.
+            Err("R96 is a page behaviour with no product-side part: its family is to be settled by the rules' owner".to_string())
         },
     );
 }

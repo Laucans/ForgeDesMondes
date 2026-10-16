@@ -22,7 +22,6 @@ rule('R113', ['screen:dm-view', 'screen:player-view', 'micro-ui:PlayerStage', 'm
     const [v, d] = [await scope.locator('.hm-view').first().boundingBox(), await scope.locator('.kit-token__item').filter({ hasText: name }).first().boundingBox()];
     return v && d ? { x: (d.x - v.x) / v.width, y: (d.y - v.y) / v.height } : null;
   };
-  const before = await relative(page, 'Elowen');
 
   // In the pilot tab: a token moves, the map zooms and is shifted.
   const disc = await pilot.locator('.kit-token__item').filter({ hasText: 'Elowen' }).first().boundingBox();
@@ -31,6 +30,7 @@ rule('R113', ['screen:dm-view', 'screen:player-view', 'micro-ui:PlayerStage', 'm
   await pilot.mouse.down();
   await pilot.mouse.move(at.x + 90, at.y + 30, { steps: 6 });
   await pilot.mouse.up();
+  const dropped = await relative(pilot, 'Elowen');
   await pilot.getByRole('button', { name: 'Zoomer' }).click();
   await pilot.locator('.hm-view').first().dispatchEvent('wheel', { deltaY: -120 });
   const view = await pilot.locator('.hm-view').first().boundingBox();
@@ -41,7 +41,12 @@ rule('R113', ['screen:dm-view', 'screen:player-view', 'micro-ui:PlayerStage', 'm
 
   // The token is elsewhere in the DM view; zoom and framing are the same on the projected view.
   await page.bringToFront();
-  await expect.poll(async () => JSON.stringify(await relative(page, 'Elowen'))).not.toBe(JSON.stringify(before));
+  await expect
+    .poll(async () => {
+      const [mine, dropAt] = [await relative(page, 'Elowen'), dropped];
+      return !!mine && !!dropAt && Math.abs(mine.x - dropAt.x) < 0.02 && Math.abs(mine.y - dropAt.y) < 0.02;
+    })
+    .toBe(true);
   await expect
     .poll(async () => (await stage(projected).getAttribute('style')) === (await stage(pilot).getAttribute('style')))
     .toBe(true);

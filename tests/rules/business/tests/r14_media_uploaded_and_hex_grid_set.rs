@@ -15,6 +15,8 @@ fn r14_media_uploaded_and_hex_grid_set() {
             "data-capability:media.saveGridSettings",
             "capability:media.listMedia",
             "capability:media.getBattlemap",
+            "capability:campaign.listCampaigns",
+            "data-capability:campaign.createCampaign",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

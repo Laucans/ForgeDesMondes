@@ -14,6 +14,10 @@ fn r100_assisted_creation_with_both_providers() {
             "data-capability:ai.saveSettings",
             "data-capability:ai.proposeCharacter",
             "capability:campaign.getEntity",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

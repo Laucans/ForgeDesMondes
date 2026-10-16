@@ -17,6 +17,8 @@ fn r5_notes_extracted_then_validated() {
             "capability:campaign.listCharacters",
             "capability:campaign.listPlaces",
             "capability:campaign.listEvents",
+            "capability:campaign.listCampaigns",
+            "data-capability:campaign.createCampaign",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

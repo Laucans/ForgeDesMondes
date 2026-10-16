@@ -15,6 +15,14 @@ fn r108_approximate_state_of_npcs() {
             "data-capability:table.placeTokens",
             "data-capability:table.changeHitPoints",
             "capability:table.getBattlemapInstance",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:campaign.createCampaign",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

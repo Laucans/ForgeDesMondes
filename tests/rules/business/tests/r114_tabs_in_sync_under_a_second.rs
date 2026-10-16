@@ -14,6 +14,11 @@ fn r114_tabs_in_sync_under_a_second() {
             "data-capability:table.placeTokens",
             "data-capability:table.moveToken",
             "capability:table.getBattlemapInstance",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let map = fresh_instance(s, &["elowen"])?;

@@ -15,6 +15,11 @@ fn r22_combat_and_initiative_carousel() {
             "data-capability:table.startCombat",
             "data-capability:table.nextTurn",
             "capability:table.getBattlemapInstance",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let map = fresh_instance(s, &["elowen"])?;

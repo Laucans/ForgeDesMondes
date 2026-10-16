@@ -13,8 +13,8 @@
 //!
 //! The mock-up's fixtures are the data every test starts from; the mock-up's
 //! fixtures are loaded by the rules' runtime.
-// Each test file uses a subset of these helpers.
-#![allow(dead_code)]
+// Each test file uses a subset of these helpers and re-exports.
+#![allow(dead_code, unused_imports)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -82,6 +82,21 @@ pub fn apply(
         Some("applied") => Ok(result),
         _ => Err(format!("{data_capability} was not applied: {result}")),
     }
+}
+
+/// Reads a Capability over a connection of its own, the way an app just
+/// reopened would: nothing is carried from the session that wrote.
+pub fn read_reopened(capability: &str, variables: Value) -> Result<Value, String> {
+    let base = std::env::var("RULES_SERVER_URL").map_err(|_| "no server".to_string())?;
+    let url = format!("{}/capabilities/{capability}", base.trim_end_matches('/'));
+    let answer: Value = ureq::AgentBuilder::new()
+        .build()
+        .post(&url)
+        .send_json(json!({ "variables": variables }))
+        .map_err(|e| format!("reading {capability} again: {e}"))?
+        .into_json()
+        .map_err(|e| format!("reading {capability} again: {e}"))?;
+    Ok(answer.get("data").cloned().unwrap_or(Value::Null))
 }
 
 /// Reads the characters of a campaign.

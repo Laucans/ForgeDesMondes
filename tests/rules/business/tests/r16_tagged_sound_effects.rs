@@ -17,6 +17,9 @@ fn r16_tagged_sound_effects() {
             "data-capability:soundbox.setMasterVolume",
             "data-capability:soundbox.stopAll",
             "capability:soundbox.listSounds",
+            "capability:live.getDiffusion",
+            "capability:campaign.listCampaigns",
+            "data-capability:campaign.createCampaign",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;
@@ -91,6 +94,18 @@ fn r16_tagged_sound_effects() {
             check(
                 by_id(&playing, &ids[2]).is_some_and(|c| c["playing"] == false),
                 "the third sound plays",
+            )?;
+
+            // The two sounds play, and none of them goes out through the player view.
+            let diffusion = s.read(
+                "live.getDiffusion",
+                json!({ "campaign": campaign, "view": "player" }),
+            )?;
+            let carried = diffusion.to_string();
+            check(
+                !carried.contains("\"playing\":true")
+                    && !tagged.iter().any(|id| carried.contains(id.as_str())),
+                "a sound is carried by the player view",
             )?;
 
             apply(s, "soundbox.stopAll", json!({ "campaign": campaign }), None)?;

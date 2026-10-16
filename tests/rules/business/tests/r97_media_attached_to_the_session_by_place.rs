@@ -17,6 +17,11 @@ fn r97_media_attached_to_the_session_by_place() {
             "capability:media.listMedia",
             "capability:session.listScenes",
             "capability:campaign.listPlaces",
+            "capability:campaign.listCampaigns",
+            "capability:session.listSessions",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "data-capability:session.createSession",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

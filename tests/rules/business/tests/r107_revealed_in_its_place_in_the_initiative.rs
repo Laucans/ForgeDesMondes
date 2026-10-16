@@ -15,6 +15,11 @@ fn r107_revealed_in_its_place_in_the_initiative() {
             "data-capability:table.setTokenVisibility",
             "data-capability:table.startCombat",
             "capability:table.getBattlemapInstance",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let map = fresh_instance(s, &["elowen", "kael"])?;

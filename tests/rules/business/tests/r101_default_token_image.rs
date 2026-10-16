@@ -14,6 +14,14 @@ fn r101_default_token_image() {
             "data-capability:campaign.saveEntity",
             "data-capability:table.placeTokens",
             "capability:table.getBattlemapInstance",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "capability:session.listScenes",
+            "capability:session.listSessions",
+            "data-capability:campaign.createCampaign",
+            "data-capability:session.addScene",
+            "data-capability:session.createSession",
+            "data-capability:table.createBattlemapInstance",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

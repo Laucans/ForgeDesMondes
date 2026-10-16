@@ -16,6 +16,11 @@ fn r12_existing_npcs_updated_missing_ones_to_create() {
             "capability:campaign.listEntitiesToCreate",
             "capability:campaign.listEntityVersions",
             "capability:campaign.listCharacters",
+            "capability:campaign.listCampaigns",
+            "capability:session.listSessions",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "data-capability:session.createSession",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

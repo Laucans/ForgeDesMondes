@@ -15,6 +15,10 @@ fn r9_history_diff_and_rollback() {
             "data-capability:campaign.restoreEntityVersion",
             "capability:campaign.listEntityVersions",
             "capability:campaign.getEntity",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

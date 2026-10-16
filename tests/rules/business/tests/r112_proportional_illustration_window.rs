@@ -16,6 +16,9 @@ fn r112_proportional_illustration_window() {
             "data-capability:live.moveWindow",
             "data-capability:live.resizeWindow",
             "capability:live.getDiffusion",
+            "capability:campaign.listCampaigns",
+            "capability:media.listMedia",
+            "data-capability:campaign.createCampaign",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;

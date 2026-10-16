@@ -24,8 +24,18 @@ rule('R94', ['screen:fiche-entite', 'micro-ui:CampaignElements', 'micro-ui:Entit
   await page.setViewportSize({ width: 800, height: 900 });
   const editor = component(page, 'EntityEditor');
   await expect(rail).toBeHidden();
+  const sheetBefore = await editor.boundingBox();
   await page.getByRole('button', { name: /^☰/ }).click();
   await expect(rail).toBeVisible();
+
+  // Open, the drawer lies over the sheet and the sheet has not moved.
+  const drawer = await rail.boundingBox();
+  const sheetOpen = await editor.boundingBox();
+  const overlaps = !!drawer && !!sheetOpen
+    && drawer.x < sheetOpen.x + sheetOpen.width && drawer.x + drawer.width > sheetOpen.x
+    && drawer.y < sheetOpen.y + sheetOpen.height && drawer.y + drawer.height > sheetOpen.y;
+  expect(overlaps, 'the drawer opens over the sheet').toBe(true);
+  expect(sheetOpen, 'the sheet did not move when the drawer opened').toEqual(sheetBefore);
   await rail.getByTitle('Fermer la liste').click();
   await expect(rail).toBeHidden();
   const covered = await editor.evaluate((el) => {
