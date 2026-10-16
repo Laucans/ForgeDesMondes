@@ -1,0 +1,905 @@
+{
+  "rules": [
+    {
+      "body": "Le DM voit ses campagnes et oneshots avec leur illustration de couverture et en crée de nouveaux. Un oneshot est une campagne à une seule séance, et plusieurs campagnes indépendantes coexistent sans compte utilisateur.",
+      "components": [
+        "CampaignList"
+      ],
+      "criterion": {
+        "given": "deux campagnes et un oneshot",
+        "then": "les trois apparaissent avec leur couverture, le oneshot n'a qu'une séance, et aucun compte n'est demandé.",
+        "when": "le DM ouvre l'accueil"
+      },
+      "family": "business",
+      "id": "R1",
+      "pages": [
+        "pages/campagnes.html"
+      ],
+      "title": "Plusieurs campagnes et oneshots"
+    },
+    {
+      "body": "Une campagne s'exporte en une archive et une archive s'importe, en copie si la campagne existe déjà. Il n'y a pas de sauvegarde automatique, et la date du dernier export est rappelée.",
+      "components": [
+        "CampaignList",
+        "CampaignOverview"
+      ],
+      "criterion": {
+        "given": "une campagne exportée puis importée alors qu'elle existe déjà",
+        "then": "une copie distincte est créée, l'originale reste intacte et la date du dernier export est affichée.",
+        "when": "l'import se termine"
+      },
+      "family": "business",
+      "id": "R2",
+      "pages": [
+        "pages/campagnes.html",
+        "pages/campagne.html"
+      ],
+      "title": "Export et import d'une campagne en archive"
+    },
+    {
+      "body": "Le DM choisit entre deux modes de connexion au fournisseur de génération. En mode « API », il saisit l'URL de l'API, qu'il s'agisse d'une API cloud ou de son serveur maison. Le système détecte seul le type d'API et s'y connecte, et le DM complète le modèle de génération, le modèle de résumé et une clé éventuelle. En mode « Binaire », il choisit dans une liste déroulante l'un des deux binaires proposés pour le moment : opencode ou Claude Code. Dans les deux modes, un bouton « Tester la connexion » vérifie le réglage. Un rappel indique que seul du texte part vers ce fournisseur.",
+      "components": [
+        "AiSettings"
+      ],
+      "criterion": {
+        "given": "l'écran des paramètres IA, d'abord en mode « API » avec l'URL du serveur maison saisie, puis en mode « Binaire »",
+        "then": "le type d'API détecté et le résultat du premier test s'affichent, la liste déroulante propose exactement « opencode » et « Claude Code », le résultat du second test s'affiche, et le rappel « seul du texte part vers ce fournisseur » reste visible",
+        "when": "le DM teste la connexion en mode « API », puis passe en mode « Binaire », ouvre la liste déroulante, choisit « Claude Code » et teste à nouveau la connexion"
+      },
+      "family": "journey",
+      "id": "R3",
+      "pages": [
+        "pages/parametres-ia.html"
+      ],
+      "title": "Fournisseur de génération paramétrable : API ou binaire"
+    },
+    {
+      "body": "L'application conserve les joueurs, les personnages, les lieux et les événements d'une campagne, et les présente par onglets. Un personnage est un PJ lié à un joueur ou un PNJ, avec une fiche simple (caractéristiques, CA, PV, sorts et actions), un token et des notes.",
+      "components": [
+        "CampaignElements",
+        "EntityEditor"
+      ],
+      "criterion": {
+        "given": "un PJ lié à un joueur et un PNJ",
+        "then": "chacun apparaît dans le bon onglet avec sa fiche (caractéristiques, CA, PV, sorts, actions), son token et ses notes.",
+        "when": "le DM ouvre les onglets de la campagne"
+      },
+      "family": "business",
+      "id": "R4",
+      "pages": [
+        "pages/campagne.html",
+        "pages/fiche-entite.html"
+      ],
+      "title": "Joueurs et personnages distincts"
+    },
+    {
+      "body": "Le DM colle des notes en texte libre, éventuellement issues d'une transcription faite dans l'outil, et l'IA en extrait des personnages, des lieux et des événements. Rien n'est créé avant que le DM ait validé la liste proposée.",
+      "components": [
+        "NoteImport"
+      ],
+      "criterion": {
+        "given": "des notes collées",
+        "then": "aucune entité n'est créée tant que le DM n'a pas validé la liste, et seules les entités validées le sont.",
+        "when": "l'IA propose personnages, lieux et événements"
+      },
+      "family": "business",
+      "id": "R5",
+      "pages": [
+        "pages/campagne.html"
+      ],
+      "title": "Reprise depuis des notes en texte libre"
+    },
+    {
+      "body": "Chaque entité peut recevoir des alias, par exemple « la taverne » pour « La Taverne du Sanglier ». Les noms et les alias de la campagne forment automatiquement le vocabulaire injecté dans la transcription locale en français.",
+      "components": [
+        "EntityEditor",
+        "SuggestionPill",
+        "ElementsPanel"
+      ],
+      "criterion": {
+        "given": "l'alias « la taverne » sur « La Taverne du Sanglier »",
+        "then": "son vocabulaire contient les noms et les alias de toutes les entités de la campagne.",
+        "when": "la transcription démarre"
+      },
+      "family": "business",
+      "id": "R6",
+      "pages": [
+        "pages/fiche-entite.html",
+        "pages/dm-view.html"
+      ],
+      "title": "Alias et vocabulaire de détection"
+    },
+    {
+      "body": "Le DM raconte au micro le prompt initial d'un personnage. L'IA propose un background cohérent et, pour un PNJ, un statblock crédible et jouable tel quel. Cela fonctionne quel que soit le fournisseur configuré : une API, cloud ou serveur maison, ou un binaire, opencode ou Claude Code.",
+      "components": [
+        "EntityEditor"
+      ],
+      "criterion": {
+        "given": "un prompt initial dicté pour un PNJ",
+        "then": "un background cohérent avec le prompt et un statblock jouable sont proposés dans chacun des deux modes",
+        "when": "le DM demande la proposition, successivement avec une API configurée et avec un binaire configuré"
+      },
+      "family": "journey",
+      "id": "R7",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "title": "Prompt initial dicté et création assistée"
+    },
+    {
+      "body": "Un PJ s'importe par son URL D&D Beyond. Le bouton « Resynchroniser » met à jour les stats, les PV et les sorts après une montée de niveau, sans toucher aux alias, aux notes ni au token définis localement.",
+      "components": [
+        "EntityEditor"
+      ],
+      "criterion": {
+        "given": "un PJ importé de D&D Beyond avec alias, notes et token locaux",
+        "then": "stats, PV et sorts sont à jour et alias, notes et token sont inchangés.",
+        "when": "le DM clique « Resynchroniser » après une montée de niveau"
+      },
+      "family": "business",
+      "id": "R8",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "title": "Import et resynchronisation D&D Beyond"
+    },
+    {
+      "body": "Toute modification par l'IA ou par D&D Beyond s'applique automatiquement et est versionnée, et un bouton « Mis à jour » le signale. Le DM consulte le diff, annule un changement précis ou revient à une version antérieure.",
+      "components": [
+        "VersionHistory",
+        "OralBrief"
+      ],
+      "criterion": {
+        "given": "une modification appliquée par l'IA ou par D&D Beyond",
+        "then": "une nouvelle version existe avec son diff, et annuler ce changement ou revenir à une version antérieure restaure exactement l'état d'avant.",
+        "when": "le DM ouvre l'historique"
+      },
+      "family": "business",
+      "id": "R9",
+      "pages": [
+        "pages/fiche-entite.html",
+        "pages/preparation-seance.html"
+      ],
+      "title": "Historique, diff et retour arrière"
+    },
+    {
+      "body": "Le DM coche les PJ présents à une séance et peut en ajouter ou en retirer plus tard. Seuls ces PJ sont proposés dans la DM view et sur les battlemaps.",
+      "components": [
+        "SessionList",
+        "SceneBoard"
+      ],
+      "criterion": {
+        "given": "une séance avec deux PJ cochés présents sur quatre",
+        "then": "seuls ces deux PJ sont proposés, et un PJ ajouté plus tard l'est aussi.",
+        "when": "le DM ouvre la DM view ou une battlemap"
+      },
+      "family": "business",
+      "id": "R10",
+      "pages": [
+        "pages/campagne.html",
+        "pages/preparation-seance.html"
+      ],
+      "title": "PJ présents à la séance"
+    },
+    {
+      "body": "Un brief raconté au micro devient une liste ordonnée de scènes. Chaque scène est liée à des lieux, des PNJ, des événements et des médias, porte des notes libres, et peut être réordonnée ou complétée à la main.",
+      "components": [
+        "OralBrief",
+        "SceneBoard"
+      ],
+      "criterion": {
+        "given": "un brief raconté au micro",
+        "then": "une liste ordonnée de scènes apparaît, chacune liée à ses lieux, PNJ, événements et médias, réordonnable et modifiable à la main.",
+        "when": "il est traité"
+      },
+      "family": "journey",
+      "id": "R11",
+      "pages": [
+        "pages/preparation-seance.html"
+      ],
+      "title": "Brief oral découpé en scènes"
+    },
+    {
+      "body": "Le brief reconnaît les PNJ existants cités et les met à jour avec leur diff, et ajoute les PNJ manquants à la liste « à créer ». Pour chacun, le DM choisit « Créer depuis le brief » ou « Affiner » à l'oral ou à l'écrit avant la proposition de background et de statblock.",
+      "components": [
+        "OralBrief",
+        "ToCreateList",
+        "VersionHistory"
+      ],
+      "criterion": {
+        "given": "un brief citant un PNJ existant et un PNJ inconnu",
+        "then": "le PNJ existant est mis à jour avec son diff et le PNJ inconnu est ajouté à la liste « à créer », sans création automatique.",
+        "when": "il est traité"
+      },
+      "family": "business",
+      "id": "R12",
+      "pages": [
+        "pages/preparation-seance.html",
+        "pages/campagne.html"
+      ],
+      "title": "PNJ existants mis à jour, PNJ manquants à créer"
+    },
+    {
+      "body": "Pendant la préparation, le résumé généré et le journal transcrit horodaté de la séance précédente sont consultables dans un panneau latéral. La liste des séances affiche aussi leur résumé.",
+      "components": [
+        "PreviousSummary",
+        "SessionList"
+      ],
+      "criterion": {
+        "given": "une séance précédente close",
+        "then": "son résumé et son journal horodaté sont consultables dans le panneau latéral et le résumé figure dans la liste des séances.",
+        "when": "le DM prépare la suivante"
+      },
+      "family": "journey",
+      "id": "R13",
+      "pages": [
+        "pages/preparation-seance.html",
+        "pages/campagne.html"
+      ],
+      "title": "Journal et résumé de la séance précédente"
+    },
+    {
+      "body": "Le DM téléverse des battlemaps, des illustrations et des tokens rattachés à la campagne. Pour chaque battlemap, il règle la taille, le décalage, l'orientation, la couleur et l'opacité de la grille avec un aperçu en direct, sur la règle 1 hex = 5 pieds.",
+      "components": [
+        "MediaLibrary",
+        "GridSettings"
+      ],
+      "criterion": {
+        "given": "une battlemap téléversée",
+        "then": "l'aperçu se met à jour en direct et un hex vaut toujours 5 pieds.",
+        "when": "le DM règle taille, décalage, orientation, couleur et opacité de la grille"
+      },
+      "family": "business",
+      "id": "R14",
+      "pages": [
+        "pages/medias.html"
+      ],
+      "title": "Médias téléversés et grille hexagonale réglée"
+    },
+    {
+      "body": "Une battlemap peut avoir une instance dans une scène de séance, sur laquelle le DM place à l'avance les PJ, les PNJ et les monstres.",
+      "components": [
+        "SceneBoard",
+        "Battlemap"
+      ],
+      "criterion": {
+        "given": "une scène liée à une battlemap",
+        "then": "l'instance de la scène les conserve à leur position, sans modifier la battlemap d'origine.",
+        "when": "le DM y place à l'avance PJ, PNJ et monstres"
+      },
+      "family": "journey",
+      "id": "R15",
+      "pages": [
+        "pages/preparation-seance.html"
+      ],
+      "title": "Instance de battlemap dans une scène"
+    },
+    {
+      "body": "Le DM téléverse des sons, les nomme, les tague et règle leur volume propre. En séance, il les retrouve par une recherche dynamique et un filtre par tags, en joue plusieurs à la fois avec un volume global, un volume par son et « Tout arrêter », et le son ne sort que de la DM view.",
+      "components": [
+        "SoundLibrary",
+        "LiveSoundbox"
+      ],
+      "criterion": {
+        "given": "trois sons tagués",
+        "then": "chacun respecte son volume propre et le volume global, « Tout arrêter » coupe tout, et aucun son ne sort de la player view.",
+        "when": "le DM filtre par tag et en joue deux à la fois"
+      },
+      "family": "business",
+      "id": "R16",
+      "pages": [
+        "pages/soundbox.html",
+        "pages/dm-view.html"
+      ],
+      "title": "Soundbox d'effets tagués"
+    },
+    {
+      "body": "La DM view montre à gauche tous les éléments de la campagne, ceux de la séance en tête, et les scènes à suivre une à une. Au centre s'ouvre une fiche en lecture optimisée pour la table, avec un bouton d'édition, ou la battlemap de la scène.",
+      "components": [
+        "ElementsPanel",
+        "TableSheet",
+        "Battlemap",
+        "LiveSessionBar"
+      ],
+      "criterion": {
+        "given": "une séance en cours",
+        "then": "les éléments de la séance sont en tête à gauche, les scènes défilent une à une, et un clic ouvre au centre la fiche en lecture ou la battlemap de la scène.",
+        "when": "le DM ouvre la DM view"
+      },
+      "family": "journey",
+      "id": "R17",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "title": "Conduite de la séance depuis la DM view"
+    },
+    {
+      "body": "Un micro avec un bouton marche/pause toujours visible transcrit la séance en local, sans qu'aucun audio ne quitte la machine. Chaque entité ou son nommé par son nom ou son alias apparaît en quelques secondes dans une pile des 5 dernières suggestions. Un clic ouvre l'entité au centre, et un son se joue au second clic.",
+      "components": [
+        "SuggestionPill"
+      ],
+      "criterion": {
+        "given": "le micro en marche et un PNJ nommé par son alias",
+        "then": "il apparaît en quelques secondes dans la pile des 5 dernières suggestions, et aucun audio ne quitte la machine.",
+        "when": "la phrase est prononcée"
+      },
+      "family": "business",
+      "id": "R18",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "title": "Suggestions du micro en direct"
+    },
+    {
+      "body": "Le DM glisse-dépose les tokens, le curseur portant le token. Un compteur vert affiche la distance en ligne droite depuis la position de départ, par exemple « 6 hex · 30 pi ». Le token déposé apparaît au même endroit sur la player view en moins d'une seconde.",
+      "components": [
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "criterion": {
+        "given": "un token glissé de 6 hex",
+        "then": "le compteur affiche « 6 hex · 30 pi », et une fois déposé le token apparaît au même endroit sur la player view en moins d'une seconde.",
+        "when": "le DM le déplace"
+      },
+      "family": "journey",
+      "id": "R19",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "title": "Tokens glissés avec mesure de distance"
+    },
+    {
+      "body": "Un personnage se glisse sur la battlemap, depuis la colonne de gauche ou la fiche, en une instance ou en « × N ». Les instances sont numérotées automatiquement et renommables.",
+      "components": [
+        "Battlemap",
+        "ElementsPanel"
+      ],
+      "criterion": {
+        "given": "un monstre glissé « × 3 » sur la battlemap",
+        "then": "trois instances numérotées 1 à 3 apparaissent, chacune renommable sans toucher aux autres.",
+        "when": "il est déposé"
+      },
+      "family": "business",
+      "id": "R20",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/preparation-seance.html"
+      ],
+      "title": "Dépôt de personnages en une ou plusieurs instances"
+    },
+    {
+      "body": "Chaque token a un interrupteur visible/caché et des badges d'état. Chaque PNJ a des PV courants modifiables côté DM. À 0 PV, le token est grisé, marqué mort et sauté dans l'initiative, et le DM peut le retirer d'un clic. Les PV des PJ ne sont pas suivis.",
+      "components": [
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "criterion": {
+        "given": "un PNJ dont les PV tombent à 0",
+        "then": "son token est grisé, marqué mort et sauté dans l'initiative, et les PV des PJ ne sont jamais suivis.",
+        "when": "le DM valide"
+      },
+      "family": "business",
+      "id": "R21",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "title": "PV, états, mort et visibilité des tokens"
+    },
+    {
+      "body": "Au lancement du combat, les PNJ tirent d20 + DEX, le DM saisit l'initiative des PJ, et les égalités se départagent par la DEX puis au hasard. Un carrousel à la Foundry apparaît sur les deux vues, avec « Suivant », un compteur de rounds, et l'ajout, le retrait et le réordonnancement des participants. Un clic sur un participant ouvre la fiche de cette instance précise.",
+      "components": [
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "criterion": {
+        "given": "deux PNJ à égalité d'initiative",
+        "then": "ils sont départagés par la DEX puis au hasard, le carrousel apparaît sur les deux vues, et « Suivant » fait avancer le tour et le compteur de rounds.",
+        "when": "le combat démarre"
+      },
+      "family": "business",
+      "id": "R22",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "title": "Combat et carrousel d'initiative"
+    },
+    {
+      "body": "Tout l'état d'une battlemap, combat en cours compris, survit à la fermeture de l'application. Un bouton « Réinitialiser la carte » permet de repartir à zéro.",
+      "components": [
+        "Battlemap"
+      ],
+      "criterion": {
+        "given": "un combat en cours sur une battlemap",
+        "then": "positions, PV, états et initiative sont identiques, et « Réinitialiser la carte » remet l'état à zéro.",
+        "when": "l'application est fermée puis rouverte"
+      },
+      "family": "business",
+      "id": "R23",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "title": "État de la carte conservé"
+    },
+    {
+      "body": "La player view affiche la couverture de la campagne quand rien n'est envoyé. Le DM y envoie une battlemap, ou une illustration en mode scène (plein écran) ou en mode fenêtre flottante. Dans un onglet player view synchronisé, il déplace les tokens et la fenêtre, la redimensionne en gardant ses proportions, zoome et se déplace.",
+      "components": [
+        "LiveSessionBar",
+        "ElementsPanel",
+        "TableSheet",
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "criterion": {
+        "given": "rien d'envoyé",
+        "then": "la player view passe de la couverture à l'illustration et garde ses proportions.",
+        "when": "le DM envoie une illustration en fenêtre flottante puis la redimensionne"
+      },
+      "family": "journey",
+      "id": "R24",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "title": "Diffusion vers la player view"
+    },
+    {
+      "body": "La player view ne montre jamais les notes, les PV des PNJ ni les tokens cachés, absents aussi de son carrousel. Elle n'affiche qu'un état approximatif des PNJ (indemne, blessé, en sang). Un token révélé reprend sa place dans l'ordre d'initiative.",
+      "components": [
+        "PlayerStage",
+        "LiveSoundbox"
+      ],
+      "criterion": {
+        "given": "un token caché et un PNJ blessé",
+        "then": "ni notes, ni PV de PNJ, ni token caché n'apparaissent, l'état du PNJ est seulement « blessé », et un token révélé reprend sa place dans l'initiative.",
+        "when": "la player view s'affiche"
+      },
+      "family": "business",
+      "id": "R25",
+      "pages": [
+        "pages/player-view.html",
+        "pages/dm-view.html"
+      ],
+      "title": "Séparation des vues DM et joueurs"
+    },
+    {
+      "body": "Clore la séance met le micro en pause et conserve localement le journal transcrit horodaté. Un résumé est généré avec le modèle configuré, pour nourrir la préparation suivante.",
+      "components": [
+        "LiveSessionBar",
+        "PreviousSummary"
+      ],
+      "criterion": {
+        "given": "une séance en cours",
+        "then": "le micro passe en pause, le journal horodaté est conservé localement, et un résumé est généré avec le modèle configuré.",
+        "when": "le DM clôt la séance"
+      },
+      "family": "business",
+      "id": "R26",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/preparation-seance.html"
+      ],
+      "title": "Clôture de séance avec journal et résumé"
+    },
+    {
+      "body": "L'audio du micro est transcrit et analysé sur la machine du DM. Seul du texte est transmis au fournisseur de génération, qu'il soit joint par une API (cloud ou serveur maison) ou par un binaire (opencode ou Claude Code). L'écran des paramètres le rappelle.",
+      "components": [
+        "AiSettings"
+      ],
+      "criterion": {
+        "given": "le micro actif pendant une séance ou un brief oral, et un fournisseur de génération configuré, d'abord en mode « API », puis en mode « Binaire »",
+        "then": "aucune donnée audio ne sort de la machine, et ce qui est transmis à l'API ou au binaire ne contient que du texte",
+        "when": "le DM parle, puis demande une génération (statblock, background, analyse du brief ou résumé) dans chacun des deux modes"
+      },
+      "family": "business",
+      "id": "R77",
+      "pages": [
+        "pages/parametres-ia.html"
+      ],
+      "title": "Seul du texte part vers le fournisseur"
+    },
+    {
+      "body": "En mode « API », le DM ne renseigne que l'URL. Le système interroge cette URL, reconnaît le type d'API (par exemple une API cloud ou un endpoint opencode) et choisit lui-même le protocole de connexion, sans que le DM ait à préciser le type. Si le type n'est pas reconnu, la connexion est refusée et un message l'explique.",
+      "components": [
+        "AiSettings"
+      ],
+      "criterion": {
+        "given": "deux URL valides, l'une d'une API cloud et l'autre de l'endpoint opencode du serveur maison, ainsi qu'une URL qui ne répond pas à un type d'API connu",
+        "then": "le type correct est détecté et affiché pour chacune des deux premières URL et la connexion réussit, tandis que la troisième URL est refusée avec un message indiquant que le type d'API n'est pas reconnu",
+        "when": "le DM saisit tour à tour chacune de ces URL en mode « API » et teste la connexion, sans préciser le type d'API"
+      },
+      "family": "business",
+      "id": "R92",
+      "pages": [
+        "pages/parametres-ia.html"
+      ],
+      "title": "Détection automatique du type d'API"
+    },
+    {
+      "body": "À gauche de la fiche d'entité, un rail collant liste les éléments de la campagne par catégorie : PJ, PNJ, lieux et événements. Les médias et les sons restent sur la page de la campagne. Une recherche filtre le rail à chaque frappe, avec la même logique approximative que le panneau gauche de la DM view, sur les noms et les alias. Un clic sur un élément charge sa fiche sur place et met à jour l'identifiant dans l'URL, sans rechargement de page. Des boutons « Nouveau… » en bas du rail créent un personnage, un lieu ou un événement.",
+      "components": [
+        "CampaignElements",
+        "EntityEditor"
+      ],
+      "criterion": {
+        "given": "la fiche d'un lieu ouverte, et un PJ « Elowen » portant l'alias « la rôdeuse » dans la campagne",
+        "then": "Elowen figure dans les résultats pour chacune des deux saisies, sa fiche remplace celle du lieu sans rechargement de page, et l'URL porte son identifiant",
+        "when": "le DM tape « elowen », puis efface et tape « rodeuse » dans la recherche du rail, et clique sur Elowen"
+      },
+      "family": "journey",
+      "id": "R93",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "title": "Rail de navigation entre les fiches d'entité"
+    },
+    {
+      "body": "Un bouton en haut à gauche du rail de la fiche d'entité le replie en une bande fine, et cet état est mémorisé d'une visite à l'autre. Sous 960 px de large, le rail devient un tiroir que le DM ouvre et ferme à la demande.",
+      "components": [
+        "CampaignElements"
+      ],
+      "criterion": {
+        "given": "la fiche d'entité ouverte avec son rail déplié",
+        "then": "le rail est toujours replié après le rechargement, et sous 960 px le tiroir s'ouvre au-dessus de la fiche puis se referme sans la masquer",
+        "when": "le DM replie le rail et recharge la page, puis réduit la fenêtre sous 960 px, ouvre le tiroir et le referme"
+      },
+      "family": "business",
+      "id": "R94",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "title": "Rail repliable et tiroir sur petit écran"
+    },
+    {
+      "body": "Si la fiche ouverte a des modifications non enregistrées et que le DM choisit un autre élément dans le rail, une barre intégrée à la fiche propose « Enregistrer et continuer », « Abandonner » ou « Rester ». « Enregistrer et continuer » enregistre la fiche puis ouvre l'élément choisi ; « Abandonner » ouvre l'élément choisi sans enregistrer ; « Rester » laisse la fiche et ses modifications en l'état.",
+      "components": [
+        "EntityEditor"
+      ],
+      "criterion": {
+        "given": "la fiche d'un PNJ dont la description a été modifiée sans être enregistrée",
+        "then": "« Rester » garde la fiche et la modification affichées, « Abandonner » ouvre l'élément choisi et la modification est perdue, et « Enregistrer et continuer » enregistre la modification avant d'ouvrir l'élément choisi",
+        "when": "le DM clique sur un autre élément du rail et choisit tour à tour « Rester », « Abandonner » puis, après une nouvelle modification, « Enregistrer et continuer »"
+      },
+      "family": "business",
+      "id": "R95",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "title": "Confirmation avant de quitter une fiche modifiée"
+    },
+    {
+      "body": "Dans le rail de la fiche d'entité, chaque catégorie (PJ, PNJ, lieux, événements) est une section que le DM ferme ou ouvre en cliquant sur son titre. Un petit triangle à gauche du titre indique si la section est ouverte ou fermée. Fermer une section masque ses éléments sans toucher aux autres sections.",
+      "components": [
+        "CampaignElements"
+      ],
+      "criterion": {
+        "given": "la fiche d'entité ouverte avec son rail déplié et les sections PJ, PNJ, lieux et événements toutes ouvertes",
+        "then": "au premier clic, les éléments PJ sont masqués, le triangle à gauche du titre indique que la section est fermée, et les sections PNJ, lieux et événements restent ouvertes ; au second clic, les éléments PJ réapparaissent et le triangle indique que la section est ouverte",
+        "when": "le DM clique sur le titre « PJ », puis clique de nouveau sur ce même titre"
+      },
+      "family": "business",
+      "id": "R96",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "title": "Sections du rail repliables par catégorie"
+    },
+    {
+      "body": "Chaque média, battlemaps comprises, peut être associé à un lieu de la campagne, depuis sa carte dans la bibliothèque ou depuis le formulaire de téléversement. Un média sans lieu reste valide. Quand un lieu fait partie d'une séance, tous les médias de ce lieu sont associés à cette séance, sans geste supplémentaire. L'association entre lieu et séance est partagée entre la page Médias et la préparation de séance : ajouter un lieu à une séance depuis l'une ou l'autre page associe ses médias à la séance sur les deux pages. La page Médias indique l'association, par exemple « Associé à la séance 4 ». Si le lieu n'est pas encore dans la séance, elle permet de l'y ajouter. Changer le lieu d'un média met à jour son association à la séance.",
+      "components": [
+        "MediaLibrary",
+        "SceneBoard"
+      ],
+      "criterion": {
+        "given": "une battlemap et une illustration associées à « La Taverne du Sanglier », absente de la séance 4, une seconde battlemap associée à un autre lieu, et un média sans lieu",
+        "then": "la battlemap et l'illustration de la taverne sont associées à la séance 4 sur les deux pages, la page Médias affiche « Associé à la séance 4 » sur leurs cartes, la seconde battlemap le devient aussi après son changement de lieu, et le média sans lieu reste valide sans association à la séance",
+        "when": "le DM ajoute la taverne à une scène de la séance 4 depuis la préparation de séance, puis ouvre la page Médias et y change le lieu de la seconde battlemap pour « La Taverne du Sanglier »"
+      },
+      "family": "business",
+      "id": "R97",
+      "pages": [
+        "pages/medias.html",
+        "pages/preparation-seance.html"
+      ],
+      "title": "Médias rattachés à la séance par leur lieu"
+    },
+    {
+      "body": "Dans la DM view, la pastille des suggestions et le bouton marche/pause du micro forment une surcouche posée au-dessus de la page, ancrée en bas à droite de la fenêtre. Elle garde cette position quel que soit le contenu ouvert au centre (fiche en lecture, battlemap ou onglet Soundbox) et quand le DM fait défiler la page ou le panneau gauche. Elle passe au-dessus de ce contenu sans le décaler, et reste cliquable.",
+      "components": [
+        "SuggestionPill"
+      ],
+      "criterion": {
+        "given": "une séance en direct dans la DM view, avec le micro en marche et une entité déjà suggérée dans la pastille",
+        "then": "la pastille et le bouton marche/pause du micro restent affichés au même endroit en bas à droite de la fenêtre, par-dessus le contenu, sans le décaler, et un clic sur l'entité suggérée l'ouvre toujours au centre",
+        "when": "le DM ouvre au centre une longue fiche en lecture et la fait défiler jusqu'en bas, puis ouvre la battlemap de la scène et enfin l'onglet Soundbox"
+      },
+      "family": "journey",
+      "id": "R98",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "title": "Pastille des suggestions en surcouche fixe"
+    },
+    {
+      "body": "Depuis les Paramètres IA, le DM vérifie d'un clic que le fournisseur choisi (API cloud ou endpoint opencode maison) répond avec l'URL, les modèles et la clé renseignés.",
+      "components": [
+        "AiSettings"
+      ],
+      "criterion": {
+        "given": "le DM a renseigné l'URL de son endpoint opencode maison, un modèle de génération et un modèle de résumé",
+        "then": "l'écran indique si la connexion réussit ou, sinon, la raison de l'échec, sans enregistrer de réglage invalide à son insu",
+        "when": "il clique sur « Tester la connexion »"
+      },
+      "family": "journey",
+      "id": "R99",
+      "pages": [
+        "pages/parametres-ia.html"
+      ],
+      "title": "Tester la connexion au fournisseur"
+    },
+    {
+      "body": "La proposition de background, de comportement et de statblock d'un PNJ fonctionne de la même façon avec l'API cloud et avec l'endpoint opencode du serveur maison.",
+      "components": [
+        "EntityEditor",
+        "AiSettings"
+      ],
+      "criterion": {
+        "given": "un PNJ avec un prompt initial dicté, et deux réglages valides : l'API cloud puis l'endpoint opencode",
+        "then": "chaque fournisseur remplit le background, le comportement et un statblock complet (caractéristiques, CA, PV, capacités) dans les mêmes champs de la fiche",
+        "when": "le DM demande la proposition IA avec chacun des deux fournisseurs"
+      },
+      "family": "business",
+      "id": "R100",
+      "pages": [
+        "pages/fiche-entite.html",
+        "pages/parametres-ia.html"
+      ],
+      "title": "Création assistée avec les deux fournisseurs"
+    },
+    {
+      "body": "Le token d'un personnage reprend par défaut le recadrage de son portrait ; une image dédiée peut le remplacer ; sans portrait, il devient une pastille de couleur avec les initiales et le numéro d'instance.",
+      "components": [
+        "EntityEditor",
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "criterion": {
+        "given": "un PNJ « Bandit » sans portrait ni image de token, placé en trois instances",
+        "then": "chacun est une pastille de couleur portant « B » et son numéro (1, 2, 3), et dès qu'un portrait est ajouté et recadré, les tokens montrent ce recadrage",
+        "when": "les tokens s'affichent sur la battlemap"
+      },
+      "family": "business",
+      "id": "R101",
+      "pages": [
+        "pages/fiche-entite.html",
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "title": "Image de token par défaut"
+    },
+    {
+      "body": "Le brief oral reconnaît non seulement les PNJ, mais aussi les lieux et les événements existants, et place les lieux et événements manquants dans la liste « à créer ».",
+      "components": [
+        "OralBrief",
+        "ToCreateList",
+        "SceneBoard"
+      ],
+      "criterion": {
+        "given": "une campagne qui contient le lieu « La Taverne du Sanglier » mais pas « Le Pont des Pendus »",
+        "then": "la taverne est liée à la scène correspondante comme lieu existant, et le pont et l'embuscade apparaissent dans la liste « à créer » avec leur type et l'extrait du brief",
+        "when": "le DM raconte un brief qui cite la taverne, le pont et l'événement « l'embuscade »"
+      },
+      "family": "business",
+      "id": "R102",
+      "pages": [
+        "pages/preparation-seance.html",
+        "pages/campagne.html"
+      ],
+      "title": "Lieux et événements reconnus dans le brief"
+    },
+    {
+      "body": "Pour une entité de la liste « à créer », le DM peut compléter sa description à l'oral ou à l'écrit avant que l'IA en fasse la proposition.",
+      "components": [
+        "ToCreateList"
+      ],
+      "criterion": {
+        "given": "un PNJ manquant dans la liste « à créer », issu du brief",
+        "then": "la proposition de l'IA (background et statblock) tient compte à la fois de l'extrait du brief et des phrases ajoutées, et l'entité quitte la liste « à créer » une fois créée",
+        "when": "le DM choisit « Affiner », dicte trois phrases de plus et valide"
+      },
+      "family": "journey",
+      "id": "R103",
+      "pages": [
+        "pages/preparation-seance.html",
+        "pages/campagne.html"
+      ],
+      "title": "Affiner une entité manquante"
+    },
+    {
+      "body": "Au lancement du combat, chaque PNJ tire d20 + modificateur de DEX ; les égalités se départagent par la DEX, puis au hasard.",
+      "components": [
+        "Battlemap"
+      ],
+      "criterion": {
+        "given": "deux PNJ qui obtiennent tous deux 14 à l'initiative, l'un avec DEX 16 et l'autre avec DEX 12, et un PJ dont le DM saisit 14",
+        "then": "chaque PNJ a une initiative comprise entre 1 + son modificateur et 20 + son modificateur, et le PNJ à DEX 16 passe avant celui à DEX 12 ; une égalité qui subsiste à DEX égale est tranchée au hasard",
+        "when": "le DM lance le combat"
+      },
+      "family": "business",
+      "id": "R105",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "title": "Initiative des PNJ et départage"
+    },
+    {
+      "body": "Quand plusieurs instances d'un même PNJ sont sur la carte, un clic sur l'une d'elles dans le carrousel ouvre la fiche de cette instance précise, avec ses PV courants modifiables.",
+      "components": [
+        "Battlemap",
+        "TableSheet"
+      ],
+      "criterion": {
+        "given": "un combat en cours avec Bandit 1, Bandit 2 et Bandit 3",
+        "then": "la fiche ouverte est celle de Bandit 2, seuls les PV de Bandit 2 baissent de 7, et ceux de Bandit 1 et Bandit 3 restent inchangés",
+        "when": "le DM clique sur Bandit 2 dans le carrousel et retire 7 PV"
+      },
+      "family": "journey",
+      "id": "R106",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "title": "Fiche d'une instance précise en combat"
+    },
+    {
+      "body": "Un token caché garde sa place dans l'ordre d'initiative ; le révéler le fait apparaître à cette place dans le carrousel joueur.",
+      "components": [
+        "Battlemap",
+        "PlayerStage"
+      ],
+      "criterion": {
+        "given": "un combat où Chef bandit 1, caché, a la deuxième initiative et figure avec une icône dans le carrousel DM seulement",
+        "then": "il apparaît en deuxième position dans le carrousel de la player view, et l'ordre des autres participants n'a pas changé",
+        "when": "le DM le rend visible"
+      },
+      "family": "business",
+      "id": "R107",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "title": "Révélation à sa place dans l'initiative"
+    },
+    {
+      "body": "La player view déduit des PV courants un état approximatif pour chaque PNJ visible : indemne, blessé ou en sang, sans jamais montrer les PV.",
+      "components": [
+        "PlayerStage",
+        "Battlemap"
+      ],
+      "criterion": {
+        "given": "un PNJ visible de 20 PV max",
+        "then": "la player view affiche successivement « indemne », « blessé » (au-dessus de la moitié), « en sang » (à la moitié ou moins), puis le token grisé et marqué mort, sans aucun chiffre de PV",
+        "when": "ses PV courants passent à 20, puis à 13, puis à 10, puis à 0"
+      },
+      "family": "business",
+      "id": "R108",
+      "pages": [
+        "pages/player-view.html",
+        "pages/dm-view.html"
+      ],
+      "title": "État approximatif des PNJ"
+    },
+    {
+      "body": "Une icône en haut à droite de la pastille ouvre l'historique des 5 dernières entités détectées, que le DM peut rouvrir d'un clic.",
+      "components": [
+        "SuggestionPill"
+      ],
+      "criterion": {
+        "given": "le micro a détecté successivement la taverne, Morlox et le tavernier",
+        "then": "l'historique liste ces entités de la plus récente à la plus ancienne, et la fiche de la taverne s'ouvre au centre",
+        "when": "le DM clique sur l'icône d'historique de la pastille puis sur la taverne"
+      },
+      "family": "journey",
+      "id": "R109",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "title": "Historique des suggestions"
+    },
+    {
+      "body": "L'onglet Soundbox présente une case par son, filtrée dynamiquement par la recherche et par les tags.",
+      "components": [
+        "LiveSoundbox"
+      ],
+      "criterion": {
+        "given": "une soundbox qui contient « porte qui grince » (tag porte) et « bruit de foule » (tag taverne)",
+        "then": "seule la case « porte qui grince » reste pendant la saisie, puis seule la case « bruit de foule » reste avec le filtre",
+        "when": "le DM tape « gri » dans la recherche, puis l'efface et filtre sur le tag taverne"
+      },
+      "family": "journey",
+      "id": "R110",
+      "pages": [
+        "pages/dm-view.html"
+      ],
+      "title": "Recherche et tags dans la soundbox"
+    },
+    {
+      "body": "Plusieurs effets jouent en même temps depuis la DM view, chacun à son volume propre multiplié par le volume global, et « Tout arrêter » les coupe tous.",
+      "components": [
+        "LiveSoundbox",
+        "SuggestionPill",
+        "SoundLibrary"
+      ],
+      "criterion": {
+        "given": "« bruit de foule » joue depuis la soundbox",
+        "then": "les deux sons se superposent, tous deux baissent avec le volume global en gardant leur rapport, puis plus aucun son ne joue",
+        "when": "le DM déclenche « porte qui grince » depuis la pastille, baisse le volume global, puis clique sur « Tout arrêter »"
+      },
+      "family": "business",
+      "id": "R111",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/soundbox.html"
+      ],
+      "title": "Sons simultanés et volumes"
+    },
+    {
+      "body": "La fenêtre flottante d'une illustration envoyée en mode fenêtre se déplace et se redimensionne en gardant les proportions de l'image.",
+      "components": [
+        "PlayerStage"
+      ],
+      "criterion": {
+        "given": "une illustration de 800 × 1200 envoyée en mode fenêtre",
+        "then": "la fenêtre garde un rapport largeur sur hauteur de 2/3, et sa position et sa taille sont les mêmes sur la player view projetée",
+        "when": "le DM l'agrandit par glisser-déposer dans son onglet player view"
+      },
+      "family": "business",
+      "id": "R112",
+      "pages": [
+        "pages/player-view.html"
+      ],
+      "title": "Fenêtre d'illustration proportionnelle"
+    },
+    {
+      "body": "Dans un onglet player view synchronisé, le DM déplace les tokens, zoome, dézoome et se déplace dans la scène comme sur un canevas.",
+      "components": [
+        "PlayerStage",
+        "Battlemap"
+      ],
+      "criterion": {
+        "given": "une battlemap envoyée aux joueurs et un onglet player view ouvert par le DM",
+        "then": "le token est à la nouvelle position dans la DM view, et le zoome et le cadrage sont les mêmes sur la player view projetée",
+        "when": "il y déplace un token, zoome et décale le cadrage"
+      },
+      "family": "journey",
+      "id": "R113",
+      "pages": [
+        "pages/player-view.html",
+        "pages/dm-view.html"
+      ],
+      "title": "Onglet player view piloté par le DM"
+    },
+    {
+      "body": "Tout changement fait dans un onglet (token, carrousel, diffusion, fenêtre) apparaît dans les autres onglets ouverts en moins d'une seconde.",
+      "components": [
+        "Battlemap",
+        "PlayerStage",
+        "LiveSessionBar"
+      ],
+      "criterion": {
+        "given": "la DM view et la player view ouvertes dans deux onglets de la même machine",
+        "then": "le token apparaît sur le même hex de la player view en moins d'une seconde",
+        "when": "le DM dépose un token sur un hex de la DM view"
+      },
+      "family": "business",
+      "id": "R114",
+      "pages": [
+        "pages/dm-view.html",
+        "pages/player-view.html"
+      ],
+      "title": "Synchronisation des onglets sous une seconde"
+    }
+  ],
+  "version": 1
+}
