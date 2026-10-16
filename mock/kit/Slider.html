@@ -1,0 +1,72 @@
+<div class="kit-slider">
+<style>
+.kit-slider { font-family: var(--font-family, system-ui, sans-serif); color: var(--color-text, #f5ecf7); background: var(--color-surface-2, #1f1331); border: var(--border-width, 1px) solid var(--color-border, #3d2b57); border-radius: var(--radius-medium, 12px); padding: var(--space-3, 16px); display: flex; flex-direction: column; gap: var(--space-4, 24px); max-width: 420px; box-shadow: var(--shadow-low, 0 2px 6px rgba(0,0,0,0.5)); }
+.kit-slider .kit-slider__field { display: flex; flex-direction: column; gap: var(--space-2, 8px); }
+.kit-slider .kit-slider__head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3, 16px); }
+.kit-slider .kit-slider__label { font-size: var(--font-size-base, 1rem); font-weight: 600; }
+.kit-slider .kit-slider__value { font-family: var(--font-family-heading, Impact, Arial, sans-serif); font-size: var(--font-size-large, 1.25rem); color: var(--color-accent, #f5b83d); }
+.kit-slider .kit-slider__unit { font-size: var(--font-size-small, 0.875rem); color: var(--color-text-muted, #b9a6c9); margin-left: var(--space-1, 4px); }
+.kit-slider .kit-slider__input { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; margin: 0; background: transparent; cursor: pointer; --fill: 50%; }
+.kit-slider .kit-slider__input:focus { outline: none; }
+.kit-slider .kit-slider__input::-webkit-slider-runnable-track { height: 8px; border-radius: var(--radius-pill, 999px); background: linear-gradient(to right, var(--color-primary, #e8702a) var(--fill), var(--color-border, #3d2b57) var(--fill)); }
+.kit-slider .kit-slider__input::-moz-range-track { height: 8px; border-radius: var(--radius-pill, 999px); background: var(--color-border, #3d2b57); }
+.kit-slider .kit-slider__input::-moz-range-progress { height: 8px; border-radius: var(--radius-pill, 999px); background: var(--color-primary, #e8702a); }
+.kit-slider .kit-slider__input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; margin-top: -7px; border-radius: 50%; background: var(--color-text, #f5ecf7); border: 3px solid var(--color-primary, #e8702a); box-shadow: var(--shadow-low, 0 2px 6px rgba(0,0,0,0.5)); }
+.kit-slider .kit-slider__input::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--color-text, #f5ecf7); border: 3px solid var(--color-primary, #e8702a); box-shadow: var(--shadow-low, 0 2px 6px rgba(0,0,0,0.5)); }
+.kit-slider .kit-slider__input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--color-secondary, #8b3fd9); }
+.kit-slider .kit-slider__input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px var(--color-secondary, #8b3fd9); }
+.kit-slider .kit-slider__bounds { display: flex; justify-content: space-between; font-size: var(--font-size-small, 0.875rem); color: var(--color-text-muted, #b9a6c9); }
+.kit-slider .kit-slider__field.is-disabled { opacity: 0.5; }
+.kit-slider .kit-slider__field.is-disabled .kit-slider__input { cursor: not-allowed; }
+.kit-slider .kit-slider__field.is-disabled .kit-slider__input::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--color-text-muted, #b9a6c9) var(--fill), var(--color-border, #3d2b57) var(--fill)); }
+.kit-slider .kit-slider__field.is-disabled .kit-slider__input::-webkit-slider-thumb { border-color: var(--color-text-muted, #b9a6c9); }
+.kit-slider .kit-slider__field.is-disabled .kit-slider__input::-moz-range-progress { background: var(--color-text-muted, #b9a6c9); }
+.kit-slider .kit-slider__field.is-disabled .kit-slider__input::-moz-range-thumb { border-color: var(--color-text-muted, #b9a6c9); }
+</style>
+
+<div class="kit-slider__field" data-unit="px">
+  <div class="kit-slider__head">
+    <label class="kit-slider__label" for="kit-slider-radius">Rayon des coins</label>
+    <span class="kit-slider__value"><output class="kit-slider__out" for="kit-slider-radius">12</output><span class="kit-slider__unit">px</span></span>
+  </div>
+  <input class="kit-slider__input" id="kit-slider-radius" type="range" min="0" max="40" value="12">
+  <div class="kit-slider__bounds"><span>0 px</span><span>40 px</span></div>
+</div>
+
+<div class="kit-slider__field">
+  <div class="kit-slider__head">
+    <label class="kit-slider__label" for="kit-slider-opacity">Opacité</label>
+    <span class="kit-slider__value"><output class="kit-slider__out" for="kit-slider-opacity">65</output><span class="kit-slider__unit">%</span></span>
+  </div>
+  <input class="kit-slider__input" id="kit-slider-opacity" type="range" min="0" max="100" value="65">
+  <div class="kit-slider__bounds"><span>0 %</span><span>100 %</span></div>
+</div>
+
+<div class="kit-slider__field is-disabled">
+  <div class="kit-slider__head">
+    <label class="kit-slider__label" for="kit-slider-budget">Budget verrouillé</label>
+    <span class="kit-slider__value"><output class="kit-slider__out" for="kit-slider-budget">30</output><span class="kit-slider__unit">%</span></span>
+  </div>
+  <input class="kit-slider__input" id="kit-slider-budget" type="range" min="0" max="100" value="30" disabled>
+  <div class="kit-slider__bounds"><span>0 %</span><span>100 %</span></div>
+</div>
+
+<script>
+(function () {
+  var root = document.currentScript.closest('[data-kit]') || document.currentScript.parentElement;
+  var scope = root.querySelector('.kit-slider') || root;
+  scope.querySelectorAll('.kit-slider__field').forEach(function (field) {
+    var input = field.querySelector('.kit-slider__input');
+    var out = field.querySelector('.kit-slider__out');
+    function update() {
+      var min = Number(input.min), max = Number(input.max);
+      var pct = ((Number(input.value) - min) / (max - min)) * 100;
+      input.style.setProperty('--fill', pct + '%');
+      out.textContent = input.value;
+    }
+    input.addEventListener('input', update);
+    update();
+  });
+})();
+</script>
+</div>

@@ -1,0 +1,124 @@
+<div class="kit-statblock">
+  <div class="kit-statblock__rule"></div>
+  <div class="kit-statblock__body">
+    <h3 class="kit-statblock__name">Dragonnet des Cendres</h3>
+    <p class="kit-statblock__type">Dragon de taille M, neutre mauvais</p>
+
+    <dl class="kit-statblock__vitals">
+      <div class="kit-statblock__vital"><dt>CA</dt><dd>15</dd></div>
+      <div class="kit-statblock__vital"><dt>PV</dt><dd>52 (8d8 + 16)</dd></div>
+      <div class="kit-statblock__vital"><dt>Vitesse</dt><dd>9 m, vol 18 m</dd></div>
+    </dl>
+
+    <ul class="kit-statblock__abilities">
+      <li class="kit-statblock__ability"><span class="kit-statblock__abbr">FOR</span><span class="kit-statblock__score">14</span><span class="kit-statblock__mod">+2</span></li>
+      <li class="kit-statblock__ability"><span class="kit-statblock__abbr">DEX</span><span class="kit-statblock__score">16</span><span class="kit-statblock__mod">+3</span></li>
+      <li class="kit-statblock__ability"><span class="kit-statblock__abbr">CON</span><span class="kit-statblock__score">15</span><span class="kit-statblock__mod">+2</span></li>
+      <li class="kit-statblock__ability"><span class="kit-statblock__abbr">INT</span><span class="kit-statblock__score">8</span><span class="kit-statblock__mod">−1</span></li>
+      <li class="kit-statblock__ability"><span class="kit-statblock__abbr">SAG</span><span class="kit-statblock__score">12</span><span class="kit-statblock__mod">+1</span></li>
+      <li class="kit-statblock__ability"><span class="kit-statblock__abbr">CHA</span><span class="kit-statblock__score">10</span><span class="kit-statblock__mod">+0</span></li>
+    </ul>
+
+    <ul class="kit-statblock__features">
+      <li class="kit-statblock__feature"><strong>Peau de cendre.</strong> Les attaques de feu contre la créature sont désavantagées.</li>
+      <li class="kit-statblock__feature"><strong>Morsure.</strong> Attaque au corps à corps : +5 pour toucher, allonge 1,5 m. Touché : 9 (2d6 + 2) dégâts perforants.</li>
+      <li class="kit-statblock__feature"><strong>Souffle de braise (recharge 5-6).</strong> Cône de 4,5 m, jet de DEX DD 13 : 14 (4d6) dégâts de feu, moitié si réussi.</li>
+    </ul>
+  </div>
+
+  <style>
+    .kit-statblock {
+      box-sizing: border-box;
+      max-width: 420px;
+      background: var(--color-surface, #120a1c);
+      color: var(--color-text, #f5ecf7);
+      font-family: var(--font-family, system-ui, sans-serif);
+      font-size: var(--font-size-base, 1rem);
+      border: var(--border-width, 1px) solid var(--color-border, #3d2b57);
+      border-radius: var(--radius-medium, 12px);
+      box-shadow: var(--shadow-low, 0 2px 6px rgba(0, 0, 0, 0.5));
+      overflow: hidden;
+    }
+    .kit-statblock *, .kit-statblock *::before, .kit-statblock *::after { box-sizing: border-box; }
+    .kit-statblock .kit-statblock__rule {
+      height: 8px;
+      background: linear-gradient(90deg, var(--color-primary, #e8702a), var(--color-accent, #f5b83d), var(--color-secondary, #8b3fd9));
+    }
+    .kit-statblock .kit-statblock__body {
+      padding: var(--space-3, 16px) var(--space-4, 24px) var(--space-4, 24px);
+    }
+    .kit-statblock .kit-statblock__name {
+      margin: 0;
+      font-family: var(--font-family-heading, Impact, Arial, sans-serif);
+      font-weight: var(--font-weight-heading, 700);
+      font-size: var(--font-size-heading, 2rem);
+      line-height: 1.1;
+      color: var(--color-primary, #e8702a);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .kit-statblock .kit-statblock__type {
+      margin: var(--space-1, 4px) 0 var(--space-3, 16px);
+      font-size: var(--font-size-small, 0.875rem);
+      font-style: italic;
+      color: var(--color-text-muted, #b9a6c9);
+    }
+    .kit-statblock .kit-statblock__vitals {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2, 8px) var(--space-3, 16px);
+      margin: 0;
+      padding: var(--space-3, 16px) 0;
+      border-top: var(--border-width, 1px) solid var(--color-border, #3d2b57);
+      border-bottom: var(--border-width, 1px) solid var(--color-border, #3d2b57);
+    }
+    .kit-statblock .kit-statblock__vital { display: flex; gap: var(--space-1, 4px); margin: 0; }
+    .kit-statblock .kit-statblock__vital dt {
+      font-weight: 700;
+      color: var(--color-accent, #f5b83d);
+    }
+    .kit-statblock .kit-statblock__vital dd { margin: 0; }
+    .kit-statblock .kit-statblock__abilities {
+      list-style: none;
+      margin: var(--space-3, 16px) 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: var(--space-2, 8px);
+    }
+    .kit-statblock .kit-statblock__ability {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: var(--space-2, 8px) var(--space-1, 4px);
+      background: var(--color-surface-2, #1f1331);
+      border: var(--border-width, 1px) solid var(--color-border, #3d2b57);
+      border-radius: var(--radius-small, 6px);
+      text-align: center;
+    }
+    .kit-statblock .kit-statblock__abbr {
+      font-size: var(--font-size-small, 0.875rem);
+      font-weight: 700;
+      color: var(--color-secondary, #8b3fd9);
+      filter: brightness(1.5);
+    }
+    .kit-statblock .kit-statblock__score { font-size: var(--font-size-large, 1.25rem); font-weight: 700; }
+    .kit-statblock .kit-statblock__mod { font-size: var(--font-size-small, 0.875rem); color: var(--color-text-muted, #b9a6c9); }
+    .kit-statblock .kit-statblock__features {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: var(--space-3, 16px);
+    }
+    .kit-statblock .kit-statblock__feature { line-height: 1.5; }
+    .kit-statblock .kit-statblock__feature strong {
+      font-weight: 700;
+      font-style: italic;
+      color: var(--color-accent, #f5b83d);
+    }
+    @media (max-width: 420px) {
+      .kit-statblock .kit-statblock__abilities { grid-template-columns: repeat(3, 1fr); }
+    }
+  </style>
+</div>

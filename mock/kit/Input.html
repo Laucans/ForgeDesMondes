@@ -1,0 +1,17 @@
+<style>
+.kit-input { display: grid; gap: var(--space-4, 24px); max-width: 360px; font-family: var(--font-family, system-ui, sans-serif); color: var(--color-text, #f4eeff); }
+.kit-input label { display: grid; gap: var(--space-2, 8px); font-size: var(--font-size-small, 14px); font-weight: 600; color: var(--color-text-muted, #b5a8cf); text-transform: uppercase; letter-spacing: .08em; }
+.kit-input input { font: inherit; font-size: var(--font-size-base, 16px); text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--color-text, #f4eeff); padding: var(--space-2, 8px) var(--space-3, 16px); border: var(--border-width, 1px) solid var(--color-border, #33274f); border-radius: var(--radius-medium, 8px); background: var(--color-surface-2, #171025); box-shadow: var(--shadow-low, 0 2px 8px rgba(0, 0, 0, 0.6)); transition: border-color .15s, box-shadow .15s; }
+.kit-input input::placeholder { color: var(--color-text-muted, #b5a8cf); opacity: .7; }
+.kit-input input:focus { outline: 2px solid var(--color-accent-cyan, #27d7f0); outline-offset: 2px; border-color: var(--color-primary, #a855f7); box-shadow: var(--shadow-high, 0 12px 32px rgba(0, 0, 0, 0.75)); }
+.kit-input small { font-size: var(--font-size-small, 14px); font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--color-text-muted, #b5a8cf); }
+.kit-input .error { color: var(--color-danger, #ff6b7a); }
+.kit-input .error input { border-color: var(--color-danger, #ff6b7a); }
+.kit-input .error small { color: var(--color-danger, #ff6b7a); }
+.kit-input input:disabled { background: var(--color-surface, #0b0713); color: var(--color-text-muted, #b5a8cf); box-shadow: none; opacity: .6; cursor: not-allowed; }
+</style>
+<div class="kit-input">
+  <label>Name<input type="text" placeholder="Jane Doe"><small>As it appears on the invoice.</small></label>
+  <label class="error">Email<input type="email" value="jane@"><small>That is not an email address.</small></label>
+  <label>Reference<input type="text" value="INV-2041" disabled></label>
+</div>

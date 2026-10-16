@@ -1,0 +1,173 @@
+<div class="kit-diffview">
+  <header class="kit-diffview__head">
+    <h2 class="kit-diffview__title">Changements de version</h2>
+    <span class="kit-diffview__meta">v3 → v4 · 3 champs modifiés</span>
+  </header>
+  <ul class="kit-diffview__list">
+    <li class="kit-diffview__row">
+      <div class="kit-diffview__field">Nom du client</div>
+      <div class="kit-diffview__values">
+        <del class="kit-diffview__old">Boulangerie Tremblay</del>
+        <ins class="kit-diffview__new">Boulangerie Tremblay &amp; Fils</ins>
+      </div>
+      <label class="kit-diffview__action">
+        <input type="checkbox" class="kit-diffview__check">
+        <span>Annuler ce changement</span>
+      </label>
+    </li>
+    <li class="kit-diffview__row">
+      <div class="kit-diffview__field">Montant total</div>
+      <div class="kit-diffview__values">
+        <del class="kit-diffview__old">1 250,00 $</del>
+        <ins class="kit-diffview__new">1 480,50 $</ins>
+      </div>
+      <label class="kit-diffview__action">
+        <input type="checkbox" class="kit-diffview__check">
+        <span>Annuler ce changement</span>
+      </label>
+    </li>
+    <li class="kit-diffview__row">
+      <div class="kit-diffview__field">Échéance</div>
+      <div class="kit-diffview__values">
+        <del class="kit-diffview__old">15 novembre 2026</del>
+        <ins class="kit-diffview__new">30 novembre 2026</ins>
+      </div>
+      <label class="kit-diffview__action">
+        <input type="checkbox" class="kit-diffview__check">
+        <span>Annuler ce changement</span>
+      </label>
+    </li>
+  </ul>
+  <script>
+    (function () {
+      var root = document.currentScript.closest('[data-kit]') || document.currentScript.parentElement;
+      var view = root.querySelector('.kit-diffview');
+      if (!view) return;
+      var checks = view.querySelectorAll('.kit-diffview__check');
+      for (var i = 0; i < checks.length; i++) {
+        checks[i].addEventListener('change', function (e) {
+          var row = e.target.closest('.kit-diffview__row');
+          if (row) row.classList.toggle('kit-diffview__row--reverted', e.target.checked);
+        });
+      }
+    })();
+  </script>
+  <style>
+    .kit-diffview {
+      font-family: var(--font-family, system-ui, sans-serif);
+      font-size: var(--font-size-base, 1rem);
+      color: var(--color-text, #f5ecf7);
+      background: var(--color-surface, #120a1c);
+      border: var(--border-width, 1px) solid var(--color-border, #3d2b57);
+      border-radius: var(--radius-medium, 12px);
+      box-shadow: var(--shadow-low, 0 2px 6px rgba(0, 0, 0, 0.5));
+      padding: var(--space-3, 16px);
+      box-sizing: border-box;
+    }
+    .kit-diffview *, .kit-diffview *::before, .kit-diffview *::after { box-sizing: border-box; }
+    .kit-diffview .kit-diffview__head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-2, 8px);
+      margin-bottom: var(--space-3, 16px);
+    }
+    .kit-diffview .kit-diffview__title {
+      margin: 0;
+      font-family: var(--font-family-heading, Impact, Arial, sans-serif);
+      font-weight: var(--font-weight-heading, 700);
+      font-size: var(--font-size-large, 1.25rem);
+      color: var(--color-accent, #f5b83d);
+      text-transform: uppercase;
+    }
+    .kit-diffview .kit-diffview__meta {
+      font-size: var(--font-size-small, 0.875rem);
+      color: var(--color-text-muted, #b9a6c9);
+    }
+    .kit-diffview .kit-diffview__list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3, 16px);
+    }
+    .kit-diffview .kit-diffview__row {
+      background: var(--color-surface-2, #1f1331);
+      border: var(--border-width, 1px) solid var(--color-border, #3d2b57);
+      border-radius: var(--radius-medium, 12px);
+      padding: var(--space-3, 16px);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2, 8px);
+    }
+    .kit-diffview .kit-diffview__field {
+      font-size: var(--font-size-small, 0.875rem);
+      font-weight: var(--font-weight-heading, 700);
+      color: var(--color-text-muted, #b9a6c9);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .kit-diffview .kit-diffview__values {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: var(--space-2, 8px);
+    }
+    .kit-diffview .kit-diffview__old,
+    .kit-diffview .kit-diffview__new {
+      display: block;
+      padding: var(--space-2, 8px) var(--space-3, 16px);
+      border-radius: var(--radius-small, 6px);
+      border: var(--border-width, 1px) solid transparent;
+      overflow-wrap: anywhere;
+    }
+    .kit-diffview .kit-diffview__old {
+      background: color-mix(in srgb, var(--color-danger, #ff5a5f) 20%, var(--color-surface-2, #1f1331));
+      border-color: var(--color-danger, #ff5a5f);
+      color: var(--color-text, #f5ecf7);
+      text-decoration: line-through;
+    }
+    .kit-diffview .kit-diffview__new {
+      background: color-mix(in srgb, var(--color-success, #3ecf8e) 20%, var(--color-surface-2, #1f1331));
+      border-color: var(--color-success, #3ecf8e);
+      color: var(--color-text, #f5ecf7);
+      text-decoration: none;
+    }
+    .kit-diffview .kit-diffview__action {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2, 8px);
+      align-self: flex-start;
+      font-size: var(--font-size-small, 0.875rem);
+      color: var(--color-text, #f5ecf7);
+      cursor: pointer;
+      padding: var(--space-1, 4px) var(--space-2, 8px);
+      border-radius: var(--radius-pill, 999px);
+    }
+    .kit-diffview .kit-diffview__action:hover {
+      background: var(--color-surface, #120a1c);
+    }
+    .kit-diffview .kit-diffview__check {
+      width: 1rem;
+      height: 1rem;
+      margin: 0;
+      accent-color: var(--color-primary, #e8702a);
+      cursor: pointer;
+    }
+    .kit-diffview .kit-diffview__check:focus-visible {
+      outline: 2px solid var(--color-accent, #f5b83d);
+      outline-offset: 2px;
+    }
+    .kit-diffview .kit-diffview__row--reverted {
+      border-color: var(--color-primary, #e8702a);
+    }
+    .kit-diffview .kit-diffview__row--reverted .kit-diffview__new {
+      opacity: 0.5;
+      text-decoration: line-through;
+    }
+    .kit-diffview .kit-diffview__row--reverted .kit-diffview__old {
+      text-decoration: none;
+    }
+  </style>
+</div>

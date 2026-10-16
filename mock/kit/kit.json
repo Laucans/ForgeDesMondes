@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "checked": [
+    "button",
+    "input",
+    "select",
+    "checkbox",
+    "radio",
+    "toggle",
+    "menu",
+    "tabs",
+    "card",
+    "table",
+    "badge",
+    "breadcrumb"
+  ],
+  "components": [
+    {
+      "name": "Button",
+      "base": "button",
+      "title": "Button",
+      "what": "Primary, secondary and ghost buttons, with a disabled state.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:01Z"
+    },
+    {
+      "name": "Input",
+      "base": "input",
+      "title": "Text input",
+      "what": "A labelled text field with a hint, an error state and a disabled state.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:38:59Z"
+    },
+    {
+      "name": "Select",
+      "base": "select",
+      "title": "Drop list",
+      "what": "A labelled list to pick one option from, opened by a click.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:02Z"
+    },
+    {
+      "name": "Checkbox",
+      "base": "checkbox",
+      "title": "Checkbox",
+      "what": "A group of options to tick, several at once.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:08Z"
+    },
+    {
+      "name": "Radio",
+      "base": "radio",
+      "title": "Radio group",
+      "what": "A group of options to pick one from.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:09Z"
+    },
+    {
+      "name": "Toggle",
+      "base": "toggle",
+      "title": "Toggle switch",
+      "what": "An on/off switch with its label.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:09Z"
+    },
+    {
+      "name": "Menu",
+      "base": "menu",
+      "title": "Navigation menu",
+      "what": "A horizontal navigation bar with a brand, links and the current one marked.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:16Z"
+    },
+    {
+      "name": "Tabs",
+      "base": "tabs",
+      "title": "Tabs",
+      "what": "A row of tabs that switch the panel shown below.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:17Z"
+    },
+    {
+      "name": "Card",
+      "base": "card",
+      "title": "Card",
+      "what": "A surface with a title, a body and actions.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:16Z"
+    },
+    {
+      "name": "Table",
+      "base": "table",
+      "title": "Data table",
+      "what": "A table with a header row, striped rows and a numeric column.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:23Z"
+    },
+    {
+      "name": "Badge",
+      "base": "badge",
+      "title": "Badge",
+      "what": "Small labels: neutral, success, danger, accent.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:22Z"
+    },
+    {
+      "name": "Breadcrumb",
+      "base": "breadcrumb",
+      "title": "Breadcrumb",
+      "what": "The path to the current page, each step a link.",
+      "prompt": "",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-13T16:39:24Z"
+    },
+    {
+      "name": "HexMap",
+      "base": "",
+      "title": "Carte hexagonale",
+      "what": "",
+      "prompt": "Une image de carte avec une grille d'hexagones superposée. La taille d'hex, le décalage, l'orientation (pointe ou côté plat en haut), la couleur et l'opacité de la grille se règlent. Elle accueille des éléments posés sur des coordonnées d'hex, peut surligner un trajet entre deux hex et afficher une étiquette verte (« 4 hex · 20 pi ») près du curseur. Elle se zoome et se déplace comme un canevas.",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:49:12Z"
+    },
+    {
+      "name": "Token",
+      "base": "",
+      "title": "Token",
+      "what": "",
+      "prompt": "Une pastille ronde avec un portrait recadré ou, à défaut, une couleur, des initiales et un numéro d'instance. Elle porte un nom sous elle, des badges d'état autour du cercle et une petite jauge ou un libellé de PV. Elle a des états visuels : courant (anneau lumineux), caché (semi-transparent, icône d'œil barré), mort (grisé et barré), et porté (agrandi, avec une ombre, pendant un glisser).",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:48:36Z"
+    },
+    {
+      "name": "MicButton",
+      "base": "",
+      "title": "Bouton micro",
+      "what": "",
+      "prompt": "Un bouton rond avec une icône de micro, dans trois états : arrêt, enregistrement (rouge, pulsation selon le niveau sonore, minuteur) et pause. Un libellé l'accompagne, par exemple « Brief oral » ou « Dicter ».",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:48:25Z"
+    },
+    {
+      "name": "DiffView",
+      "base": "",
+      "title": "Diff de version",
+      "what": "",
+      "prompt": "Une comparaison avant/après, champ par champ : le nom du champ, l'ancienne valeur barrée sur fond rouge pâle, la nouvelle sur fond vert pâle, et une case d'action par changement (par exemple « Annuler ce changement »).",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:48:39Z"
+    },
+    {
+      "name": "Slider",
+      "base": "",
+      "title": "Curseur",
+      "what": "",
+      "prompt": "Un curseur horizontal avec son libellé, sa valeur affichée et son unité (px, %), bornes min et max, et un état désactivé.",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:48:50Z"
+    },
+    {
+      "name": "Dialog",
+      "base": "",
+      "title": "Fenêtre de dialogue",
+      "what": "",
+      "prompt": "Une fenêtre modale centrée sur un voile sombre, avec un titre, un bouton de fermeture, un corps défilant et une rangée d'actions en pied.",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:48:53Z"
+    },
+    {
+      "name": "TextArea",
+      "base": "",
+      "title": "Zone de texte",
+      "what": "",
+      "prompt": "Un champ de texte multiligne libellé, extensible en hauteur, avec un indice, un compteur de caractères, et des états erreur et désactivé.",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:49:00Z"
+    },
+    {
+      "name": "FileDrop",
+      "base": "",
+      "title": "Zone de dépôt de fichier",
+      "what": "",
+      "prompt": "Une zone pointillée où déposer un fichier ou cliquer pour le choisir, avec les types acceptés. Une fois le fichier déposé, elle affiche son nom, sa taille, une vignette s'il s'agit d'une image et une barre de progression.",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:49:12Z"
+    },
+    {
+      "name": "StatBlock",
+      "base": "",
+      "title": "Bloc de stats",
+      "what": "",
+      "prompt": "Un bloc de statistiques à la manière de D&D 5e : nom et type en titre, puis CA, PV et vitesse sur une ligne. Les six caractéristiques suivent en grille, chacune avec son modificateur, puis la liste des capacités et actions (nom en gras, description). Il a un filet coloré en tête.",
+      "reference": "",
+      "state": "generated",
+      "why": "",
+      "generatedAt": "2026-10-14T01:49:16Z"
+    }
+  ]
+}

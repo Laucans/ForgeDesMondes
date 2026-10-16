@@ -1,0 +1,21 @@
+<!-- Button: primary, secondary, ghost, danger, disabled. Neon-noir theme: pill shapes, glowing shadows, serif-free labels in the body font. Every colour, radius and spacing comes from the design system's tokens. -->
+<style>
+.kit-button { display: flex; flex-wrap: wrap; gap: var(--space-3, 16px); align-items: center; padding: var(--space-4, 24px); background: var(--color-surface, #0b0713); border: var(--border-width, 1px) solid var(--color-border, #33274f); border-radius: var(--radius-large, 16px); font-family: var(--font-family, system-ui, sans-serif); }
+.kit-button button { font: inherit; font-size: var(--font-size-base, 1rem); font-weight: 600; letter-spacing: .04em; padding: var(--space-2, 8px) var(--space-4, 24px); border-radius: var(--radius-pill, 999px); border: var(--border-width, 1px) solid transparent; cursor: pointer; box-shadow: var(--shadow-low, 0 2px 8px rgba(0,0,0,.6)); transition: filter .15s, box-shadow .15s, transform .15s, background .15s; }
+.kit-button button:hover { filter: brightness(1.12); box-shadow: var(--shadow-high, 0 12px 32px rgba(0,0,0,.75)); transform: translateY(-1px); }
+.kit-button button:active { transform: translateY(0); box-shadow: var(--shadow-low, 0 2px 8px rgba(0,0,0,.6)); }
+.kit-button button:focus-visible { outline: 2px solid var(--color-accent-cyan, #27d7f0); outline-offset: 2px; }
+.kit-button .primary { background: var(--color-primary, #a855f7); color: var(--color-primary-contrast, #0b0713); }
+.kit-button .secondary { background: var(--color-surface-2, #171025); color: var(--color-primary, #a855f7); border-color: var(--color-primary, #a855f7); }
+.kit-button .ghost { background: transparent; color: var(--color-text, #f4eeff); box-shadow: none; }
+.kit-button .ghost:hover { background: var(--color-surface-2, #171025); color: var(--color-accent, #ffc233); box-shadow: none; filter: none; }
+.kit-button .danger { background: var(--color-danger, #ff6b7a); color: var(--color-primary-contrast, #0b0713); }
+.kit-button button:disabled { background: var(--color-surface-2, #171025); color: var(--color-text-muted, #b5a8cf); border-color: var(--color-border, #33274f); opacity: .55; cursor: not-allowed; filter: none; box-shadow: none; transform: none; }
+</style>
+<div class="kit-button">
+  <button type="button" class="primary">Primary</button>
+  <button type="button" class="secondary">Secondary</button>
+  <button type="button" class="ghost">Ghost</button>
+  <button type="button" class="danger">Delete</button>
+  <button type="button" class="primary" disabled>Disabled</button>
+</div>
