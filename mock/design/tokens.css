@@ -1,0 +1,33 @@
+/* The design system's tokens as CSS variables — derived from tokens.json by the harness, never edited by hand. */
+:root {
+  --border-width: 1px;
+  --color-accent: #f5b83d;
+  --color-border: #3d2b57;
+  --color-danger: #ff5a5f;
+  --color-primary: #e8702a;
+  --color-primary-contrast: #14081f;
+  --color-secondary: #8b3fd9;
+  --color-success: #3ecf8e;
+  --color-surface: #120a1c;
+  --color-surface-2: #1f1331;
+  --color-text: #f5ecf7;
+  --color-text-muted: #b9a6c9;
+  --font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-family-heading: Impact, 'Arial Narrow Bold', 'Helvetica Neue', Arial, sans-serif;
+  --font-size-base: 1rem;
+  --font-size-heading: 2rem;
+  --font-size-large: 1.25rem;
+  --font-size-small: 0.875rem;
+  --font-weight-heading: 700;
+  --radius-large: 20px;
+  --radius-medium: 12px;
+  --radius-pill: 999px;
+  --radius-small: 6px;
+  --shadow-high: 0 12px 32px rgba(139, 63, 217, 0.35), 0 4px 12px rgba(0, 0, 0, 0.6);
+  --shadow-low: 0 2px 6px rgba(0, 0, 0, 0.5);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+}

@@ -1,0 +1,46 @@
+<div class="kit-dialog">
+  <div class="kit-dialog__veil">
+    <div class="kit-dialog__window" role="dialog" aria-modal="true" aria-labelledby="kit-dialog-title">
+      <header class="kit-dialog__header">
+        <h2 class="kit-dialog__title" id="kit-dialog-title">Confirmer la commande</h2>
+        <button class="kit-dialog__close" type="button" aria-label="Fermer">×</button>
+      </header>
+      <div class="kit-dialog__body">
+        <p class="kit-dialog__text">Vous êtes sur le point de valider votre panier. Le paiement sera prélevé dès la confirmation.</p>
+        <ul class="kit-dialog__list">
+          <li class="kit-dialog__row"><span>Billet concert – Marie Tremblay</span><strong>64,00 $</strong></li>
+          <li class="kit-dialog__row"><span>Billet concert – Lucas Gagnon</span><strong>64,00 $</strong></li>
+          <li class="kit-dialog__row"><span>Frais de service</span><strong>12,50 $</strong></li>
+          <li class="kit-dialog__row"><span>Assurance annulation</span><strong>9,00 $</strong></li>
+          <li class="kit-dialog__row"><span>Taxes</span><strong>22,43 $</strong></li>
+        </ul>
+        <p class="kit-dialog__total"><span>Total</span><strong>171,93 $</strong></p>
+      </div>
+      <footer class="kit-dialog__footer">
+        <button class="kit-dialog__btn kit-dialog__btn--ghost" type="button">Annuler</button>
+        <button class="kit-dialog__btn kit-dialog__btn--primary" type="button">Payer 171,93 $</button>
+      </footer>
+    </div>
+  </div>
+  <style>
+    .kit-dialog { font-family: var(--font-family, system-ui, sans-serif); color: var(--color-text, #f5ecf7); }
+    .kit-dialog .kit-dialog__veil { position: relative; display: flex; align-items: center; justify-content: center; min-height: 480px; padding: var(--space-4, 24px); box-sizing: border-box; background: rgba(8, 3, 14, 0.78); }
+    .kit-dialog .kit-dialog__window { display: flex; flex-direction: column; width: 100%; max-width: 480px; max-height: 420px; background: var(--color-surface, #120a1c); border: var(--border-width, 1px) solid var(--color-border, #3d2b57); border-radius: var(--radius-large, 20px); box-shadow: var(--shadow-high, 0 12px 32px rgba(0,0,0,0.6)); overflow: hidden; }
+    .kit-dialog .kit-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3, 16px); padding: var(--space-3, 16px) var(--space-4, 24px); background: var(--color-surface-2, #1f1331); border-bottom: var(--border-width, 1px) solid var(--color-border, #3d2b57); }
+    .kit-dialog .kit-dialog__title { margin: 0; font-family: var(--font-family-heading, Impact, sans-serif); font-weight: var(--font-weight-heading, 700); font-size: var(--font-size-large, 1.25rem); text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-accent, #f5b83d); }
+    .kit-dialog .kit-dialog__close { flex: none; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; font-size: var(--font-size-large, 1.25rem); line-height: 1; color: var(--color-text-muted, #b9a6c9); background: transparent; border: var(--border-width, 1px) solid var(--color-border, #3d2b57); border-radius: var(--radius-pill, 999px); cursor: pointer; }
+    .kit-dialog .kit-dialog__close:hover { color: var(--color-text, #f5ecf7); border-color: var(--color-secondary, #8b3fd9); }
+    .kit-dialog .kit-dialog__body { flex: 1 1 auto; overflow-y: auto; padding: var(--space-4, 24px); font-size: var(--font-size-base, 1rem); }
+    .kit-dialog .kit-dialog__text { margin: 0 0 var(--space-3, 16px); color: var(--color-text-muted, #b9a6c9); }
+    .kit-dialog .kit-dialog__list { list-style: none; margin: 0; padding: 0; }
+    .kit-dialog .kit-dialog__row { display: flex; justify-content: space-between; gap: var(--space-3, 16px); padding: var(--space-2, 8px) 0; border-bottom: var(--border-width, 1px) solid var(--color-border, #3d2b57); font-size: var(--font-size-small, 0.875rem); }
+    .kit-dialog .kit-dialog__total { display: flex; justify-content: space-between; margin: var(--space-3, 16px) 0 0; font-size: var(--font-size-large, 1.25rem); }
+    .kit-dialog .kit-dialog__total strong { color: var(--color-primary, #e8702a); }
+    .kit-dialog .kit-dialog__footer { display: flex; justify-content: flex-end; gap: var(--space-2, 8px); padding: var(--space-3, 16px) var(--space-4, 24px); background: var(--color-surface-2, #1f1331); border-top: var(--border-width, 1px) solid var(--color-border, #3d2b57); }
+    .kit-dialog .kit-dialog__btn { font-family: inherit; font-size: var(--font-size-base, 1rem); font-weight: 700; padding: var(--space-2, 8px) var(--space-4, 24px); border-radius: var(--radius-pill, 999px); border: var(--border-width, 1px) solid transparent; cursor: pointer; }
+    .kit-dialog .kit-dialog__btn--primary { background: var(--color-primary, #e8702a); color: var(--color-primary-contrast, #14081f); box-shadow: var(--shadow-low, 0 2px 6px rgba(0,0,0,0.5)); }
+    .kit-dialog .kit-dialog__btn--primary:hover { background: var(--color-accent, #f5b83d); }
+    .kit-dialog .kit-dialog__btn--ghost { background: transparent; color: var(--color-text, #f5ecf7); border-color: var(--color-border, #3d2b57); }
+    .kit-dialog .kit-dialog__btn--ghost:hover { border-color: var(--color-secondary, #8b3fd9); }
+  </style>
+</div>

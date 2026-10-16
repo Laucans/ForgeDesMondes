@@ -1,0 +1,16 @@
+<!-- Card: a surface with a title, a body and actions. -->
+<style>
+.kit-card { max-width: 360px; background: var(--color-surface, #120a1c); border: var(--border-width, 1px) solid var(--color-border, #3d2b57); border-radius: var(--radius-large, 20px); box-shadow: var(--shadow-high, 0 12px 32px rgba(139, 63, 217, 0.35), 0 4px 12px rgba(0, 0, 0, 0.6)); overflow: hidden; font-family: var(--font-family, system-ui, sans-serif); color: var(--color-text, #f5ecf7); }
+.kit-card .media { height: 120px; background: var(--color-surface-2, #1f1331); border-bottom: var(--border-width, 1px) solid var(--color-border, #3d2b57); display: grid; place-items: center; color: var(--color-text-muted, #b9a6c9); font-size: var(--font-size-small, 0.875rem); }
+.kit-card .body { padding: var(--space-3, 16px) var(--space-4, 24px); display: grid; gap: var(--space-2, 8px); }
+.kit-card h3 { margin: 0; font-family: var(--font-family-heading, Impact, Arial, sans-serif); font-size: var(--font-size-large, 1.25rem); font-weight: var(--font-weight-heading, 700); text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-accent, #f5b83d); }
+.kit-card p { margin: 0; color: var(--color-text-muted, #b9a6c9); font-size: var(--font-size-base, 1rem); }
+.kit-card .actions { display: flex; gap: var(--space-2, 8px); padding: 0 var(--space-4, 24px) var(--space-4, 24px); }
+.kit-card button { font: inherit; font-size: var(--font-size-base, 1rem); padding: var(--space-2, 8px) var(--space-3, 16px); border-radius: var(--radius-pill, 999px); border: var(--border-width, 1px) solid var(--color-primary, #e8702a); cursor: pointer; background: var(--color-primary, #e8702a); color: var(--color-primary-contrast, #14081f); box-shadow: var(--shadow-low, 0 2px 6px rgba(0, 0, 0, 0.5)); font-weight: 700; }
+.kit-card button.secondary { background: transparent; color: var(--color-primary, #e8702a); box-shadow: none; }
+</style>
+<article class="kit-card">
+  <div class="media">Concert photo</div>
+  <div class="body"><h3>Friday Night Live</h3><p>Doors at 8 pm, tickets from $35. Only 42 seats left.</p></div>
+  <div class="actions"><button type="button">Book</button><button type="button" class="secondary">Later</button></div>
+</article>

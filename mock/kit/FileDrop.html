@@ -1,0 +1,105 @@
+<div class="kit-filedrop">
+<style>
+.kit-filedrop{font-family:var(--font-family, system-ui, sans-serif);color:var(--color-text, #f5ecf7);max-width:480px;width:100%;box-sizing:border-box}
+.kit-filedrop *{box-sizing:border-box}
+.kit-filedrop .kit-filedrop__zone{display:flex;flex-direction:column;align-items:center;gap:var(--space-2, 8px);padding:var(--space-5, 40px) var(--space-4, 24px);background:var(--color-surface, #120a1c);border:2px dashed var(--color-border, #3d2b57);border-radius:var(--radius-large, 20px);text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.kit-filedrop .kit-filedrop__zone:hover,.kit-filedrop .kit-filedrop__zone:focus-visible,.kit-filedrop .kit-filedrop__zone.is-over{border-color:var(--color-primary, #e8702a);background:var(--color-surface-2, #1f1331);outline:none}
+.kit-filedrop .kit-filedrop__icon{width:48px;height:48px;color:var(--color-primary, #e8702a)}
+.kit-filedrop .kit-filedrop__title{font-family:var(--font-family-heading, Impact, sans-serif);font-weight:var(--font-weight-heading, 700);font-size:var(--font-size-large, 1.25rem);text-transform:uppercase;letter-spacing:.03em}
+.kit-filedrop .kit-filedrop__title b{color:var(--color-primary, #e8702a);font-weight:inherit}
+.kit-filedrop .kit-filedrop__hint{font-size:var(--font-size-small, 0.875rem);color:var(--color-text-muted, #b9a6c9)}
+.kit-filedrop .kit-filedrop__types{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--space-1, 4px);margin-top:var(--space-1, 4px)}
+.kit-filedrop .kit-filedrop__tag{padding:var(--space-1, 4px) var(--space-2, 8px);border:var(--border-width, 1px) solid var(--color-border, #3d2b57);border-radius:var(--radius-pill, 999px);font-size:var(--font-size-small, 0.875rem);color:var(--color-accent, #f5b83d)}
+.kit-filedrop .kit-filedrop__input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.kit-filedrop .kit-filedrop__file{display:none;align-items:center;gap:var(--space-3, 16px);margin-top:var(--space-3, 16px);padding:var(--space-3, 16px);background:var(--color-surface-2, #1f1331);border:var(--border-width, 1px) solid var(--color-border, #3d2b57);border-radius:var(--radius-medium, 12px);box-shadow:var(--shadow-low, 0 2px 6px rgba(0,0,0,.5))}
+.kit-filedrop.has-file .kit-filedrop__file{display:flex}
+.kit-filedrop .kit-filedrop__thumb{flex:none;width:56px;height:56px;border-radius:var(--radius-small, 6px);background:var(--color-surface, #120a1c) center/cover no-repeat;border:var(--border-width, 1px) solid var(--color-border, #3d2b57);display:flex;align-items:center;justify-content:center;font-size:var(--font-size-small, 0.875rem);font-weight:var(--font-weight-heading, 700);color:var(--color-secondary, #8b3fd9)}
+.kit-filedrop .kit-filedrop__info{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--space-1, 4px)}
+.kit-filedrop .kit-filedrop__row{display:flex;justify-content:space-between;gap:var(--space-2, 8px);font-size:var(--font-size-small, 0.875rem)}
+.kit-filedrop .kit-filedrop__name{font-size:var(--font-size-base, 1rem);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kit-filedrop .kit-filedrop__size,.kit-filedrop .kit-filedrop__pct{color:var(--color-text-muted, #b9a6c9)}
+.kit-filedrop .kit-filedrop__bar{height:8px;margin-top:var(--space-1, 4px);background:var(--color-surface, #120a1c);border-radius:var(--radius-pill, 999px);overflow:hidden}
+.kit-filedrop .kit-filedrop__fill{height:100%;width:0;background:var(--color-primary, #e8702a);border-radius:var(--radius-pill, 999px);transition:width .2s}
+.kit-filedrop.is-done .kit-filedrop__fill{background:var(--color-success, #3ecf8e)}
+.kit-filedrop.is-done .kit-filedrop__pct{color:var(--color-success, #3ecf8e)}
+.kit-filedrop .kit-filedrop__error{display:none;margin-top:var(--space-2, 8px);font-size:var(--font-size-small, 0.875rem);color:var(--color-danger, #ff5a5f)}
+.kit-filedrop.has-error .kit-filedrop__error{display:block}
+</style>
+<label class="kit-filedrop__zone" tabindex="0">
+<svg class="kit-filedrop__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+<span class="kit-filedrop__title">Déposez un fichier ou <b>parcourez</b></span>
+<span class="kit-filedrop__hint">Taille maximale : 10 Mo</span>
+<span class="kit-filedrop__types"><span class="kit-filedrop__tag">PNG</span><span class="kit-filedrop__tag">JPG</span><span class="kit-filedrop__tag">PDF</span><span class="kit-filedrop__tag">CSV</span></span>
+<input class="kit-filedrop__input" type="file" accept=".png,.jpg,.jpeg,.pdf,.csv">
+</label>
+<div class="kit-filedrop__error">Type de fichier non accepté.</div>
+<div class="kit-filedrop__file">
+<div class="kit-filedrop__thumb">PDF</div>
+<div class="kit-filedrop__info">
+<div class="kit-filedrop__name">facture-octobre.pdf</div>
+<div class="kit-filedrop__row"><span class="kit-filedrop__size">1,2 Mo</span><span class="kit-filedrop__pct">0 %</span></div>
+<div class="kit-filedrop__bar"><div class="kit-filedrop__fill"></div></div>
+</div>
+</div>
+<script>
+(function(){
+var host=document.currentScript.closest('[data-kit]')||document.currentScript.parentElement;
+var root=host.querySelector('.kit-filedrop');
+if(!root)return;
+var zone=root.querySelector('.kit-filedrop__zone');
+var input=root.querySelector('.kit-filedrop__input');
+var thumb=root.querySelector('.kit-filedrop__thumb');
+var nameEl=root.querySelector('.kit-filedrop__name');
+var sizeEl=root.querySelector('.kit-filedrop__size');
+var pctEl=root.querySelector('.kit-filedrop__pct');
+var fill=root.querySelector('.kit-filedrop__fill');
+var okExt=/\.(png|jpe?g|pdf|csv)$/i;
+var timer=null;
+function fmt(n){
+if(n<1024)return n+' o';
+if(n<1048576)return (n/1024).toFixed(1).replace('.',',')+' Ko';
+return (n/1048576).toFixed(1).replace('.',',')+' Mo';
+}
+function setPct(p){
+fill.style.width=p+'%';
+pctEl.textContent=(p>=100?'Terminé':p+' %');
+root.classList.toggle('is-done',p>=100);
+}
+function show(file){
+clearInterval(timer);
+if(!okExt.test(file.name)){
+root.classList.remove('has-file');
+root.classList.add('has-error');
+return;
+}
+root.classList.remove('has-error');
+root.classList.add('has-file');
+nameEl.textContent=file.name;
+sizeEl.textContent=fmt(file.size);
+if(/^image\//.test(file.type)){
+var r=new FileReader();
+r.onload=function(){thumb.style.backgroundImage='url('+r.result+')';thumb.textContent='';};
+r.readAsDataURL(file);
+}else{
+thumb.style.backgroundImage='none';
+thumb.textContent=(file.name.split('.').pop()||'').toUpperCase();
+}
+var p=0;
+setPct(0);
+timer=setInterval(function(){
+p=Math.min(100,p+10);
+setPct(p);
+if(p>=100)clearInterval(timer);
+},150);
+}
+input.addEventListener('change',function(){if(input.files[0])show(input.files[0]);});
+zone.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click();}});
+['dragenter','dragover'].forEach(function(t){zone.addEventListener(t,function(e){e.preventDefault();zone.classList.add('is-over');});});
+['dragleave','drop'].forEach(function(t){zone.addEventListener(t,function(e){e.preventDefault();zone.classList.remove('is-over');});});
+zone.addEventListener('drop',function(e){
+var f=e.dataTransfer&&e.dataTransfer.files[0];
+if(f)show(f);
+});
+})();
+</script>
+</div>

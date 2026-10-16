@@ -1,0 +1,111 @@
+<div class="kit-textarea">
+  <style>
+    .kit-textarea {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2, 8px);
+      max-width: 480px;
+      font-family: var(--font-family, system-ui, sans-serif);
+      color: var(--color-text, #f5ecf7);
+    }
+    .kit-textarea .kit-textarea__label {
+      font-size: var(--font-size-small, 0.875rem);
+      font-weight: 600;
+      color: var(--color-text, #f5ecf7);
+    }
+    .kit-textarea .kit-textarea__field {
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 96px;
+      padding: var(--space-2, 8px) var(--space-3, 16px);
+      font-family: inherit;
+      font-size: var(--font-size-base, 1rem);
+      line-height: 1.5;
+      color: var(--color-text, #f5ecf7);
+      background: var(--color-surface-2, #1f1331);
+      border: var(--border-width, 1px) solid var(--color-border, #3d2b57);
+      border-radius: var(--radius-medium, 12px);
+      box-shadow: var(--shadow-low, 0 2px 6px rgba(0, 0, 0, 0.5));
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .kit-textarea .kit-textarea__field::placeholder {
+      color: var(--color-text-muted, #b9a6c9);
+    }
+    .kit-textarea .kit-textarea__field:hover {
+      border-color: var(--color-secondary, #8b3fd9);
+    }
+    .kit-textarea .kit-textarea__field:focus {
+      border-color: var(--color-primary, #e8702a);
+      box-shadow: var(--shadow-high, 0 12px 32px rgba(139, 63, 217, 0.35));
+    }
+    .kit-textarea .kit-textarea__footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: var(--space-3, 16px);
+      font-size: var(--font-size-small, 0.875rem);
+    }
+    .kit-textarea .kit-textarea__hint {
+      margin: 0;
+      color: var(--color-text-muted, #b9a6c9);
+    }
+    .kit-textarea .kit-textarea__counter {
+      flex-shrink: 0;
+      color: var(--color-text-muted, #b9a6c9);
+      font-variant-numeric: tabular-nums;
+    }
+    .kit-textarea .kit-textarea__counter.is-near {
+      color: var(--color-accent, #f5b83d);
+    }
+    .kit-textarea .kit-textarea__counter.is-over {
+      color: var(--color-danger, #ff5a5f);
+    }
+    .kit-textarea.is-error .kit-textarea__field {
+      border-color: var(--color-danger, #ff5a5f);
+    }
+    .kit-textarea.is-error .kit-textarea__hint {
+      color: var(--color-danger, #ff5a5f);
+    }
+    .kit-textarea.is-disabled .kit-textarea__label,
+    .kit-textarea.is-disabled .kit-textarea__hint,
+    .kit-textarea.is-disabled .kit-textarea__counter {
+      color: var(--color-text-muted, #b9a6c9);
+      opacity: 0.6;
+    }
+    .kit-textarea .kit-textarea__field:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      resize: none;
+      box-shadow: none;
+      border-style: dashed;
+    }
+  </style>
+
+  <label class="kit-textarea__label" for="kit-textarea-field">Message à l'équipe</label>
+  <textarea class="kit-textarea__field" id="kit-textarea-field" rows="4" maxlength="200" placeholder="Décrivez votre demande en quelques mots…" aria-describedby="kit-textarea-hint"></textarea>
+  <div class="kit-textarea__footer">
+    <p class="kit-textarea__hint" id="kit-textarea-hint">Soyez précis : ex. « Facture 1 250 $ en double ».</p>
+    <span class="kit-textarea__counter" aria-live="polite">0 / 200</span>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.currentScript.closest('[data-kit]') || document.currentScript.parentElement;
+      var box = root.querySelector('.kit-textarea');
+      if (!box) { box = root; }
+      var field = box.querySelector('.kit-textarea__field');
+      var counter = box.querySelector('.kit-textarea__counter');
+      var max = parseInt(field.getAttribute('maxlength'), 10) || 200;
+      function update() {
+        var n = field.value.length;
+        counter.textContent = n + ' / ' + max;
+        counter.classList.toggle('is-near', n >= max * 0.9 && n < max);
+        counter.classList.toggle('is-over', n >= max);
+      }
+      field.addEventListener('input', update);
+      update();
+    })();
+  </script>
+</div>

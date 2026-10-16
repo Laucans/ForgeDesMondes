@@ -1,0 +1,160 @@
+<div class="kit-micbutton" data-state="idle">
+  <button type="button" class="kit-micbutton__btn" aria-pressed="false" aria-label="Dicter">
+    <span class="kit-micbutton__ring"></span>
+    <svg class="kit-micbutton__icon kit-micbutton__icon--mic" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="12" rx="3"></rect>
+      <path d="M5 11a7 7 0 0 0 14 0"></path>
+      <path d="M12 18v3"></path>
+    </svg>
+    <svg class="kit-micbutton__icon kit-micbutton__icon--pause" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="5" width="4" height="14" rx="1"></rect>
+      <rect x="14" y="5" width="4" height="14" rx="1"></rect>
+    </svg>
+  </button>
+  <div class="kit-micbutton__text">
+    <span class="kit-micbutton__label">Brief oral</span>
+    <span class="kit-micbutton__status" aria-live="polite"><span class="kit-micbutton__state">Prêt à dicter</span> <span class="kit-micbutton__timer">00:00</span></span>
+  </div>
+</div>
+
+<style>
+.kit-micbutton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3, 16px);
+  font-family: var(--font-family, system-ui, sans-serif);
+  color: var(--color-text, #f5ecf7);
+  --kit-level: 0;
+}
+.kit-micbutton .kit-micbutton__btn {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-pill, 999px);
+  border: var(--border-width, 1px) solid var(--color-border, #3d2b57);
+  background: var(--color-surface-2, #1f1331);
+  color: var(--color-primary, #e8702a);
+  box-shadow: var(--shadow-low, 0 2px 6px rgba(0, 0, 0, 0.5));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s, transform 0.1s;
+}
+.kit-micbutton .kit-micbutton__btn:hover {
+  box-shadow: var(--shadow-high, 0 12px 32px rgba(139, 63, 217, 0.35));
+}
+.kit-micbutton .kit-micbutton__btn:active { transform: scale(0.96); }
+.kit-micbutton .kit-micbutton__btn:focus-visible {
+  outline: 2px solid var(--color-accent, #f5b83d);
+  outline-offset: 3px;
+}
+.kit-micbutton .kit-micbutton__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-danger, #ff5a5f);
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(1);
+}
+.kit-micbutton .kit-micbutton__icon { position: relative; z-index: 1; }
+.kit-micbutton .kit-micbutton__icon--pause { display: none; }
+.kit-micbutton .kit-micbutton__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+.kit-micbutton .kit-micbutton__label {
+  font-size: var(--font-size-large, 1.25rem);
+  font-weight: var(--font-weight-heading, 700);
+}
+.kit-micbutton .kit-micbutton__status {
+  font-size: var(--font-size-small, 0.875rem);
+  color: var(--color-text-muted, #b9a6c9);
+}
+.kit-micbutton .kit-micbutton__timer {
+  display: none;
+  font-variant-numeric: tabular-nums;
+  margin-left: var(--space-1, 4px);
+}
+
+.kit-micbutton[data-state="recording"] .kit-micbutton__btn {
+  background: var(--color-danger, #ff5a5f);
+  border-color: var(--color-danger, #ff5a5f);
+  color: var(--color-primary-contrast, #14081f);
+}
+.kit-micbutton[data-state="recording"] .kit-micbutton__ring {
+  opacity: 0.35;
+  transform: scale(calc(1 + var(--kit-level) * 0.6));
+  transition: transform 0.12s linear;
+}
+.kit-micbutton[data-state="recording"] .kit-micbutton__status { color: var(--color-danger, #ff5a5f); }
+.kit-micbutton[data-state="recording"] .kit-micbutton__timer,
+.kit-micbutton[data-state="paused"] .kit-micbutton__timer { display: inline; }
+
+.kit-micbutton[data-state="paused"] .kit-micbutton__btn {
+  background: var(--color-surface-2, #1f1331);
+  border-color: var(--color-accent, #f5b83d);
+  color: var(--color-accent, #f5b83d);
+}
+.kit-micbutton[data-state="paused"] .kit-micbutton__icon--mic { display: none; }
+.kit-micbutton[data-state="paused"] .kit-micbutton__icon--pause { display: block; }
+.kit-micbutton[data-state="paused"] .kit-micbutton__status { color: var(--color-accent, #f5b83d); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kit-micbutton .kit-micbutton__btn,
+  .kit-micbutton .kit-micbutton__ring { transition: none; }
+}
+</style>
+
+<script>
+(function () {
+  var host = document.currentScript.closest('[data-kit]') || document.currentScript.parentElement;
+  var root = host.querySelector('.kit-micbutton');
+  if (!root) return;
+  var btn = root.querySelector('.kit-micbutton__btn');
+  var stateEl = root.querySelector('.kit-micbutton__state');
+  var timerEl = root.querySelector('.kit-micbutton__timer');
+  var label = root.querySelector('.kit-micbutton__label').textContent;
+  var texts = { idle: 'Prêt à dicter', recording: 'Enregistrement', paused: 'En pause' };
+  var state = 'idle', seconds = 0, tick = null, pulse = null, pressTimer = null;
+
+  function fmt(s) {
+    var m = Math.floor(s / 60), r = s % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r;
+  }
+  function render() {
+    root.setAttribute('data-state', state);
+    stateEl.textContent = texts[state];
+    timerEl.textContent = fmt(seconds);
+    btn.setAttribute('aria-pressed', state === 'recording' ? 'true' : 'false');
+    btn.setAttribute('aria-label', label + ' — ' + texts[state]);
+  }
+  function stopTimers() {
+    clearInterval(tick); clearInterval(pulse);
+    tick = pulse = null;
+    root.style.setProperty('--kit-level', '0');
+  }
+  function start() {
+    state = 'recording';
+    stopTimers();
+    tick = setInterval(function () { seconds++; timerEl.textContent = fmt(seconds); }, 1000);
+    pulse = setInterval(function () {
+      root.style.setProperty('--kit-level', (Math.random() * 0.9 + 0.1).toFixed(2));
+    }, 140);
+    render();
+  }
+  function pause() { state = 'paused'; stopTimers(); render(); }
+  function reset() { state = 'idle'; seconds = 0; stopTimers(); render(); }
+
+  btn.addEventListener('click', function () {
+    if (state === 'idle') start();
+    else if (state === 'recording') pause();
+    else start();
+  });
+  btn.addEventListener('dblclick', reset);
+  render();
+})();
+</script>

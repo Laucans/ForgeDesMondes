@@ -1,0 +1,25 @@
+<!-- Checkbox: a group of options, several at once. -->
+<style>
+.kit-checkbox { display: grid; gap: var(--space-2, 8px); font-family: var(--font-family, system-ui, sans-serif); color: var(--color-text, #f4eeff); font-size: var(--font-size-base, 1rem); }
+.kit-checkbox fieldset { border: var(--border-width, 1px) solid var(--color-border, #33274f); border-radius: var(--radius-large, 16px); background: var(--color-surface-2, #171025); box-shadow: var(--shadow-low, 0 2px 8px rgba(0, 0, 0, 0.6)); padding: var(--space-3, 1rem) var(--space-4, 1.5rem); margin: 0; display: grid; gap: var(--space-2, 8px); }
+.kit-checkbox legend { font-family: var(--font-family-heading, Georgia, serif); font-weight: var(--font-weight-heading, 700); font-size: var(--font-size-large, 1.25rem); color: var(--color-accent, #ffc233); padding: 0 var(--space-2, 8px); margin-bottom: var(--space-1, 4px); }
+.kit-checkbox label { display: flex; align-items: center; gap: var(--space-3, 1rem); cursor: pointer; padding: var(--space-2, 8px) var(--space-3, 1rem); border-radius: var(--radius-medium, 8px); border: var(--border-width, 1px) solid transparent; }
+.kit-checkbox label:hover { background: var(--color-surface, #0b0713); border-color: var(--color-border, #33274f); }
+.kit-checkbox input { appearance: none; -webkit-appearance: none; flex: none; width: 20px; height: 20px; margin: 0; display: grid; place-content: center; background: var(--color-surface, #0b0713); border: calc(var(--border-width, 1px) * 2) solid var(--color-border, #33274f); border-radius: var(--radius-small, 4px); cursor: pointer; }
+.kit-checkbox input::after { content: ""; width: 10px; height: 6px; border-left: 2px solid var(--color-primary-contrast, #0b0713); border-bottom: 2px solid var(--color-primary-contrast, #0b0713); transform: translateY(-1px) rotate(-45deg) scale(0); transition: transform .12s ease-in-out; }
+.kit-checkbox input:checked { background: var(--color-primary, #a855f7); border-color: var(--color-primary, #a855f7); box-shadow: var(--shadow-low, 0 2px 8px rgba(0, 0, 0, 0.6)); }
+.kit-checkbox input:checked::after { transform: translateY(-1px) rotate(-45deg) scale(1); }
+.kit-checkbox input:hover:not(:disabled) { border-color: var(--color-primary, #a855f7); }
+.kit-checkbox input:focus-visible { outline: 2px solid var(--color-accent-cyan, #27d7f0); outline-offset: 2px; }
+.kit-checkbox input:disabled { cursor: not-allowed; opacity: .5; }
+.kit-checkbox input:disabled + span { color: var(--color-text-muted, #b5a8cf); text-decoration: line-through; }
+.kit-checkbox label:has(input:disabled) { cursor: not-allowed; }
+</style>
+<div class="kit-checkbox">
+  <fieldset>
+    <legend>Notify me by</legend>
+    <label><input type="checkbox" checked><span>Email</span></label>
+    <label><input type="checkbox"><span>Text message</span></label>
+    <label><input type="checkbox" disabled><span>Carrier pigeon</span></label>
+  </fieldset>
+</div>

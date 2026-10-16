@@ -1,0 +1,21 @@
+<!-- Table: a header row, striped rows, a numeric column aligned right. -->
+<style>
+.kit-table { width: 100%; border-collapse: separate; border-spacing: 0; font-family: var(--font-family, system-ui, sans-serif); color: var(--color-text, #f5ecf7); font-size: var(--font-size-base, 1rem); background: var(--color-surface, #120a1c); border: var(--border-width, 1px) solid var(--color-border, #3d2b57); border-radius: var(--radius-large, 20px); overflow: hidden; box-shadow: var(--shadow-high, 0 12px 32px rgba(139, 63, 217, 0.35), 0 4px 12px rgba(0, 0, 0, 0.6)); }
+.kit-table th, .kit-table td { text-align: left; padding: var(--space-2, 8px) var(--space-3, 16px); border-bottom: var(--border-width, 1px) solid var(--color-border, #3d2b57); }
+.kit-table th { font-family: var(--font-family-heading, Impact, Arial, sans-serif); font-weight: var(--font-weight-heading, 700); font-size: var(--font-size-small, 0.875rem); color: var(--color-primary-contrast, #14081f); text-transform: uppercase; letter-spacing: .12em; background: var(--color-primary, #e8702a); padding-top: var(--space-3, 16px); padding-bottom: var(--space-3, 16px); border-bottom: calc(var(--border-width, 1px) * 3) solid var(--color-accent, #f5b83d); }
+.kit-table tbody tr:nth-child(even) { background: var(--color-surface-2, #1f1331); }
+.kit-table tbody tr:hover { background: var(--color-surface-2, #1f1331); box-shadow: inset 4px 0 0 var(--color-secondary, #8b3fd9); filter: brightness(1.25); }
+.kit-table tbody td:first-child { color: var(--color-accent, #f5b83d); font-weight: var(--font-weight-heading, 700); }
+.kit-table tbody td:nth-child(3) { color: var(--color-text-muted, #b9a6c9); }
+.kit-table .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--color-success, #3ecf8e); font-weight: var(--font-weight-heading, 700); }
+.kit-table th.num { color: var(--color-primary-contrast, #14081f); }
+.kit-table tr:last-child td { border-bottom: 0; }
+</style>
+<table class="kit-table">
+  <thead><tr><th>Order</th><th>Customer</th><th>Status</th><th class="num">Total</th></tr></thead>
+  <tbody>
+    <tr><td>#2041</td><td>Jane Doe</td><td>Shipped</td><td class="num">128.00</td></tr>
+    <tr><td>#2040</td><td>Ada Lovelace</td><td>Paid</td><td class="num">1 240.50</td></tr>
+    <tr><td>#2039</td><td>Grace Hopper</td><td>Pending</td><td class="num">64.90</td></tr>
+  </tbody>
+</table>

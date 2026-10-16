@@ -1,0 +1,96 @@
+<div class="kit-token">
+  <style>
+    .kit-token { display: flex; flex-wrap: wrap; gap: var(--space-4, 24px); align-items: flex-start; padding: var(--space-4, 24px); background: var(--color-surface, #120a1c); font-family: var(--font-family, system-ui, sans-serif); color: var(--color-text, #f5ecf7); }
+    .kit-token .kit-token__item { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--space-1, 4px); width: 96px; transition: transform .15s ease, opacity .15s ease; }
+    .kit-token .kit-token__disc { position: relative; width: 64px; height: 64px; border-radius: var(--radius-pill, 999px); border: calc(var(--border-width, 1px) * 2) solid var(--color-border, #3d2b57); background: var(--kit-token-bg, var(--color-secondary, #8b3fd9)); box-shadow: var(--shadow-low, 0 2px 6px rgba(0,0,0,.5)); display: flex; align-items: center; justify-content: center; overflow: visible; }
+    .kit-token .kit-token__clip { position: absolute; inset: 0; border-radius: var(--radius-pill, 999px); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    .kit-token .kit-token__portrait { width: 100%; height: 100%; display: block; }
+    .kit-token .kit-token__initials { font-family: var(--font-family-heading, Impact, Arial, sans-serif); font-weight: var(--font-weight-heading, 700); font-size: var(--font-size-large, 1.25rem); letter-spacing: 1px; color: var(--color-text, #f5ecf7); }
+    .kit-token .kit-token__num { position: absolute; left: -2px; bottom: -2px; min-width: 20px; height: 20px; padding: 0 var(--space-1, 4px); box-sizing: border-box; border-radius: var(--radius-pill, 999px); background: var(--color-surface, #120a1c); border: var(--border-width, 1px) solid var(--color-border, #3d2b57); color: var(--color-accent, #f5b83d); font-size: 0.7rem; font-weight: 700; line-height: 18px; text-align: center; }
+    .kit-token .kit-token__badge { position: absolute; width: 20px; height: 20px; border-radius: var(--radius-pill, 999px); background: var(--color-surface-2, #1f1331); border: var(--border-width, 1px) solid var(--color-border, #3d2b57); font-size: 0.7rem; font-weight: 700; line-height: 18px; text-align: center; box-sizing: border-box; }
+    .kit-token .kit-token__badge--tl { top: -6px; left: -6px; color: var(--color-danger, #ff5a5f); border-color: var(--color-danger, #ff5a5f); }
+    .kit-token .kit-token__badge--tr { top: -6px; right: -6px; color: var(--color-success, #3ecf8e); border-color: var(--color-success, #3ecf8e); }
+    .kit-token .kit-token__badge--br { bottom: -6px; right: -6px; color: var(--color-accent, #f5b83d); border-color: var(--color-accent, #f5b83d); }
+    .kit-token .kit-token__name { max-width: 100%; margin-top: var(--space-2, 8px); font-size: var(--font-size-small, 0.875rem); font-weight: 600; color: var(--color-text, #f5ecf7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .kit-token .kit-token__hp { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .kit-token .kit-token__gauge { width: 100%; height: 6px; border-radius: var(--radius-pill, 999px); background: var(--color-surface-2, #1f1331); border: var(--border-width, 1px) solid var(--color-border, #3d2b57); box-sizing: border-box; overflow: hidden; }
+    .kit-token .kit-token__gauge-fill { height: 100%; width: var(--kit-token-hp, 100%); background: var(--color-success, #3ecf8e); border-radius: var(--radius-pill, 999px); }
+    .kit-token .kit-token__gauge-fill--mid { background: var(--color-accent, #f5b83d); }
+    .kit-token .kit-token__gauge-fill--low { background: var(--color-danger, #ff5a5f); }
+    .kit-token .kit-token__hp-label { font-size: 0.7rem; color: var(--color-text-muted, #b9a6c9); }
+    .kit-token .kit-token__eye { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; border-radius: var(--radius-pill, 999px); background: color-mix(in srgb, var(--color-surface, #120a1c) 55%, transparent); color: var(--color-text, #f5ecf7); }
+    .kit-token .kit-token__eye svg { width: 28px; height: 28px; }
+    .kit-token .kit-token__strike { display: none; position: absolute; left: 50%; top: 50%; width: 120%; height: 3px; background: var(--color-danger, #ff5a5f); border-radius: var(--radius-pill, 999px); transform: translate(-50%, -50%) rotate(-45deg); }
+
+    .kit-token .kit-token__item--current .kit-token__disc { border-color: var(--color-accent, #f5b83d); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent, #f5b83d) 45%, transparent), 0 0 18px 4px color-mix(in srgb, var(--color-accent, #f5b83d) 70%, transparent); }
+    .kit-token .kit-token__item--hidden .kit-token__disc, .kit-token .kit-token__item--hidden .kit-token__name { opacity: .5; }
+    .kit-token .kit-token__item--hidden .kit-token__eye { display: flex; }
+    .kit-token .kit-token__item--dead .kit-token__disc, .kit-token .kit-token__item--dead .kit-token__hp { filter: grayscale(1); opacity: .6; }
+    .kit-token .kit-token__item--dead .kit-token__name { color: var(--color-text-muted, #b9a6c9); text-decoration: line-through; }
+    .kit-token .kit-token__item--dead .kit-token__strike { display: block; }
+    .kit-token .kit-token__item--carried { transform: scale(1.18) translateY(-4px); z-index: 2; cursor: grabbing; }
+    .kit-token .kit-token__item--carried .kit-token__disc { box-shadow: var(--shadow-high, 0 12px 32px rgba(139,63,217,.35)); border-color: var(--color-primary, #e8702a); }
+  </style>
+
+  <div class="kit-token__item kit-token__item--current">
+    <div class="kit-token__disc" style="--kit-token-bg: var(--color-surface-2, #1f1331);">
+      <div class="kit-token__clip">
+        <svg class="kit-token__portrait" viewBox="0 0 64 64" aria-hidden="true">
+          <rect width="64" height="64" fill="var(--color-secondary, #8b3fd9)"/>
+          <circle cx="32" cy="26" r="11" fill="var(--color-accent, #f5b83d)"/>
+          <path d="M8 64c0-16 10-22 24-22s24 6 24 22z" fill="var(--color-primary, #e8702a)"/>
+        </svg>
+      </div>
+      <span class="kit-token__badge kit-token__badge--tl" title="Enflammé">✹</span>
+      <span class="kit-token__badge kit-token__badge--tr" title="Bénédiction">+</span>
+      <span class="kit-token__num">1</span>
+    </div>
+    <div class="kit-token__name">Aldric</div>
+    <div class="kit-token__hp">
+      <div class="kit-token__gauge" style="--kit-token-hp: 80%;"><div class="kit-token__gauge-fill"></div></div>
+      <span class="kit-token__hp-label">24/30 PV</span>
+    </div>
+  </div>
+
+  <div class="kit-token__item kit-token__item--hidden">
+    <div class="kit-token__disc" style="--kit-token-bg: var(--color-secondary, #8b3fd9);">
+      <div class="kit-token__clip"><span class="kit-token__initials">GB</span></div>
+      <div class="kit-token__eye">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Caché"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg>
+      </div>
+      <span class="kit-token__badge kit-token__badge--br" title="Invisible">?</span>
+      <span class="kit-token__num">2</span>
+    </div>
+    <div class="kit-token__name">Gobelin</div>
+    <div class="kit-token__hp">
+      <div class="kit-token__gauge" style="--kit-token-hp: 45%;"><div class="kit-token__gauge-fill kit-token__gauge-fill--mid"></div></div>
+      <span class="kit-token__hp-label">7/15 PV</span>
+    </div>
+  </div>
+
+  <div class="kit-token__item kit-token__item--dead">
+    <div class="kit-token__disc" style="--kit-token-bg: var(--color-primary, #e8702a);">
+      <div class="kit-token__clip"><span class="kit-token__initials" style="color: var(--color-primary-contrast, #14081f);">LO</span></div>
+      <span class="kit-token__strike"></span>
+      <span class="kit-token__num">3</span>
+    </div>
+    <div class="kit-token__name">Loup</div>
+    <div class="kit-token__hp">
+      <div class="kit-token__gauge" style="--kit-token-hp: 0%;"><div class="kit-token__gauge-fill kit-token__gauge-fill--low"></div></div>
+      <span class="kit-token__hp-label">0/11 PV</span>
+    </div>
+  </div>
+
+  <div class="kit-token__item kit-token__item--carried">
+    <div class="kit-token__disc" style="--kit-token-bg: var(--color-success, #3ecf8e);">
+      <div class="kit-token__clip"><span class="kit-token__initials" style="color: var(--color-primary-contrast, #14081f);">MA</span></div>
+      <span class="kit-token__badge kit-token__badge--tl" title="Empoisonné">☠</span>
+      <span class="kit-token__num">4</span>
+    </div>
+    <div class="kit-token__name">Maëlle</div>
+    <div class="kit-token__hp">
+      <div class="kit-token__gauge" style="--kit-token-hp: 20%;"><div class="kit-token__gauge-fill kit-token__gauge-fill--low"></div></div>
+      <span class="kit-token__hp-label">5/25 PV</span>
+    </div>
+  </div>
+</div>
