@@ -11,7 +11,7 @@
 //! on the engine's in-memory store, which forgets everything at exit: for
 //! a mock-up, a demo, a smoke test. The invariants a product executes
 //! beyond `aggregate.json`'s rules, and the AI that proposes
-//! reconciliations, are wired in `plant()` — the two places this file
+//! reconciliations, are wired in `bound()` — the two places this file
 //! expects the product to grow.
 
 use std::sync::Arc;
@@ -28,6 +28,8 @@ use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::postgres::{PgStore, SystemClock};
 use harness_dataguard::registry::Registry;
 use harness_dataguard::store::Store;
+
+mod ai_settings;
 
 /// The `DATABASE_URL` that means no database: the in-memory store.
 pub const MEMORY: &str = "memory";
@@ -70,21 +72,27 @@ pub async fn plant(url: &str) -> Result<Engine, PlantError> {
         });
         Arc::new(PgStore::open(client).await?)
     };
-    let mut engine = Engine::new(
+    let engine = bound(Engine::new(
         store,
         Arc::new(MemoryNotifier::default()),
         Arc::new(SystemClock),
-    )
-    .with_registry(Registry::parse(registry::REGISTRY)?);
+    ))?;
+    engine.load().await?;
+    Ok(engine)
+}
+
+/// `engine` bound to what the checkout holds: the registry, every
+/// aggregate and DataCapability, and the invariants the product executes.
+fn bound(engine: Engine) -> Result<Engine, PlantError> {
+    let mut engine = engine.with_registry(Registry::parse(registry::REGISTRY)?);
     for text in registry::AGGREGATES {
         engine = engine.with_aggregate(Aggregate::parse(text)?);
     }
     for text in registry::DATA_CAPABILITIES {
         engine = engine.with_data_capability(DataCapability::parse(text)?);
     }
-    // engine = engine.with_invariants(Arc::new(my_product::Invariants));
+    engine = engine.with_invariants(Arc::new(ai_settings::AiSettings));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
-    engine.load().await?;
     Ok(engine)
 }
 

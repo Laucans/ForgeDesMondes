@@ -8,12 +8,13 @@ use std::sync::Arc;
 use dataguard_server::{MEMORY, applier, plant};
 use server::{Config, Error, Ports, app, fixtures};
 
-/// The product's migrations, `migrations/*.sql` at the repository's root —
-/// the folder `scripts/rules-runtime.sh` and `scripts/dump-schema.sh` read.
-/// The rules' runtime applies the same files with `psql` before it starts
-/// this server, and records nothing in `public.data_migrations`: until the
-/// two agree, a migration must hold being run twice (`IF NOT EXISTS`).
-const MIGRATIONS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../migrations");
+/// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
+/// — among the tracked `*migrations/*.sql` `scripts/rules-runtime.sh` and
+/// `scripts/dump-schema.sh` read. The rules' runtime applies the same files
+/// with `psql` before it starts this server, and records nothing in
+/// `public.data_migrations`: until the two agree, a migration must hold
+/// being run twice (`IF NOT EXISTS`).
+const MIGRATIONS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../data/migrations");
 
 #[tokio::main]
 async fn main() -> ExitCode {

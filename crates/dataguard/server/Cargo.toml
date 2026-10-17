@@ -7,6 +7,8 @@ build = "build.rs"
 
 # Above [dependencies], which the DataCapabilities' lines close.
 [dev-dependencies]
+# The migrations' applier the server runs, for the AiSettings migration's tests.
+data = { path = "../../data" }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 
 # The engine is the harness's, taken by git: this crate only binds it. The
