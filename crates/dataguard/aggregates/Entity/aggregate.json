@@ -1,0 +1,282 @@
+{
+  "aggregate": "Entity",
+  "fields": {
+    "actions": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "alias": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "armorClass": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "background": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "behavior": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "characterEntityId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "charisma": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "constitution": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "description": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "detectionVocabularyViewCampaignId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "detectionVocabularyViewEntityId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "dexterity": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "dexterityModifier": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "diff": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "dndbeyondId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "dndbeyondSyncedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "entityAliasEntityId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "entityAliasId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "entityCampaignId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "entityCreatedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "entityId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "entityVersionCreatedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "entityVersionEntityId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "entityVersionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "hpMax": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "initialPrompt": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "intelligence": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "name": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "normalizedTerm": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "notes": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "playerId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "portraitMediaId": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "restoredFromVersionId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "snapshot": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "soundId": {
+      "criticality": "low",
+      "kind": "derived"
+    },
+    "source": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "spells": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "strength": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "term": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "tokenColor": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "tokenCrop": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "tokenMediaId": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "type": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "updatedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "versionNumber": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "wisdom": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "character-is-pj-or-pnj",
+      "onViolation": "reject",
+      "rule": "Une fiche de personnage n'existe que pour un élément de type « pj » ou « pnj ». player_id n'est renseigné que pour un PJ, et le joueur appartient à la même campagne."
+    },
+    {
+      "id": "alias-unique-in-campaign",
+      "onViolation": "reject",
+      "rule": "Un alias, une fois normalisé, ne désigne qu'un seul élément d'une campagne et ne double pas le nom d'un autre élément."
+    },
+    {
+      "id": "every-change-versioned",
+      "onViolation": "reject",
+      "rule": "Tout enregistrement de l'élément ou de sa fiche, quelle que soit sa source (DM, IA, D&D Beyond, brief, restauration), ajoute une version avec son instantané complet et son diff. Les versions ne sont jamais modifiées."
+    },
+    {
+      "id": "restore-exact",
+      "onViolation": "reject",
+      "rule": "Revenir à une version, ou annuler un changement, réécrit l'élément, sa fiche et ses alias exactement comme dans l'instantané visé, et ajoute une version de source « restauration »."
+    },
+    {
+      "id": "dndbeyond-resync-scope",
+      "onViolation": "reject",
+      "rule": "Une resynchronisation D&D Beyond ne change que les caractéristiques, la CA, les PV max, les sorts et les actions. Les alias, les notes, le token et le portrait restent inchangés."
+    },
+    {
+      "id": "proposal-fills-sheet-fields",
+      "onViolation": "reject",
+      "rule": "Une proposition IA remplit background, comportement, caractéristiques, CA, PV max et actions dans les mêmes champs, quel que soit le fournisseur. Elle n'est construite qu'à partir de texte."
+    },
+    {
+      "id": "explicit-save-only",
+      "onViolation": "reject",
+      "rule": "Seul un enregistrement explicite du DM écrit la fiche. Une modification non enregistrée n'est jamais écrite, et « Enregistrer et continuer » écrit avant la navigation."
+    },
+    {
+      "id": "default-token",
+      "onViolation": "reject",
+      "rule": "Sans image de token ni portrait, le token s'affiche comme une pastille de token_color portant l'initiale du nom. Avec un portrait recadré, il affiche ce recadrage."
+    },
+    {
+      "id": "dex-modifier-derived",
+      "onViolation": "reject",
+      "rule": "Le modificateur de DEX vaut toujours floor((DEX - 10) / 2) et n'est jamais saisi."
+    }
+  ],
+  "relations": [
+    {
+      "from": "Entity.entityCampaignId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Entity.characterEntityId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Entity.playerId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Entity.portraitMediaId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Entity.tokenMediaId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Entity.entityAliasEntityId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Entity.entityVersionEntityId",
+      "onDelete": "cascade",
+      "onUpdate": "restrict"
+    },
+    {
+      "from": "Entity.restoredFromVersionId",
+      "onDelete": "nullify",
+      "onUpdate": "restrict"
+    }
+  ]
+}
