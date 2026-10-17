@@ -4,8 +4,8 @@
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
     "main_agent": "6a42587dcb1014381ac6f38630911bed605effdb",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
-    "milestone/17-ai-provider-settings-api-or-binary-connection-test": "103e204e91de55bfda773a52a597e11e940b8325",
-    "milestone/18-campaigns-players-and-characters-with-versioned-history": "8ff10f3c298070b5121d133d82da59da3375b2cd",
+    "milestone/17-ai-provider-settings-api-or-binary-connection-test": "2e62ea5c7abfc3cb9fe1c99d842f4eb6b8d3702c",
+    "milestone/18-campaigns-players-and-characters-with-versioned-history": "6a42587dcb1014381ac6f38630911bed605effdb",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
   },
