@@ -3,7 +3,7 @@
   "heads": {
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
     "main_agent": "8ff10f3c298070b5121d133d82da59da3375b2cd",
-    "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "8ff10f3c298070b5121d133d82da59da3375b2cd",
+    "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "bf9ea121366201ddeb68835300e608701f54de83",
     "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8ff10f3c298070b5121d133d82da59da3375b2cd",
     "milestone/18-campaigns-players-and-characters-with-versioned-history": "8ff10f3c298070b5121d133d82da59da3375b2cd",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
