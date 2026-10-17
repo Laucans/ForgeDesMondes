@@ -1,0 +1,1003 @@
+{
+  "version": 1,
+  "tables": [
+    {
+      "business": [
+        "R3",
+        "R77",
+        "R92",
+        "R99"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du réglage.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut ; les quatre fournisseurs semés ont des identifiants fixes (crates/data/migrations/0001_ai_settings.sql)."
+          ]
+        },
+        {
+          "business": [
+            "R3"
+          ],
+          "name": "mode",
+          "nullable": false,
+          "purpose": "« api » ou « binaire ».",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_mode_fields : « api » ou « binaire », avec les champs de ce mode (invariant mode-fields de l'agrégat AiSettings)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "label",
+          "nullable": false,
+          "purpose": "Libellé affiché (« Endpoint opencode du serveur maison »).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R92"
+          ],
+          "name": "url",
+          "nullable": true,
+          "purpose": "URL de l'API, en mode « api ».",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_mode_fields : renseignée en mode « api », vide en mode « binaire »."
+          ]
+        },
+        {
+          "business": [
+            "R3",
+            "R92"
+          ],
+          "name": "detected_api_type",
+          "nullable": true,
+          "purpose": "Type d'API détecté (cloud, opencode).",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_api_type_recognized : null, « cloud » ou « opencode », les types de ProviderApiType@1 (invariant api-type-recognized).",
+            "Dérivé par ai.saveSettings de l'URL et de la réponse de l'endpoint (ProviderApiType@1), jamais saisi ; stocké, car cette réponse ne se recalcule pas depuis d'autres lignes."
+          ]
+        },
+        {
+          "business": [],
+          "name": "api_key",
+          "nullable": true,
+          "purpose": "Clé d'API, stockée en local.",
+          "type": "text",
+          "technical": [
+            "Secret : jamais journalisé, masqué à chaque lecture ; vide dans le semis."
+          ]
+        },
+        {
+          "business": [
+            "R3"
+          ],
+          "name": "binary",
+          "nullable": true,
+          "purpose": "« opencode » ou « claude-code », en mode « binaire ».",
+          "type": "text",
+          "technical": [
+            "Mot réservé de PostgreSQL : toujours écrit entre guillemets (\"binary\").",
+            "CHECK ai_provider_mode_fields : « opencode » ou « claude-code » en mode « binaire », vide en mode « api »."
+          ]
+        },
+        {
+          "business": [
+            "R99",
+            "R100"
+          ],
+          "name": "generation_model",
+          "nullable": false,
+          "purpose": "Modèle pour statblocks, backgrounds et analyses.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R26",
+            "R99"
+          ],
+          "name": "summary_model",
+          "nullable": false,
+          "purpose": "Modèle pour les résumés de séance.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R3",
+            "R99"
+          ],
+          "name": "last_test_ok",
+          "nullable": true,
+          "purpose": "Résultat du dernier test de connexion.",
+          "type": "boolean",
+          "technical": [
+            "Écrit par ai.testConnection seul, qui n'écrit que les champs last_test_* (invariant test-does-not-save)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "last_test_at",
+          "nullable": true,
+          "purpose": "Date du dernier test.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [
+            "R92",
+            "R99"
+          ],
+          "name": "last_test_message",
+          "nullable": true,
+          "purpose": "Message de réussite ou raison de l'échec.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "last_test_latency_ms",
+          "nullable": true,
+          "purpose": "Latence mesurée.",
+          "type": "integer"
+        }
+      ],
+      "name": "ai_provider",
+      "purpose": "Réglage d'un fournisseur de génération : en mode « API » (URL dont le type est détecté) ou en mode « Binaire » (opencode ou Claude Code). Seul du texte lui est envoyé."
+    },
+    {
+      "business": [
+        "R3"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Toujours 1 : une seule ligne.",
+          "type": "smallint",
+          "technical": [
+            "Clé primaire, 1 par défaut ; CHECK ai_settings_single_row (id = 1) : une seule ligne (invariant single-settings-row)."
+          ]
+        },
+        {
+          "business": [
+            "R3",
+            "R100"
+          ],
+          "name": "active_provider_id",
+          "nullable": false,
+          "purpose": "Fournisseur utilisé pour les générations.",
+          "references": "ai_provider.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE RESTRICT ON UPDATE CASCADE (onDelete restrict, onUpdate propagate de l'agrégat) ; semée sur le fournisseur cloud."
+          ]
+        },
+        {
+          "business": [],
+          "name": "updated_at",
+          "nullable": false,
+          "purpose": "Dernier enregistrement des paramètres.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "ai_settings",
+      "purpose": "Réglage unique de la machine : quel fournisseur est actif."
+    },
+    {
+      "business": [
+        "R1 : plusieurs campagnes et oneshots, sans compte",
+        "R2 : export et import en archive, l'import crée toujours une copie distincte"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la campagne.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0002_campaign.sql)."
+          ]
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom affiché à l'accueil (« Les Cendres de Valombre »).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1 : un oneshot n'a qu'une séance"
+          ],
+          "name": "kind",
+          "nullable": false,
+          "purpose": "« campagne » ou « oneshot ».",
+          "type": "text",
+          "technical": [
+            "CHECK campaign_kind : « campagne » ou « oneshot » (invariant oneshot-single-session de l'agrégat Campaign ; le compte des séances attend la table session)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "pitch",
+          "nullable": true,
+          "purpose": "Accroche affichée sous le nom.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "art",
+          "nullable": true,
+          "purpose": "Palette de la couverture par défaut (ember, dusk, night).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "glyph",
+          "nullable": true,
+          "purpose": "Lettre affichée sur la couverture par défaut.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1",
+            "R24"
+          ],
+          "name": "cover_media_id",
+          "nullable": true,
+          "purpose": "Illustration de couverture, aussi affichée par défaut sur la player view.",
+          "type": "uuid",
+          "technical": [
+            "Colonne simple pour l'instant : sa clé étrangère vers media.id (onDelete nullify, onUpdate propagate de l'agrégat) arrive avec la table de l'agrégat Media."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date de création de la campagne.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "last_exported_at",
+          "nullable": true,
+          "purpose": "Date du dernier export en archive, affichée sur l'aperçu.",
+          "type": "timestamptz",
+          "technical": [
+            "Écrit par campaign.exportCampaign seul, qui n'écrit rien d'autre (invariant export-stamps-date)."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "imported_at",
+          "nullable": true,
+          "purpose": "Date d'import si la campagne est une copie créée depuis une archive.",
+          "type": "timestamptz",
+          "technical": [
+            "Écrit par un import seul, à la création de la copie (invariant import-creates-copy)."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "origin_campaign_id",
+          "nullable": true,
+          "purpose": "Identifiant de la campagne d'origine lu dans l'archive. Ce n'est pas une clé étrangère : l'originale peut ne pas exister sur cette machine.",
+          "type": "uuid",
+          "technical": [
+            "Écrit par un import seul, à la création de la copie, jamais sur l'originale (invariant import-creates-copy)."
+          ]
+        },
+        {
+          "business": [
+            "R16",
+            "R111"
+          ],
+          "name": "sound_master_volume",
+          "nullable": false,
+          "purpose": "Volume global de la soundbox, entre 0 et 1.",
+          "type": "numeric(3,2)",
+          "technical": [
+            "1 par défaut ; CHECK campaign_master_volume_range : entre 0 et 1 (invariant master-volume-range)."
+          ]
+        }
+      ],
+      "name": "campaign",
+      "purpose": "Une campagne ou un oneshot du DM, avec sa couverture, son pitch et ses réglages propres. Aucun compte : toutes les campagnes de la machine sont visibles à l'accueil."
+    },
+    {
+      "business": [
+        "R4 : les joueurs sont conservés à part des personnages ; un PJ est lié à un joueur",
+        "player-not-character : un joueur n'est pas un élément de campagne, il n'a ni fiche ni token"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du joueur.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0003_player.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne à laquelle participe le joueur.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Player.campaignId : onDelete cascade, onUpdate propagate) : supprimer une campagne supprime ses joueurs.",
+            "Indexée (player_campaign_id) : les joueurs d'une campagne sont lus par elle."
+          ]
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom du joueur.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "notes",
+          "nullable": true,
+          "purpose": "Notes du DM sur le joueur.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date d'ajout.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "player",
+      "purpose": "Un joueur réel de la table, distinct des personnages qu'il incarne : un nom et des notes, ni fiche ni token. Ses PJ pointent vers lui (character.player_id), jamais l'inverse."
+    },
+    {
+      "business": [
+        "R4",
+        "every-change-versioned : tout enregistrement de l'élément, de sa fiche ou de ses alias ajoute une version dans la même transaction (triggers de contrainte différés every_change_versioned sur entity, character et entity_alias) ; ce que font les relations (cascade de la campagne, suppression ou nouvel identifiant du joueur) n'en demande pas",
+        "R94",
+        "R96",
+        "character-is-pj-or-pnj : seul un élément « pj » ou « pnj » a une fiche de personnage",
+        "every-change-versioned : tout enregistrement de l'élément, de sa fiche ou de ses alias ajoute une version, dans la même transaction",
+        "Une suppression est logique, une pierre tombale du DataGuard, sauf accord d'un humain"
+      ],
+      "fields": [
+        {
+          "business": [
+            "R93"
+          ],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de l'élément, porté par l'URL de sa fiche.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0004_entity.sql).",
+            "Les versions retiennent l'identifiant : ON UPDATE RESTRICT depuis entity_version.entity_id."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne de l'élément.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Entity.entityCampaignId : onDelete cascade, onUpdate propagate).",
+            "Indexée (entity_campaign_id) : les éléments d'une campagne sont lus et comptés par elle."
+          ]
+        },
+        {
+          "business": [
+            "R4",
+            "R96"
+          ],
+          "name": "type",
+          "nullable": false,
+          "purpose": "« pj », « pnj », « lieu » ou « evenement ». Détermine l'onglet et la section du rail.",
+          "type": "text",
+          "technical": [
+            "CHECK entity_type : 'pj', 'pnj', 'lieu' ou 'evenement'.",
+            "Trigger de contrainte différé character_is_pj_or_pnj : un changement de type est refusé s'il laisse une fiche à un lieu ou un joueur à un PNJ."
+          ]
+        },
+        {
+          "business": [
+            "R6",
+            "R93"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom de l'élément, cherché dans le rail et détecté au micro.",
+          "type": "text",
+          "technical": [
+            "Trigger de contrainte différé alias_unique_in_campaign : le nom ne double pas l'alias d'un autre élément de la campagne, une fois normalisé (alias_match_normalized, AliasMatch@1)."
+          ]
+        },
+        {
+          "business": [
+            "R95"
+          ],
+          "name": "description",
+          "nullable": true,
+          "purpose": "Description lisible de l'élément.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R4",
+            "R25"
+          ],
+          "name": "notes",
+          "nullable": true,
+          "purpose": "Notes privées du DM, jamais montrées aux joueurs.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date de création.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R9"
+          ],
+          "name": "updated_at",
+          "nullable": false,
+          "purpose": "Date du dernier enregistrement.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut ; posé par l'enregistrement qui écrit l'élément."
+          ]
+        }
+      ],
+      "name": "entity",
+      "purpose": "Élément de campagne commun : PJ, PNJ, lieu ou événement. Porte le nom, les notes et sert de cible unique aux alias, aux versions, aux scènes et aux suggestions."
+    },
+    {
+      "business": [
+        "R4",
+        "R7",
+        "R8",
+        "R100",
+        "R101",
+        "character-is-pj-or-pnj : la fiche n'existe que pour un PJ ou un PNJ ; seul un PJ a un joueur, de la même campagne",
+        "dex-modifier-derived : le modificateur de DEX vaut floor((DEX - 10) / 2) (AbilityModifier@1), calculé à la lecture, jamais stocké ni saisi",
+        "default-token : sans image de token ni portrait, le token est une pastille de token_color à l'initiale du nom ; un recadrage est celui du portrait"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "entity_id",
+          "nullable": false,
+          "purpose": "Élément dont c'est la fiche de personnage.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire : une fiche au plus par élément.",
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Entity.characterEntityId : onDelete cascade, onUpdate propagate).",
+            "Trigger de contrainte différé character_is_pj_or_pnj : l'élément est de type « pj » ou « pnj »."
+          ]
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "player_id",
+          "nullable": true,
+          "purpose": "Joueur qui incarne le PJ. Toujours vide pour un PNJ.",
+          "references": "player.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Entity.playerId : onDelete nullify, onUpdate propagate).",
+            "Trigger de contrainte différé character_is_pj_or_pnj : vide pour un PNJ ; pour un PJ, un joueur de la campagne de l'élément.",
+            "Indexée (character_player_id)."
+          ]
+        },
+        {
+          "business": [
+            "R7",
+            "R77"
+          ],
+          "name": "initial_prompt",
+          "nullable": true,
+          "purpose": "Prompt initial dicté puis transcrit, envoyé comme texte au fournisseur.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R7",
+            "R100"
+          ],
+          "name": "background",
+          "nullable": true,
+          "purpose": "Histoire du personnage.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R100"
+          ],
+          "name": "behavior",
+          "nullable": true,
+          "purpose": "Comportement et manière de jouer le personnage.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R4",
+            "R100"
+          ],
+          "name": "strength",
+          "nullable": true,
+          "purpose": "Caractéristique FOR.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R22",
+            "R105"
+          ],
+          "name": "dexterity",
+          "nullable": true,
+          "purpose": "Caractéristique DEX, utilisée aussi pour départager l'initiative.",
+          "type": "smallint",
+          "technical": [
+            "Aucune colonne ne stocke son modificateur (dex-modifier-derived) : floor((dexterity - 10) / 2), AbilityModifier@1."
+          ]
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "constitution",
+          "nullable": true,
+          "purpose": "Caractéristique CON.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "intelligence",
+          "nullable": true,
+          "purpose": "Caractéristique INT.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "wisdom",
+          "nullable": true,
+          "purpose": "Caractéristique SAG.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "charisma",
+          "nullable": true,
+          "purpose": "Caractéristique CHA.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4",
+            "R100"
+          ],
+          "name": "armor_class",
+          "nullable": true,
+          "purpose": "CA.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4",
+            "R100"
+          ],
+          "name": "hp_max",
+          "nullable": true,
+          "purpose": "PV maximum de la fiche, copiés sur chaque instance de token de PNJ.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4",
+            "R8"
+          ],
+          "name": "spells",
+          "nullable": false,
+          "purpose": "Sorts de la fiche.",
+          "type": "jsonb",
+          "technical": [
+            "'[]' par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R4",
+            "R100"
+          ],
+          "name": "actions",
+          "nullable": false,
+          "purpose": "Actions et capacités du statblock (nom, texte).",
+          "type": "jsonb",
+          "technical": [
+            "'[]' par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "portrait_media_id",
+          "nullable": true,
+          "purpose": "Portrait du personnage.",
+          "type": "uuid",
+          "technical": [
+            "Colonne simple pour l'instant : sa clé étrangère vers media.id (relation Entity.portraitMediaId : onDelete nullify, onUpdate propagate) vient avec la table du Media aggregate."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "token_media_id",
+          "nullable": true,
+          "purpose": "Image de token dédiée, si le DM en a fourni une.",
+          "type": "uuid",
+          "technical": [
+            "Colonne simple pour l'instant : sa clé étrangère vers media.id (relation Entity.tokenMediaId : onDelete nullify, onUpdate propagate) vient avec la table du Media aggregate."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "token_crop",
+          "nullable": true,
+          "purpose": "Recadrage du portrait utilisé comme token.",
+          "type": "jsonb",
+          "technical": [
+            "CHECK character_default_token_crop : un recadrage n'existe qu'avec un portrait (default-token)."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "token_color",
+          "nullable": false,
+          "purpose": "Couleur de la pastille par défaut.",
+          "type": "text",
+          "technical": [
+            "CHECK character_default_token_color : jamais vide (default-token)."
+          ]
+        },
+        {
+          "business": [
+            "R8"
+          ],
+          "name": "dndbeyond_id",
+          "nullable": true,
+          "purpose": "Identifiant du personnage sur D&D Beyond.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R8"
+          ],
+          "name": "dndbeyond_synced_at",
+          "nullable": true,
+          "purpose": "Date de la dernière resynchronisation.",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "character",
+      "purpose": "Complément d'un élément de type PJ ou PNJ : fiche jouable, background, token et lien D&D Beyond."
+    },
+    {
+      "business": [
+        "R6",
+        "R18",
+        "R93",
+        "alias-unique-in-campaign : un alias normalisé (AliasMatch@1) ne désigne qu'un élément de la campagne et ne double pas le nom d'un autre"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de l'alias.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut."
+          ]
+        },
+        {
+          "business": [],
+          "name": "entity_id",
+          "nullable": false,
+          "purpose": "Élément désigné.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Entity.entityAliasEntityId : onDelete cascade, onUpdate propagate).",
+            "Indexée (entity_alias_entity_id)."
+          ]
+        },
+        {
+          "business": [
+            "R6",
+            "R93"
+          ],
+          "name": "alias",
+          "nullable": false,
+          "purpose": "Texte de l'alias.",
+          "type": "text",
+          "technical": [
+            "Trigger de contrainte différé alias_unique_in_campaign, sur alias_match_normalized(alias) : minuscules, sans accents, sans blancs autour (AliasMatch@1) ; un alias vide ne désigne rien."
+          ]
+        }
+      ],
+      "name": "entity_alias",
+      "purpose": "Un autre nom par lequel un élément est désigné à la table (« la taverne », « la rôdeuse »)."
+    },
+    {
+      "business": [
+        "R9",
+        "R12",
+        "every-change-versioned : une version n'est jamais modifiée ; son numéro suit celui de la précédente (EntityVersion@1)",
+        "restore-exact : une restauration nomme une version antérieure du même élément et réécrit ses valeurs telles quelles",
+        "dndbeyond-resync-scope : une version « dndbeyond » ne change que les caractéristiques, la CA, les PV max, les sorts et les actions",
+        "proposal-fills-sheet-fields : une version « ia » ne remplit que background, comportement, caractéristiques, CA, PV max et actions"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la version.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut.",
+            "Trigger every_change_versioned (BEFORE UPDATE OR DELETE) : une version n'est jamais modifiée ni effacée ; elle part avec son élément seul, par la cascade de entity_version.entity_id."
+          ]
+        },
+        {
+          "business": [],
+          "name": "entity_id",
+          "nullable": false,
+          "purpose": "Élément versionné.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE RESTRICT (relation Entity.entityVersionEntityId : onDelete cascade, onUpdate restrict)."
+          ]
+        },
+        {
+          "business": [
+            "R9"
+          ],
+          "name": "version_number",
+          "nullable": false,
+          "purpose": "Numéro croissant par élément.",
+          "type": "integer",
+          "technical": [
+            "CHECK entity_version_number (>= 1) ; UNIQUE entity_version_numbered (entity_id, version_number).",
+            "Trigger entity_version_added (BEFORE INSERT) : le numéro est le dernier de l'élément plus 1."
+          ]
+        },
+        {
+          "business": [
+            "R9",
+            "R12"
+          ],
+          "name": "source",
+          "nullable": false,
+          "purpose": "« dm », « ia », « dndbeyond », « brief » ou « restauration ».",
+          "type": "text",
+          "technical": [
+            "CHECK entity_version_source : 'dm', 'ia', 'dndbeyond', 'brief' ou 'restauration'.",
+            "Trigger entity_version_added : 'dndbeyond' et 'ia' ne changent que les champs de leur périmètre, lus dans diff."
+          ]
+        },
+        {
+          "business": [
+            "R9"
+          ],
+          "name": "snapshot",
+          "nullable": false,
+          "purpose": "État complet de l'élément, de sa fiche et de ses alias après la modification.",
+          "type": "jsonb",
+          "technical": [
+            "CHECK entity_version_snapshot : un objet JSON, une clé par champ de l'élément et de sa fiche, plus aliases (EntityVersion@1)."
+          ]
+        },
+        {
+          "business": [
+            "R9",
+            "R12"
+          ],
+          "name": "diff",
+          "nullable": false,
+          "purpose": "Différence avec la version précédente.",
+          "type": "jsonb",
+          "technical": [
+            "CHECK entity_version_diff : un tableau d'entrées {field, old, new} triées par field (EntityVersion@1).",
+            "Trigger entity_version_added : chaque entrée nomme son champ par une chaîne ; le trigger marque la transaction (réglage local entity.versioned_<élément>) comme ayant versionné l'élément."
+          ]
+        },
+        {
+          "business": [
+            "R9"
+          ],
+          "name": "restored_from_version_id",
+          "nullable": true,
+          "purpose": "Version restaurée, si cette version est un retour arrière.",
+          "references": "entity_version.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE RESTRICT (relation Entity.restoredFromVersionId : onDelete nullify, onUpdate restrict).",
+            "CHECK entity_version_restored_by_restoration : renseigné seulement pour la source 'restauration' ; le trigger entity_version_added l'exige alors, version antérieure du même élément, dont chaque champ du diff reprend la valeur.",
+            "Indexée (entity_version_restored_from_version_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date de la version.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "entity_version",
+      "purpose": "Version enregistrée d'un élément, avec son diff et sa source. Une version n'est jamais modifiée."
+    },
+    {
+      "business": [
+        "R6",
+        "R18",
+        "R93"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne concernée.",
+          "type": "uuid",
+          "technical": [
+            "entity.campaign_id."
+          ]
+        },
+        {
+          "business": [],
+          "name": "entity_id",
+          "nullable": true,
+          "purpose": "Élément désigné par le terme, si c'en est un.",
+          "type": "uuid",
+          "technical": [
+            "entity.id, pour un nom comme pour un alias."
+          ]
+        },
+        {
+          "business": [],
+          "name": "sound_id",
+          "nullable": true,
+          "purpose": "Son désigné par le terme, si c'en est un.",
+          "type": "uuid",
+          "technical": [
+            "NULL tant que la table sound n'existe pas."
+          ]
+        },
+        {
+          "business": [
+            "R6"
+          ],
+          "name": "term",
+          "nullable": false,
+          "purpose": "Nom ou alias tel qu'affiché.",
+          "type": "text",
+          "technical": [
+            "entity.name ou entity_alias.alias."
+          ]
+        },
+        {
+          "business": [
+            "R93"
+          ],
+          "name": "normalized_term",
+          "nullable": false,
+          "purpose": "Terme en minuscules et sans accents (« rodeuse »).",
+          "type": "text",
+          "technical": [
+            "alias_match_normalized(term) ; un terme vide une fois normalisé n'y figure pas."
+          ]
+        }
+      ],
+      "name": "detection_vocabulary_view",
+      "purpose": "Vue calculée, non stockée : tous les noms et alias des éléments d'une campagne, normalisés sans accents ni casse (AliasMatch@1). Sert au vocabulaire de transcription, à la détection en direct et à la recherche du rail ; les termes des sons la rejoignent avec la table sound."
+    },
+    {
+      "business": [
+        "R1"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne concernée.",
+          "type": "uuid",
+          "technical": [
+            "campaign.id : une ligne par campagne."
+          ]
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "entity_counts",
+          "nullable": false,
+          "purpose": "Comptes de joueurs, de personnages (PJ et PNJ), de lieux et d'événements.",
+          "type": "jsonb",
+          "technical": [
+            "{players, characters, places, events} : count(*) sur player et entity, par campagne ; médias et sons s'y ajoutent avec leurs tables."
+          ]
+        }
+      ],
+      "name": "campaign_overview_view",
+      "purpose": "Vue calculée, non stockée : le modèle de lecture du Campaign aggregate, les compteurs de chaque campagne pour l'accueil et l'aperçu. Le nombre de séances, leurs dates et les comptes de médias et de sons la rejoignent avec les tables de leurs jalons."
+    }
+  ],
+  "links": []
+}
