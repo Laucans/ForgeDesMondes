@@ -3,18 +3,19 @@
 //! rules write in words: the engine judges them here, on the row's state
 //! after the command.
 //!
-//! One aggregate, two kinds of row: the settings (`ai_settings`), the row
-//! of id 1 or one carrying a settings field, and a provider (`ai_provider`),
-//! any other. The engine sees one row at a time: that the active provider
-//! exists is judged on the tables alone, by the foreign key of the migration
-//! (`crates/data/migrations/`), whose CHECKs judge the other invariants
-//! there again.
+//! One aggregate, two kinds of row, told apart by the partition's id as the
+//! migration types it: a provider (`ai_provider`) is a uuid, anything else
+//! claims to be the settings (`ai_settings`), whose one id is 1. The engine
+//! sees one row at a time: that the active provider exists is judged by the
+//! aggregate's `restrict` relation, which blocks its deletion, and on the
+//! tables by the foreign key of the migration (`crates/data/migrations/`),
+//! whose CHECKs judge the other invariants there again.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use harness_dataguard::aggregate::Aggregate;
-use harness_dataguard::command::Entry;
+use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
 
@@ -111,9 +112,19 @@ fn set(state: &BTreeMap<String, Value>, field: &str) -> bool {
     }
 }
 
-/// Whether the row is the settings row, not a provider.
-fn settings_row(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-    entry.target_id() == "1" || SETTINGS.iter().any(|field| state.contains_key(*field))
+/// Whether the row is the settings row, not a provider: its partition's id
+/// is no uuid, whatever fields the command carries.
+fn settings_row(entry: &Entry) -> bool {
+    !uuid(entry.target_id())
+}
+
+/// Whether `id` is a uuid, as `ai_provider.id` is typed.
+fn uuid(id: &str) -> bool {
+    id.len() == 36
+        && id.char_indices().all(|(at, c)| match at {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
 }
 
 fn text<'a>(state: &'a BTreeMap<String, Value>, field: &str) -> Option<&'a str> {
@@ -123,7 +134,7 @@ fn text<'a>(state: &'a BTreeMap<String, Value>, field: &str) -> Option<&'a str> 
 /// In « api » mode, url and detectedApiType are set and binary is empty; in
 /// « binaire » mode, binary is opencode or claude-code and url is empty.
 fn mode_fields(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-    if state.is_empty() || settings_row(state, entry) {
+    if state.is_empty() || settings_row(entry) {
         return true;
     }
     match text(state, "mode") {
@@ -160,11 +171,15 @@ fn test_does_not_save(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
             .all(|field| LAST_TEST.contains(&field.as_str()) || field == "aiProviderId")
 }
 
-/// The settings row is the one of id 1, it names a provider, and it
-/// carries no provider's field.
+/// The settings row is the one of id 1, it is never deleted, it names a
+/// provider, and it carries no provider's field; a provider carries none of
+/// its fields.
 fn single_settings_row(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-    if !settings_row(state, entry) {
-        return true;
+    if !settings_row(entry) {
+        return !SETTINGS.iter().any(|field| state.contains_key(*field));
+    }
+    if entry.effect == Effect::Delete {
+        return false;
     }
     let one = |id: &Value| id.as_i64() == Some(1) || id.as_str() == Some("1");
     entry.target_id() == "1"
@@ -204,6 +219,10 @@ mod tests {
     const WRITE_SETTINGS: &str = r#"{"dataCapability":"test.writeSettings","owner":"dataguard","version":1,"effect":"upsert","target":{"aggregate":"AiSettings","id":"$aiSettingsId"},"mode":"overwrite","callableBy":["*"]}"#;
     /// The connection test, under the id the invariant knows it by.
     const TEST_CONNECTION_MANIFEST: &str = r#"{"dataCapability":"ai.testConnection","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"AiSettings","id":"$aiProviderId"},"mode":"overwrite","callableBy":["*"]}"#;
+    /// A provider deleted.
+    const DELETE_PROVIDER: &str = r#"{"dataCapability":"test.deleteProvider","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"AiSettings","id":"$aiProviderId"},"mode":"overwrite","callableBy":["*"]}"#;
+    /// The settings row deleted.
+    const DELETE_SETTINGS: &str = r#"{"dataCapability":"test.deleteSettings","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"AiSettings","id":"$aiSettingsId"},"mode":"overwrite","callableBy":["*"]}"#;
 
     const CLOUD: &str = "a1000000-0000-4000-8000-000000000001";
 
@@ -217,7 +236,13 @@ mod tests {
             Arc::new(FixedClock::at(1000)),
         ))
         .expect("the product's manifests parse");
-        for manifest in [WRITE_PROVIDER, WRITE_SETTINGS, TEST_CONNECTION_MANIFEST] {
+        for manifest in [
+            WRITE_PROVIDER,
+            WRITE_SETTINGS,
+            TEST_CONNECTION_MANIFEST,
+            DELETE_PROVIDER,
+            DELETE_SETTINGS,
+        ] {
             engine =
                 engine.with_data_capability(DataCapability::parse(manifest).expect("contract F"));
         }
@@ -362,6 +387,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mode_fields_judges_a_provider_that_carries_a_settings_field() {
+        // The row's kind is its partition's, not its fields': updatedAt does
+        // not make a provider the settings row.
+        let result = provider(with(
+            without(cloud(), "url"),
+            "updatedAt",
+            json!("2026-10-17T10:00:00Z"),
+        ))
+        .await;
+        assert_eq!(result.status, State::Rejected, "{result:?}");
+        assert_eq!(
+            result.violations,
+            ["mode-fields", "single-settings-row"],
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn api_type_recognized_lets_every_type_of_the_concept_s_fixtures_through() {
         let fixtures: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -484,6 +527,69 @@ mod tests {
                 "single-settings-row",
             );
         }
+    }
+
+    #[tokio::test]
+    async fn single_settings_row_rejects_a_provider_carrying_a_settings_field() {
+        for (field, value) in [
+            ("updatedAt", json!("2026-10-17T10:00:00Z")),
+            ("activeProviderId", json!(CLOUD)),
+            ("aiSettingsId", json!(1)),
+        ] {
+            rejected_by(
+                &provider(with(cloud(), field, value)).await,
+                "single-settings-row",
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn single_settings_row_rejects_deleting_the_settings_row() {
+        let row = json!({ "aiSettingsId": 1, "activeProviderId": CLOUD });
+        let row = row.as_object().expect("an object").clone();
+        let store = MemoryStore::default().with_row("AiSettings/1", row.into_iter().collect());
+        let (engine, store) = engine(store).await;
+        let result = written(&engine, "test.deleteSettings", json!({ "aiSettingsId": 1 })).await;
+        rejected_by(&result, "single-settings-row");
+        assert!(!store.is_tombstoned("AiSettings/1"));
+    }
+
+    #[tokio::test]
+    async fn the_active_provider_is_not_deleted() {
+        let partition = format!("AiSettings/{CLOUD}");
+        let row = cloud().as_object().expect("an object").clone();
+        // The settings row points at the provider: the relation restricts.
+        let store = MemoryStore::default()
+            .with_row(&partition, row.into_iter().collect())
+            .pointed_at(
+                &partition,
+                vec![("AiSettings.activeProviderId".to_string(), 1)],
+            );
+        let (engine, store) = engine(store).await;
+        let result = written(
+            &engine,
+            "test.deleteProvider",
+            json!({ "aiProviderId": CLOUD }),
+        )
+        .await;
+        assert_eq!(result.status, State::Queued, "{result:?}");
+        assert!(!store.is_tombstoned(&partition));
+    }
+
+    #[tokio::test]
+    async fn a_provider_nothing_points_at_is_soft_deleted_with_a_tombstone() {
+        let partition = format!("AiSettings/{CLOUD}");
+        let row = cloud().as_object().expect("an object").clone();
+        let store = MemoryStore::default().with_row(&partition, row.into_iter().collect());
+        let (engine, store) = engine(store).await;
+        let result = written(
+            &engine,
+            "test.deleteProvider",
+            json!({ "aiProviderId": CLOUD }),
+        )
+        .await;
+        applied(&result);
+        assert!(store.is_tombstoned(&partition));
     }
 
     #[tokio::test]
