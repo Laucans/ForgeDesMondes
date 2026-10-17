@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "sequence": 1,
+      "kind": "connection-test",
+      "provider": "opencode-server",
+      "text": "Réponds par le mot : ok",
+      "modalities": ["text"]
+    },
+    {
+      "sequence": 2,
+      "kind": "brief",
+      "provider": "opencode-server",
+      "text": "Les aventuriers arrivent à Brumevaux, un village dont la taverne est tenue par Maelis.",
+      "modalities": ["text"]
+    }
+  ]
+}
