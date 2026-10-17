@@ -344,6 +344,8 @@ mod tests {
         assert!(reply(200, Value::Null, None).is_success());
         assert!(reply(204, Value::Null, None).is_success());
         assert!(!reply(199, Value::Null, None).is_success());
+        assert!(!reply(300, Value::Null, None).is_success());
+        assert!(reply(299, Value::Null, None).is_success());
         assert!(!reply(301, Value::Null, None).is_success());
         assert!(!reply(500, Value::Null, None).is_success());
     }
