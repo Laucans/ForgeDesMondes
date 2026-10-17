@@ -180,6 +180,7 @@ dependencies = [
  "harness-dataguard",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tokio-postgres",
 ]
@@ -692,6 +693,19 @@ dependencies = [
  "itoa",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "data",
+ "dataguard-server",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tower",
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ members = [
     "crates/*/data-capabilities/*",
     "crates/data",
     "crates/dataguard/server",
+    "crates/server",
     "crates/platform/conformance",
 ]
 # The rules' business tests are a workspace of their own (contract P).
