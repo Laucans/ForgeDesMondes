@@ -1,0 +1,10 @@
+{
+  "capability": "ai.getSettings",
+  "system": "ai",
+  "version": "1.0.0",
+  "description": "The AI provider settings and the last connection test: the active provider, each provider keyed by type (cloud, opencode) with its label, URL, models and its API key masked, the binary when one is chosen, the most recent test (ok, at, provider, latency, message), and the lists of what stays local and what is sent.",
+  "implements": "ProviderApiType@1",
+  "input": {},
+  "output": "{ provider, mode, binary, providers, lastTest, testResults, local, sent }",
+  "reads": ["queries/getSettings.graphql"]
+}

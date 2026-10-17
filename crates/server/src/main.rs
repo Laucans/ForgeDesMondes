@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use dataguard_server::{MEMORY, applier, plant};
-use server::{Config, Error, Ports, app, fixtures, llm};
+use server::{Config, Error, Ports, app, fixtures, llm, reads};
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
 /// — among the tracked `*migrations/*.sql` `scripts/rules-runtime.sh` and
@@ -51,6 +51,12 @@ async fn run() -> Result<(), Error> {
 
     let engine = Arc::new(plant(&config.database_url).await?);
     let llm = Arc::new(llm(config.ports, config.fixtures.as_deref()));
+    if config.read_only_url.is_none() && config.database_url != MEMORY {
+        eprintln!(
+            "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"
+        );
+    }
+    let reads = Arc::new(reads(&config).await?);
 
     match &config.fixtures {
         None => eprintln!("server: no FIXTURES_DIR — starting without fixtures"),
@@ -78,7 +84,7 @@ async fn run() -> Result<(), Error> {
         .map_err(|source| Error::Serve { addr, source })?;
     let applier = applier(engine.clone());
     eprintln!("server: listening on {addr}");
-    let served = axum::serve(listener, app(engine, llm))
+    let served = axum::serve(listener, app(engine, llm, reads))
         .with_graceful_shutdown(stopped())
         .await
         .map_err(|source| Error::Serve { addr, source });

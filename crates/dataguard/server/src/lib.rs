@@ -14,6 +14,10 @@
 //! reconciliations, are wired in `bound()` — the two places this file
 //! expects the product to grow.
 //!
+//! A read (`POST /capabilities/<id>`) is answered by the Capability of the
+//! product that [`Reads`] serves, over the connection of its own that
+//! [`router_reading`] is given; [`router`] serves none.
+//!
 //! Over a database, the engine's writes of the AI settings reach the
 //! product's tables through [`projection::ProjectingStore`]; a save of them
 //! (`ai.saveSettings`) and a connection test (`ai.testConnection`) are
@@ -27,7 +31,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
-use harness_dataguard::api::{HoldRequest, ReadRequest, ReadResponse, ReviewDecision, Submission};
+use harness_dataguard::api::{HoldRequest, ReadResponse, ReviewDecision, Submission};
 pub use harness_dataguard::engine::Engine;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
@@ -38,6 +42,9 @@ use ports_llm::Llm;
 
 mod ai_settings;
 mod projection;
+mod reads;
+
+pub use reads::Reads;
 
 /// The `DATABASE_URL` that means no database: the in-memory store.
 pub const MEMORY: &str = "memory";
@@ -48,11 +55,12 @@ mod registry {
 
 type Shared = Arc<Engine>;
 
-/// What the wire protocol is served with: the engine, and the `llm` port a
-/// save of the AI settings detects its API type through.
+/// What the wire protocol is served with: the engine, the `llm` port a
+/// save of the AI settings detects its API type through, and the reads.
 struct Served<L> {
     engine: Shared,
     llm: Arc<L>,
+    reads: Arc<Reads>,
 }
 
 impl<L> Clone for Served<L> {
@@ -60,7 +68,14 @@ impl<L> Clone for Served<L> {
         Self {
             engine: self.engine.clone(),
             llm: self.llm.clone(),
+            reads: self.reads.clone(),
         }
+    }
+}
+
+impl<L> FromRef<Served<L>> for Arc<Reads> {
+    fn from_ref(served: &Served<L>) -> Self {
+        served.reads.clone()
     }
 }
 
@@ -131,7 +146,17 @@ fn bound(engine: Engine) -> Result<Engine, PlantError> {
 
 /// The shell's wire protocol, answered by `engine`; `llm` is the port a
 /// save of the AI settings reaches (a generic: [`Llm`] is not dyn-compatible).
+/// No Capability reads a row: see [`router_reading`].
 pub fn router<L: Llm + 'static>(engine: Arc<Engine>, llm: Arc<L>) -> Router {
+    router_reading(engine, llm, Arc::new(Reads::none()))
+}
+
+/// [`router`], its reads answered through `reads`.
+pub fn router_reading<L: Llm + 'static>(
+    engine: Arc<Engine>,
+    llm: Arc<L>,
+    reads: Arc<Reads>,
+) -> Router {
     Router::new()
         .route("/capabilities/{id}", post(capability))
         .route("/commands", post(submit::<L>))
@@ -144,7 +169,7 @@ pub fn router<L: Llm + 'static>(engine: Arc<Engine>, llm: Arc<L>) -> Router {
         .route("/holds/{id}/release", post(release))
         .route("/reviews/{id}", post(decide))
         .route("/dataVersion", get(version))
-        .with_state(Served { engine, llm })
+        .with_state(Served { engine, llm, reads })
 }
 
 /// The single applier: every second, each partition's head. It runs until
@@ -194,11 +219,18 @@ async fn submit<L: Llm>(
     Json(mut body): Json<Submission>,
 ) -> Reply<harness_dataguard::api::Submitted> {
     let mut refusal = None;
+    // To the millisecond: two tests in a second are told apart by the read of
+    // the last one (`ai.getSettings`).
     let now = || {
-        let seconds = std::time::SystemTime::now()
+        let elapsed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        save_settings::timestamp(seconds)
+            .unwrap_or_default();
+        let stamp = save_settings::timestamp(elapsed.as_secs());
+        format!(
+            "{}.{:03}Z",
+            stamp.trim_end_matches('Z'),
+            elapsed.subsec_millis()
+        )
     };
     if save_settings::names(&body.data_capability) {
         let prepared = save_settings::prepare(served.llm.as_ref(), &body.payload, &now()).await;
@@ -313,22 +345,45 @@ async fn decide(
     )
 }
 
+/// What `POST /capabilities/<id>` carries: the hash of the persisted query the
+/// Capability reads through — the registry's own when the caller names the
+/// Capability alone, as a Micro-UI does — and its variables.
+#[derive(serde::Deserialize, Default)]
+struct Read {
+    #[serde(default)]
+    sha256: Option<String>,
+}
+
+/// The hash `scripts/queries.sh` registered for `capability`.
+fn registered(capability: &str) -> Option<&'static str> {
+    static REGISTRY: std::sync::OnceLock<Registry> = std::sync::OnceLock::new();
+    REGISTRY
+        .get_or_init(|| Registry::parse(registry::REGISTRY).unwrap_or_default())
+        .queries
+        .iter()
+        .find(|q| q.capability == capability)
+        .map(|q| q.sha256.as_str())
+}
+
 /// A read through a persisted query: served only when the registry holds
 /// the Capability's query under this hash (contract C). What the query
-/// answers is the product's read crate's — `data` is where it plugs in.
+/// answers is the Capability's, over `reads`.
 async fn capability(
     State(engine): State<Shared>,
+    State(reads): State<Arc<Reads>>,
     Path(id): Path<String>,
-    Json(body): Json<ReadRequest>,
+    Json(body): Json<Read>,
 ) -> Reply<ReadResponse> {
-    let served = engine.served(&id, &body.sha256);
-    let answer = match served {
-        Ok(()) => engine.data_version().await.map(|as_of| ReadResponse {
-            as_of,
-            // The product's read crate answers here:
-            // `<system>_read::run(&id, &body.variables)`.
-            data: serde_json::Value::Null,
-        }),
+    let sha256 = body
+        .sha256
+        .as_deref()
+        .or_else(|| registered(&id))
+        .unwrap_or_default();
+    let answer = match engine.served(&id, sha256) {
+        Ok(()) => match (engine.data_version().await, reads.run(&id).await) {
+            (Ok(as_of), Ok(data)) => Ok(ReadResponse { as_of, data }),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        },
         Err(e) => Err(e),
     };
     reply(axum::http::StatusCode::OK, answer)
