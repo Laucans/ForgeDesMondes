@@ -23,6 +23,24 @@
       ]
     },
     {
+      "query": "GetCampaign",
+      "capability": "campaign.getCampaign",
+      "file": "crates/campaign/queries/get-campaign.graphql",
+      "sha256": "2821f3f9151b86accbefb5bb4c3042930a61581699d8e1eedd5e29f71b8608b0",
+      "fields": [
+        "campaign.id",
+        "campaign.name",
+        "campaign.kind",
+        "campaign.art",
+        "campaign.glyph",
+        "campaign.pitch",
+        "campaign.coverMediaId",
+        "campaign.createdAt",
+        "campaign.lastExportedAt",
+        "campaign_overview_view.entityCounts"
+      ]
+    },
+    {
       "query": "ListPlayers",
       "capability": "campaign.listPlayers",
       "file": "crates/campaign/queries/list-players.graphql",
