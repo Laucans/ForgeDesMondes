@@ -4,7 +4,7 @@
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
     "main_agent": "ef4b5eb5fb1ffdeb593c6690e872389b02fb63fe",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
-    "milestone/17-ai-provider-settings-api-or-binary-connection-test": "d1c7713c0bf8c92e339471c24e1203f50f7266f9",
+    "milestone/17-ai-provider-settings-api-or-binary-connection-test": "82785cb921d780693054c4da71ee9d9814284185",
     "milestone/18-campaigns-players-and-characters-with-versioned-history": "38d805dd18f3ba07da33aba10ac911bab848b3a8",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
@@ -56,6 +56,14 @@
       "at": "2026-10-17T01:33:08Z",
       "dir": "milestone/18-campaigns-players-and-characters-with-versioned-history/20261017T013308Z-8ff10f3",
       "schema": false,
+      "model": true
+    },
+    {
+      "branch": "milestone/17-ai-provider-settings-api-or-binary-connection-test",
+      "sha": "82785cb921d780693054c4da71ee9d9814284185",
+      "at": "2026-10-17T15:10:05Z",
+      "dir": "milestone/17-ai-provider-settings-api-or-binary-connection-test/20261017T151005Z-82785cb",
+      "schema": true,
       "model": true
     }
   ]
