@@ -35,7 +35,7 @@
     "mock/src/server.js": "516c9e530408229b",
     "scripts/dead-code.sh": "de2ac644d5643c95",
     "scripts/dump-schema.sh": "4b1b1ea4be2d4149",
-    "scripts/isolation.sh": "255a9715ee0b3836",
+    "scripts/isolation.sh": "5edf397dad7425c8",
     "scripts/mutants-rotation.sh": "d2997a4f9df21687",
     "scripts/ports-gate.mjs": "1a3564dfc358b968",
     "scripts/queries.sh": "8b5d58ecd1d7e5d6",
