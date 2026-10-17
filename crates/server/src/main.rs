@@ -6,14 +6,15 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use dataguard_server::{MEMORY, applier, plant};
-use server::{Config, Error, Ports, app, fixtures};
+use server::{Config, Error, Ports, app, fixtures, llm, reads};
 
-/// The product's migrations, `migrations/*.sql` at the repository's root —
-/// the folder `scripts/rules-runtime.sh` and `scripts/dump-schema.sh` read.
-/// The rules' runtime applies the same files with `psql` before it starts
-/// this server, and records nothing in `public.data_migrations`: until the
-/// two agree, a migration must hold being run twice (`IF NOT EXISTS`).
-const MIGRATIONS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../migrations");
+/// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
+/// — among the tracked `*migrations/*.sql` `scripts/rules-runtime.sh` and
+/// `scripts/dump-schema.sh` read. The rules' runtime applies the same files
+/// with `psql` before it starts this server, and records nothing in
+/// `public.data_migrations`: until the two agree, a migration must hold
+/// being run twice (`IF NOT EXISTS`).
+const MIGRATIONS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../data/migrations");
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -29,7 +30,9 @@ async fn main() -> ExitCode {
 async fn run() -> Result<(), Error> {
     let config = Config::read(|name| std::env::var(name).ok())?;
     match config.ports {
-        Ports::Fake => eprintln!("server: PORTS=fake — no port is built, nothing reaches outside"),
+        Ports::Fake => {
+            eprintln!("server: PORTS=fake — every port on its fake, nothing reaches outside")
+        }
     }
 
     let migrations = Path::new(MIGRATIONS);
@@ -47,6 +50,13 @@ async fn run() -> Result<(), Error> {
     }
 
     let engine = Arc::new(plant(&config.database_url).await?);
+    let llm = Arc::new(llm(config.ports, config.fixtures.as_deref()));
+    if config.read_only_url.is_none() && config.database_url != MEMORY {
+        eprintln!(
+            "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"
+        );
+    }
+    let reads = Arc::new(reads(&config).await?);
 
     match &config.fixtures {
         None => eprintln!("server: no FIXTURES_DIR — starting without fixtures"),
@@ -74,7 +84,7 @@ async fn run() -> Result<(), Error> {
         .map_err(|source| Error::Serve { addr, source })?;
     let applier = applier(engine.clone());
     eprintln!("server: listening on {addr}");
-    let served = axum::serve(listener, app(engine))
+    let served = axum::serve(listener, app(engine, llm, reads))
         .with_graceful_shutdown(stopped())
         .await
         .map_err(|source| Error::Serve { addr, source });

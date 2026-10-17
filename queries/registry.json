@@ -1,0 +1,26 @@
+{
+  "queries": [
+    {
+      "query": "GetSettings",
+      "capability": "ai.getSettings",
+      "file": "crates/ai/queries/getSettings.graphql",
+      "sha256": "cfea83d7afb34661e7490e82de6f9b920f15ab9a116b8d3a3e91583e839ed039",
+      "fields": [
+        "AiSettings.activeProviderId",
+        "AiSettings.aiProviderId",
+        "AiSettings.mode",
+        "AiSettings.label",
+        "AiSettings.url",
+        "AiSettings.detectedApiType",
+        "AiSettings.apiKey",
+        "AiSettings.binary",
+        "AiSettings.generationModel",
+        "AiSettings.summaryModel",
+        "AiSettings.lastTestOk",
+        "AiSettings.lastTestAt",
+        "AiSettings.lastTestMessage",
+        "AiSettings.lastTestLatencyMs"
+      ]
+    }
+  ]
+}

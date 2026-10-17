@@ -11,6 +11,7 @@
     },
     {
       "path": "pages/parametres-ia.html",
+      "screen": "parametres-ia",
       "title": "Paramètres IA",
       "objective": "Le DM choisit l’API cloud ou l’endpoint opencode de son serveur maison, renseigne URL, modèles et clé, et teste la connexion",
       "components": [
@@ -126,7 +127,9 @@
         "ai.saveSettings",
         "ai.testConnection"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/ai/ai-settings",
+      "builtFrom": "c34426ced3d7e857"
     },
     {
       "name": "CampaignOverview",

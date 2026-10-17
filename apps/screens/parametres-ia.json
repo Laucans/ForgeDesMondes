@@ -1,0 +1,8 @@
+{
+  "screen": "parametres-ia",
+  "generatedFrom": "Le DM choisit l’API cloud ou l’endpoint opencode de son serveur maison, renseigne URL, modèles et clé, et teste la connexion",
+  "version": 1,
+  "layout": [
+    { "AiSettings": {} }
+  ]
+}

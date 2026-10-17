@@ -8,6 +8,10 @@ export default defineConfig({
   testDir: '.',
   testMatch: '**/*.spec.ts',
   fullyParallel: false,
+  // One worker: every journey walks the same product and the same scratch
+  // database, and the product keeps one state (e.g. one last connection test),
+  // so two journeys in lock-step read each other's writes.
+  workers: 1,
   use: { baseURL: process.env.RULES_APP_URL || undefined },
   reporter: [['list'], ['./status-reporter.ts']],
 });
