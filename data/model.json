@@ -190,6 +190,144 @@
       ],
       "name": "ai_settings",
       "purpose": "Réglage unique de la machine : quel fournisseur est actif."
+    },
+    {
+      "business": [
+        "R1 : plusieurs campagnes et oneshots, sans compte",
+        "R2 : export et import en archive, l'import crée toujours une copie distincte"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la campagne.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0002_campaign.sql)."
+          ]
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom affiché à l'accueil (« Les Cendres de Valombre »).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1 : un oneshot n'a qu'une séance"
+          ],
+          "name": "kind",
+          "nullable": false,
+          "purpose": "« campagne » ou « oneshot ».",
+          "type": "text",
+          "technical": [
+            "CHECK campaign_kind : « campagne » ou « oneshot » (invariant oneshot-single-session de l'agrégat Campaign ; le compte des séances attend la table session)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "pitch",
+          "nullable": true,
+          "purpose": "Accroche affichée sous le nom.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "art",
+          "nullable": true,
+          "purpose": "Palette de la couverture par défaut (ember, dusk, night).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "glyph",
+          "nullable": true,
+          "purpose": "Lettre affichée sur la couverture par défaut.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1",
+            "R24"
+          ],
+          "name": "cover_media_id",
+          "nullable": true,
+          "purpose": "Illustration de couverture, aussi affichée par défaut sur la player view.",
+          "type": "uuid",
+          "technical": [
+            "Colonne simple pour l'instant : sa clé étrangère vers media.id (onDelete nullify, onUpdate propagate de l'agrégat) arrive avec la table de l'agrégat Media."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date de création de la campagne.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "last_exported_at",
+          "nullable": true,
+          "purpose": "Date du dernier export en archive, affichée sur l'aperçu.",
+          "type": "timestamptz",
+          "technical": [
+            "Écrit par campaign.exportCampaign seul, qui n'écrit rien d'autre (invariant export-stamps-date)."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "imported_at",
+          "nullable": true,
+          "purpose": "Date d'import si la campagne est une copie créée depuis une archive.",
+          "type": "timestamptz",
+          "technical": [
+            "Écrit par un import seul, à la création de la copie (invariant import-creates-copy)."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "origin_campaign_id",
+          "nullable": true,
+          "purpose": "Identifiant de la campagne d'origine lu dans l'archive. Ce n'est pas une clé étrangère : l'originale peut ne pas exister sur cette machine.",
+          "type": "uuid",
+          "technical": [
+            "Écrit par un import seul, à la création de la copie, jamais sur l'originale (invariant import-creates-copy)."
+          ]
+        },
+        {
+          "business": [
+            "R16",
+            "R111"
+          ],
+          "name": "sound_master_volume",
+          "nullable": false,
+          "purpose": "Volume global de la soundbox, entre 0 et 1.",
+          "type": "numeric(3,2)",
+          "technical": [
+            "1 par défaut ; CHECK campaign_master_volume_range : entre 0 et 1 (invariant master-volume-range)."
+          ]
+        }
+      ],
+      "name": "campaign",
+      "purpose": "Une campagne ou un oneshot du DM, avec sa couverture, son pitch et ses réglages propres. Aucun compte : toutes les campagnes de la machine sont visibles à l'accueil."
     }
   ],
   "links": []
