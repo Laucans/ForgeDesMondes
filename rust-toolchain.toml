@@ -1,0 +1,5 @@
+# The toolchain every build of this repository uses, local and CI alike.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

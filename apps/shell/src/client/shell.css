@@ -1,0 +1,46 @@
+/* The shell's own layout. Every colour, font, space and radius comes from
+   mock/design/tokens.css; the look of a component is the kit's (kit.css). */
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+}
+
+.shell-home,
+.shell-screen {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.shell-home h1 {
+  margin: 0;
+  font-family: var(--font-family-heading);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
+}
+
+.shell-screens {
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+}
+
+.shell-screens a {
+  color: var(--color-accent);
+}
+
+.shell-empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.shell-unavailable {
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-danger);
+  border-radius: var(--radius-medium);
+  color: var(--color-danger);
+  font-size: var(--font-size-small);
+}
