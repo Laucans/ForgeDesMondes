@@ -1,0 +1,13 @@
+[package]
+name = "list-entity-versions"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability campaign.listEntityVersions: an element's history, newest first, with the field-by-field changes of EntityVersion@1 — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+platform-conformance = { path = "../../../platform/conformance" }
