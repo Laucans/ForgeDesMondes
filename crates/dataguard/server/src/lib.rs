@@ -32,7 +32,9 @@ use axum::{Json, Router};
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::api::{HoldRequest, ReadResponse, ReviewDecision, Submission};
+use harness_dataguard::command::Entry;
 pub use harness_dataguard::engine::Engine;
+use harness_dataguard::guard::Invariants;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::postgres::{PgStore, SystemClock};
@@ -41,6 +43,7 @@ use harness_dataguard::store::Store;
 use ports_llm::Llm;
 
 mod ai_settings;
+mod campaign;
 mod projection;
 mod reads;
 
@@ -139,9 +142,28 @@ fn bound(engine: Engine) -> Result<Engine, PlantError> {
     for text in registry::DATA_CAPABILITIES {
         engine = engine.with_data_capability(DataCapability::parse(text)?);
     }
-    engine = engine.with_invariants(Arc::new(ai_settings::AiSettings));
+    engine = engine.with_invariants(Arc::new(Product));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
     Ok(engine)
+}
+
+/// The invariants of every aggregate the product executes: the engine holds
+/// one judge, and each aggregate's own judges its rows alone.
+struct Product;
+
+impl Invariants for Product {
+    fn violated(
+        &self,
+        aggregate: &str,
+        state: &std::collections::BTreeMap<String, serde_json::Value>,
+        entry: &Entry,
+    ) -> Vec<String> {
+        let judges: [&dyn Invariants; 2] = [&ai_settings::AiSettings, &campaign::Campaign];
+        judges
+            .iter()
+            .flat_map(|judge| judge.violated(aggregate, state, entry))
+            .collect()
+    }
 }
 
 /// The shell's wire protocol, answered by `engine`; `llm` is the port a
