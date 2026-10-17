@@ -1,0 +1,19 @@
+# The product's one Rust workspace (docs/ARCHITECTURE.md, layout). A slice —
+# a Capability or a DataCapability — is a member by its folder alone, through
+# the two globs: adding one edits no shared file (rule 2, gate
+# `workspace-members-by-glob`). Only the plumbing is named.
+[workspace]
+resolver = "3"
+members = [
+    "crates/*/capabilities/*",
+    "crates/*/data-capabilities/*",
+    "crates/data",
+    "crates/dataguard/server",
+    "crates/platform/conformance",
+]
+# The rules' business tests are a workspace of their own (contract P).
+exclude = ["tests/rules/business"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.99"
