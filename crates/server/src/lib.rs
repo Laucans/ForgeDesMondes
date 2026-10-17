@@ -1,0 +1,377 @@
+//! The product's one server: the shell's wire protocol answered by the
+//! DataGuard engine of `crates/dataguard/server`, and `GET /health` — the
+//! binary `scripts/rules-runtime.sh` builds and starts.
+//!
+//! What the binary reads from its environment ([`Config::read`]):
+//!
+//! - `PORT`: where it listens, on every interface — 8790 when unset;
+//! - `DATABASE_URL`: the product's PostgreSQL, or `memory` for the engine's
+//!   in-memory store;
+//! - `PORTS`: how the ports of ports.json are wired — only `fake`, the
+//!   default: every built port on its fake, no secret read, nothing reached
+//!   outside (no port is built yet);
+//! - `FIXTURES_DIR`: when set and not empty, the folder of the mock-up's
+//!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]).
+//!
+//! The server adds no read and no write path of its own: a read is served
+//! only when the engine's registry holds its persisted query, a write only
+//! through a DataCapability the engine registers.
+
+use std::net::{Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use axum::routing::get;
+use axum::{Json, Router};
+use dataguard_server::Engine;
+
+/// Where the server listens when `PORT` is unset: the rules' runtime's port.
+const DEFAULT_PORT: u16 = 8790;
+
+/// Why the server does not start.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// A variable the server needs is not set.
+    #[error("{name} is not set: {why}")]
+    Unset {
+        name: &'static str,
+        why: &'static str,
+    },
+    /// A variable holds a value the server does not take.
+    #[error("{name}={value:?} is not supported: {why}")]
+    Unsupported {
+        name: &'static str,
+        value: String,
+        why: &'static str,
+    },
+    /// The Data layer could not reach the database or apply a migration.
+    #[error(transparent)]
+    Data(#[from] data::Error),
+    /// The DataGuard engine could not be planted.
+    #[error(transparent)]
+    Plant(#[from] dataguard_server::PlantError),
+    /// The server could not listen, or stopped serving.
+    #[error("cannot serve on {addr}: {source}")]
+    Serve {
+        addr: SocketAddr,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+/// How the ports of ports.json are wired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ports {
+    /// Every built port on its fake adapter: nothing reaches outside, and no
+    /// secret is read.
+    Fake,
+}
+
+/// What the server starts with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Config {
+    /// Where it listens: every interface, on `PORT`.
+    pub addr: SocketAddr,
+    /// The database `DATABASE_URL` names, or [`dataguard_server::MEMORY`].
+    pub database_url: String,
+    /// How the ports are wired, from `PORTS`.
+    pub ports: Ports,
+    /// The fixtures' folder, from `FIXTURES_DIR`; none when unset or empty.
+    pub fixtures: Option<PathBuf>,
+}
+
+impl Config {
+    /// The configuration `var` gives — `std::env::var` in the binary.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Unset`] without `DATABASE_URL`, [`Error::Unsupported`]
+    /// naming `PORT` or `PORTS` when either holds a value the server does
+    /// not take.
+    pub fn read(var: impl Fn(&str) -> Option<String>) -> Result<Config, Error> {
+        let ports = match var("PORTS").as_deref() {
+            None | Some("fake") => Ports::Fake,
+            Some(other) => {
+                return Err(Error::Unsupported {
+                    name: "PORTS",
+                    value: other.to_string(),
+                    why: "only `fake` is — no port has a real adapter yet",
+                });
+            }
+        };
+        let port = match var("PORT") {
+            None => DEFAULT_PORT,
+            Some(text) => text.parse().map_err(|_| Error::Unsupported {
+                name: "PORT",
+                value: text,
+                why: "a TCP port is a number from 0 to 65535",
+            })?,
+        };
+        let database_url = var(data::READ_WRITE_URL).ok_or(Error::Unset {
+            name: data::READ_WRITE_URL,
+            why: "it names the product's PostgreSQL, or `memory`",
+        })?;
+        let fixtures = var("FIXTURES_DIR")
+            .filter(|dir| !dir.is_empty())
+            .map(PathBuf::from);
+        Ok(Config {
+            addr: SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)),
+            database_url,
+            ports,
+            fixtures,
+        })
+    }
+}
+
+/// A fixture file not loaded into the store: its name, and why.
+pub type Skipped = (String, String);
+
+/// Reads every `*.json` file directly under `dir`, by name, and answers the
+/// ones it skipped. None is loaded while no aggregate exists to hold it:
+/// each is skipped, and so is a file that is not JSON — neither stops the
+/// server.
+///
+/// # Errors
+///
+/// The folder's, when it cannot be listed.
+pub fn fixtures(dir: &Path) -> std::io::Result<Vec<Skipped>> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|e| e == "json") && path.is_file() {
+            files.push(path);
+        }
+    }
+    files.sort();
+    let mut skipped = Vec::new();
+    for path in files {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let why = match std::fs::read_to_string(&path) {
+            Err(e) => format!("cannot be read: {e}"),
+            Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+                Err(e) => format!("not JSON: {e}"),
+                Ok(_) => "no aggregate holds it".to_string(),
+            },
+        };
+        skipped.push((name, why));
+    }
+    Ok(skipped)
+}
+
+/// The shell's wire protocol through `engine`, and `GET /health`.
+pub fn app(engine: Arc<Engine>) -> Router {
+    dataguard_server::router(engine).route("/health", get(health))
+}
+
+/// Answers 200 once the server serves: migrations applied, engine planted.
+async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "status": "ok" }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use serde_json::{Value, json};
+    use tower::ServiceExt;
+
+    use super::*;
+
+    /// The configuration of these variables alone.
+    fn config(vars: &[(&str, &str)]) -> Result<Config, Error> {
+        let vars: HashMap<String, String> = vars
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        Config::read(|name| vars.get(name).cloned())
+    }
+
+    #[test]
+    fn the_configuration_reads_port_database_ports_and_fixtures() {
+        let read = config(&[
+            ("PORT", "8811"),
+            ("DATABASE_URL", "postgres://here/app"),
+            ("PORTS", "fake"),
+            ("FIXTURES_DIR", "mock/fixtures"),
+        ])
+        .expect("a valid configuration");
+        assert_eq!(
+            read,
+            Config {
+                addr: "0.0.0.0:8811".parse().unwrap(),
+                database_url: "postgres://here/app".to_string(),
+                ports: Ports::Fake,
+                fixtures: Some(PathBuf::from("mock/fixtures")),
+            }
+        );
+    }
+
+    #[test]
+    fn unset_ports_and_port_default_to_fake_and_8790() {
+        let read = config(&[("DATABASE_URL", "memory")]).expect("a valid configuration");
+        assert_eq!(read.ports, Ports::Fake);
+        assert_eq!(read.addr, "0.0.0.0:8790".parse().unwrap());
+        assert_eq!(read.fixtures, None);
+    }
+
+    #[test]
+    fn an_empty_fixtures_dir_means_no_fixtures() {
+        let read = config(&[("DATABASE_URL", "memory"), ("FIXTURES_DIR", "")])
+            .expect("a valid configuration");
+        assert_eq!(read.fixtures, None);
+    }
+
+    #[test]
+    fn an_unsupported_ports_value_is_refused_naming_ports() {
+        let refused = config(&[("DATABASE_URL", "memory"), ("PORTS", "real")])
+            .expect_err("PORTS=real is refused");
+        assert!(
+            matches!(&refused, Error::Unsupported { name: "PORTS", value, .. } if value == "real"),
+            "{refused:?}"
+        );
+        assert!(
+            refused.to_string().starts_with("PORTS=\"real\""),
+            "{refused}"
+        );
+    }
+
+    #[test]
+    fn a_port_that_is_not_a_number_is_refused_naming_port() {
+        let refused = config(&[("DATABASE_URL", "memory"), ("PORT", "eighty")])
+            .expect_err("PORT=eighty is refused");
+        assert!(
+            matches!(refused, Error::Unsupported { name: "PORT", .. }),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn without_database_url_the_server_does_not_start() {
+        let refused = config(&[]).expect_err("DATABASE_URL is required");
+        assert!(
+            matches!(
+                refused,
+                Error::Unset {
+                    name: "DATABASE_URL",
+                    ..
+                }
+            ),
+            "{refused:?}"
+        );
+    }
+
+    /// A folder of its own under the system's temporary one, holding `files`.
+    fn folder(name: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("server-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temporary folder");
+        for (file, text) in files {
+            std::fs::write(dir.join(file), text).expect("a fixture file");
+        }
+        dir
+    }
+
+    #[test]
+    fn every_json_fixture_is_read_and_skipped_with_why() {
+        let dir = folder(
+            "fixtures",
+            &[
+                ("b.json", "{\"items\": []}"),
+                ("a.json", "not json"),
+                ("notes.txt", "not a fixture"),
+            ],
+        );
+        let skipped = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        let names: Vec<&str> = skipped.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["a.json", "b.json"]);
+        assert!(skipped[0].1.starts_with("not JSON"), "{skipped:?}");
+        assert_eq!(skipped[1].1, "no aggregate holds it");
+    }
+
+    #[test]
+    fn a_missing_fixtures_folder_is_an_error_the_caller_logs() {
+        let dir = std::env::temp_dir().join(format!("server-absent-{}", std::process::id()));
+        assert!(fixtures(&dir).is_err());
+    }
+
+    /// The app over the in-memory engine, answering one request.
+    async fn answer(method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
+        let engine = dataguard_server::plant(dataguard_server::MEMORY)
+            .await
+            .expect("the in-memory engine");
+        let request = Request::builder().method(method).uri(uri);
+        let request = match body {
+            Some(body) => request
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string())),
+            None => request.body(Body::empty()),
+        }
+        .expect("a request");
+        let response = app(Arc::new(engine))
+            .oneshot(request)
+            .await
+            .expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn health_answers_200() {
+        let (status, body) = answer(Method::GET, "/health", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, json!({ "status": "ok" }));
+    }
+
+    #[tokio::test]
+    async fn data_version_answers_the_engines_version() {
+        let (status, body) = answer(Method::GET, "/dataVersion", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, json!({ "dataVersion": 0 }));
+    }
+
+    #[tokio::test]
+    async fn an_unregistered_query_is_404() {
+        let (status, body) = answer(
+            Method::POST,
+            "/capabilities/campaign.listCampaigns",
+            Some(json!({ "sha256": "0".repeat(64), "variables": {} })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("not a registered persisted query")),
+            "{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_data_capability_is_404() {
+        let (status, body) = answer(
+            Method::POST,
+            "/commands",
+            Some(json!({ "dataCapability": "campaign.createCampaign", "payload": {} })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("no DataCapability named campaign.createCampaign")),
+            "{body}"
+        );
+    }
+}
