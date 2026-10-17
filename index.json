@@ -4,6 +4,7 @@
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
     "main_agent": "8ff10f3c298070b5121d133d82da59da3375b2cd",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "8ff10f3c298070b5121d133d82da59da3375b2cd",
+    "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8ff10f3c298070b5121d133d82da59da3375b2cd",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
   },
@@ -37,6 +38,14 @@
       "sha": "8ff10f3c298070b5121d133d82da59da3375b2cd",
       "at": "2026-10-17T01:20:01Z",
       "dir": "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer/20261017T012001Z-8ff10f3",
+      "schema": false,
+      "model": true
+    },
+    {
+      "branch": "milestone/17-ai-provider-settings-api-or-binary-connection-test",
+      "sha": "8ff10f3c298070b5121d133d82da59da3375b2cd",
+      "at": "2026-10-17T01:25:29Z",
+      "dir": "milestone/17-ai-provider-settings-api-or-binary-connection-test/20261017T012529Z-8ff10f3",
       "schema": false,
       "model": true
     }
