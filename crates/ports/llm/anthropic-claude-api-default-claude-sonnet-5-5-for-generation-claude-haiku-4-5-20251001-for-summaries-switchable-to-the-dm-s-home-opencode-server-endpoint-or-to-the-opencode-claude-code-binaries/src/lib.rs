@@ -30,8 +30,13 @@ use ports_llm::{
 use reqwest::{Client, ClientBuilder, Url, redirect};
 use serde_json::{Value, json};
 
+// The modules' files have short names on purpose: cargo-mutants names a file
+// after the path of the source it mutates, and this crate's directory name
+// (ports.json's `adapter`) already takes 211 of the 255 bytes a file name holds.
+#[path = "cloud.rs"]
 mod anthropic;
 mod http;
+#[path = "home.rs"]
 mod opencode_endpoint;
 
 use http::Failure;

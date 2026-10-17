@@ -980,3 +980,20 @@ async fn a_model_that_answers_nothing_still_connects_but_generates_nothing() {
         "{error}"
     );
 }
+
+#[tokio::test]
+async fn a_saved_home_server_type_does_not_send_chat_completions_to_the_cloud() {
+    // The provider was saved as the home server; its URL has since become the cloud's.
+    let cloud = Stub::start(Flavour::Anthropic { key: CLOUD_KEY }).await;
+    let saved = ProviderConfig::Api {
+        url: cloud.cloud_url(),
+        api_type: Some(ports_llm::ApiType::Opencode),
+        key: Some(Secret::new(CLOUD_KEY)),
+        models: models(),
+    };
+    let client = cloud_client(&cloud, None);
+    client.generate(&saved, &prompt("bonjour")).await.unwrap();
+    assert_eq!(cloud.count("POST", "/v1/messages"), 1);
+    assert_eq!(cloud.count("POST", "/v1/chat/completions"), 0);
+    assert_eq!(client.journal().list()[0].provider, Provider::Cloud);
+}
