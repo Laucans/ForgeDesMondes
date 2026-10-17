@@ -2,6 +2,7 @@
 //! fake, and only the outcome kept.
 
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 use ports_llm::fake::{FAKE_LATENCY_MS, FakeLlm};
 use ports_llm::{
@@ -128,11 +129,20 @@ async fn what_cannot_be_tested_is_refused_and_sends_nothing() {
     assert!(llm.journal().list().is_empty());
 }
 
-/// A port that reached no provider and says why in its own words.
-struct Unreachable(RequestJournal);
+/// A port that reached no provider and says why in its own words; it keeps
+/// the configurations it was asked to test.
+#[derive(Default)]
+struct Unreachable {
+    journal: RequestJournal,
+    asked: Mutex<Vec<ProviderConfig>>,
+}
 
 impl Llm for Unreachable {
-    async fn test_connection(&self, _: &ProviderConfig) -> ConnectionReport {
+    async fn test_connection(&self, config: &ProviderConfig) -> ConnectionReport {
+        self.asked
+            .lock()
+            .expect("not poisoned")
+            .push(config.clone());
         ConnectionReport {
             ok: false,
             provider: None,
@@ -150,13 +160,13 @@ impl Llm for Unreachable {
     }
 
     fn journal(&self) -> &RequestJournal {
-        &self.0
+        &self.journal
     }
 }
 
 #[tokio::test]
 async fn a_test_that_reached_no_provider_says_the_type_is_not_recognised_and_why() {
-    let prepared = prepared(&Unreachable(RequestJournal::new()), api(HOME, "")).await;
+    let prepared = prepared(&Unreachable::default(), api(HOME, "")).await;
     refused(&prepared);
     assert_eq!(
         prepared.payload["lastTestMessage"],
@@ -171,4 +181,22 @@ fn the_id_is_named_with_or_without_its_version() {
     assert!(names("ai.testConnection@1"));
     assert!(!names("ai.saveSettings@1"));
     assert!(!names("ai.testConnectionAgain"));
+}
+
+#[tokio::test]
+async fn the_key_on_screen_is_the_port_s_for_the_test_and_no_key_is_none() {
+    let llm = Unreachable::default();
+    prepared(&llm, api(HOME, "sk-test-only")).await;
+    prepared(&llm, api(HOME, "")).await;
+    let keys: Vec<Option<String>> = llm
+        .asked
+        .lock()
+        .expect("not poisoned")
+        .iter()
+        .map(|config| match config {
+            ProviderConfig::Api { key, .. } => key.as_ref().map(|k| k.expose().to_owned()),
+            ProviderConfig::Binary { .. } => panic!("an api test"),
+        })
+        .collect();
+    assert_eq!(keys, [Some("sk-test-only".to_owned()), None]);
 }
