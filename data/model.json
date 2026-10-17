@@ -328,6 +328,66 @@
       ],
       "name": "campaign",
       "purpose": "Une campagne ou un oneshot du DM, avec sa couverture, son pitch et ses réglages propres. Aucun compte : toutes les campagnes de la machine sont visibles à l'accueil."
+    },
+    {
+      "business": [
+        "R4 : les joueurs sont conservés à part des personnages ; un PJ est lié à un joueur",
+        "player-not-character : un joueur n'est pas un élément de campagne, il n'a ni fiche ni token"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du joueur.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0003_player.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne à laquelle participe le joueur.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Player.campaignId : onDelete cascade, onUpdate propagate) : supprimer une campagne supprime ses joueurs.",
+            "Indexée (player_campaign_id) : les joueurs d'une campagne sont lus par elle."
+          ]
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom du joueur.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "notes",
+          "nullable": true,
+          "purpose": "Notes du DM sur le joueur.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date d'ajout.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "player",
+      "purpose": "Un joueur réel de la table, distinct des personnages qu'il incarne : un nom et des notes, ni fiche ni token. Ses PJ pointent vers lui (character.player_id), jamais l'inverse."
     }
   ],
   "links": []

@@ -1,0 +1,43 @@
+{
+  "aggregate": "Player",
+  "fields": {
+    "campaignId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "createdAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "id": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "name": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "notes": {
+      "criticality": "low",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "player-not-character",
+      "onViolation": "reject",
+      "rule": "Un joueur n'est pas un élément de campagne : il n'a ni fiche ni token. Il est relié à ses PJ par character.player_id."
+    }
+  ],
+  "relations": [
+    {
+      "from": "Player.campaignId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    }
+  ]
+}
