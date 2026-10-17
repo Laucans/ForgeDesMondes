@@ -455,7 +455,7 @@ mod tests {
     async fn an_unregistered_query_is_404() {
         let (status, body) = answer(
             Method::POST,
-            "/capabilities/campaign.listCampaigns",
+            "/capabilities/nothing.registered",
             Some(json!({ "sha256": "0".repeat(64), "variables": {} })),
         )
         .await;
@@ -510,7 +510,7 @@ mod tests {
     async fn a_capability_with_no_registered_query_is_404_without_a_hash_too() {
         let (status, body) = answer(
             Method::POST,
-            "/capabilities/campaign.listCampaigns",
+            "/capabilities/nothing.registered",
             Some(json!({ "variables": {} })),
         )
         .await;
