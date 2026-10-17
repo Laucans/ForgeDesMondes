@@ -1,0 +1,45 @@
+{
+  "provider": "opencode",
+  "providers": {
+    "cloud": {
+      "label": "API cloud",
+      "url": "https://api.anthropic.com/v1",
+      "generationModel": "claude-sonnet-5-5",
+      "summaryModel": "claude-haiku-4-5-20251001",
+      "key": "sk-ant-••••••••••••••••3f9c"
+    },
+    "opencode": {
+      "label": "Endpoint opencode du serveur maison",
+      "url": "http://192.168.1.40:4096",
+      "generationModel": "qwen2.5-32b-instruct",
+      "summaryModel": "qwen2.5-14b-instruct",
+      "key": ""
+    }
+  },
+  "lastTest": {
+    "ok": true,
+    "at": "2026-10-14T19:02:00",
+    "provider": "opencode",
+    "latency": "0,84 s"
+  },
+  "testResults": {
+    "cloud": {
+      "ok": true,
+      "message": "Connexion réussie : claude-sonnet-5-5 répond en 1,2 s. Le modèle de résumé claude-haiku-4-5-20251001 est disponible."
+    },
+    "opencode": {
+      "ok": true,
+      "message": "Connexion réussie : qwen2.5-32b-instruct répond en 0,84 s sur 192.168.1.40. Le modèle de résumé qwen2.5-14b-instruct est chargé."
+    }
+  },
+  "local": [
+    "L’audio du micro, qui ne quitte jamais cette machine",
+    "La transcription en français (Phonon, en local)",
+    "La détection des noms et alias de la campagne et des noms de sons"
+  ],
+  "sent": [
+    "Les prompts initiaux des personnages, une fois transcrits",
+    "Les briefs de séance transcrits et les notes importées",
+    "Le journal de séance, pour en générer le résumé"
+  ]
+}

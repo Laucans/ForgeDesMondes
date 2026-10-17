@@ -1,0 +1,66 @@
+[
+  {
+    "id": "sc1",
+    "order": 1,
+    "title": "Retour à la Taverne du Sanglier",
+    "places": [
+      "taverne-sanglier"
+    ],
+    "characters": [
+      "gaspard",
+      "morlox"
+    ],
+    "events": [
+      "marche-noir"
+    ],
+    "media": [
+      "ill-gaspard",
+      "ill-salle-sanglier"
+    ],
+    "toCreate": [],
+    "battlemap": null,
+    "notes": "Gaspard a entendu parler de bandits qui tiennent le gué. Morlox entre, trempé, et cherche à éviter le regard de Kael. Porte de la cave qui grince quand il arrive."
+  },
+  {
+    "id": "sc2",
+    "order": 2,
+    "title": "La route des Corbeaux",
+    "places": [
+      "valombre"
+    ],
+    "characters": [],
+    "events": [
+      "incendie-moulin"
+    ],
+    "media": [
+      "ill-moulin"
+    ],
+    "toCreate": [
+      "tc-odric"
+    ],
+    "battlemap": null,
+    "notes": "Frère Odric arrête le groupe à la sortie du bourg : le gué n’est plus sûr depuis l’incendie. Il demande qu’on retrouve sa fille."
+  },
+  {
+    "id": "sc3",
+    "order": 3,
+    "title": "L’embuscade au Gué",
+    "places": [],
+    "characters": [
+      "bandit",
+      "vesna",
+      "morlox"
+    ],
+    "events": [
+      "embuscade-gue"
+    ],
+    "media": [
+      "bm-gue"
+    ],
+    "toCreate": [
+      "tc-gue"
+    ],
+    "battlemap": "bmi-gue-s4",
+    "notes": "Trois bandits sur la rive est, Vesna cachée dans les roseaux. Sous 10 PV, Vesna fuit par le gué. Morlox arrive en courant au round 3 pour négocier."
+  }
+]

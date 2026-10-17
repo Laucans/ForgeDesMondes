@@ -1,0 +1,48 @@
+{
+  "session": {
+    "id": "s3",
+    "order": 3,
+    "title": "Le marché noir",
+    "date": "2026-10-03"
+  },
+  "summary": "Le groupe a suivi la piste de l’incendie jusqu’au marché noir caché sous le pont de Valombre. Morlox, après avoir nié pendant une heure, a avoué qu’on lui avait commandé de l’huile de lampe en grande quantité la veille de l’incendie. Sirielle a reconnu sur une caisse le sceau de la Tour d’Ébène. La séance s’est terminée à la Taverne du Sanglier, où Gaspard a promis de se renseigner sur les cavaliers vus au Gué des Corbeaux.",
+  "summaryMeta": "Généré à la clôture par qwen2.5-14b-instruct (opencode maison), retouché le 4 oct. 2026",
+  "mentions": [
+    {
+      "id": "morlox",
+      "type": "pnj",
+      "name": "Morlox"
+    },
+    {
+      "id": "gaspard",
+      "type": "pnj",
+      "name": "Gaspard Grosmollet"
+    },
+    {
+      "id": "taverne-sanglier",
+      "type": "lieu",
+      "name": "La Taverne du Sanglier"
+    },
+    {
+      "id": "tour-ebene",
+      "type": "lieu",
+      "name": "La Tour d’Ébène"
+    },
+    {
+      "id": "incendie-moulin",
+      "type": "événement",
+      "name": "L’incendie du moulin"
+    },
+    {
+      "id": "marche-noir",
+      "type": "événement",
+      "name": "Le marché noir de Morlox"
+    }
+  ],
+  "threads": [
+    "Morlox a promis de montrer le passage sous le moulin contre 40 po.",
+    "Qui a commandé l’huile ? Le sceau de la Tour d’Ébène désigne un acheteur puissant.",
+    "Aerin, le frère d’Elowen, aurait été vu avec des cavaliers près du Gué des Corbeaux.",
+    "Kael doit 6 po d’ardoise à Gaspard."
+  ]
+}

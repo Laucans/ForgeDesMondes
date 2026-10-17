@@ -1,0 +1,64 @@
+[
+  {
+    "heard": "Vous entrez dans la taverne.",
+    "kind": "entity",
+    "type": "lieu",
+    "id": "taverne-sanglier",
+    "name": "La Taverne du Sanglier",
+    "via": "la taverne"
+  },
+  {
+    "heard": "Gaspard lève la tête de son comptoir.",
+    "kind": "entity",
+    "type": "pnj",
+    "id": "gaspard",
+    "name": "Gaspard Grosmollet",
+    "via": "Gaspard"
+  },
+  {
+    "heard": "Derrière le comptoir, la porte grince.",
+    "kind": "sound",
+    "id": "snd-porte",
+    "name": "Porte qui grince",
+    "via": "la porte grince"
+  },
+  {
+    "heard": "On devrait demander à Morlox, non ?",
+    "kind": "entity",
+    "type": "pnj",
+    "id": "morlox",
+    "name": "Morlox",
+    "via": "Morlox"
+  },
+  {
+    "heard": "Les bandits du gué, vous dites ?",
+    "kind": "entity",
+    "type": "pnj",
+    "id": "bandit",
+    "name": "Bandit",
+    "via": "les bandits"
+  },
+  {
+    "heard": "Ça sent encore le feu du moulin.",
+    "kind": "entity",
+    "type": "événement",
+    "id": "incendie-moulin",
+    "name": "L’incendie du moulin",
+    "via": "le feu du moulin"
+  },
+  {
+    "heard": "Un corbeau croasse sur le toit.",
+    "kind": "sound",
+    "id": "snd-corbeau",
+    "name": "Cri de corbeau",
+    "via": "corbeau"
+  },
+  {
+    "heard": "La Balafrée ? Jamais entendu parler.",
+    "kind": "entity",
+    "type": "pnj",
+    "id": "vesna",
+    "name": "Vesna la Balafrée",
+    "via": "la Balafrée"
+  }
+]
