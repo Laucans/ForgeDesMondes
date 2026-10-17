@@ -55,55 +55,6 @@
     },
     {
       "business": [
-        "R4"
-      ],
-      "fields": [
-        {
-          "business": [],
-          "name": "id",
-          "nullable": false,
-          "purpose": "Identifiant du joueur.",
-          "type": "uuid"
-        },
-        {
-          "business": [],
-          "name": "campaign_id",
-          "nullable": false,
-          "purpose": "Campagne à laquelle participe le joueur.",
-          "references": "campaign.id",
-          "type": "uuid"
-        },
-        {
-          "business": [
-            "R4"
-          ],
-          "name": "name",
-          "nullable": false,
-          "purpose": "Nom du joueur.",
-          "type": "text"
-        },
-        {
-          "business": [
-            "R4"
-          ],
-          "name": "notes",
-          "nullable": true,
-          "purpose": "Notes du DM sur le joueur.",
-          "type": "text"
-        },
-        {
-          "business": [],
-          "name": "created_at",
-          "nullable": false,
-          "purpose": "Date d'ajout.",
-          "type": "timestamptz"
-        }
-      ],
-      "name": "player",
-      "purpose": "Un joueur réel de la table, distinct des personnages qu'il incarne."
-    },
-    {
-      "business": [
         "R4",
         "R93",
         "R94",
