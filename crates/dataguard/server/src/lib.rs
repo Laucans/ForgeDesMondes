@@ -853,6 +853,55 @@ mod tests {
         );
     }
 
+    /// `POST /capabilities/<id>` with `body`.
+    async fn read(id: &str, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let request = Request::post(format!("/capabilities/{id}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        answer(request).await
+    }
+
+    #[test]
+    fn a_capability_is_registered_under_the_hash_of_its_query() {
+        let hash = registered("ai.getSettings").expect("ai.getSettings is registered");
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "{hash}");
+        assert_eq!(registered("campaign.listCampaigns"), None);
+    }
+
+    #[tokio::test]
+    async fn a_read_naming_the_registered_hash_or_none_is_served() {
+        let hash = registered("ai.getSettings").expect("registered");
+        for body in [
+            serde_json::json!({ "sha256": hash, "variables": {} }),
+            serde_json::json!({ "variables": {} }),
+        ] {
+            let (status, answered) = read("ai.getSettings", body).await;
+            assert_eq!(status, StatusCode::OK, "{answered}");
+            assert!(answered["data"]["providers"].is_object(), "{answered}");
+            assert!(answered["asOf"].is_u64(), "{answered}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_read_under_another_hash_or_of_no_registered_query_is_404() {
+        for (id, body) in [
+            (
+                "ai.getSettings",
+                serde_json::json!({ "sha256": "0".repeat(64) }),
+            ),
+            ("campaign.listCampaigns", serde_json::json!({})),
+            (
+                "campaign.listCampaigns",
+                serde_json::json!({ "sha256": "0".repeat(64) }),
+            ),
+        ] {
+            let (status, answered) = read(id, body).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{id}: {answered}");
+        }
+    }
+
     #[test]
     fn each_refusal_has_its_status() {
         let cases = [

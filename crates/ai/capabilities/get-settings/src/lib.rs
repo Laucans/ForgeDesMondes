@@ -387,6 +387,27 @@ mod tests {
     }
 
     #[test]
+    fn the_key_shows_what_its_length_allows_at_each_boundary() {
+        let bullets = "•".repeat(BULLETS);
+        // Eight characters: the last four show, never the first.
+        assert_eq!(mask(Some("12345678")), format!("{bullets}5678"));
+        // Twenty-three: still the last four alone; twenty-four: the vendor prefix too.
+        let long = "abcdefghijklmnopqrstuvwx";
+        assert_eq!(mask(Some(&long[..23])), format!("{bullets}tuvw"));
+        assert_eq!(mask(Some(long)), format!("abcdefg{bullets}uvwx"));
+    }
+
+    #[test]
+    fn at_the_same_instant_and_outcome_the_first_row_is_shown() {
+        let at = "2026-10-17T10:00:07.000000Z";
+        let rows = json!([
+            tested(api_row(CLOUD, "cloud", true), true, at, "ok", Some(10)),
+            tested(api_row(HOME, "opencode", false), true, at, "ok", Some(10)),
+        ]);
+        assert_eq!(answer(&rows)["lastTest"]["provider"], "cloud");
+    }
+
+    #[test]
     fn a_key_of_medium_length_shows_only_its_last_four_characters() {
         assert_eq!(mask(Some("0123456789ab")), "••••••••••••••••89ab");
         assert_eq!(mask(Some("1234567")), "••••••••••••••••");
