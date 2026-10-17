@@ -16,6 +16,8 @@ use serde_json::{Value, json};
 const CREATE: &str = r#"{"dataCapability":"test.createCampaign","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 /// A campaign's fields changed.
 const UPDATE: &str = r#"{"dataCapability":"test.updateCampaign","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
+/// A campaign deleted: the engine's soft delete, a tombstone.
+const DELETE: &str = r#"{"dataCapability":"test.deleteCampaign","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 /// An export to an archive, under the id the invariant knows it by.
 const EXPORT: &str = r#"{"dataCapability":"campaign.exportCampaign","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 /// An export that would create its campaign rather than stamp it.
@@ -27,7 +29,7 @@ const COPY: &str = "c1000000-0000-4000-8000-000000000002";
 /// The engine as the server plants it, with the test-only DataCapabilities.
 async fn engine() -> Engine {
     let mut engine = plant(MEMORY).await.expect("the in-memory engine");
-    for manifest in [CREATE, UPDATE, EXPORT] {
+    for manifest in [CREATE, UPDATE, DELETE, EXPORT] {
         engine = engine.with_data_capability(DataCapability::parse(manifest).expect("contract F"));
     }
     engine
@@ -402,4 +404,13 @@ async fn export_stamps_date_rejects_an_export_that_creates_its_campaign() {
             .any(|id| id == "export-stamps-date"),
         "{result:?}"
     );
+}
+
+#[tokio::test]
+async fn a_deleted_campaign_is_not_judged_by_its_invariants() {
+    let engine = with_valombre().await;
+    applied(&written(&engine, "test.deleteCampaign", json!({ "id": VALOMBRE })).await);
+    // Nor one the engine never held, whose row it knows by its id alone: no
+    // kind for oneshot-single-session to judge, and none needed to delete it.
+    applied(&written(&engine, "test.deleteCampaign", json!({ "id": COPY })).await);
 }
