@@ -20,6 +20,8 @@ const SAVE: &str = r#"{"dataCapability":"test.saveEntity","owner":"dataguard","v
 const DAMAGE: &str = r#"{"dataCapability":"test.damageEntity","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Entity","id":"$entityId"},"mode":"relative","callableBy":["*"]}"#;
 /// A command that declares it writes the DEX modifier.
 const DEX_MODIFIER: &str = r#"{"dataCapability":"test.typeDexModifier","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Entity","id":"$entityId"},"touches":["Entity.dexterity","Entity.dexterityModifier"],"mode":"overwrite","callableBy":["*"]}"#;
+/// A command that declares it writes the DEX score alone.
+const DEXTERITY: &str = r#"{"dataCapability":"test.setDexterity","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Entity","id":"$entityId"},"touches":["Entity.dexterity"],"mode":"overwrite","callableBy":["*"]}"#;
 /// An element removed: the engine's soft delete, a tombstone.
 const REMOVE: &str = r#"{"dataCapability":"test.removeEntity","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"Entity","id":"$entityId"},"mode":"overwrite","callableBy":["*"]}"#;
 /// A campaign created: another aggregate, which these invariants leave alone.
@@ -34,7 +36,15 @@ const PORTRAIT: &str = "d1000000-0000-4000-8000-000000000001";
 /// The engine as the server plants it, with the test-only DataCapabilities.
 async fn engine() -> Engine {
     let mut engine = plant(MEMORY).await.expect("the in-memory engine");
-    for manifest in [CREATE, SAVE, DAMAGE, DEX_MODIFIER, REMOVE, CAMPAIGN] {
+    for manifest in [
+        CREATE,
+        SAVE,
+        DAMAGE,
+        DEX_MODIFIER,
+        DEXTERITY,
+        REMOVE,
+        CAMPAIGN,
+    ] {
         engine = engine.with_data_capability(DataCapability::parse(manifest).expect("contract F"));
     }
     engine
@@ -320,6 +330,16 @@ async fn every_change_versioned_rejects_a_version_written_again() {
         &written(&engine, "test.saveEntity", edited).await,
         "every-change-versioned",
     );
+    // Its number again, under a new id.
+    let renumbered = with(
+        version(json!({ "entityId": ELOWEN, "notes": "…" }), 1, "dm"),
+        "entityVersionId",
+        json!("f1000000-0000-4000-8000-0000000000ff"),
+    );
+    rejected_by(
+        &written(&engine, "test.saveEntity", renumbered).await,
+        "every-change-versioned",
+    );
     // A new number under the id of the version written.
     let reused = with(
         save("dm", json!({ "notes": "…" })),
@@ -548,6 +568,15 @@ async fn dex_modifier_derived_rejects_a_typed_modifier() {
         )
         .await,
         "dex-modifier-derived",
+    );
+    // The score is written; the modifier follows from it.
+    applied(
+        &written(
+            &engine,
+            "test.setDexterity",
+            save("dm", json!({ "dexterity": 16 })),
+        )
+        .await,
     );
 }
 
