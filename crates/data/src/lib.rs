@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::Type;
-use tokio_postgres::{NoTls, Row};
+use tokio_postgres::{Column, NoTls, Row};
 
 pub use tokio_postgres::Client;
 pub use tokio_postgres::types::ToSql;
@@ -28,8 +28,16 @@ pub const READ_WRITE_URL: &str = "DATABASE_URL";
 /// The variable naming the read-only connection.
 pub const READ_ONLY_URL: &str = "DATABASE_URL_READONLY";
 
+/// Where the applied migrations are recorded: one fixed table, whatever the
+/// `search_path` of the run.
+const TRACKING: &str = "public.data_migrations";
+
 /// One applier at a time, whatever the number of servers starting.
 const LOCK: &str = "SELECT pg_advisory_xact_lock(hashtext('data_migrations'))";
+
+/// The session as the client was opened: what an earlier `SET`, `SET ROLE`
+/// or `SET SESSION AUTHORIZATION` changed is undone.
+const FRESH: &str = "RESET ALL; RESET SESSION AUTHORIZATION; RESET ROLE";
 
 /// What the Data layer answers when it cannot.
 #[derive(Debug, thiserror::Error)]
@@ -55,6 +63,10 @@ pub enum Error {
         #[source]
         source: tokio_postgres::Error,
     },
+    /// A migration file was edited after it was applied: no file of the run
+    /// is applied.
+    #[error("migration {} was edited after it was applied", file.display())]
+    Changed { file: PathBuf },
     /// PostgreSQL refused the statement on the read-only connection: a write,
     /// or a privilege the read-only role has not.
     #[error("refused on the read-only connection: {0}")]
@@ -94,15 +106,15 @@ fn url_of(name: &'static str) -> Result<String, Error> {
     std::env::var(name).map_err(|_| Error::Unset(name))
 }
 
-/// A connection, its driver spawned on the current Tokio runtime.
+/// A connection, its driver spawned on the current Tokio runtime. The driver
+/// ends when the client is dropped; a lost connection is the error of the
+/// client's next call.
 async fn connect(url: &str) -> Result<Client, Error> {
     let (client, connection) = tokio_postgres::connect(url, NoTls)
         .await
         .map_err(Error::Database)?;
     tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("data: connection lost: {e}");
-        }
+        let _ = connection.await;
     });
     Ok(client)
 }
@@ -110,54 +122,76 @@ async fn connect(url: &str) -> Result<Client, Error> {
 /// Applies every `*.sql` file directly under `dir` not applied yet, by name
 /// in byte order — the order `scripts/dump-schema.sh` and
 /// `scripts/rules-runtime.sh` give the files of one `migrations/` folder —
-/// each in a transaction of its own that also records its name in
-/// `data_migrations`, in the schema the connection's `search_path` names
-/// first. Returns the names of the files this run applied: a second run
-/// applies none.
+/// each in a transaction of its own that also records its name and the
+/// `md5` of its text, line endings as `\n`, in `public.data_migrations`.
+/// An applied file whose text has changed since stops the run before any
+/// file is applied. Returns the names of the
+/// files this run applied: a second run applies none.
 ///
-/// As `psql -f` gives each file a session of its own, a file's
-/// `SET search_path` does not outlive it. A file holds no transaction control
-/// of its own and nothing that cannot run in a transaction
+/// As `psql -f` gives each file a session of its own, each file runs in the
+/// session as the client was opened: a `SET` made on the client before, or
+/// by an earlier file, is reset. A file holds no transaction control of its
+/// own and nothing that cannot run in a transaction
 /// (`CREATE INDEX CONCURRENTLY`).
 ///
 /// # Errors
 ///
 /// [`Error::Migration`] naming the file that failed, which is rolled back:
 /// the files before it stay applied, none after it is tried.
+/// [`Error::Changed`] naming the first applied file whose text has changed
+/// since, before any file is applied.
 /// [`Error::Io`] when `dir` or a file cannot be read, [`Error::Database`]
 /// when the tracking table cannot be kept.
 pub async fn migrate(client: &mut Client, dir: &Path) -> Result<Vec<String>, Error> {
-    let files = migrations(dir)?;
-    let here = client
-        .query_one(
-            "SELECT quote_ident(current_schema()), current_setting('search_path')",
-            &[],
-        )
-        .await
-        .map_err(Error::Database)?;
-    let (schema, search_path): (String, String) = (
-        here.try_get(0).map_err(Error::Database)?,
-        here.try_get(1).map_err(Error::Database)?,
-    );
-    let tracking = format!("{schema}.data_migrations");
+    let mut files = Vec::new();
+    for (name, path) in migrations(dir)? {
+        let sql = std::fs::read_to_string(&path).map_err(|source| Error::Io {
+            path: path.clone(),
+            source,
+        })?;
+        files.push((name, path, sql.replace("\r\n", "\n")));
+    }
     let tx = client.transaction().await.map_err(Error::Database)?;
+    tx.batch_execute(FRESH).await.map_err(Error::Database)?;
     tx.batch_execute(LOCK).await.map_err(Error::Database)?;
     tx.batch_execute(&format!(
-        "CREATE TABLE IF NOT EXISTS {tracking} (
+        "CREATE TABLE IF NOT EXISTS {TRACKING} (
             file text PRIMARY KEY,
+            checksum text NOT NULL,
             applied_at timestamptz NOT NULL DEFAULT now()
         )"
     ))
     .await
     .map_err(Error::Database)?;
+    let (names, texts): (Vec<&str>, Vec<&str>) = files
+        .iter()
+        .map(|(name, _, sql)| (name.as_str(), sql.as_str()))
+        .unzip();
+    let changed: Vec<String> = tx
+        .query(
+            &format!(
+                "SELECT file FROM unnest($1::text[], $2::text[]) AS here (file, text) \
+                 JOIN {TRACKING} USING (file) WHERE checksum <> md5(text)"
+            ),
+            &[&names, &texts],
+        )
+        .await
+        .map_err(Error::Database)?
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    if let Some((_, path, _)) = files.iter().find(|(name, ..)| changed.contains(name)) {
+        return Err(Error::Changed { file: path.clone() });
+    }
     tx.commit().await.map_err(Error::Database)?;
     let mut applied = Vec::new();
-    for (name, path) in files {
+    for (name, path, sql) in files {
         let tx = client.transaction().await.map_err(Error::Database)?;
+        tx.batch_execute(FRESH).await.map_err(Error::Database)?;
         tx.batch_execute(LOCK).await.map_err(Error::Database)?;
         let done = tx
             .query_opt(
-                &format!("SELECT 1 FROM {tracking} WHERE file = $1"),
+                &format!("SELECT 1 FROM {TRACKING} WHERE file = $1"),
                 &[&name],
             )
             .await
@@ -166,22 +200,13 @@ pub async fn migrate(client: &mut Client, dir: &Path) -> Result<Vec<String>, Err
         if done {
             continue;
         }
-        let sql = std::fs::read_to_string(&path).map_err(|source| Error::Io {
-            path: path.clone(),
-            source,
-        })?;
         tx.batch_execute(&sql)
             .await
             .map_err(|source| Error::Migration { file: path, source })?;
+        tx.batch_execute(FRESH).await.map_err(Error::Database)?;
         tx.execute(
-            "SELECT set_config('search_path', $1, false)",
-            &[&search_path],
-        )
-        .await
-        .map_err(Error::Database)?;
-        tx.execute(
-            &format!("INSERT INTO {tracking} (file) VALUES ($1)"),
-            &[&name],
+            &format!("INSERT INTO {TRACKING} (file, checksum) VALUES ($1, md5($2))"),
+            &[&name, &sql],
         )
         .await
         .map_err(Error::Database)?;
@@ -269,13 +294,13 @@ fn refused_or_failed(e: tokio_postgres::Error) -> Error {
 fn object(row: &Row) -> Result<Value, Error> {
     let mut out = Map::new();
     for (i, column) in row.columns().iter().enumerate() {
-        out.insert(column.name().to_string(), cell(row, i, column.type_())?);
+        out.insert(column.name().to_string(), cell(row, i, column)?);
     }
     Ok(Value::Object(out))
 }
 
-fn cell(row: &Row, i: usize, ty: &Type) -> Result<Value, Error> {
-    let value = match *ty {
+fn cell(row: &Row, i: usize, column: &Column) -> Result<Value, Error> {
+    let value = match *column.type_() {
         Type::BOOL => row
             .try_get::<_, Option<bool>>(i)
             .map(|v| v.map(Value::from)),
@@ -292,8 +317,8 @@ fn cell(row: &Row, i: usize, ty: &Type) -> Result<Value, Error> {
         Type::JSON | Type::JSONB => row.try_get::<_, Option<Value>>(i),
         _ => {
             return Err(Error::Unsupported {
-                column: row.columns()[i].name().to_string(),
-                ty: ty.name().to_string(),
+                column: column.name().to_string(),
+                ty: column.type_().name().to_string(),
             });
         }
     };

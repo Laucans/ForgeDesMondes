@@ -214,16 +214,25 @@ mod tests {
     }
 
     #[test]
-    fn the_repository_root_holds_the_concepts_or_none_is_found() {
-        match std::panic::catch_unwind(repository_root) {
-            Ok(root) => assert!(root.join("concepts").is_dir(), "{}", root.display()),
-            Err(panic) => {
+    fn the_repository_root_is_the_nearest_folder_above_holding_the_concepts() {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let nearest = manifest
+            .ancestors()
+            .find(|dir| dir.join("concepts").is_dir());
+        let found = std::panic::catch_unwind(repository_root);
+        match (nearest, found) {
+            (Some(nearest), Ok(root)) => assert_eq!(root, nearest),
+            (None, Err(panic)) => {
                 let message = panic.downcast_ref::<String>().cloned().unwrap_or_default();
-                assert!(
-                    message.starts_with("no concepts/ folder above"),
-                    "{message}"
+                assert_eq!(
+                    message,
+                    format!(
+                        "no concepts/ folder above {} — not a repository under the architecture",
+                        manifest.display()
+                    )
                 );
             }
+            (nearest, found) => panic!("expected {nearest:?}, got {:?}", found.ok()),
         }
     }
 }

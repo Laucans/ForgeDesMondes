@@ -1,40 +1,62 @@
 //! The Data layer against the harness's PostgreSQL (`DATABASE_URL`,
-//! `DATABASE_URL_READONLY`). Each test works in a scratch schema of its own,
-//! dropped when it ends, so the tests run in parallel and leave nothing.
+//! `DATABASE_URL_READONLY`). A migration test works in a scratch database of
+//! its own, as `scripts/dump-schema.sh` does, a read in a scratch schema;
+//! both are dropped when the test ends, so the tests run in parallel and
+//! leave nothing.
 
 use std::path::PathBuf;
 
 use data::{Client, Error};
 use serde_json::json;
+use tokio_postgres::NoTls;
+use tokio_postgres::error::SqlState;
 
-/// A schema of its own, the read-write connection's `search_path` set to it,
-/// and a folder of its own for migration files.
+/// The read-write connection, `DATABASE_URL`.
+async fn admin() -> Client {
+    data::read_write()
+        .await
+        .expect("DATABASE_URL names the harness's PostgreSQL")
+}
+
+/// A database of its own, a connection to it, and a folder of its own for
+/// migration files.
 struct Scratch {
     client: Client,
-    schema: String,
+    name: String,
     dir: PathBuf,
 }
 
 impl Scratch {
     async fn new(name: &str) -> Scratch {
-        let schema = format!("data_test_{name}_{}", std::process::id());
-        let client = data::read_write()
+        Scratch::opened_with(name, "").await
+    }
+
+    /// The connection opened with `options`, as a URL's `?options=` gives.
+    async fn opened_with(name: &str, options: &str) -> Scratch {
+        let name = format!("data_test_{name}_{}", std::process::id());
+        let admin = admin().await;
+        // One statement each: neither runs in a transaction block.
+        for sql in [
+            format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
+            format!("CREATE DATABASE {name}"),
+        ] {
+            admin.batch_execute(&sql).await.expect("a scratch database");
+        }
+        let mut config: tokio_postgres::Config = std::env::var(data::READ_WRITE_URL)
+            .expect("DATABASE_URL")
+            .parse()
+            .expect("DATABASE_URL is a PostgreSQL URL");
+        let (client, connection) = config
+            .dbname(&name)
+            .options(options)
+            .connect(NoTls)
             .await
-            .expect("DATABASE_URL names the harness's PostgreSQL");
-        client
-            .batch_execute(&format!(
-                "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}; SET search_path TO {schema}"
-            ))
-            .await
-            .expect("a scratch schema");
-        let dir = std::env::temp_dir().join(&schema);
+            .expect("the scratch database");
+        tokio::spawn(connection);
+        let dir = std::env::temp_dir().join(&name);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a scratch folder");
-        Scratch {
-            client,
-            schema,
-            dir,
-        }
+        Scratch { client, name, dir }
     }
 
     fn file(&self, name: &str, sql: &str) {
@@ -45,7 +67,7 @@ impl Scratch {
         self.client
             .query(sql, &[])
             .await
-            .expect("a read of the scratch schema")
+            .expect("a read of the scratch database")
             .iter()
             .map(|row| row.get(0))
             .collect()
@@ -54,11 +76,12 @@ impl Scratch {
     async fn tables(&self) -> Vec<String> {
         self.client
             .query(
-                "SELECT table_name::text FROM information_schema.tables WHERE table_schema = $1 ORDER BY 1",
-                &[&self.schema],
+                "SELECT table_schema || '.' || table_name FROM information_schema.tables \
+                 WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY 1",
+                &[],
             )
             .await
-            .expect("the scratch schema's tables")
+            .expect("the scratch database's tables")
             .iter()
             .map(|row| row.get(0))
             .collect()
@@ -66,10 +89,12 @@ impl Scratch {
 
     async fn drop(self) {
         let _ = std::fs::remove_dir_all(&self.dir);
-        self.client
-            .batch_execute(&format!("DROP SCHEMA {} CASCADE", self.schema))
+        drop(self.client);
+        admin()
             .await
-            .expect("the scratch schema dropped");
+            .batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name))
+            .await
+            .expect("the scratch database dropped");
     }
 }
 
@@ -100,7 +125,8 @@ async fn migrations_apply_once_each_in_path_order() {
         "each file applied once, in path order"
     );
     assert_eq!(
-        s.ints("SELECT count(*)::int FROM data_migrations").await,
+        s.ints("SELECT count(*)::int FROM public.data_migrations")
+            .await,
         [5]
     );
     s.drop().await;
@@ -125,22 +151,58 @@ async fn a_failing_migration_is_named_and_no_later_file_is_applied() {
     }
     assert!(error.to_string().contains("002_broken.sql"), "{error}");
     // The file before it stays applied; the failing one is rolled back whole.
-    assert_eq!(s.tables().await, ["data_migrations", "first"]);
+    assert_eq!(s.tables().await, ["public.data_migrations", "public.first"]);
     s.drop().await;
 }
 
 #[tokio::test]
-async fn a_migration_s_search_path_does_not_outlive_it() {
-    let mut s = Scratch::new("path").await;
-    let elsewhere = format!("{}_elsewhere", s.schema);
+async fn an_applied_migration_edited_since_is_named_and_no_file_applied() {
+    let mut s = Scratch::new("edited").await;
+    s.file("01_a.sql", "CREATE TABLE a (n int);\n");
+    s.file("02_b.sql", "CREATE TABLE b (n int);\n");
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    // Line endings rewritten by a checkout are no edit.
+    s.file("01_a.sql", "CREATE TABLE a (n int);\r\n");
+    let same = data::migrate(&mut s.client, &s.dir)
+        .await
+        .expect("nothing to apply");
+    assert_eq!(same, [] as [String; 0]);
+    // A new file sorting before the edited one is not applied either.
+    s.file("00_new.sql", "CREATE TABLE new (n int);");
+    s.file("02_b.sql", "CREATE TABLE b (n int, m int);");
+
+    let error = data::migrate(&mut s.client, &s.dir)
+        .await
+        .expect_err("02_b.sql was edited");
+    match &error {
+        Error::Changed { file } => assert_eq!(file, &s.dir.join("02_b.sql")),
+        other => panic!("expected Error::Changed, got {other:?}"),
+    }
+    assert_eq!(
+        s.tables().await,
+        ["public.a", "public.b", "public.data_migrations"]
+    );
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_migration_s_settings_do_not_outlive_it() {
+    let mut s = Scratch::new("session").await;
+    // Set on the client before the run: no file sees it either.
+    s.client
+        .batch_execute("CREATE SCHEMA before; SET search_path TO before; SET lock_timeout = '13s'")
+        .await
+        .expect("session settings");
     s.file(
         "01_away.sql",
-        &format!(
-            "DROP SCHEMA IF EXISTS {elsewhere} CASCADE; CREATE SCHEMA {elsewhere}; \
-             SET search_path TO {elsewhere}; CREATE TABLE moved (n int);"
-        ),
+        "CREATE SCHEMA elsewhere; SET search_path TO elsewhere; SET lock_timeout = '17s'; \
+         CREATE TABLE moved (n int);",
     );
-    s.file("02_home.sql", "CREATE TABLE stays (n int);");
+    s.file(
+        "02_home.sql",
+        "CREATE TABLE stays AS SELECT current_setting('lock_timeout') = reset_val AS fresh \
+         FROM pg_settings WHERE name = 'lock_timeout';",
+    );
 
     let first = data::migrate(&mut s.client, &s.dir).await.expect("applied");
     assert_eq!(first, ["01_away.sql", "02_home.sql"]);
@@ -148,32 +210,83 @@ async fn a_migration_s_search_path_does_not_outlive_it() {
         .await
         .expect("nothing to apply");
     assert_eq!(second, [] as [String; 0]);
-    assert_eq!(s.tables().await, ["data_migrations", "stays"]);
-    s.client
-        .batch_execute(&format!("DROP SCHEMA {elsewhere} CASCADE"))
+    assert_eq!(
+        s.tables().await,
+        ["elsewhere.moved", "public.data_migrations", "public.stays"]
+    );
+    let fresh: bool = s
+        .client
+        .query_one("SELECT fresh FROM public.stays", &[])
         .await
-        .expect("the other schema dropped");
+        .expect("the setting 02 saw")
+        .get(0);
+    assert!(fresh, "02 ran with lock_timeout as the client was opened");
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn the_record_stays_put_when_a_migration_creates_the_first_schema_searched() {
+    // `app` does not exist on the first run, and does on the second.
+    let mut s = Scratch::opened_with("record", "-c search_path=app,public").await;
+    s.file(
+        "01_app.sql",
+        "CREATE SCHEMA app; CREATE TABLE app.t (n int);",
+    );
+
+    let first = data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    assert_eq!(first, ["01_app.sql"]);
+    let second = data::migrate(&mut s.client, &s.dir)
+        .await
+        .expect("nothing to apply");
+    assert_eq!(second, [] as [String; 0]);
+    assert_eq!(s.tables().await, ["app.t", "public.data_migrations"]);
     s.drop().await;
 }
 
 #[tokio::test]
 async fn the_read_only_connection_refuses_an_insert() {
-    let s = Scratch::new("refused").await;
-    s.client
-        .batch_execute("CREATE TABLE target (n int)")
-        .await
-        .expect("a table to write into");
+    let schema = format!("data_test_refused_{}", std::process::id());
+    let admin = admin().await;
     let mut reader = data::read_only()
         .await
         .expect("DATABASE_URL_READONLY names the harness's PostgreSQL");
+    let role = reader
+        .query_json("SELECT quote_ident(current_user) AS role", &[])
+        .await
+        .expect("the read-only role")[0]["role"]
+        .as_str()
+        .expect("a role name")
+        .to_string();
+    // The read-only role may write this table: only the READ ONLY
+    // transaction stands in the way.
+    admin
+        .batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}; \
+             CREATE TABLE {schema}.target (n int); \
+             GRANT USAGE ON SCHEMA {schema} TO {role}; \
+             GRANT INSERT ON {schema}.target TO {role}"
+        ))
+        .await
+        .expect("a table the read-only role may write");
 
     let error = reader
-        .query_json(&format!("INSERT INTO {}.target VALUES (1)", s.schema), &[])
+        .query_json(&format!("INSERT INTO {schema}.target VALUES (1)"), &[])
         .await
         .expect_err("PostgreSQL refuses a write");
-    assert!(matches!(error, Error::Refused(_)), "{error:?}");
-    assert_eq!(s.ints("SELECT n FROM target").await, [] as [i32; 0]);
-    s.drop().await;
+    match &error {
+        Error::Refused(e) => assert_eq!(e.code(), Some(&SqlState::READ_ONLY_SQL_TRANSACTION)),
+        other => panic!("expected Error::Refused, got {other:?}"),
+    }
+    let written = admin
+        .query_one(&format!("SELECT count(*) FROM {schema}.target"), &[])
+        .await
+        .expect("the table read")
+        .get::<_, i64>(0);
+    assert_eq!(written, 0);
+    admin
+        .batch_execute(&format!("DROP SCHEMA {schema} CASCADE"))
+        .await
+        .expect("the scratch schema dropped");
 }
 
 #[tokio::test]
