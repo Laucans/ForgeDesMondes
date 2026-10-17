@@ -10,6 +10,11 @@
 //! aggregate's `restrict` relation, which blocks its deletion, and on the
 //! tables by the foreign key of the migration (`crates/data/migrations/`),
 //! whose CHECKs judge the other invariants there again.
+//!
+//! `ai.saveSettings` writes the settings row whole, carrying the provider it
+//! makes active (`aiProviderId` = `activeProviderId`) and that provider's
+//! fields: the store projects it into both tables. Such a row is judged as
+//! the provider it carries, too.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -131,14 +136,27 @@ fn text<'a>(state: &'a BTreeMap<String, Value>, field: &str) -> Option<&'a str> 
     state.get(field).and_then(Value::as_str)
 }
 
+/// Whether the settings row carries a provider, as `ai.saveSettings` writes
+/// it: it names the provider's row — `null` when the save named no kind of
+/// provider, which `single-settings-row` refuses.
+fn carries_provider(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+    settings_row(entry) && state.contains_key("aiProviderId")
+}
+
 /// In « api » mode, url and detectedApiType are set and binary is empty; in
 /// « binaire » mode, binary is opencode or claude-code and url is empty.
+/// On the settings row carrying a provider, a missing type is a URL that was
+/// not recognised: `api-type-recognized` refuses it, with its message.
 fn mode_fields(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-    if state.is_empty() || settings_row(entry) {
+    if state.is_empty() || (settings_row(entry) && !carries_provider(state, entry)) {
         return true;
     }
     match text(state, "mode") {
-        Some("api") => set(state, "url") && set(state, "detectedApiType") && !set(state, "binary"),
+        Some("api") => {
+            set(state, "url")
+                && (set(state, "detectedApiType") || settings_row(entry))
+                && !set(state, "binary")
+        }
         Some("binaire") => {
             text(state, "binary").is_some_and(|binary| BINARIES.contains(&binary))
                 && !set(state, "url")
@@ -147,10 +165,13 @@ fn mode_fields(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     }
 }
 
-/// A detected API type is one ProviderApiType@1 names.
-fn api_type_recognized(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
+/// A detected API type is one ProviderApiType@1 names; the provider the
+/// settings row carries in « api » mode has one.
+fn api_type_recognized(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     match state.get("detectedApiType") {
-        None | Some(Value::Null) => true,
+        None | Some(Value::Null) => {
+            !(carries_provider(state, entry) && text(state, "mode") == Some("api"))
+        }
         Some(Value::String(kind)) => API_TYPES.contains(kind),
         Some(_) => false,
     }
@@ -172,8 +193,8 @@ fn test_does_not_save(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
 }
 
 /// The settings row is the one of id 1, it is never deleted, it names a
-/// provider, and it carries no provider's field; a provider carries none of
-/// its fields.
+/// provider, and it carries no provider's field but the active provider's;
+/// a provider carries none of its fields.
 fn single_settings_row(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     if !settings_row(entry) {
         return !SETTINGS.iter().any(|field| state.contains_key(*field));
@@ -185,9 +206,18 @@ fn single_settings_row(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.target_id() == "1"
         && state.get("aiSettingsId").is_none_or(one)
         && set(state, "activeProviderId")
-        && !state
-            .keys()
-            .any(|field| DECLARED.contains(field) && !SETTINGS.contains(&field.as_str()))
+        && (active_provider_carried(state)
+            || !state
+                .keys()
+                .any(|field| DECLARED.contains(field) && !SETTINGS.contains(&field.as_str())))
+}
+
+/// Whether the provider the settings row carries is the one it makes active,
+/// named by a uuid as `ai_provider.id` is typed.
+fn active_provider_carried(state: &BTreeMap<String, Value>) -> bool {
+    text(state, "aiProviderId").is_some_and(|id| {
+        uuid(id) && state.get("activeProviderId").and_then(Value::as_str) == Some(id)
+    })
 }
 
 /// A command writes only fields the aggregate declares, each a text, a
@@ -649,6 +679,114 @@ mod tests {
                 .iter()
                 .all(|field| !field.to_lowercase().contains("audio"))
         );
+    }
+
+    /// The settings row carrying `provider` as the active one: what
+    /// ai.saveSettings writes.
+    fn saved(provider: Value) -> Value {
+        let id = provider["aiProviderId"].clone();
+        with(
+            with(provider, "aiSettingsId", json!(1)),
+            "activeProviderId",
+            id,
+        )
+    }
+
+    async fn settings(payload: Value) -> CommandResult {
+        let (engine, _) = engine(MemoryStore::default()).await;
+        written(&engine, "test.writeSettings", payload).await
+    }
+
+    #[tokio::test]
+    async fn the_settings_row_carrying_its_active_provider_whole_is_applied() {
+        applied(&settings(saved(cloud())).await);
+        applied(&settings(saved(binary("claude-code"))).await);
+        applied(
+            &settings(with(
+                saved(cloud()),
+                "updatedAt",
+                json!("2026-10-17T10:00:00Z"),
+            ))
+            .await,
+        );
+    }
+
+    #[tokio::test]
+    async fn api_type_recognized_rejects_the_settings_row_s_api_provider_without_a_type() {
+        // An unrecognised URL: its refusal is this invariant's alone.
+        for kind in [Value::Null, json!("openai")] {
+            rejected_by(
+                &settings(saved(with(cloud(), "detectedApiType", kind))).await,
+                "api-type-recognized",
+            );
+        }
+        rejected_by(
+            &settings(saved(without(cloud(), "detectedApiType"))).await,
+            "api-type-recognized",
+        );
+    }
+
+    #[tokio::test]
+    async fn mode_fields_judges_the_provider_the_settings_row_carries() {
+        for payload in [
+            saved(without(cloud(), "url")),
+            saved(with(cloud(), "binary", json!("opencode"))),
+            saved(binary("ollama")),
+            saved(with(
+                binary("opencode"),
+                "url",
+                json!("http://192.168.1.40:4096"),
+            )),
+            saved(with(cloud(), "mode", json!("binary"))),
+        ] {
+            rejected_by(&settings(payload).await, "mode-fields");
+        }
+    }
+
+    #[tokio::test]
+    async fn mode_fields_rejects_a_save_that_names_no_kind_of_provider() {
+        // What ai.saveSettings makes of `binary: ollama`: no provider's row.
+        let payload = with(
+            with(saved(binary("ollama")), "aiProviderId", Value::Null),
+            "activeProviderId",
+            Value::Null,
+        );
+        let result = settings(payload).await;
+        assert_eq!(result.status, State::Rejected, "{result:?}");
+        assert_eq!(
+            result.violations,
+            ["mode-fields", "single-settings-row"],
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn single_settings_row_rejects_a_carried_provider_that_is_not_the_active_one() {
+        let other = "a1000000-0000-4000-8000-000000000002";
+        for payload in [
+            with(saved(cloud()), "activeProviderId", json!(other)),
+            saved(with(cloud(), "aiProviderId", json!("cloud"))),
+        ] {
+            rejected_by(&settings(payload).await, "single-settings-row");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_settings_row_s_provider_is_judged_on_the_row_the_save_leaves() {
+        // Row 1 holds the cloud provider; a save leaving its type null is
+        // refused, and the row stays as it was.
+        let row = saved(cloud()).as_object().expect("an object").clone();
+        let store =
+            MemoryStore::default().with_row("AiSettings/1", row.clone().into_iter().collect());
+        let (engine, store) = engine(store).await;
+        let result = written(
+            &engine,
+            "test.writeSettings",
+            json!({ "aiSettingsId": 1, "url": "https://inconnu.example.org", "detectedApiType": null }),
+        )
+        .await;
+        rejected_by(&result, "api-type-recognized");
+        assert_eq!(store.row_now("AiSettings/1").get("url"), row.get("url"));
     }
 
     #[test]

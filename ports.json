@@ -36,6 +36,7 @@
       },
       "usedBy": [
         "ai.testConnection",
+        "ai.saveSettings",
         "ai.listProviderRequests",
         "ai.extractFromNotes",
         "ai.analyzeBrief",

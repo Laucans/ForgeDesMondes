@@ -13,10 +13,15 @@
 //! beyond `aggregate.json`'s rules, and the AI that proposes
 //! reconciliations, are wired in `bound()` — the two places this file
 //! expects the product to grow.
+//!
+//! Over a database, the engine's writes of the AI settings reach the
+//! product's tables through [`projection::ProjectingStore`]; a save of them
+//! (`ai.saveSettings`) is prepared before it is submitted, with the `llm`
+//! port [`router`] is given.
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{FromRef, Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use harness_dataguard::Error;
@@ -28,8 +33,10 @@ use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::postgres::{PgStore, SystemClock};
 use harness_dataguard::registry::Registry;
 use harness_dataguard::store::Store;
+use ports_llm::Llm;
 
 mod ai_settings;
+mod projection;
 
 /// The `DATABASE_URL` that means no database: the in-memory store.
 pub const MEMORY: &str = "memory";
@@ -39,6 +46,28 @@ mod registry {
 }
 
 type Shared = Arc<Engine>;
+
+/// What the wire protocol is served with: the engine, and the `llm` port a
+/// save of the AI settings detects its API type through.
+struct Served<L> {
+    engine: Shared,
+    llm: Arc<L>,
+}
+
+impl<L> Clone for Served<L> {
+    fn clone(&self) -> Self {
+        Self {
+            engine: self.engine.clone(),
+            llm: self.llm.clone(),
+        }
+    }
+}
+
+impl<L> FromRef<Served<L>> for Shared {
+    fn from_ref(served: &Served<L>) -> Self {
+        served.engine.clone()
+    }
+}
 
 /// Why the engine could not be planted.
 #[derive(Debug, thiserror::Error)]
@@ -70,7 +99,9 @@ pub async fn plant(url: &str) -> Result<Engine, PlantError> {
                 eprintln!("postgres: {e}");
             }
         });
-        Arc::new(PgStore::open(client).await?)
+        let store = projection::ProjectingStore::new(PgStore::open(client).await?);
+        store.repair().await;
+        Arc::new(store)
     };
     let engine = bound(Engine::new(
         store,
@@ -96,11 +127,12 @@ fn bound(engine: Engine) -> Result<Engine, PlantError> {
     Ok(engine)
 }
 
-/// The shell's wire protocol, answered by `engine`.
-pub fn router(engine: Arc<Engine>) -> Router {
+/// The shell's wire protocol, answered by `engine`; `llm` is the port a
+/// save of the AI settings reaches (a generic: [`Llm`] is not dyn-compatible).
+pub fn router<L: Llm + 'static>(engine: Arc<Engine>, llm: Arc<L>) -> Router {
     Router::new()
         .route("/capabilities/{id}", post(capability))
-        .route("/commands", post(submit))
+        .route("/commands", post(submit::<L>))
         .route("/commands/{id}", get(status))
         .route("/commands/{id}/confirm", post(confirm))
         .route("/commands/{id}/cancel", post(cancel))
@@ -110,7 +142,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/holds/{id}/release", post(release))
         .route("/reviews/{id}", post(decide))
         .route("/dataVersion", get(version))
-        .with_state(engine)
+        .with_state(Served { engine, llm })
 }
 
 /// The single applier: every second, each partition's head. It runs until
@@ -150,11 +182,33 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
     })
 }
 
-async fn submit(
-    State(engine): State<Shared>,
-    Json(body): Json<Submission>,
+/// A command enters the queue; a save of the AI settings is first made the
+/// state it writes (`save_settings::prepare`), and its refusal, when its URL
+/// is not recognised, is told among the warnings.
+async fn submit<L: Llm>(
+    State(served): State<Served<L>>,
+    Json(mut body): Json<Submission>,
 ) -> Reply<harness_dataguard::api::Submitted> {
-    reply(axum::http::StatusCode::ACCEPTED, engine.submit(body).await)
+    let mut refusal = None;
+    if save_settings::names(&body.data_capability) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let prepared = save_settings::prepare(
+            served.llm.as_ref(),
+            &body.payload,
+            &save_settings::timestamp(now),
+        )
+        .await;
+        body.payload = prepared.payload;
+        body.target_id = Some(save_settings::TARGET_ID.to_string());
+        refusal = prepared.refusal;
+    }
+    let submitted = served.engine.submit(body).await.map(|mut submitted| {
+        submitted.warnings.extend(refusal.map(str::to_string));
+        submitted
+    });
+    reply(axum::http::StatusCode::ACCEPTED, submitted)
 }
 
 async fn status(State(engine): State<Shared>, Path(id): Path<String>) -> Reply<serde_json::Value> {
@@ -288,6 +342,7 @@ async fn version(State(engine): State<Shared>) -> Reply<serde_json::Value> {
 mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use harness_dataguard::command::State;
     use tower::ServiceExt;
 
     use super::*;
@@ -295,7 +350,7 @@ mod tests {
     /// What `router` answers to one request, over the in-memory engine.
     async fn answer(request: Request<Body>) -> (StatusCode, serde_json::Value) {
         let engine = plant(MEMORY).await.expect("the in-memory engine");
-        let response = router(Arc::new(engine))
+        let response = router(Arc::new(engine), Arc::new(ports_llm::fake::FakeLlm::new()))
             .oneshot(request)
             .await
             .expect("an answer");
@@ -335,6 +390,247 @@ mod tests {
             body,
             serde_json::json!({ "error": "no DataCapability named x.y" })
         );
+    }
+
+    /// The home server's URL in the fixtures, and the fake that answers its
+    /// model list there.
+    const HOME: &str = "http://192.168.1.40:4096";
+
+    /// An engine as `plant()` binds it over a memory store the test reads,
+    /// served by `router` with the llm port's fake.
+    async fn saving() -> (Arc<Engine>, Arc<MemoryStore>, Router) {
+        let store = Arc::new(MemoryStore::default());
+        let engine = bound(Engine::new(
+            store.clone(),
+            Arc::new(MemoryNotifier::default()),
+            Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
+        ))
+        .expect("the product's manifests parse");
+        engine.load().await.expect("an empty queue");
+        let engine = Arc::new(engine);
+        let llm = ports_llm::fake::FakeLlm::new()
+            .with_endpoint(HOME, serde_json::json!({ "object": "list", "data": [] }));
+        let app = router(engine.clone(), Arc::new(llm));
+        (engine, store, app)
+    }
+
+    /// `POST /commands` of ai.saveSettings by the DM, approver of their own
+    /// settings, as the rules' tests name it (`@1`).
+    async fn save(
+        app: &Router,
+        payload: serde_json::Value,
+        key: Option<&str>,
+    ) -> (StatusCode, serde_json::Value, String) {
+        let mut body = serde_json::json!({
+            "dataCapability": "ai.saveSettings@1",
+            "payload": payload,
+            "caller": { "by": "dm", "from": "AiSettings", "roles": ["role:approver"] },
+        });
+        if let Some(key) = key {
+            body["idempotencyKey"] = serde_json::json!(key);
+        }
+        let request = Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        (
+            status,
+            serde_json::from_str(&text).unwrap_or_default(),
+            text,
+        )
+    }
+
+    /// What `GET /commands/<id>` answers, as text.
+    async fn read_status(app: &Router, id: &str) -> String {
+        let request = Request::get(format!("/commands/{id}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.expect("an answer");
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    fn api(url: &str, key: &str) -> serde_json::Value {
+        serde_json::json!({
+            "mode": "api",
+            "url": url,
+            "generationModel": "qwen2.5-32b-instruct",
+            "summaryModel": "qwen2.5-14b-instruct",
+            "key": key,
+        })
+    }
+
+    /// Saves `payload` and answers what the applier made of it.
+    async fn saved(
+        engine: &Engine,
+        app: &Router,
+        payload: serde_json::Value,
+    ) -> harness_dataguard::command::CommandResult {
+        let (status, body, _) = save(app, payload, None).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let mut applied = engine.run_once().await.expect("the applier ran");
+        assert_eq!(applied.len(), 1, "{applied:?}");
+        applied.remove(0)
+    }
+
+    const OPENCODE: &str = "a1000000-0000-4000-8000-000000000002";
+
+    #[tokio::test]
+    async fn saving_the_home_server_s_url_applies_the_opencode_provider_and_makes_it_active() {
+        let (engine, store, app) = saving().await;
+        let result = saved(&engine, &app, api(HOME, "")).await;
+        assert_eq!(result.status, State::Applied, "{result:?}");
+        let row = store.row_now(projection::AI_SETTINGS);
+        assert_eq!(row["aiProviderId"], OPENCODE);
+        assert_eq!(row["activeProviderId"], OPENCODE);
+        assert_eq!(row["url"], HOME);
+        assert_eq!(row["detectedApiType"], "opencode");
+        assert_eq!(row["generationModel"], "qwen2.5-32b-instruct");
+        assert_eq!(row["summaryModel"], "qwen2.5-14b-instruct");
+        assert_eq!(row["apiKey"], serde_json::Value::Null);
+    }
+
+    #[tokio::test]
+    async fn saving_binary_claude_stores_claude_code_with_no_url_and_makes_it_active() {
+        let (engine, store, app) = saving().await;
+        saved(&engine, &app, api(HOME, "")).await;
+        let result = saved(
+            &engine,
+            &app,
+            serde_json::json!({
+                "mode": "binary",
+                "binary": "claude",
+                "generationModel": "claude-sonnet-5-5",
+                "summaryModel": "claude-haiku-4-5-20251001",
+            }),
+        )
+        .await;
+        assert_eq!(result.status, State::Applied, "{result:?}");
+        let row = store.row_now(projection::AI_SETTINGS);
+        assert_eq!(row["mode"], "binaire");
+        assert_eq!(row["binary"], "claude-code");
+        assert_eq!(
+            row["activeProviderId"],
+            "a1000000-0000-4000-8000-000000000004"
+        );
+        // Nothing of the api provider saved before is left on the row.
+        for field in ["url", "detectedApiType", "apiKey"] {
+            assert_eq!(row[field], serde_json::Value::Null, "{field}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unrecognised_url_is_rejected_saying_why_and_nothing_changes() {
+        let (engine, store, app) = saving().await;
+        saved(&engine, &app, api(HOME, "")).await;
+        let before = store.row_now(projection::AI_SETTINGS);
+        let (_, body, _) = save(
+            &app,
+            api("https://inconnu.example.org/pas-une-api", ""),
+            None,
+        )
+        .await;
+        assert!(
+            body["warnings"]
+                .as_array()
+                .is_some_and(|w| w.iter().any(|w| w == "type d'API non reconnu")),
+            "{body}"
+        );
+        let mut settled = engine.run_once().await.expect("the applier ran");
+        let result = settled.remove(0);
+        assert_eq!(result.status, State::Rejected, "{result:?}");
+        assert_eq!(result.violations, ["api-type-recognized"]);
+        assert_eq!(store.row_now(projection::AI_SETTINGS), before);
+    }
+
+    #[tokio::test]
+    async fn an_api_type_the_caller_gives_is_not_the_one_stored() {
+        let (engine, store, app) = saving().await;
+        let mut payload = api(HOME, "");
+        payload["apiType"] = serde_json::json!("cloud");
+        payload["detectedApiType"] = serde_json::json!("cloud");
+        let result = saved(&engine, &app, payload).await;
+        assert_eq!(result.status, State::Applied, "{result:?}");
+        let row = store.row_now(projection::AI_SETTINGS);
+        assert_eq!(row["detectedApiType"], "opencode");
+        assert!(!row.contains_key("apiType"));
+    }
+
+    #[tokio::test]
+    async fn the_same_idempotency_key_twice_is_one_save() {
+        let (engine, _, app) = saving().await;
+        let (_, first, _) = save(&app, api(HOME, ""), Some("save-1")).await;
+        let (_, second, _) = save(&app, api(HOME, ""), Some("save-1")).await;
+        assert_eq!(second["replayed"], true, "{second}");
+        assert_eq!(second["commandId"], first["commandId"]);
+        let applied = engine.run_once().await.expect("the applier ran");
+        assert_eq!(applied.len(), 1, "{applied:?}");
+        assert!(engine.run_once().await.expect("the applier ran").is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_api_key_is_never_echoed_by_the_submission_or_the_result() {
+        let (engine, _, app) = saving().await;
+        let key = "sk-ant-api03-très-secret";
+        let (_, body, text) = save(
+            &app,
+            serde_json::json!({
+                "mode": "api",
+                "url": "https://api.anthropic.com/v1",
+                "generationModel": "claude-sonnet-5-5",
+                "summaryModel": "claude-haiku-4-5-20251001",
+                "key": key,
+            }),
+            None,
+        )
+        .await;
+        assert!(!text.contains(key), "{text}");
+        let applied = engine.run_once().await.expect("the applier ran");
+        let result = serde_json::to_string(&applied).expect("a result serialises");
+        assert!(!result.contains(key), "{result}");
+        let status = read_status(&app, body["commandId"].as_str().expect("an id")).await;
+        assert!(status.contains("applied"), "{status}");
+        assert!(!status.contains(key), "{status}");
+    }
+
+    #[tokio::test]
+    async fn each_kind_of_provider_is_saved_on_its_seeded_row_under_its_label() {
+        let seed = include_str!("../../../data/migrations/0001_ai_settings.sql");
+        let llm = ports_llm::fake::FakeLlm::new()
+            .with_endpoint(HOME, serde_json::json!({ "object": "list", "data": [] }));
+        for wire in [
+            api("https://api.anthropic.com/v1", ""),
+            api(HOME, ""),
+            serde_json::json!({ "mode": "binary", "binary": "opencode" }),
+            serde_json::json!({ "mode": "binary", "binary": "claude" }),
+        ] {
+            let wire = wire
+                .as_object()
+                .expect("an object")
+                .clone()
+                .into_iter()
+                .collect();
+            let payload = save_settings::prepare(&llm, &wire, "2026-10-17T10:00:00Z")
+                .await
+                .payload;
+            let id = payload["aiProviderId"].as_str().expect("a row");
+            let label = payload["label"].as_str().expect("a label");
+            assert!(
+                seed.contains(&format!(
+                    "('{id}', '{}', '{label}'",
+                    payload["mode"].as_str().unwrap()
+                )),
+                "{id} {label} is not seeded so"
+            );
+        }
     }
 
     #[test]
