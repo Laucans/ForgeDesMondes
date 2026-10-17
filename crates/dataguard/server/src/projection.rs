@@ -54,13 +54,18 @@ const ACTIVATE: &str = "UPDATE ai_settings
     WHERE id = 1";
 
 /// A connection test's outcome on a provider's row, and nothing else of it;
-/// on the active provider's when no provider is named (`$1` null).
+/// on the active provider's when no provider is named (`$1` null). Never
+/// over a later test: an apply wins a tie (the engine applies in order), a
+/// replay (`$6`) does not, so a start never restores an older test.
 const LAST_TEST: &str = "UPDATE ai_provider
     SET last_test_ok = $2,
         last_test_at = ($3::text)::timestamptz,
         last_test_message = $4,
         last_test_latency_ms = $5
-    WHERE id = coalesce(($1::text)::uuid, (SELECT active_provider_id FROM ai_settings WHERE id = 1))";
+    WHERE id = coalesce(($1::text)::uuid, (SELECT active_provider_id FROM ai_settings WHERE id = 1))
+        AND (last_test_at IS NULL
+            OR last_test_at < ($3::text)::timestamptz
+            OR (NOT $6 AND last_test_at = ($3::text)::timestamptz))";
 
 /// A [`PgStore`] whose applied `AiSettings/1` writes reach the tables.
 pub struct ProjectingStore {
@@ -99,7 +104,7 @@ impl ProjectingStore {
     /// Writes the last test of every provider the engine holds one for: at a
     /// start, so a test whose projection failed after its apply is written
     /// again. The test that reached no provider is not: the active provider
-    /// may have changed since.
+    /// may have changed since. A row holding a test as late or later keeps it.
     pub async fn repair_tests(&self) {
         let ids = {
             let client = self.inner.client().lock().await;
@@ -109,7 +114,8 @@ impl ProjectingStore {
             Ok(rows) => {
                 for row in rows {
                     let id: String = row.get(0);
-                    self.record_test(&format!("AiSettings/{id}"), &id).await;
+                    self.record_test(&format!("AiSettings/{id}"), &id, true)
+                        .await;
                 }
             }
             Err(e) => eprintln!(
@@ -119,9 +125,10 @@ impl ProjectingStore {
         }
     }
 
-    /// Writes the last test `partition` holds on its provider's row, logging
-    /// a failure as [`Self::repair`] does.
-    async fn record_test(&self, partition: &str, provider: &str) {
+    /// Writes the last test `partition` holds on its provider's row, unless
+    /// that row holds a later one (or, `replay`, an as late one), logging a
+    /// failure as [`Self::repair`] does.
+    async fn record_test(&self, partition: &str, provider: &str, replay: bool) {
         let row = match self.inner.row(partition).await {
             Ok(row) => row,
             Err(e) => {
@@ -149,6 +156,7 @@ impl ProjectingStore {
                     &text(&row, "lastTestAt"),
                     &text(&row, "lastTestMessage"),
                     &latency,
+                    &replay,
                 ],
             )
             .await;
@@ -260,7 +268,7 @@ impl Store for ProjectingStore {
         if projects(write) {
             self.repair().await;
         } else if let Some(provider) = tested(write) {
-            self.record_test(&write.partition, provider).await;
+            self.record_test(&write.partition, provider, false).await;
         }
         Ok(version)
     }
@@ -460,13 +468,41 @@ mod tests {
         engine.load().await.expect("an empty queue");
         let before = snapshot(&tables, false).await;
 
-        for (target, ok, message, latency) in [
-            (CLOUD, true, "Connexion réussie", json!(12)),
-            (NO_PROVIDER, false, "type d'API non reconnu", Value::Null),
+        // The home server tested first, then a test that reached no
+        // provider lands on it, then a test applied late, older than both.
+        for (target, ok, message, latency, at) in [
+            (
+                HOME,
+                true,
+                "Connexion réussie",
+                json!(30),
+                "2026-10-17T09:00:00Z",
+            ),
+            (
+                CLOUD,
+                true,
+                "Connexion réussie",
+                json!(12),
+                "2026-10-17T10:00:00Z",
+            ),
+            (
+                NO_PROVIDER,
+                false,
+                "type d'API non reconnu",
+                Value::Null,
+                "2026-10-17T10:00:00Z",
+            ),
+            (
+                HOME,
+                true,
+                "Connexion réussie",
+                json!(40),
+                "2026-10-17T08:00:00Z",
+            ),
         ] {
             let payload = json!({
                 "lastTestOk": ok,
-                "lastTestAt": "2026-10-17T10:00:00Z",
+                "lastTestAt": at,
                 "lastTestMessage": message,
                 "lastTestLatencyMs": latency,
             });
@@ -526,7 +562,8 @@ mod tests {
         assert_eq!(snapshot(&tables, false).await, before);
 
         // A projection lost after its apply is made again at a start; the
-        // test that reached no provider is left where it landed.
+        // test that reached no provider is left where it landed, over the
+        // home server's own older one.
         let tests = snapshot(&tables, true).await;
         tables
             .batch_execute(&format!(
