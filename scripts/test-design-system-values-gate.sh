@@ -66,7 +66,7 @@ scratch; seed mock/style.css 'a { color: var(--color-text, red); }'; fails "name
 scratch; seed mock/style.css 'a { box-shadow: 0 0 4px rebeccapurple; }'; fails "named colour in a shadow" '"rebeccapurple"'
 scratch; seed mock/style.css 'a { background: url(#fade) no-repeat; transition: color .2s; color: currentColor; border-color: transparent; outline: none; fill: inherit; }'
 passes "allowed values and url(#fragment)"
-scratch; seed mock/style.css 'a { font-family: Tan, serif; content: "red"; }'; passes "a name outside a colour property"
+scratch; seed mock/style.css 'a { animation-name: tan; content: "red"; }'; passes "a name outside a colour property"
 scratch
 printf '%s\n' '<style>' '.x { background: rgba(0,0,0,.5); }' '</style>' >> mock/components/SessionList.html
 n=$(grep -n 'rgba(0,0,0' mock/components/SessionList.html | cut -d: -f1)
@@ -151,6 +151,93 @@ scratch; printf '%s\n' '<style>' '.f { background: url(//cdn.example/a.css); }' 
 scratch; seed mock/mock.js "const css = '@import url(a.css)';"; fails "@import in JS" '@import'
 scratch; seed mock/mock.js "el.style.backgroundImage = 'url(https://x.example/a.css)';"; fails "url() of a stylesheet or a font in JS" 'url() of a stylesheet or a font'
 scratch; seed mock/mock.js "head.innerHTML = '<link rel=\"stylesheet\" href=\"a.css\">';"; fails "<link in JS" '<link'
+
+# --- font, spacing, border, radius and shadow values -------------------------------
+# Rules 13-15: a token, a calc() over tokens, or zero. Each seed fails alone.
+scratch; seed mock/style.css 'a { margin: 4px; }'; n=$(last_line mock/style.css)
+fails "margin: 4px" 'literal spacing "4px"' "mock/style.css:$n"
+scratch; seed mock/style.css 'a { margin: var(--space-2) 4px; }'; fails "a literal beside a token" '"4px"'
+scratch; seed mock/style.css 'a { padding: calc(var(--space-2) + 3px); }'; fails "a mixed calc()" 'literal spacing "3px"'
+scratch; seed mock/style.css 'a { padding-inline-start: 2rem; margin-block: 1em; }'; fails "logical and sided margins" '"2rem"'
+scratch; seed mock/style.css 'a { gap: 1rem; }'; fails "gap: 1rem" 'literal spacing "1rem"'
+scratch; seed mock/style.css 'a { row-gap: 3px; }'; fails "row-gap" '"3px"'
+scratch; seed mock/style.css 'a { font-size: 14px; }'; fails "font-size: 14px" 'literal font size "14px"'
+scratch; seed mock/style.css 'a { font-size: larger; }'; fails "a font size keyword" 'literal font size "larger"'
+scratch; seed mock/style.css 'a { font-family: Arial; }'; fails "font-family: Arial" 'literal font family "Arial"'
+scratch; seed mock/style.css "a { font-family: 'Open Sans', sans-serif; }"; fails "a family list" 'literal font family'
+scratch; seed mock/style.css 'a { font-weight: 700; }'; fails "font-weight: 700" 'literal font weight "700"'
+scratch; seed mock/style.css 'a { font-weight: bold; }'; fails "font-weight: bold" 'literal font weight "bold"'
+scratch; seed mock/style.css 'a { font: bold 14px Arial; }'; fails "the font shorthand" 'literal font'
+scratch; seed mock/style.css 'a { border-radius: 6px; }'; fails "border-radius: 6px" 'literal radius "6px"'
+scratch; seed mock/style.css 'a { border-top-left-radius: calc(var(--radius-small) + 2px); }'; fails "a corner radius" '"2px"'
+scratch; seed mock/style.css 'a { box-shadow: 0 1px 2px var(--color-text); }'; fails "box-shadow" 'literal shadow "1px"'
+scratch; seed mock/style.css 'a { text-shadow: 1px 1px var(--color-text); }'; fails "text-shadow" 'literal shadow'
+scratch; seed mock/style.css 'a { filter: drop-shadow(0 0 2px var(--color-text)); }'; fails "drop-shadow()" 'literal shadow "2px"'
+scratch; seed mock/style.css 'a { border: 2px solid var(--color-border); }'; fails "the width inside border" 'literal border width "2px"'
+scratch; seed mock/style.css 'a { border-bottom-width: 3px; outline: 2px solid var(--color-accent); }'; fails "border-*-width and outline" '"3px"'
+scratch; seed mock/style.css 'a { border: thick solid var(--color-border); }'; fails "a width keyword" 'literal border width "thick"'
+scratch; seed mock/style.css 'a { outline-offset: 1px; }'; fails "outline-offset" 'literal outline offset "1px"'
+scratch; seed mock/style.css 'a { left: 12px; }'; fails "a literal offset in a stylesheet" 'literal offset "12px"'
+scratch; seed mock/style.css 'a { margin: var(--space-2, 4px); }'; fails "a literal var() fallback" 'literal spacing "4px"'
+scratch; seed mock/style.css 'a { box-shadow: 0 0 var(--space-1, 3px) var(--color-text); }'; fails "a literal fallback in a shadow" '"3px"'
+scratch; seed mock/style.css 'a { font: var(--font-size-small) Arial; }'; fails "a family in the font shorthand" 'literal font family "Arial"'
+scratch; seed mock/style.css 'a { grid-gap: 8px; scroll-margin: 8px; -webkit-box-shadow: 0 1px 2px var(--color-text); }'; fails "aliases and prefixes" '"8px"'
+scratch; seed mock/style.css 'a { padding: calc(var(--space-2) * 2) 7 var(--space-1); }'; fails "a bare number after a closed calc()" '"7"'
+scratch; seed mock/style.css 'a { left: calc(var(--space-2) + 4px); inset: 4px; }'; fails "inset and a mixed calc() offset" 'literal offset'
+# ... wherever a declaration is written
+scratch; printf '%s\n' '<style>' '.x { margin: 4px; }' '</style>' >> mock/components/SessionList.html
+n=$(grep -n 'margin: 4px' mock/components/SessionList.html | cut -d: -f1)
+fails "a <style> block" 'literal spacing "4px"' "mock/components/SessionList.html:$n"
+scratch; seed mock/pages/campagne.html '<p style="padding: 4px">x</p>'; n=$(last_line mock/pages/campagne.html)
+fails "an inline style" '"4px"' "mock/pages/campagne.html:$n"
+scratch; seed mock/mock.js "document.body.style.margin = '4px';"; n=$(last_line mock/mock.js)
+fails "a JS style write" 'literal spacing "4px"' "mock/mock.js:$n"
+scratch; seed mock/mock.js "document.body.style.setProperty('font-weight', 'bold');"; fails "setProperty" 'literal font weight "bold"'
+scratch; seed mock/mock.js 'el.innerHTML = `<i style="gap: 1rem"></i>`;'; fails "a style attribute in a JS template" '"1rem"'
+scratch; seed mock/mock.js "el.style.fontSize = '14px';"; fails "style.fontSize" '"14px"'
+# ... inside @media and @container, the declarations are judged
+scratch; seed mock/style.css '@media (max-width: 500px) { a { margin: 4px; } }'; n=$(last_line mock/style.css)
+fails "a literal inside @media" 'literal spacing "4px"' "mock/style.css:$n"
+scratch; seed mock/style.css '@container (min-width: 20rem) { a { font-size: 14px; } }'; fails "a literal inside @container" '"14px"'
+scratch; printf '%s\n' '<style>' '@media (max-width: 500px) {' '.x { padding: 3px; }' '}' '</style>' >> mock/components/SessionList.html
+fails "a literal inside @media in a <style> block" '"3px"'
+# The values that pass (rules 14, 16, 18)
+scratch; seed mock/style.css 'a { margin: 0 auto; padding: 0px; gap: 0; border: 0; outline: none; border-width: 0; box-shadow: none; text-shadow: none; outline-offset: 0; border-radius: 0; }'
+passes "zero, auto and none"
+scratch; seed mock/style.css 'a { margin: var(--space-2); padding: calc(var(--space-2) * 2) var(--space-3); gap: calc(var(--space-1) / 2); border: calc(var(--border-width) * 2) solid var(--color-border); outline-offset: var(--border-width); border-radius: var(--radius-small); box-shadow: var(--shadow-low); text-shadow: 0 0 var(--space-1) var(--color-text); filter: drop-shadow(0 0 var(--space-1) var(--color-text)); }'
+passes "tokens and a calc() over tokens"
+scratch; seed mock/style.css 'a { font-weight: var(--font-weight-heading); font-weight: normal; font-weight: inherit; font-family: var(--font-family); font-family: inherit; font-size: var(--font-size-small); font-size: inherit; font: inherit; }'
+passes "token, normal and inherit for fonts"
+scratch; seed mock/style.css 'a { letter-spacing: .05em; line-height: 1.4; opacity: .5; z-index: 3; stroke-width: 2; border-radius: 50%; border-radius: 50% 50% 0 0; width: 120px; height: 12px; min-width: 3px; max-width: 40rem; min-height: 3px; max-height: 9px; aspect-ratio: 16 / 9; left: 50%; transform: translate(4px, 4px); display: none; }'
+passes "shapes have no token"
+scratch; seed mock/style.css 'a { border: var(--border-width) solid color-mix(in srgb, var(--color-primary) 40%, transparent); box-shadow: 0 0 var(--space-1) color-mix(in srgb, var(--color-text) 30%, transparent); font: var(--font-size-small)/1.4 var(--font-family); margin: min(var(--space-2), var(--space-3)); padding: max(var(--space-1), 0px); }'
+passes "colour mixing, line-height in font and min()/max()"
+scratch; seed mock/style.css '@media (min-width: 761px) and (max-width: 1100px) { a { margin: var(--space-1); } } @container card (min-width: 400px) { a { gap: 0; } }'
+passes "@media and @container preludes are left alone"
+scratch; seed mock/style.css 'a { --hm-cell: 4px; }'; passes "a custom property is not a design value"
+# Rule 17: JS-computed placement, in four files only. Never colour.
+placement=$(cat <<'JS'
+tip.style.left = (w.lx + 16) + 'px'; tip.style.top = (w.ly + 16) + 'px'; tip.style.right = w + 'px'; tip.style.bottom = w + 'px';
+win.style.width = (w.w * W) + 'px'; win.style.height = h + 'px'; stage.style.transform = `translate(${x}px,${y}px) scale(${z})`;
+win.style.aspectRatio = i.ratio; win.style.display = 'none'; root.style.setProperty('--kit-token-hp', pct + '%');
+el.style.left = '12px'; el.style.top = '4px'; el.style.setProperty('left', '8px');
+el.innerHTML = `<div style="left: 12px; top: 4px; width: ${w}px; --kit-token-hp: ${pct}%"></div>`;
+JS
+)
+for f in mock/mock.js mock/components/PlayerStage.html mock/components/Battlemap.html mock/components/EntityEditor.html; do
+  scratch; if [ "${f##*.}" = js ]; then printf '%s\n' "$placement" >> "$f"; else printf '%s\n' '<script>' "$placement" '</script>' >> "$f"; fi
+  passes "placement writes in $f"
+  if [ "${f##*.}" = js ]; then seed "$f" "el.style.margin = '4px';"; else printf '%s\n' '<script>' "el.style.margin = '4px';" '</script>' >> "$f"; fi
+  fails "  ... a spacing in $f is still judged" '"4px"'
+  scratch; if [ "${f##*.}" = js ]; then seed "$f" "el.style.color = 'red';"; else printf '%s\n' '<script>' "el.style.color = 'red';" '</script>' >> "$f"; fi
+  fails "  ... colour is never exempt in $f" 'colour literal "red"'
+done
+scratch; printf '%s\n' '<script>' "el.style.left = '12px';" '</script>' >> mock/components/SessionList.html
+fails "a literal offset in another component" 'literal offset "12px"'
+scratch; seed mock/pages/campagne.html '<i style="left: 12px"></i>'; fails "an inline offset in a page" 'literal offset "12px"'
+scratch; printf '%s\n' '<style>' '.x { left: 12px; top: 4px; }' '</style>' >> mock/components/Battlemap.html
+fails "a <style> block of a placement file is judged" 'literal offset "12px"'
+scratch; seed mock/mock.js "el.style.color = 'red'; el.style.left = '0';"; fails "colour in a placement file" 'colour literal "red"'
 
 # --- the job around the script ---------------------------------------------------------------
 job=$(awk '/^  design-system:/ {j=1; print; next} j && /^  [a-z#]/ {exit} j' "$root/.github/workflows/gates.yml")
