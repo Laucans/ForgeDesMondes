@@ -27,7 +27,7 @@ ${body}${scripts}</body>
 
 /** The home of the shell: the frozen screens there are. */
 export function renderHome(screens: string[]): string {
-  const items = screens.map((name) => `    <li><a href="/screens/${escape(name)}">${escape(name)}</a></li>`).join('\n');
+  const items = screens.map((name) => `    <li><a href="/screens/${escape(encodeURIComponent(name))}">${escape(name)}</a></li>`).join('\n');
   const list = screens.length ? `  <ul class="shell-screens">\n${items}\n  </ul>\n` : '  <p class="shell-empty">No screen is frozen yet.</p>\n';
   return document('ForgeDesMondes', `<main class="shell-home">\n  <h1>ForgeDesMondes</h1>\n${list}</main>\n`, '');
 }

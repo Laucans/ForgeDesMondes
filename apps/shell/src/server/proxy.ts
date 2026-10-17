@@ -25,9 +25,9 @@ function forwarded(headers: IncomingMessage['headers'], drop: string[] = []): Re
   return out;
 }
 
-/** Sends `req` to `serverUrl` and pipes the answer into `res`. */
+/** Sends `req` to `serverUrl` and pipes the answer into `res`. The request target is only ever a path on that server. */
 export function proxy(req: IncomingMessage, res: ServerResponse, serverUrl: URL): void {
-  const target = new URL(req.url ?? '/', serverUrl);
+  const target = new URL(`${serverUrl.origin}${req.url ?? '/'}`);
   const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
   const upstream = send(
     target,

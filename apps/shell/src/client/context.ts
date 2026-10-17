@@ -17,7 +17,14 @@ export class Context {
   set(name: string, value: unknown): void {
     if (this.values.get(name) === value) return;
     this.values.set(name, value);
-    for (const listener of [...this.listeners]) listener(name, value);
+    // One follower failing must not keep the others from the change.
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(name, value);
+      } catch (error) {
+        console.error(`shell: a follower of the context failed on "${name}"`, error);
+      }
+    }
   }
 
   /** One value; `undefined` while nothing set it. */

@@ -6,8 +6,8 @@ import { readConfig } from './config.js';
 
 const config = readConfig(process.env);
 const server = createServer(await createApp(config));
-server.listen(config.port, () => {
-  console.log(`shell: http://127.0.0.1:${config.port} → ${config.serverUrl.href}`);
+server.listen(config.port, config.host, () => {
+  console.log(`shell: http://${config.host}:${config.port} → ${config.serverUrl.href}`);
 });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {

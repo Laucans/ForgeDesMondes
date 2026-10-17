@@ -38,7 +38,12 @@ async function call(fetcher: typeof fetch, method: string, path: string, body?: 
   }
   const answer = await fetcher(path, init);
   const text = await answer.text();
-  const parsed: unknown = text ? JSON.parse(text) : null;
+  let parsed: unknown = text;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    // Not JSON (a gateway's page, the shell's own plain-text answer): the status still tells.
+  }
   if (!answer.ok) throw new ProtocolError(answer.status, parsed);
   return parsed;
 }
@@ -52,7 +57,11 @@ export function createShell(fetcher: typeof fetch = (input, init) => fetch(input
     commandResult: (commandId) => call(fetcher, 'GET', `/commands/${encodeURIComponent(commandId)}`),
     onDataVersion(listener, everyMs = POLL_MS) {
       let last: number | undefined;
+      let inFlight = false;
       const poll = async (): Promise<void> => {
+        // One question at a time: answers cannot overtake each other.
+        if (inFlight) return;
+        inFlight = true;
         try {
           const { dataVersion } = (await call(fetcher, 'GET', '/dataVersion')) as { dataVersion: number };
           if (dataVersion !== last) {
@@ -61,6 +70,8 @@ export function createShell(fetcher: typeof fetch = (input, init) => fetch(input
           }
         } catch {
           // The server is not there for now: the next poll tries again.
+        } finally {
+          inFlight = false;
         }
       };
       void poll();

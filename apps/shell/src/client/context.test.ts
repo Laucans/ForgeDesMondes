@@ -19,6 +19,24 @@ test('the ones that follow the context are told of a change, once, and stop when
   assert.deepEqual(told, [['scene', 's1']]);
 });
 
+test('a follower that fails does not keep the others from a change', () => {
+  const context = new Context();
+  const told: string[] = [];
+  context.on(() => {
+    throw new Error('boom');
+  });
+  context.on((name) => told.push(name));
+  const error = console.error;
+  console.error = () => undefined;
+  try {
+    context.set('scene', 's1');
+  } finally {
+    console.error = error;
+  }
+  assert.deepEqual(told, ['scene']);
+  assert.equal(context.get('scene'), 's1');
+});
+
 test('names the context a set of props follows', () => {
   assert.deepEqual(new Context().follows({ a: '$ctx.x', b: 'y', c: '$ctx.z', d: 1 }), ['x', 'z']);
 });

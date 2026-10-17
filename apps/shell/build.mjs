@@ -17,12 +17,17 @@ await mkdir(join(shell, 'dist/client'), { recursive: true });
 await cp(join(shell, 'src/client/shell.css'), join(shell, 'dist/client/shell.css'));
 
 let microUis = 0;
+const seen = new Map();
 for (const system of await readdir(apps, { withFileTypes: true })) {
   if (!system.isDirectory() || system.name === 'shell' || system.name === 'screens') continue;
   for (const folder of await readdir(join(apps, system.name), { withFileTypes: true })) {
     const manifest = join(apps, system.name, folder.name, 'micro-ui.json');
     if (!folder.isDirectory() || !existsSync(manifest)) continue;
     const { microUi } = JSON.parse(await readFile(manifest, 'utf8'));
+    // The name the shell serves it by (src/server/app.ts), unique across systems.
+    if (!/^[A-Z][A-Za-z0-9]*$/.test(microUi)) throw new Error(`${manifest}: "${microUi}" is not a Micro-UI name`);
+    if (seen.has(microUi)) throw new Error(`${manifest}: "${microUi}" is already declared by ${seen.get(microUi)}`);
+    seen.set(microUi, manifest);
     const entry = ['index.ts', 'index.js'].map((name) => join(apps, system.name, folder.name, 'src', name)).find((path) => existsSync(path));
     if (!entry) throw new Error(`${manifest}: no src/index.ts or src/index.js to bundle`);
     await build({ ...shared, entryPoints: [entry], outfile: join(shell, 'dist/micro-ui', `${microUi}.js`) });

@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer, request, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,6 +39,7 @@ describe('the shell', () => {
     await writeFile(join(root, 'mock/design/tokens.css'), ':root { --space-1: 4px; }\n');
     await writeFile(join(root, 'apps/screens/medias.json'), JSON.stringify(frozen('medias', [{ MediaLibrary: { campaign: '$ctx.campaign' } }, { GridSettings: {} }])));
     await writeFile(join(root, 'apps/screens/broken.json'), JSON.stringify({ screen: 'broken', version: 0, layout: [] }));
+    await writeFile(join(root, 'apps/screens/Bad Name.json'), '{}');
     await writeFile(join(root, 'apps/screens/other.json'), JSON.stringify(frozen('medias', [{ MediaLibrary: {} }])));
 
     upstream = createServer((req, res) => {
@@ -85,6 +86,20 @@ describe('the shell', () => {
       }
     });
 
+    test('a request target that names another host is refused, never forwarded', async () => {
+      seen.length = 0;
+      answerWith = (_req, res) => res.end('ok');
+      const { port } = new URL(base);
+      const status = await new Promise<number>((done, fail) => {
+        request({ host: '127.0.0.1', port, path: '//evil.example/capabilities/x' }, (res) => {
+          res.resume();
+          done(res.statusCode ?? 0);
+        }).on('error', fail).end();
+      });
+      assert.equal(status, 400);
+      assert.equal(seen.length, 0);
+    });
+
     test('a stream is delivered as it comes, not once it ends', async () => {
       answerWith = (_req, res) => {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -121,6 +136,10 @@ describe('the shell', () => {
       for (const name of ['..%2F..%2Fcontracts%2Fe-screen-composition', 'Medias', 'medias.json']) {
         assert.equal((await fetch(`${base}/screens/${name}`)).status, 404, name);
       }
+    });
+
+    test('a malformed escape in a name is no screen, not a fault', async () => {
+      assert.equal((await fetch(`${base}/screens/%E0%A4%A`)).status, 404);
     });
 
     test('the page lays out the Micro-UIs the screen names, in its order, with its props', async () => {
@@ -162,7 +181,10 @@ describe('the shell', () => {
     test('GET / answers 200 and lists the frozen screens', async () => {
       const answer = await fetch(`${base}/`);
       assert.equal(answer.status, 200);
-      assert.match(await answer.text(), /href="\/screens\/medias"/);
+      const home = await answer.text();
+      assert.match(home, /href="\/screens\/medias"/);
+      // Only what a screen can be called is advertised.
+      assert.doesNotMatch(home, /Bad Name/);
     });
 
     test('loads the design system\'s tokens as they are', async () => {
@@ -184,5 +206,12 @@ describe('the configuration', () => {
     assert.throws(() => readConfig({ PORT: '8791' }, '/r'), /SERVER_URL/);
     assert.throws(() => readConfig({ PORT: 'abc', SERVER_URL: 'http://x' }, '/r'), /PORT/);
     assert.equal(readConfig({ PORT: '8791', SERVER_URL: 'http://x:1' }, '/r').port, 8791);
+  });
+
+  test('an empty PORT is the default one, not a random port; the shell listens on loopback unless told', () => {
+    const config = readConfig({ PORT: ' ', SERVER_URL: 'http://x:1' }, '/r');
+    assert.equal(config.port, 8791);
+    assert.equal(config.host, '127.0.0.1');
+    assert.equal(readConfig({ HOST: '0.0.0.0', SERVER_URL: 'http://x:1' }, '/r').host, '0.0.0.0');
   });
 });

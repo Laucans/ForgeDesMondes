@@ -7,6 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export interface Config {
+  host: string;
   port: number;
   serverUrl: URL;
   root: string;
@@ -20,9 +21,9 @@ export function repositoryRoot(): string {
 }
 
 export function readConfig(env: Record<string, string | undefined>, root: string = repositoryRoot()): Config {
-  const port = Number(env.PORT ?? '8791');
+  const port = Number(env.PORT?.trim() || '8791');
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`PORT is not a port: ${env.PORT}`);
   const serverUrl = env.SERVER_URL;
   if (!serverUrl) throw new Error('SERVER_URL is not set: the shell proxies the wire protocol to it');
-  return { port, serverUrl: new URL(serverUrl), root, dist: resolve(root, 'apps/shell/dist') };
+  return { host: env.HOST?.trim() || '127.0.0.1', port, serverUrl: new URL(serverUrl), root, dist: resolve(root, 'apps/shell/dist') };
 }

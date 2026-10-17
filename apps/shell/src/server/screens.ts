@@ -21,6 +21,9 @@ export interface Screen {
 
 const NAME = /^[a-z][a-z0-9-]*$/;
 
+/** Whether `name` can be a screen's name (contract E): the only names that reach the disk. */
+export const isScreenName = (name: string): boolean => NAME.test(name);
+
 export type Validate = (document: unknown) => string | undefined;
 
 /** Builds the validator of contract E from its schema; answers why a document breaks it, or nothing. */
@@ -35,7 +38,7 @@ export class InvalidScreen extends Error {}
 /** `undefined` when no such screen is frozen; throws `InvalidScreen` when its file breaks the contract. */
 export async function loadScreen(root: string, name: string, validate: Validate): Promise<Screen | undefined> {
   // The name is a path segment: only what the contract allows reaches the disk.
-  if (!NAME.test(name)) return undefined;
+  if (!isScreenName(name)) return undefined;
   let text: string;
   try {
     text = await readFile(join(root, 'apps/screens', `${name}.json`), 'utf8');

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { Config } from './config.js';
 import { renderHome, renderScreen } from './page.js';
 import { isProtocol, proxy } from './proxy.js';
-import { contractValidator, InvalidScreen, loadScreen } from './screens.js';
+import { contractValidator, InvalidScreen, isScreenName, loadScreen } from './screens.js';
 
 const MICRO_UI = /^[A-Z][A-Za-z0-9]*$/;
 
@@ -30,12 +30,18 @@ function send(res: ServerResponse, status: number, type: string, body: string): 
 async function sendFile(res: ServerResponse, path: string, type: string): Promise<void> {
   if (!(await stat(path).then((s) => s.isFile(), () => false))) return send(res, 404, 'text/plain; charset=utf-8', 'not found\n');
   res.writeHead(200, { 'content-type': type });
-  createReadStream(path).pipe(res);
+  createReadStream(path)
+    .on('error', () => res.destroy())
+    .pipe(res);
 }
 
 async function frozenScreens(config: Config): Promise<string[]> {
   const files = await readdir(join(config.root, 'apps/screens')).catch(() => []);
-  return files.filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -'.json'.length)).sort();
+  return files
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => f.slice(0, -'.json'.length))
+    .filter(isScreenName)
+    .sort();
 }
 
 export async function createApp(config: Config): Promise<RequestListener> {
@@ -43,7 +49,10 @@ export async function createApp(config: Config): Promise<RequestListener> {
   const files = assets(config);
 
   const route = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    const { pathname } = new URL(req.url ?? '/', 'http://shell');
+    // Only an origin-form target (`/path`): `//host/path` would name another host.
+    const target = req.url ?? '/';
+    if (!target.startsWith('/') || target.startsWith('//')) return send(res, 400, 'text/plain; charset=utf-8', 'bad request target\n');
+    const { pathname } = new URL(target, 'http://shell');
     if (isProtocol(pathname)) return proxy(req, res, config.serverUrl);
 
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'text/plain; charset=utf-8', 'method not allowed\n');
@@ -52,7 +61,12 @@ export async function createApp(config: Config): Promise<RequestListener> {
 
     const screen = /^\/screens\/([^/]+)$/.exec(pathname);
     if (screen) {
-      const name = decodeURIComponent(screen[1] ?? '');
+      let name: string;
+      try {
+        name = decodeURIComponent(screen[1] ?? '');
+      } catch {
+        return send(res, 404, 'text/plain; charset=utf-8', 'no such screen\n');
+      }
       try {
         const frozen = await loadScreen(config.root, name, validate);
         if (!frozen) return send(res, 404, 'text/plain; charset=utf-8', `no frozen screen "${name}"\n`);
