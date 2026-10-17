@@ -24,7 +24,9 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tokio-postgres = { version = "0.7", default-features = false, features = ["runtime"] }
-# The port a save of the AI settings detects its API type through.
+# The port a save of the AI settings detects its API type through, and a
+# connection test reaches the provider by.
 ports-llm = { path = "../../ports/llm" }
 # --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
+test-connection = { path = "../../ai/data-capabilities/test-connection" }

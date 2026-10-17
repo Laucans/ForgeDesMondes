@@ -4,8 +4,12 @@
 //! `ai_provider` and `ai_settings` (`crates/data/migrations/`). A save of the
 //! AI settings is one command on `AiSettings/1` carrying the active provider
 //! whole (`ai.saveSettings`): once the engine applied it, [`ProjectingStore`]
-//! upserts that provider's row and points the settings row at it. Every other
-//! method is the inner store's.
+//! upserts that provider's row and points the settings row at it. A
+//! connection test (`ai.testConnection`) writes a provider's partition,
+//! `AiSettings/<its id>`, with its outcome alone: [`ProjectingStore`] writes
+//! the four `last_test_*` columns of that row — of the active provider's when
+//! the partition is the nil uuid, a test that reached no provider. Every
+//! other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -22,6 +26,9 @@ use harness_dataguard::postgres::PgStore;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
 use serde_json::Value;
+use test_connection::NO_PROVIDER;
+
+use crate::ai_settings::uuid;
 
 /// The partition whose writes reach the tables: the one settings row.
 pub const AI_SETTINGS: &str = "AiSettings/1";
@@ -45,6 +52,15 @@ const ACTIVATE: &str = "UPDATE ai_settings
     SET active_provider_id = ($1::text)::uuid,
         updated_at = coalesce(($2::text)::timestamptz, now())
     WHERE id = 1";
+
+/// A connection test's outcome on a provider's row, and nothing else of it;
+/// on the active provider's when no provider is named (`$1` null).
+const LAST_TEST: &str = "UPDATE ai_provider
+    SET last_test_ok = $2,
+        last_test_at = ($3::text)::timestamptz,
+        last_test_message = $4,
+        last_test_latency_ms = $5
+    WHERE id = coalesce(($1::text)::uuid, (SELECT active_provider_id FROM ai_settings WHERE id = 1))";
 
 /// A [`PgStore`] whose applied `AiSettings/1` writes reach the tables.
 pub struct ProjectingStore {
@@ -74,6 +90,72 @@ impl ProjectingStore {
             let db = e.as_db_error();
             eprintln!(
                 "projection: {AI_SETTINGS} not projected: {} {}",
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
+    }
+
+    /// Writes the last test of every provider the engine holds one for: at a
+    /// start, so a test whose projection failed after its apply is written
+    /// again. The test that reached no provider is not: the active provider
+    /// may have changed since.
+    pub async fn repair_tests(&self) {
+        let ids = {
+            let client = self.inner.client().lock().await;
+            client.query("SELECT id::text FROM ai_provider", &[]).await
+        };
+        match ids {
+            Ok(rows) => {
+                for row in rows {
+                    let id: String = row.get(0);
+                    self.record_test(&format!("AiSettings/{id}"), &id).await;
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: ai_provider not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
+    }
+
+    /// Writes the last test `partition` holds on its provider's row, logging
+    /// a failure as [`Self::repair`] does.
+    async fn record_test(&self, partition: &str, provider: &str) {
+        let row = match self.inner.row(partition).await {
+            Ok(row) => row,
+            Err(e) => {
+                eprintln!("projection: {partition} not read: {e}");
+                return;
+            }
+        };
+        if !row.contains_key("lastTestAt") {
+            return;
+        }
+        let latency = row
+            .get("lastTestLatencyMs")
+            .and_then(Value::as_i64)
+            .and_then(|ms| i32::try_from(ms).ok());
+        let written = self
+            .inner
+            .client()
+            .lock()
+            .await
+            .execute(
+                LAST_TEST,
+                &[
+                    &(provider != NO_PROVIDER).then_some(provider),
+                    &row.get("lastTestOk").and_then(Value::as_bool),
+                    &text(&row, "lastTestAt"),
+                    &text(&row, "lastTestMessage"),
+                    &latency,
+                ],
+            )
+            .await;
+        if let Err(e) = written {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: {partition} not projected: {} {}",
                 db.map_or("-", |db| db.code().code()),
                 db.and_then(|db| db.constraint()).unwrap_or_default()
             );
@@ -122,6 +204,18 @@ fn projects(write: &Write) -> bool {
     !write.tombstone && write.partition == AI_SETTINGS
 }
 
+/// The provider whose last test `write` records: a live write of a
+/// provider's partition, `AiSettings/<uuid>`.
+fn tested(write: &Write) -> Option<&str> {
+    if write.tombstone {
+        return None;
+    }
+    write
+        .partition
+        .strip_prefix("AiSettings/")
+        .filter(|id| uuid(id))
+}
+
 /// A field as text; `None` when absent, `null` or not a string.
 fn text<'a>(row: &'a BTreeMap<String, Value>, field: &str) -> Option<&'a str> {
     row.get(field).and_then(Value::as_str)
@@ -165,6 +259,8 @@ impl Store for ProjectingStore {
         let version = self.inner.apply(write, result).await?;
         if projects(write) {
             self.repair().await;
+        } else if let Some(provider) = tested(write) {
+            self.record_test(&write.partition, provider).await;
         }
         Ok(version)
     }
@@ -203,6 +299,31 @@ mod tests {
     const MIGRATION: &str = include_str!("../../../data/migrations/0001_ai_settings.sql");
     const CLOUD: &str = "a1000000-0000-4000-8000-000000000001";
     const HOME: &str = "a1000000-0000-4000-8000-000000000002";
+
+    #[test]
+    fn only_a_live_write_of_a_provider_s_partition_records_a_test() {
+        let write = |partition: &str, tombstone| Write {
+            partition: partition.to_string(),
+            values: BTreeMap::new(),
+            tombstone,
+        };
+        let cloud = format!("AiSettings/{CLOUD}");
+        assert_eq!(tested(&write(&cloud, false)), Some(CLOUD));
+        assert_eq!(
+            tested(&write(&format!("AiSettings/{NO_PROVIDER}"), false)),
+            Some(NO_PROVIDER)
+        );
+        assert_eq!(tested(&write(&cloud, true)), None);
+        assert_eq!(tested(&write(AI_SETTINGS, false)), None);
+        assert_eq!(tested(&write(&format!("Other/{CLOUD}"), false)), None);
+        // 36 characters, hex and hyphens, but not where a uuid has them.
+        for id in [
+            "0123456789abcdef0123456789abcdef0123",
+            "a1000000-0000-4000-8000-00000000-001",
+        ] {
+            assert_eq!(tested(&write(&format!("AiSettings/{id}"), false)), None);
+        }
+    }
 
     #[test]
     fn only_a_live_write_of_the_settings_row_is_projected() {
@@ -282,6 +403,146 @@ mod tests {
             .await
             .expect("queued")
             .command_id
+    }
+
+    /// Every column of both tables, as text, `last_test_*` aside or not.
+    async fn snapshot(tables: &Client, last_test: bool) -> Vec<String> {
+        let drop = if last_test {
+            ""
+        } else {
+            " - 'last_test_ok' - 'last_test_at' - 'last_test_message' - 'last_test_latency_ms'"
+        };
+        let sql = format!(
+            "SELECT (to_jsonb(p){drop})::text FROM ai_provider p \
+             UNION ALL SELECT to_jsonb(s)::text FROM ai_settings s ORDER BY 1"
+        );
+        tables
+            .query(&sql, &[])
+            .await
+            .expect("the tables")
+            .iter()
+            .map(|row| row.get(0))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_connection_test_reaches_the_last_test_columns_of_its_row_and_nothing_else() {
+        let url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL names the harness's PostgreSQL");
+        let name = format!("projection_last_test_{}", std::process::id());
+        let admin = connect(&url).await;
+        for sql in [
+            format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
+            format!("CREATE DATABASE {name}"),
+        ] {
+            admin.batch_execute(&sql).await.expect("a scratch database");
+        }
+        let scratch = naming(&url, &name);
+        let tables = connect(&scratch).await;
+        tables.batch_execute(MIGRATION).await.expect("migrated");
+        tables
+            .batch_execute(&format!(
+                "UPDATE ai_settings SET active_provider_id = '{HOME}' WHERE id = 1"
+            ))
+            .await
+            .expect("the home server active");
+        let store = Arc::new(ProjectingStore::new(
+            PgStore::open(connect(&scratch).await)
+                .await
+                .expect("the store"),
+        ));
+        let engine = bound(Engine::new(
+            store.clone(),
+            Arc::new(MemoryNotifier::default()),
+            Arc::new(SystemClock),
+        ))
+        .expect("the product's manifests parse");
+        engine.load().await.expect("an empty queue");
+        let before = snapshot(&tables, false).await;
+
+        for (target, ok, message, latency) in [
+            (CLOUD, true, "Connexion réussie", json!(12)),
+            (NO_PROVIDER, false, "type d'API non reconnu", Value::Null),
+        ] {
+            let payload = json!({
+                "lastTestOk": ok,
+                "lastTestAt": "2026-10-17T10:00:00Z",
+                "lastTestMessage": message,
+                "lastTestLatencyMs": latency,
+            });
+            engine
+                .submit(Submission {
+                    data_capability: "ai.testConnection@1".to_string(),
+                    payload: payload
+                        .as_object()
+                        .expect("an object")
+                        .clone()
+                        .into_iter()
+                        .collect(),
+                    target_id: Some(target.to_string()),
+                    based_on: None,
+                    idempotency_key: None,
+                    caller: Caller {
+                        by: "dm".to_string(),
+                        from: "AiSettings".to_string(),
+                        permissions: Vec::new(),
+                        roles: Vec::new(),
+                    },
+                })
+                .await
+                .expect("queued");
+            let settled = engine.run_once().await.expect("applied");
+            assert_eq!(settled[0].status, State::Applied, "{settled:?}");
+        }
+
+        let tested = |id: &str| {
+            format!(
+                "SELECT last_test_ok, last_test_message, last_test_latency_ms, \
+                 last_test_at = '2026-10-17T10:00:00Z' FROM ai_provider WHERE id = '{id}'"
+            )
+        };
+        let cloud = tables.query_one(&tested(CLOUD), &[]).await.expect("cloud");
+        assert_eq!(cloud.get::<_, Option<bool>>(0), Some(true));
+        assert_eq!(cloud.get::<_, Option<&str>>(1), Some("Connexion réussie"));
+        assert_eq!(cloud.get::<_, Option<i32>>(2), Some(12));
+        assert_eq!(cloud.get::<_, Option<bool>>(3), Some(true));
+        // The test that reached no provider is the active one's.
+        let home = tables.query_one(&tested(HOME), &[]).await.expect("home");
+        assert_eq!(home.get::<_, Option<bool>>(0), Some(false));
+        assert_eq!(
+            home.get::<_, Option<&str>>(1),
+            Some("type d'API non reconnu")
+        );
+        assert_eq!(home.get::<_, Option<i32>>(2), None);
+        let untested = snapshot(&tables, true).await;
+        assert_eq!(
+            untested
+                .iter()
+                .filter(|row| row.contains("\"last_test_ok\": null"))
+                .count(),
+            2,
+            "{untested:?}"
+        );
+        assert_eq!(snapshot(&tables, false).await, before);
+
+        // A projection lost after its apply is made again at a start; the
+        // test that reached no provider is left where it landed.
+        let tests = snapshot(&tables, true).await;
+        tables
+            .batch_execute(&format!(
+                "UPDATE ai_provider SET last_test_ok = NULL, last_test_at = NULL, \
+                 last_test_message = NULL, last_test_latency_ms = NULL WHERE id = '{CLOUD}'"
+            ))
+            .await
+            .expect("the cloud's test lost");
+        store.repair_tests().await;
+        assert_eq!(snapshot(&tables, true).await, tests);
+
+        drop((engine, store, tables));
+        admin
+            .batch_execute(&format!("DROP DATABASE {name} WITH (FORCE)"))
+            .await
+            .expect("the scratch database dropped");
     }
 
     #[tokio::test]

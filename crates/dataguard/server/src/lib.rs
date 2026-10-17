@@ -16,8 +16,9 @@
 //!
 //! Over a database, the engine's writes of the AI settings reach the
 //! product's tables through [`projection::ProjectingStore`]; a save of them
-//! (`ai.saveSettings`) is prepared before it is submitted, with the `llm`
-//! port [`router`] is given.
+//! (`ai.saveSettings`) and a connection test (`ai.testConnection`) are
+//! prepared before they are submitted, with the `llm` port [`router`] is
+//! given.
 
 use std::sync::Arc;
 
@@ -101,6 +102,7 @@ pub async fn plant(url: &str) -> Result<Engine, PlantError> {
         });
         let store = projection::ProjectingStore::new(PgStore::open(client).await?);
         store.repair().await;
+        store.repair_tests().await;
         Arc::new(store)
     };
     let engine = bound(Engine::new(
@@ -184,25 +186,29 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 
 /// A command enters the queue; a save of the AI settings is first made the
 /// state it writes (`save_settings::prepare`), and its refusal, when its URL
-/// is not recognised, is told among the warnings.
+/// is not recognised, is told among the warnings. A connection test is first
+/// run through the port, and only its outcome is submitted
+/// (`test_connection::prepare`): the configuration it tested never is.
 async fn submit<L: Llm>(
     State(served): State<Served<L>>,
     Json(mut body): Json<Submission>,
 ) -> Reply<harness_dataguard::api::Submitted> {
     let mut refusal = None;
-    if save_settings::names(&body.data_capability) {
-        let now = std::time::SystemTime::now()
+    let now = || {
+        let seconds = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
-        let prepared = save_settings::prepare(
-            served.llm.as_ref(),
-            &body.payload,
-            &save_settings::timestamp(now),
-        )
-        .await;
+        save_settings::timestamp(seconds)
+    };
+    if save_settings::names(&body.data_capability) {
+        let prepared = save_settings::prepare(served.llm.as_ref(), &body.payload, &now()).await;
         body.payload = prepared.payload;
         body.target_id = Some(save_settings::TARGET_ID.to_string());
         refusal = prepared.refusal;
+    } else if test_connection::names(&body.data_capability) {
+        let prepared = test_connection::prepare(served.llm.as_ref(), &body.payload, &now()).await;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
@@ -399,6 +405,15 @@ mod tests {
     /// An engine as `plant()` binds it over a memory store the test reads,
     /// served by `router` with the llm port's fake.
     async fn saving() -> (Arc<Engine>, Arc<MemoryStore>, Router) {
+        served_by(
+            ports_llm::fake::FakeLlm::new()
+                .with_endpoint(HOME, serde_json::json!({ "object": "list", "data": [] })),
+        )
+        .await
+    }
+
+    /// The same, served with `llm`: a clone shares its journal.
+    async fn served_by(llm: ports_llm::fake::FakeLlm) -> (Arc<Engine>, Arc<MemoryStore>, Router) {
         let store = Arc::new(MemoryStore::default());
         let engine = bound(Engine::new(
             store.clone(),
@@ -408,8 +423,6 @@ mod tests {
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
         let engine = Arc::new(engine);
-        let llm = ports_llm::fake::FakeLlm::new()
-            .with_endpoint(HOME, serde_json::json!({ "object": "list", "data": [] }));
         let app = router(engine.clone(), Arc::new(llm));
         (engine, store, app)
     }
@@ -631,6 +644,158 @@ mod tests {
                 "{id} {label} is not seeded so"
             );
         }
+    }
+
+    /// `POST /commands` of ai.testConnection by the DM, and what the applier
+    /// made of it.
+    async fn tested(
+        engine: &Engine,
+        app: &Router,
+        payload: serde_json::Value,
+    ) -> (String, harness_dataguard::command::CommandResult) {
+        let body = serde_json::json!({
+            "dataCapability": "ai.testConnection@1",
+            "payload": payload,
+            "caller": { "by": "dm", "from": "AiSettings", "roles": [] },
+        });
+        let request = Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.expect("an answer");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        let mut applied = engine.run_once().await.expect("the applier ran");
+        assert_eq!(applied.len(), 1, "{applied:?}");
+        (
+            String::from_utf8_lossy(&bytes).into_owned(),
+            applied.remove(0),
+        )
+    }
+
+    const CLOUD: &str = "a1000000-0000-4000-8000-000000000001";
+    const CLAUDE_CODE: &str = "a1000000-0000-4000-8000-000000000004";
+
+    fn partition(id: &str) -> String {
+        format!("AiSettings/{id}")
+    }
+
+    #[tokio::test]
+    async fn a_test_of_each_provider_writes_its_last_test_on_its_row() {
+        let seed = include_str!("../../../data/migrations/0001_ai_settings.sql");
+        let (engine, store, app) = saving().await;
+        for (payload, row) in [
+            (api("https://api.anthropic.com/v1", "sk-ant-secret"), CLOUD),
+            (api(HOME, ""), OPENCODE),
+            (
+                serde_json::json!({ "mode": "binary", "binary": "opencode" }),
+                "a1000000-0000-4000-8000-000000000003",
+            ),
+            (
+                serde_json::json!({ "mode": "binary", "binary": "claude" }),
+                CLAUDE_CODE,
+            ),
+        ] {
+            // The row tested is one the migration seeds.
+            assert!(seed.contains(&format!("('{row}'")), "{row} is not seeded");
+            let (_, result) = tested(&engine, &app, payload).await;
+            assert_eq!(result.status, State::Applied, "{result:?}");
+            let now = store.row_now(&partition(row));
+            assert_eq!(now["lastTestOk"], true, "{row}: {now:?}");
+            assert_eq!(now["lastTestLatencyMs"], ports_llm::fake::FAKE_LATENCY_MS);
+            assert!(
+                now["lastTestAt"]
+                    .as_str()
+                    .is_some_and(|at| at.ends_with('Z')),
+                "{now:?}"
+            );
+            assert!(
+                now["lastTestMessage"]
+                    .as_str()
+                    .is_some_and(|m| m.starts_with("Connexion réussie")),
+                "{now:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unrecognised_url_is_refused_on_no_provider_s_partition_saying_why() {
+        let (engine, store, app) = saving().await;
+        let (_, result) = tested(
+            &engine,
+            &app,
+            api("https://inconnu.example.org/pas-une-api", ""),
+        )
+        .await;
+        assert_eq!(result.status, State::Applied, "{result:?}");
+        let now = store.row_now(&partition(test_connection::NO_PROVIDER));
+        assert_eq!(now["lastTestOk"], false, "{now:?}");
+        assert!(
+            now["lastTestMessage"]
+                .as_str()
+                .is_some_and(|m| m.contains("type d'API non reconnu")),
+            "{now:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_test_saves_nothing_of_what_it_tested_and_never_echoes_the_key() {
+        let (engine, store, app) = saving().await;
+        saved(&engine, &app, api(HOME, "")).await;
+        let before = store.row_now(projection::AI_SETTINGS);
+        let key = "sk-ant-api03-très-secret";
+        let mut payload = api("https://api.anthropic.com/v1", key);
+        // What the screen would never send is not saved either.
+        payload["detectedApiType"] = serde_json::json!("cloud");
+        payload["activeProviderId"] = serde_json::json!(CLOUD);
+        let (submitted, result) = tested(&engine, &app, payload).await;
+        assert_eq!(result.status, State::Applied, "{result:?}");
+        assert_eq!(store.row_now(projection::AI_SETTINGS), before);
+        let now = store.row_now(&partition(CLOUD));
+        let fields: Vec<&str> = now.keys().map(String::as_str).collect();
+        assert_eq!(
+            fields,
+            [
+                "lastTestAt",
+                "lastTestLatencyMs",
+                "lastTestMessage",
+                "lastTestOk"
+            ]
+        );
+        let body: serde_json::Value = serde_json::from_str(&submitted).expect("JSON");
+        let status = read_status(&app, body["commandId"].as_str().expect("an id")).await;
+        for text in [submitted, status, format!("{now:?}"), format!("{result:?}")] {
+            assert!(!text.contains(key), "{text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn what_a_test_sends_the_provider_is_its_text_prompt_alone() {
+        let llm = ports_llm::fake::FakeLlm::new();
+        let (engine, _, app) = served_by(llm.clone()).await;
+        let key = "sk-ant-api03-très-secret";
+        tested(&engine, &app, api("https://api.anthropic.com/v1", key)).await;
+        tested(
+            &engine,
+            &app,
+            serde_json::json!({ "mode": "binary", "binary": "claude" }),
+        )
+        .await;
+        let sent = llm.journal().list();
+        assert_eq!(sent.len(), 2, "{sent:?}");
+        for request in &sent {
+            assert_eq!(request.kind, ports_llm::RequestKind::ConnectionTest);
+            assert_eq!(request.text, ports_llm::CONNECTION_TEST_PROMPT);
+        }
+        assert_eq!(
+            (sent[0].provider, sent[1].provider),
+            (
+                ports_llm::Provider::Cloud,
+                ports_llm::Provider::ClaudeCodeBinary
+            )
+        );
     }
 
     #[test]

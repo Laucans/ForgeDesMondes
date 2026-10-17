@@ -127,7 +127,7 @@ fn settings_row(entry: &Entry) -> bool {
 }
 
 /// Whether `id` is a uuid, as `ai_provider.id` is typed.
-fn uuid(id: &str) -> bool {
+pub fn uuid(id: &str) -> bool {
     id.len() == 36
         && id.char_indices().all(|(at, c)| match at {
             8 | 13 | 18 | 23 => c == '-',
@@ -150,8 +150,14 @@ fn carries_provider(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
 /// « binaire » mode, binary is opencode or claude-code and url is empty.
 /// On the settings row carrying a provider, a missing type is a URL that was
 /// not recognised: `api-type-recognized` refuses it, with its message.
+/// A connection test is not judged here: it writes none of these fields
+/// (`test-does-not-save`), on a provider's partition the engine may know by
+/// its last tests alone.
 fn mode_fields(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-    if state.is_empty() || (settings_row(entry) && !carries_provider(state, entry)) {
+    if state.is_empty()
+        || testing(entry)
+        || (settings_row(entry) && !carries_provider(state, entry))
+    {
         return true;
     }
     match text(state, "mode") {
@@ -182,17 +188,17 @@ fn api_type_recognized(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
 
 /// « Tester la connexion » writes the last_test_* fields, and nothing else.
 fn test_does_not_save(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-    let bare = entry
-        .data_capability
-        .split('@')
-        .next()
-        .unwrap_or(&entry.data_capability);
-    bare != TEST_CONNECTION
+    !testing(entry)
         || entry
             .fields()
             .iter()
             .chain(entry.payload.keys())
             .all(|field| LAST_TEST.contains(&field.as_str()) || field == "aiProviderId")
+}
+
+/// Whether the command is « Tester la connexion ».
+fn testing(entry: &Entry) -> bool {
+    entry.data_capability.split('@').next() == Some(TEST_CONNECTION)
 }
 
 /// The settings row is the one of id 1, it is never deleted, it names a
@@ -507,6 +513,37 @@ mod tests {
             assert_eq!(now.get(field), row.get(field), "{field} moved");
         }
         assert_eq!(now.get("lastTestOk"), Some(&json!(true)));
+    }
+
+    #[tokio::test]
+    async fn mode_fields_leaves_a_connection_test_on_a_provider_known_by_its_tests_alone() {
+        // The engine holds no row for the provider: ai.saveSettings writes
+        // the settings row, the seed is the table's.
+        let (engine, store) = engine(MemoryStore::default()).await;
+        let result = written(
+            &engine,
+            "ai.testConnection",
+            json!({
+                "aiProviderId": CLOUD,
+                "lastTestOk": false,
+                "lastTestAt": "2026-10-17T10:00:00Z",
+                "lastTestMessage": "délai dépassé",
+                "lastTestLatencyMs": 0,
+            }),
+        )
+        .await;
+        applied(&result);
+        let now = store.row_now(&format!("AiSettings/{CLOUD}"));
+        assert_eq!(now.get("mode"), None);
+        assert_eq!(now.get("lastTestOk"), Some(&json!(false)));
+        // Any other command writing such a row is still judged.
+        let result = written(
+            &engine,
+            "test.writeProvider",
+            json!({ "aiProviderId": CLOUD, "lastTestOk": true }),
+        )
+        .await;
+        rejected_by(&result, "mode-fields");
     }
 
     #[tokio::test]
