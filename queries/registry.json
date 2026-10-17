@@ -21,6 +21,18 @@
         "AiSettings.lastTestMessage",
         "AiSettings.lastTestLatencyMs"
       ]
+    },
+    {
+      "query": "ListPlayers",
+      "capability": "campaign.listPlayers",
+      "file": "crates/campaign/queries/list-players.graphql",
+      "sha256": "be6b97fd0828891245be1ef637b8592ed60c62cc3d6a61915c142862d46effb2",
+      "fields": [
+        "player.id",
+        "player.campaignId",
+        "player.name",
+        "player.notes"
+      ]
     }
   ]
 }
