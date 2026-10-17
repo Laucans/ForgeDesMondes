@@ -56,6 +56,22 @@
       ]
     },
     {
+      "query": "ListEntityVersions",
+      "capability": "campaign.listEntityVersions",
+      "file": "crates/campaign/queries/list-entity-versions.graphql",
+      "sha256": "5c30bdde12b7892c12ceb8b815b845b5f5d8795d0e8f6667af3a037c5f11eca6",
+      "fields": [
+        "entity.id",
+        "entity.name",
+        "entity_version.entityId",
+        "entity_version.versionNumber",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.createdAt",
+        "entity_version.restoredFromVersionId"
+      ]
+    },
+    {
       "query": "ListEvents",
       "capability": "campaign.listEvents",
       "file": "crates/campaign/queries/list-events.graphql",
