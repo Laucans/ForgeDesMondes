@@ -453,14 +453,17 @@ mod tests {
 
     #[tokio::test]
     async fn single_settings_row_lets_row_1_naming_a_provider_through() {
-        let (engine, _) = engine(MemoryStore::default()).await;
-        let result = written(
-            &engine,
-            "test.writeSettings",
-            json!({ "aiSettingsId": 1, "activeProviderId": CLOUD }),
-        )
-        .await;
-        applied(&result);
+        // The id as a number or as the text a partition is named by.
+        for id in [json!(1), json!("1")] {
+            let (engine, _) = engine(MemoryStore::default()).await;
+            let result = written(
+                &engine,
+                "test.writeSettings",
+                json!({ "aiSettingsId": id, "activeProviderId": CLOUD }),
+            )
+            .await;
+            applied(&result);
+        }
     }
 
     #[tokio::test]
