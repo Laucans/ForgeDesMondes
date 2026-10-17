@@ -20,6 +20,12 @@
 //              initial and unset pass.
 //   tokens     every var(--color-|--font-|--space-|--radius-|--shadow-*,
 //              --border-width) must be defined in mock/design/tokens.css.
+//   values     a font, a spacing (margin, padding, gap), a border or outline
+//              width, an outline offset, a radius or a shadow must be a
+//              var(--token), a calc() over tokens, or zero; a font weight only
+//              var(--font-weight-heading), normal or inherit. Shapes (width,
+//              height, line-height, a percentage radius…), the preludes of
+//              @media/@container and JS-computed placement in four files pass.
 //   loads      no @import, no `<link` in JS, no url() of a stylesheet or a
 //              font (a .css or font file, or a remote address that is not an
 //              image); data: and local images pass.
@@ -363,8 +369,127 @@ function loads(it) {
   return hits;
 }
 
-// New value checks (fonts, spacing, borders, radii, shadows) plug in here.
-const CHECKS = [colours, tokens, loads];
+// Rules 13-15: font, spacing, border and outline widths, radii and shadows take
+// a `var(--token)`, a `calc()` whose lengths all come from tokens, or zero.
+// Shapes have no token and are not in the scope (rule 16): letter-spacing,
+// line-height, opacity, z-index, stroke-width, a percentage radius, width,
+// height, min/max sizes, aspect-ratio, transform, display.
+const SPACING = /^(?:scroll-)?(?:margin|padding)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$|^(?:grid-)?(?:(?:row|column)-)?gap$/;
+const BORDER = /^(?:border|outline|column-rule)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/;
+const BORDER_WIDTH = /^(?:border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?|outline|column-rule)-width$/;
+const RADIUS = /^border(?:-(?:top|bottom|start|end)-(?:left|right|start|end))?-radius$/;
+const SHADOW = /^(?:-(?:webkit|moz)-)?(?:box|text)-shadow$/;
+const FILTER = /^(?:backdrop-)?filter$/;
+// A stylesheet places an element with tokens too; a script's computed offset is placement.
+const INSET = /^(?:left|top|right|bottom|inset(?:-(?:block|inline)(?:-(?:start|end))?)?)$/;
+// Rule 17: JS-computed placement is left alone, in these four files only.
+const PLACEMENT_FILES = new Set(['mock/mock.js', 'mock/components/PlayerStage.html', 'mock/components/Battlemap.html', 'mock/components/EntityEditor.html']);
+
+const LENGTH = /(?<![\w#.-])[+-]?(?:\d+\.?\d*|\.\d+)(?:[a-z]+|%)?(?![\w.])/gi;
+const ZERO = /^[+-]?(?:0+\.?0*|\.0+)(?:[a-z]+|%)?$/i;
+const FONT_WEIGHT_WORDS = new Set(['normal', 'inherit']);
+const FONT_FAMILY_WORDS = new Set(['inherit', 'initial', 'unset', 'revert']);
+const BORDER_WIDTH_WORDS = /(?<![\w-])(thin|medium|thick)(?![\w-])/gi;
+const FONT_SHORTHAND_WORDS = new Set(['inherit', 'initial', 'unset', 'revert', 'normal', 'italic', 'oblique', 'small-caps', 'caption', 'icon', 'menu', 'message-box', 'small-caption', 'status-bar']);
+const TOKEN_ONLY = /^var\(\s*--[\w-]+\s*\)$/;
+
+// `name( … )` calls, balanced: blank their text (same length) when `skip` matches the name.
+function blankCalls(value, skip) {
+  const call = /(?<![\w-])([a-z-]+)\(/iy;
+  let out = '';
+  for (let i = 0; i < value.length;) {
+    call.lastIndex = i;
+    const m = call.exec(value);
+    if (m && skip.test(m[1])) {
+      let depth = 0, j = i + m[1].length;
+      for (; j < value.length; j++) {
+        if (value[j] === '(') depth++;
+        else if (value[j] === ')' && --depth === 0) { j++; break; }
+      }
+      out += ' '.repeat(j - i);
+      i = j;
+    } else out += value[i++];
+  }
+  return out;
+}
+
+// Whether `index` sits inside an open calc(), min(), max() or clamp().
+function insideMath(text, index) {
+  const open = [];
+  for (let i = 0; i < index; i++) {
+    if (text[i] === '(') open.push(/(?<![\w-])(?:calc|min|max|clamp)$/i.test(text.slice(0, i)));
+    else if (text[i] === ')') open.pop();
+  }
+  return open.some(Boolean);
+}
+
+// The literal lengths of a value: a number that is not zero, with or without a
+// unit, outside a `var(--token)` — a fallback after the comma is judged. A
+// unitless multiplier inside a `calc()` is not a length. Colours, urls and the
+// dynamic parts of a template are not lengths.
+function literalLengths(value) {
+  const bare = blankCalls(value.replace(/\0/g, ' '), /^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark|url)$/i)
+    .replace(/var\(\s*--[\w-]+/gi, (m) => m.replace(/[^(]/g, ' '));
+  const hits = [];
+  for (const m of bare.matchAll(LENGTH)) {
+    if (ZERO.test(m[0])) continue;
+    if (!/[a-z%]$/i.test(m[0]) && insideMath(bare, m.index)) continue;
+    hits.push({ at: m.index, text: m[0] });
+  }
+  return hits;
+}
+
+function values(it) {
+  const { property, value, origin, file } = it;
+  if (property === null || property.startsWith('--') || property.startsWith('@')) return [];
+  const hits = [];
+  const add = (at, text, what) => hits.push({ at, text, message: `literal ${what} "${text}" in "${snippet(it, at)}": use a var(--token) of mock/design/tokens.css, a calc() over tokens, or zero` });
+  const lengths = (what, keep = () => true) => { for (const l of literalLengths(value)) if (keep(l)) add(l.at, l.text, what); };
+  const word = value.replace(/\0/g, ' ').trim().toLowerCase();
+  const wordAt = value.search(/\S/);
+  if (word === '') return hits;
+
+  if (property === 'font-family') {
+    if (!TOKEN_ONLY.test(word) && !FONT_FAMILY_WORDS.has(word)) add(wordAt, value.trim(), 'font family');
+  } else if (property === 'font-weight') {
+    if (!TOKEN_ONLY.test(word) && !FONT_WEIGHT_WORDS.has(word)) add(wordAt, value.trim(), 'font weight');
+  } else if (property === 'font-size') {
+    lengths('font size');
+    if (/^(?:(?:xx?-)?small|medium|large|x{1,3}-large|smaller|larger)$/.test(word)) add(wordAt, word, 'font size');
+  } else if (property === 'font') {
+    // The shorthand carries a size, a weight and a family: a size after `/` is a line-height.
+    const slash = value.replace(/\/\s*[\d.]+[a-z%]*/gi, (m) => ' '.repeat(m.length));
+    for (const l of literalLengths(slash)) add(l.at, l.text, 'font size');
+    for (const w of slash.matchAll(/(?<![\w.#-])(bold|bolder|lighter|[1-9]00)(?![\w.-])/gi)) add(w.index, w[1], 'font weight');
+    const rest = blankCalls(slash.replace(/\0/g, ' '), /^(?:calc|var)$/i).replace(/(?<![\w.#-])[+-]?[\d.]+[a-z%]*/gi, (m) => ' '.repeat(m.length));
+    for (const w of rest.matchAll(/"[^"]*"|'[^']*'|(?<![\w-])[a-z][\w-]*/gi)) {
+      if (!FONT_SHORTHAND_WORDS.has(w[0].toLowerCase()) && !/^(?:bold|bolder|lighter)$/i.test(w[0])) add(w.index, w[0], 'font family');
+    }
+  } else if (SPACING.test(property)) lengths('spacing');
+  else if (BORDER_WIDTH.test(property) || BORDER.test(property)) {
+    lengths('border width');
+    for (const w of value.matchAll(BORDER_WIDTH_WORDS)) add(w.index, w[1], 'border width');
+  } else if (property === 'outline-offset') lengths('outline offset');
+  else if (RADIUS.test(property)) lengths('radius', (l) => !l.text.endsWith('%'));
+  else if (SHADOW.test(property)) {
+    if (word !== 'none') lengths('shadow');
+  } else if (FILTER.test(property)) {
+    for (const m of value.matchAll(/drop-shadow\(/gi)) {
+      let depth = 0, end = m.index + m[0].length - 1;
+      for (; end < value.length; end++) {
+        if (value[end] === '(') depth++;
+        else if (value[end] === ')' && --depth === 0) break;
+      }
+      const from = m.index + m[0].length;
+      for (const l of literalLengths(value.slice(from, end))) add(from + l.at, l.text, 'shadow');
+    }
+  } else if (INSET.test(property) && !((origin === 'js' || origin === 'inline') && PLACEMENT_FILES.has(file))) {
+    lengths('offset', (l) => !l.text.endsWith('%'));
+  }
+  return hits;
+}
+
+const CHECKS = [colours, tokens, loads, values];
 
 // ---- the checks on a whole file ---------------------------------------------------
 
