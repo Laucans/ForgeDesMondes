@@ -1,0 +1,17 @@
+[package]
+name = "ports-llm-adapters"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The adapters of the `llm` port that ports.json names: the Anthropic Messages API and the opencode endpoint (API mode), the opencode and Claude Code programs (binary mode). Each passes `ports_llm::contract`."
+publish = false
+
+[dependencies]
+ports-llm = { path = ".." }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "process", "time"] }
+
+[dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "rt-multi-thread"] }

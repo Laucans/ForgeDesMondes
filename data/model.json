@@ -1,5 +1,196 @@
 {
   "version": 1,
-  "tables": [],
+  "tables": [
+    {
+      "business": [
+        "R3",
+        "R77",
+        "R92",
+        "R99"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du réglage.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut ; les quatre fournisseurs semés ont des identifiants fixes (crates/data/migrations/0001_ai_settings.sql)."
+          ]
+        },
+        {
+          "business": [
+            "R3"
+          ],
+          "name": "mode",
+          "nullable": false,
+          "purpose": "« api » ou « binaire ».",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_mode_fields : « api » ou « binaire », avec les champs de ce mode (invariant mode-fields de l'agrégat AiSettings)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "label",
+          "nullable": false,
+          "purpose": "Libellé affiché (« Endpoint opencode du serveur maison »).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R92"
+          ],
+          "name": "url",
+          "nullable": true,
+          "purpose": "URL de l'API, en mode « api ».",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_mode_fields : renseignée en mode « api », vide en mode « binaire »."
+          ]
+        },
+        {
+          "business": [
+            "R3",
+            "R92"
+          ],
+          "name": "detected_api_type",
+          "nullable": true,
+          "purpose": "Type d'API détecté (cloud, opencode).",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_api_type_recognized : null, « cloud » ou « opencode », les types de ProviderApiType@1 (invariant api-type-recognized).",
+            "Dérivé par ai.saveSettings de l'URL et de la réponse de l'endpoint (ProviderApiType@1), jamais saisi ; stocké, car cette réponse ne se recalcule pas depuis d'autres lignes."
+          ]
+        },
+        {
+          "business": [],
+          "name": "api_key",
+          "nullable": true,
+          "purpose": "Clé d'API, stockée en local.",
+          "type": "text",
+          "technical": [
+            "Secret : jamais journalisé, masqué à chaque lecture ; vide dans le semis."
+          ]
+        },
+        {
+          "business": [
+            "R3"
+          ],
+          "name": "binary",
+          "nullable": true,
+          "purpose": "« opencode » ou « claude-code », en mode « binaire ».",
+          "type": "text",
+          "technical": [
+            "Mot réservé de PostgreSQL : toujours écrit entre guillemets (\"binary\").",
+            "CHECK ai_provider_mode_fields : « opencode » ou « claude-code » en mode « binaire », vide en mode « api »."
+          ]
+        },
+        {
+          "business": [
+            "R99",
+            "R100"
+          ],
+          "name": "generation_model",
+          "nullable": false,
+          "purpose": "Modèle pour statblocks, backgrounds et analyses.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R26",
+            "R99"
+          ],
+          "name": "summary_model",
+          "nullable": false,
+          "purpose": "Modèle pour les résumés de séance.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R3",
+            "R99"
+          ],
+          "name": "last_test_ok",
+          "nullable": true,
+          "purpose": "Résultat du dernier test de connexion.",
+          "type": "boolean",
+          "technical": [
+            "Écrit par ai.testConnection seul, qui n'écrit que les champs last_test_* (invariant test-does-not-save)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "last_test_at",
+          "nullable": true,
+          "purpose": "Date du dernier test.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [
+            "R92",
+            "R99"
+          ],
+          "name": "last_test_message",
+          "nullable": true,
+          "purpose": "Message de réussite ou raison de l'échec.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "last_test_latency_ms",
+          "nullable": true,
+          "purpose": "Latence mesurée.",
+          "type": "integer"
+        }
+      ],
+      "name": "ai_provider",
+      "purpose": "Réglage d'un fournisseur de génération : en mode « API » (URL dont le type est détecté) ou en mode « Binaire » (opencode ou Claude Code). Seul du texte lui est envoyé."
+    },
+    {
+      "business": [
+        "R3"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Toujours 1 : une seule ligne.",
+          "type": "smallint",
+          "technical": [
+            "Clé primaire, 1 par défaut ; CHECK ai_settings_single_row (id = 1) : une seule ligne (invariant single-settings-row)."
+          ]
+        },
+        {
+          "business": [
+            "R3",
+            "R100"
+          ],
+          "name": "active_provider_id",
+          "nullable": false,
+          "purpose": "Fournisseur utilisé pour les générations.",
+          "references": "ai_provider.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE RESTRICT ON UPDATE CASCADE (onDelete restrict, onUpdate propagate de l'agrégat) ; semée sur le fournisseur cloud."
+          ]
+        },
+        {
+          "business": [],
+          "name": "updated_at",
+          "nullable": false,
+          "purpose": "Dernier enregistrement des paramètres.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "ai_settings",
+      "purpose": "Réglage unique de la machine : quel fournisseur est actif."
+    }
+  ],
   "links": []
 }

@@ -30,7 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("serve") | None => {
             let engine = Arc::new(plant(&url).await?);
             let addr = args.next().unwrap_or_else(|| "127.0.0.1:8800".to_string());
-            let app = router(engine.clone());
+            // This binary is the mock-up's and the smoke test's: the llm
+            // port on its fake. The product's server (crates/server) wires it.
+            let app = router(engine.clone(), Arc::new(ports_llm::fake::FakeLlm::new()));
             let listener = tokio::net::TcpListener::bind(&addr).await?;
             let applier = applier(engine);
             println!("dataguard-server on {addr}");

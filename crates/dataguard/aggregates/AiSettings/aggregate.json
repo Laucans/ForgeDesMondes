@@ -1,0 +1,107 @@
+{
+  "aggregate": "AiSettings",
+  "fields": {
+    "activeProviderId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "aiProviderId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "aiSettingsId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "apiKey": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "binary": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "detectedApiType": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "generationModel": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "label": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "lastTestAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "lastTestLatencyMs": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "lastTestMessage": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "lastTestOk": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "mode": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "summaryModel": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "updatedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "url": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "mode-fields",
+      "onViolation": "reject",
+      "rule": "En mode « api », url et detected_api_type sont renseignés et binary est vide. En mode « binaire », binary vaut exactement « opencode » ou « claude-code » et url est vide."
+    },
+    {
+      "id": "api-type-recognized",
+      "onViolation": "reject",
+      "rule": "Une URL dont le type d'API n'est pas reconnu ne peut pas être enregistrée. Le test la refuse avec le message « type d'API non reconnu »."
+    },
+    {
+      "id": "test-does-not-save",
+      "onViolation": "reject",
+      "rule": "« Tester la connexion » n'écrit que les champs last_test_*. Il n'enregistre jamais URL, modèles ni mode, donc aucun réglage invalide n'est enregistré à l'insu du DM."
+    },
+    {
+      "id": "single-settings-row",
+      "onViolation": "reject",
+      "rule": "Il existe une seule ligne ai_settings (id = 1), et elle pointe vers un fournisseur existant."
+    },
+    {
+      "id": "text-only-payload",
+      "onViolation": "reject",
+      "rule": "Toute requête vers le fournisseur actif, API ou binaire, ne porte que du texte : prompts transcrits, briefs, notes, journal. Jamais d'audio."
+    }
+  ],
+  "relations": [
+    {
+      "from": "AiSettings.activeProviderId",
+      "onDelete": "restrict",
+      "onUpdate": "propagate"
+    }
+  ]
+}

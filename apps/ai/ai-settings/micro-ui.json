@@ -1,0 +1,8 @@
+{
+  "microUi": "AiSettings",
+  "system": "ai",
+  "description": "Le fournisseur de génération (API cloud ou opencode maison, ou un binaire), ses modèles et sa clé, le test de connexion et ce qui sort de la machine",
+  "needs": ["ai.getSettings"],
+  "actions": ["ai.saveSettings", "ai.testConnection"],
+  "props": {}
+}

@@ -1,0 +1,22 @@
+# fields: AiSettings.activeProviderId, AiSettings.aiProviderId, AiSettings.mode, AiSettings.label, AiSettings.url, AiSettings.detectedApiType, AiSettings.apiKey, AiSettings.binary, AiSettings.generationModel, AiSettings.summaryModel, AiSettings.lastTestOk, AiSettings.lastTestAt, AiSettings.lastTestMessage, AiSettings.lastTestLatencyMs
+# The AI settings screen's read: every selectable provider with the last test
+# it holds, and whether it is the active one. The API key is read to be masked
+# on the way out (crates/ai/capabilities/get-settings), never to be sent.
+query GetSettings {
+  aiProviders {
+    id
+    mode
+    label
+    url
+    detectedApiType
+    apiKey
+    binary
+    generationModel
+    summaryModel
+    lastTestOk
+    lastTestAt
+    lastTestMessage
+    lastTestLatencyMs
+    active
+  }
+}

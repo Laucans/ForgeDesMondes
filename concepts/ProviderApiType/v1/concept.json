@@ -1,0 +1,29 @@
+{
+  "concept": "ProviderApiType",
+  "version": 1,
+  "kind": "derived",
+  "definition": "The kind of API that sits behind a provider URL: `cloud` (the Anthropic Messages API) or `opencode` (the OpenAI-compatible endpoint of the DM's home opencode server). The DM never states it; it is always derived from the URL, plus the shape of the endpoint's answer when the URL alone cannot tell. A URL that is not an absolute http(s) URL with a host is not recognised. The host `api.anthropic.com` (compared case-insensitively, port and userinfo left aside) is `cloud`, whatever the endpoint answered. Any other host is `opencode` when the endpoint answered its list of models in the OpenAI-compatible shape: a JSON object with `object` equal to `list` and `data` an array. `provider.modelListAnswer` is the endpoint's JSON answer; it is absent or null when the endpoint did not answer or did not answer JSON, and the two are the same input. Everything else, including an endpoint that did not answer, is not recognised: `type` is null, `recognized` is false and `message` is `type d'API non reconnu`.",
+  "output": {
+    "type": {
+      "enum": ["cloud", "opencode"],
+      "nullable": true,
+      "labels": {
+        "cloud": "API cloud",
+        "opencode": "Endpoint opencode du serveur maison"
+      },
+      "rule": "null exactly when recognized is false"
+    },
+    "recognized": {
+      "type": "boolean",
+      "rule": "true exactly when type is cloud or opencode"
+    },
+    "message": {
+      "type": "string",
+      "nullable": true,
+      "rule": "null when recognized is true; exactly `type d'API non reconnu` when it is false"
+    }
+  },
+  "inputs": ["provider.url", "provider.modelListAnswer"],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}

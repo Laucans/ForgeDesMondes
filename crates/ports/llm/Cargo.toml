@@ -1,0 +1,15 @@
+[package]
+name = "ports-llm"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The `llm` port (ports.json): the trait the product calls to test a generation provider and to generate text, the text-only request types, the request journal, the fake, and the contract suite every adapter passes."
+publish = false
+
+[dependencies]
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+serde_json = "1"
+
+[dev-dependencies]
+platform-conformance = { path = "../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

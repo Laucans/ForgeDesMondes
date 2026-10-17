@@ -7,9 +7,12 @@
 //! - `PORT`: where it listens, on every interface — 8790 when unset;
 //! - `DATABASE_URL`: the product's PostgreSQL, or `memory` for the engine's
 //!   in-memory store;
+//! - `DATABASE_URL_READONLY`: the read-only connection the Capabilities read
+//!   through; when unset, they read through `DATABASE_URL`, every read in a
+//!   `READ ONLY` transaction;
 //! - `PORTS`: how the ports of ports.json are wired — only `fake`, the
 //!   default: every built port on its fake, no secret read, nothing reached
-//!   outside (no port is built yet);
+//!   outside — the `llm` port's fake is [`llm`];
 //! - `FIXTURES_DIR`: when set and not empty, the folder of the mock-up's
 //!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]).
 //!
@@ -23,7 +26,10 @@ use std::sync::Arc;
 
 use axum::routing::get;
 use axum::{Json, Router};
-use dataguard_server::Engine;
+use dataguard_server::{Engine, Reads};
+use ports_llm::Llm;
+use ports_llm::fake::FakeLlm;
+use serde_json::{Value, json};
 
 /// Where the server listens when `PORT` is unset: the rules' runtime's port.
 const DEFAULT_PORT: u16 = 8790;
@@ -74,6 +80,8 @@ pub struct Config {
     pub addr: SocketAddr,
     /// The database `DATABASE_URL` names, or [`dataguard_server::MEMORY`].
     pub database_url: String,
+    /// The read-only database `DATABASE_URL_READONLY` names, when set.
+    pub read_only_url: Option<String>,
     /// How the ports are wired, from `PORTS`.
     pub ports: Ports,
     /// The fixtures' folder, from `FIXTURES_DIR`; none when unset or empty.
@@ -111,12 +119,14 @@ impl Config {
             name: data::READ_WRITE_URL,
             why: "it names the product's PostgreSQL, or `memory`",
         })?;
+        let read_only_url = var(data::READ_ONLY_URL).filter(|url| !url.is_empty());
         let fixtures = var("FIXTURES_DIR")
             .filter(|dir| !dir.is_empty())
             .map(PathBuf::from);
         Ok(Config {
             addr: SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)),
             database_url,
+            read_only_url,
             ports,
             fixtures,
         })
@@ -161,9 +171,54 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Vec<Skipped>> {
     Ok(skipped)
 }
 
-/// The shell's wire protocol through `engine`, and `GET /health`.
-pub fn app(engine: Arc<Engine>) -> Router {
-    dataguard_server::router(engine).route("/health", get(health))
+/// The `llm` port as `ports` wires it: its fake, whose home server answers
+/// its model list at the opencode provider's URL the fixtures describe
+/// (`AiSettings.json` in `fixtures`) — so a save of that URL detects it, as
+/// the real endpoint would make it. Without that fixture, only the cloud
+/// host and the binaries are recognised.
+pub fn llm(ports: Ports, fixtures: Option<&Path>) -> FakeLlm {
+    match ports {
+        Ports::Fake => {
+            let fake = FakeLlm::new();
+            let settings = fixtures
+                .and_then(|dir| std::fs::read_to_string(dir.join("AiSettings.json")).ok())
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+            let Some(settings) = settings else {
+                return fake;
+            };
+            let home = &settings["providers"]["opencode"];
+            let Some(url) = home["url"].as_str() else {
+                return fake;
+            };
+            let models: Vec<Value> = ["generationModel", "summaryModel"]
+                .iter()
+                .filter_map(|model| home[*model].as_str())
+                .map(|id| json!({ "id": id, "object": "model" }))
+                .collect();
+            fake.with_endpoint(url, json!({ "object": "list", "data": models }))
+        }
+    }
+}
+
+/// The connection the Capabilities read through: `DATABASE_URL_READONLY` when
+/// `config` has one, else the database the server writes to — each read then
+/// runs in a `READ ONLY` transaction.
+///
+/// # Errors
+///
+/// [`Error::Plant`] when the database cannot be reached.
+pub async fn reads(config: &Config) -> Result<Reads, Error> {
+    let url = config
+        .read_only_url
+        .as_deref()
+        .unwrap_or(&config.database_url);
+    Ok(Reads::open(url).await?)
+}
+
+/// The shell's wire protocol through `engine` and `llm`, its reads through
+/// `reads`, and `GET /health`.
+pub fn app<L: Llm + 'static>(engine: Arc<Engine>, llm: Arc<L>, reads: Arc<Reads>) -> Router {
+    dataguard_server::router_reading(engine, llm, reads).route("/health", get(health))
 }
 
 /// Answers 200 once the server serves: migrations applied, engine planted.
@@ -205,10 +260,27 @@ mod tests {
             Config {
                 addr: "0.0.0.0:8811".parse().unwrap(),
                 database_url: "postgres://here/app".to_string(),
+                read_only_url: None,
                 ports: Ports::Fake,
                 fixtures: Some(PathBuf::from("mock/fixtures")),
             }
         );
+    }
+
+    #[test]
+    fn the_read_only_url_is_read_when_it_is_set_and_not_empty() {
+        let read = config(&[
+            ("DATABASE_URL", "postgres://here/app"),
+            ("DATABASE_URL_READONLY", "postgres://reader@here/app"),
+        ])
+        .expect("a valid configuration");
+        assert_eq!(
+            read.read_only_url.as_deref(),
+            Some("postgres://reader@here/app")
+        );
+        let empty = config(&[("DATABASE_URL", "memory"), ("DATABASE_URL_READONLY", "")])
+            .expect("a valid configuration");
+        assert_eq!(empty.read_only_url, None);
     }
 
     #[test]
@@ -300,6 +372,41 @@ mod tests {
         assert!(fixtures(&dir).is_err());
     }
 
+    /// The provider the fake's connection test reaches at `url`.
+    async fn reached(llm: &FakeLlm, url: &str) -> Option<ports_llm::Provider> {
+        let config = ports_llm::ProviderConfig::Api {
+            url: url.to_string(),
+            api_type: None,
+            key: None,
+            models: ports_llm::Models {
+                generation: "g".to_string(),
+                summary: "s".to_string(),
+            },
+        };
+        llm.test_connection(&config).await.provider
+    }
+
+    #[tokio::test]
+    async fn the_fake_llm_answers_the_model_list_of_the_fixtures_home_server() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let llm = llm(Ports::Fake, Some(&fixtures));
+        assert_eq!(
+            reached(&llm, "http://192.168.1.40:4096").await,
+            Some(ports_llm::Provider::OpencodeServer)
+        );
+        assert_eq!(reached(&llm, "https://inconnu.example.org").await, None);
+    }
+
+    #[tokio::test]
+    async fn without_the_fixture_the_fake_llm_knows_no_home_server() {
+        let dir = folder("no-ai-settings", &[("other.json", "{}")]);
+        let llm_of_dir = llm(Ports::Fake, Some(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+        for fake in [llm_of_dir, llm(Ports::Fake, None)] {
+            assert_eq!(reached(&fake, "http://192.168.1.40:4096").await, None);
+        }
+    }
+
     /// The app over the in-memory engine, answering one request.
     async fn answer(method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
         let engine = dataguard_server::plant(dataguard_server::MEMORY)
@@ -313,7 +420,10 @@ mod tests {
             None => request.body(Body::empty()),
         }
         .expect("a request");
-        let response = app(Arc::new(engine))
+        let reads = Reads::open(dataguard_server::MEMORY)
+            .await
+            .expect("no database");
+        let response = app(Arc::new(engine), Arc::new(FakeLlm::new()), Arc::new(reads))
             .oneshot(request)
             .await
             .expect("an answer");
@@ -356,6 +466,55 @@ mod tests {
                 .is_some_and(|e| e.contains("not a registered persisted query")),
             "{body}"
         );
+    }
+
+    /// The hash `scripts/queries.sh` registered for `ai.getSettings`.
+    fn registered_hash() -> String {
+        let registry: Value = serde_json::from_str(include_str!("../../../queries/registry.json"))
+            .expect("the registry");
+        registry["queries"]
+            .as_array()
+            .and_then(|q| q.iter().find(|q| q["capability"] == "ai.getSettings"))
+            .and_then(|q| q["sha256"].as_str())
+            .expect("ai.getSettings is registered")
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn a_registered_get_settings_answers_its_settings() {
+        for body in [
+            json!({ "sha256": registered_hash(), "variables": {} }),
+            json!({ "variables": {} }),
+        ] {
+            let (status, answer) =
+                answer(Method::POST, "/capabilities/ai.getSettings", Some(body)).await;
+            assert_eq!(status, StatusCode::OK, "{answer}");
+            assert!(answer["data"].is_object(), "{answer}");
+            assert!(answer["data"]["providers"].is_object(), "{answer}");
+            assert!(answer.get("asOf").is_some(), "{answer}");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_settings_under_another_hash_is_404() {
+        let (status, body) = answer(
+            Method::POST,
+            "/capabilities/ai.getSettings",
+            Some(json!({ "sha256": "0".repeat(64), "variables": {} })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_capability_with_no_registered_query_is_404_without_a_hash_too() {
+        let (status, body) = answer(
+            Method::POST,
+            "/capabilities/campaign.listCampaigns",
+            Some(json!({ "variables": {} })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     }
 
     #[tokio::test]

@@ -1,0 +1,33 @@
+{
+  "dataCapability": "ai.testConnection",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "AiSettings"
+  },
+  "touches": [
+    "AiSettings.lastTestOk",
+    "AiSettings.lastTestAt",
+    "AiSettings.lastTestMessage",
+    "AiSettings.lastTestLatencyMs"
+  ],
+  "payload": {
+    "mode": "'api' | 'binary' — the mode on screen, never saved",
+    "url": "string — api mode: the URL on screen; its API type is detected (ProviderApiType@1), never given, never saved",
+    "key": "string — api mode: the key on screen, '' for none; used for this test only, never stored, never echoed",
+    "binary": "'opencode' | 'claude' — binary mode, never saved",
+    "generationModel": "string — never saved",
+    "summaryModel": "string — never saved"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "test-does-not-save",
+    "api-type-recognized",
+    "text-only-payload"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "ports": ["llm"],
+  "idempotencyKey": "optional"
+}
