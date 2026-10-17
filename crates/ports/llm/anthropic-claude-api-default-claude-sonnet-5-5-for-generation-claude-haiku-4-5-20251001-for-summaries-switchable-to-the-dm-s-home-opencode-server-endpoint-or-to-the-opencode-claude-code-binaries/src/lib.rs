@@ -1,6 +1,10 @@
 //! The adapters of the `llm` port (`crates/ports/llm`), the crate
 //! `ports.json` names as its `adapter`.
 //!
+//! [`Selector`] is the one client a caller holds: it turns a configuration
+//! into the right adapter, [`ApiLlm`] for an API URL, [`BinaryLlm`] for a
+//! local program.
+//!
 //! **API mode** is [`ApiLlm`]: one [`Llm`] over two clients, chosen by the API
 //! type `ProviderApiType@1` tells from the URL the DM entered, never by a
 //! setting.
@@ -10,6 +14,10 @@
 //! - [`opencode_endpoint`]: the OpenAI-compatible chat completions of the
 //!   DM's home opencode server, the key (if any) as a bearer token.
 //!
+//! **Binary mode** is [`BinaryLlm`]: the DM's own `opencode` or `claude`
+//! (Claude Code) program, run with the prompt on its standard input; see
+//! [`parse_binary`] for the two values a setting may hold.
+//!
 //! The key is the one the configuration carries (the DM's settings), else
 //! `LLM_API_KEY`. It is sent in a header and nowhere else: not in a report,
 //! an error, the journal or a log.
@@ -17,7 +25,7 @@
 //! Only text leaves: a [`GenerateRequest`] holds nothing else. A URL whose API
 //! type is not recognised is refused before any prompt is sent; to tell a
 //! home server from a stranger the one thing asked of it is its list of
-//! models, which is the Concept's own input.
+//! models, which is the Concept's own input. Only text reaches a program too.
 
 use std::env;
 use std::time::{Duration, Instant};
@@ -35,11 +43,17 @@ use serde_json::{Value, json};
 // (ports.json's `adapter`) already takes 211 of the 255 bytes a file name holds.
 #[path = "cloud.rs"]
 mod anthropic;
+#[path = "cli.rs"]
+mod binary;
 mod http;
 #[path = "home.rs"]
 mod opencode_endpoint;
+#[path = "pick.rs"]
+mod selector;
 
+pub use binary::{BinaryLlm, parse_binary};
 use http::Failure;
+pub use selector::{Chosen, Selector};
 
 /// The environment variable of the port's secret.
 const KEY_VARIABLE: &str = "LLM_API_KEY";
@@ -96,9 +110,6 @@ impl ApiLlm {
     ///
     /// When the TLS backend cannot be initialised.
     #[must_use]
-    // Nothing in this workspace builds the adapter yet: the selector of the
-    // binary-mode task and the server will, with the process's environment.
-    #[allow(dead_code)]
     pub fn from_env() -> Self {
         Self::new(fallback_key(env::var(KEY_VARIABLE).ok()))
     }
@@ -121,6 +132,14 @@ impl ApiLlm {
             cleartext_cloud: false,
             journal: RequestJournal::new(),
         }
+    }
+
+    /// The same client writing to `journal`, which a selector shares between
+    /// its clients.
+    #[must_use]
+    pub fn with_journal(mut self, journal: RequestJournal) -> Self {
+        self.journal = journal;
+        self
     }
 
     /// The same client, speaking to the cloud API over plain HTTP too: for a
