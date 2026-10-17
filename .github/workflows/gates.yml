@@ -763,6 +763,29 @@ jobs:
             exit 1
           fi
 
+  # Contract O — the mock-up styles itself only through the design system:
+  # no colour literal in a page, a micro-frontend, `style.css` or `mock.js`
+  # (a hex, a colour function, a named colour; a fallback in `var()` too), no
+  # `var(--color-*|--font-*|--space-*|--radius-*|--shadow-*|--border-width)`
+  # that mock/design/tokens.css does not define, every page loading
+  # `tokens.css`, `kit.css` and `style.css` in that order from the design
+  # system's own files and never from a copy, and no `<link`, `@import` or
+  # external `url(` anywhere else. Files are found by glob under `mock/`
+  # (mock/design/ and mock/kit/ excluded, being the design system's own); the
+  # gate fails on an empty scan, reports every violation and gives its verdict
+  # last (scripts/design-system-gate.mjs, proved by
+  # scripts/test-design-system-values-gate.sh). Every push and pull request,
+  # no `paths:` filter: a rule of the mock-up is never skipped.
+  design-system:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The mock-up styles only through the design system's tokens and loads its files once
+        run: node scripts/design-system-gate.mjs
+
   # Contract P — every rule of rules.json has its test, of its family, its
   # criterion copied as it is (scripts/rules-gate.mjs coverage).
   # Contract Q — every dependency outside the product is a port: the units
