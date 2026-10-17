@@ -1,0 +1,17 @@
+# fields: campaign.id, campaign.name, campaign.kind, campaign.art, campaign.glyph, campaign.pitch, campaign.coverMediaId, campaign.createdAt, campaign.lastExportedAt, campaign_overview_view.entityCounts
+# One campaign's overview: its cover, pitch and dates, the day of its last
+# export, and the counts of campaign_overview_view (derived, never stored).
+query GetCampaign($id: ID!) {
+  campaign(id: $id) {
+    id
+    name
+    kind
+    art
+    glyph
+    pitch
+    coverMediaId
+    createdAt
+    lastExportedAt
+    entityCounts
+  }
+}
