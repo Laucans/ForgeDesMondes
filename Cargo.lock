@@ -261,6 +261,7 @@ dependencies = [
  "async-trait",
  "axum",
  "data",
+ "get-settings",
  "harness-dataguard",
  "ports-llm",
  "save-settings",
@@ -378,6 +379,14 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "get-settings"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
 ]
 
 [[package]]
