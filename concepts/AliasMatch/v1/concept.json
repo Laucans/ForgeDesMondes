@@ -1,0 +1,23 @@
+{
+  "concept": "AliasMatch",
+  "version": 1,
+  "kind": "derived",
+  "definition": "How a name or an alias is normalised, and when two terms name the same thing. The normalised term is the term with its accents removed, in lowercase, with the white space around it trimmed: « la Rôdeuse », « LA RÔDEUSE » and «  la rodeuse  » all give `la rodeuse`. An accent is a combining mark (U+0300 to U+036F) of the decomposed letter (é, è, ê, ë, à, ç, ï, ô, ù, ü…), removed whatever the letter, and the result is recomposed, so that whatever else a letter is made of (kana with a dakuten, Hangul) stays as written; a letter that does not decompose (œ, æ, ß) is kept as it is, and so are the spaces inside the term. White space is any Unicode white space, the non-breaking space included. Two terms match when their normalised terms are equal and not empty: a blank term names nothing, so it matches nothing, not even another blank one. `term` is the term to normalise; `other`, when given, is the term it is compared with, and is absent (never null) when only the normalisation is wanted. The normalised term is always answered; `match` is null when `other` is absent.",
+  "output": {
+    "normalized_term": {
+      "type": "string",
+      "rule": "the term in lowercase with no accents and no white space around it (« rodeuse »); empty when the term is blank"
+    },
+    "match": {
+      "type": "boolean",
+      "nullable": true,
+      "rule": "null when `other` is absent; otherwise true exactly when the normalised term and the normalised `other` are equal and not empty"
+    }
+  },
+  "inputs": [
+    "entity.name",
+    "entity.alias"
+  ],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}
