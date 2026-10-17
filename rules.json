@@ -796,7 +796,7 @@
         "SuggestionPill"
       ],
       "criterion": {
-        "given": "le micro a détecté successivement la taverne, Morlox et le tavernier",
+        "given": "le micro a détecté successivement la taverne, le tavernier puis Morlox",
         "then": "l'historique liste ces entités de la plus récente à la plus ancienne, et la fiche de la taverne s'ouvre au centre",
         "when": "le DM clique sur l'icône d'historique de la pastille puis sur la taverne"
       },
