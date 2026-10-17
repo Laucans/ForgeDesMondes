@@ -91,13 +91,15 @@ pub fn repository_root() -> PathBuf {
     manifest
         .ancestors()
         .find(|dir| dir.join("concepts").is_dir())
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| {
-            panic!(
-                "no concepts/ folder above {} — not a repository under the architecture",
-                manifest.display()
-            )
-        })
+        .map_or_else(
+            || {
+                panic!(
+                    "no concepts/ folder above {} — not a repository under the architecture",
+                    manifest.display()
+                )
+            },
+            Path::to_path_buf,
+        )
 }
 
 /// Reads the fixtures of `id` from the repository.
@@ -204,10 +206,33 @@ mod tests {
             let late = input["late"].as_u64().unwrap_or(0);
             json!({"level": if late > 2 { "HIGH" } else { "LOW" }})
         };
-        assert!(failures(&fixtures(), right).is_empty());
+        assert_eq!(failures(&fixtures(), right), [] as [std::string::String; 0]);
         let wrong = |_: Value| json!({"level": "LOW"});
         let failed = failures(&fixtures(), wrong);
         assert_eq!(failed.len(), 1);
         assert!(failed[0].starts_with("late: expected"), "{}", failed[0]);
+    }
+
+    #[test]
+    fn the_repository_root_is_the_nearest_folder_above_holding_the_concepts() {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let nearest = manifest
+            .ancestors()
+            .find(|dir| dir.join("concepts").is_dir());
+        let found = std::panic::catch_unwind(repository_root);
+        match (nearest, found) {
+            (Some(nearest), Ok(root)) => assert_eq!(root, nearest),
+            (None, Err(panic)) => {
+                let message = panic.downcast_ref::<String>().cloned().unwrap_or_default();
+                assert_eq!(
+                    message,
+                    format!(
+                        "no concepts/ folder above {} — not a repository under the architecture",
+                        manifest.display()
+                    )
+                );
+            }
+            (nearest, found) => panic!("expected {nearest:?}, got {:?}", found.ok()),
+        }
     }
 }

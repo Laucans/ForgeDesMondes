@@ -1,0 +1,28 @@
+{
+  "name": "shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The frontend's host: serves the composer, replays a frozen screen at /screens/<screen>, proxies the shell's wire protocol to SERVER_URL.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "serve": "node dist/tsc/server/main.js",
+    "test": "npm run build && node --test \"dist/tsc/**/*.test.js\""
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.39.5",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.71.2"
+  }
+}

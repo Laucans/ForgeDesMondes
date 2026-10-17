@@ -1,0 +1,16 @@
+[package]
+name = "data"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The Data layer: the adapter of the `database` port (ports.json) — the read-write and read-only connections, the migrations' applier, the read-only query runner that answers JSON."
+publish = false
+
+[dependencies]
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", default-features = false, features = ["rt"] }
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
