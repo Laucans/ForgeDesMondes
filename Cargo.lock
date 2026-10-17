@@ -263,6 +263,7 @@ dependencies = [
  "data",
  "get-settings",
  "harness-dataguard",
+ "platform-conformance",
  "ports-llm",
  "save-settings",
  "serde",

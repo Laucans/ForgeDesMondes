@@ -9,6 +9,9 @@ build = "build.rs"
 [dev-dependencies]
 # The migrations' applier the server runs, for the AiSettings migration's tests.
 data = { path = "../../data" }
+# The Concepts' fixtures the Entity migration's SQL is held to (AliasMatch@1,
+# AbilityModifier@1).
+platform-conformance = { path = "../../platform/conformance" }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 
 # The engine is the harness's, taken by git: this crate only binds it. The
