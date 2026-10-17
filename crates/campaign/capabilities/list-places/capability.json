@@ -1,0 +1,9 @@
+{
+  "capability": "campaign.listPlaces",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "The places of a campaign, for their own tab: the elements of type lieu, each with its id, its name, its aliases and its description, sorted by name. No PC, NPC or event shows there, and the media attached to a place are another read.",
+  "input": { "campaign": "string" },
+  "output": "{ id: string, name: string, aliases: string[], description: string | null }[]",
+  "reads": ["queries/list-places.graphql"]
+}
