@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use dataguard_server::{MEMORY, applier, plant};
-use server::{Config, Error, Ports, app, fixtures};
+use server::{Config, Error, Ports, app, fixtures, llm};
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
 /// — among the tracked `*migrations/*.sql` `scripts/rules-runtime.sh` and
@@ -30,7 +30,9 @@ async fn main() -> ExitCode {
 async fn run() -> Result<(), Error> {
     let config = Config::read(|name| std::env::var(name).ok())?;
     match config.ports {
-        Ports::Fake => eprintln!("server: PORTS=fake — no port is built, nothing reaches outside"),
+        Ports::Fake => {
+            eprintln!("server: PORTS=fake — every port on its fake, nothing reaches outside")
+        }
     }
 
     let migrations = Path::new(MIGRATIONS);
@@ -48,6 +50,7 @@ async fn run() -> Result<(), Error> {
     }
 
     let engine = Arc::new(plant(&config.database_url).await?);
+    let llm = Arc::new(llm(config.ports, config.fixtures.as_deref()));
 
     match &config.fixtures {
         None => eprintln!("server: no FIXTURES_DIR — starting without fixtures"),
@@ -75,7 +78,7 @@ async fn run() -> Result<(), Error> {
         .map_err(|source| Error::Serve { addr, source })?;
     let applier = applier(engine.clone());
     eprintln!("server: listening on {addr}");
-    let served = axum::serve(listener, app(engine))
+    let served = axum::serve(listener, app(engine, llm))
         .with_graceful_shutdown(stopped())
         .await
         .map_err(|source| Error::Serve { addr, source });

@@ -1,0 +1,41 @@
+{
+  "dataCapability": "ai.saveSettings",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "upsert",
+  "target": {
+    "aggregate": "AiSettings"
+  },
+  "touches": [
+    "AiSettings.aiProviderId",
+    "AiSettings.mode",
+    "AiSettings.label",
+    "AiSettings.url",
+    "AiSettings.detectedApiType",
+    "AiSettings.apiKey",
+    "AiSettings.binary",
+    "AiSettings.generationModel",
+    "AiSettings.summaryModel",
+    "AiSettings.activeProviderId",
+    "AiSettings.updatedAt"
+  ],
+  "payload": {
+    "mode": "'api' | 'binary'",
+    "url": "string — api mode: the URL the DM typed; its API type is derived (ProviderApiType@1), never given",
+    "key": "string — api mode: the API key, '' for none; never echoed",
+    "binary": "'opencode' | 'claude' — binary mode; 'claude' is stored as 'claude-code'",
+    "generationModel": "string",
+    "summaryModel": "string"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "mode-fields",
+    "api-type-recognized",
+    "single-settings-row",
+    "text-only-payload"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "ports": ["llm"],
+  "idempotencyKey": "optional"
+}
