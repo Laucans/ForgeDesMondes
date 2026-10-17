@@ -247,7 +247,7 @@ async fn decide(
 
 /// A read through a persisted query: served only when the registry holds
 /// the Capability's query under this hash (contract C). What the query
-/// answers is the product's read crate's — `read()` is where it plugs in.
+/// answers is the product's read crate's — `data` is where it plugs in.
 async fn capability(
     State(engine): State<Shared>,
     Path(id): Path<String>,
@@ -257,19 +257,13 @@ async fn capability(
     let answer = match served {
         Ok(()) => engine.data_version().await.map(|as_of| ReadResponse {
             as_of,
-            data: read(&id, &body.variables),
+            // The product's read crate answers here:
+            // `<system>_read::run(&id, &body.variables)`.
+            data: serde_json::Value::Null,
         }),
         Err(e) => Err(e),
     };
     reply(axum::http::StatusCode::OK, answer)
-}
-
-/// The product's read crate answers here: `<system>_read::run(capability, variables)`.
-fn read(
-    _capability: &str,
-    _variables: &std::collections::BTreeMap<String, serde_json::Value>,
-) -> serde_json::Value {
-    serde_json::Value::Null
 }
 
 async fn version(State(engine): State<Shared>) -> Reply<serde_json::Value> {
@@ -280,4 +274,79 @@ async fn version(State(engine): State<Shared>) -> Reply<serde_json::Value> {
             .await
             .map(|v| serde_json::json!({ "dataVersion": v })),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    use super::*;
+
+    /// What `router` answers to one request, over the in-memory engine.
+    async fn answer(request: Request<Body>) -> (StatusCode, serde_json::Value) {
+        let engine = plant(MEMORY).await.expect("the in-memory engine");
+        let response = router(Arc::new(engine))
+            .oneshot(request)
+            .await
+            .expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_memory_url_plants_the_in_memory_engine() {
+        let engine = plant(MEMORY).await.expect("no database is reached");
+        assert_eq!(engine.data_version().await.expect("a version"), 0);
+    }
+
+    #[tokio::test]
+    async fn the_router_answers_the_data_version() {
+        let request = Request::get("/dataVersion").body(Body::empty()).unwrap();
+        let (status, body) = answer(request).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!({ "dataVersion": 0 }));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_data_capability_is_refused_typed() {
+        let request = Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"dataCapability":"x.y"}"#))
+            .unwrap();
+        let (status, body) = answer(request).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "no DataCapability named x.y" })
+        );
+    }
+
+    #[test]
+    fn each_refusal_has_its_status() {
+        let cases = [
+            (Error::NotFound(String::new()), StatusCode::NOT_FOUND),
+            (
+                Error::UnknownDataCapability(String::new()),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                Error::UnregisteredQuery(String::new()),
+                StatusCode::NOT_FOUND,
+            ),
+            (Error::Forbidden(String::new()), StatusCode::FORBIDDEN),
+            (Error::NotNow(String::new()), StatusCode::CONFLICT),
+            (Error::Store(String::new()), StatusCode::SERVICE_UNAVAILABLE),
+        ];
+        for (error, status) in cases {
+            assert_eq!(status_of(&error), status, "{error:?}");
+        }
+    }
 }
