@@ -3,7 +3,8 @@
   "heads": {
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
     "main_agent": "54198b0eb62ec6c94a073e146ca8bacb1509b02c",
-    "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e"
+    "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
+    "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "54198b0eb62ec6c94a073e146ca8bacb1509b02c"
   },
   "snapshots": [
     {
@@ -19,6 +20,14 @@
       "sha": "3be0979e90c6425bbcec480183b29098e4bae622",
       "at": "2026-10-17T00:20:53Z",
       "dir": "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system/20261017T002053Z-3be0979",
+      "schema": false,
+      "model": true
+    },
+    {
+      "branch": "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens",
+      "sha": "54198b0eb62ec6c94a073e146ca8bacb1509b02c",
+      "at": "2026-10-17T00:30:30Z",
+      "dir": "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens/20261017T003030Z-54198b0",
       "schema": false,
       "model": true
     }
