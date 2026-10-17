@@ -15,7 +15,8 @@
 //!   writes that row and makes it active.
 //!
 //! An unrecognised URL is still submitted, with no type: the invariant
-//! `api-type-recognized` rejects it and nothing is applied.
+//! `api-type-recognized` rejects it and nothing is applied. A save missing
+//! a model is too: `single-settings-row` rejects it.
 
 use std::collections::BTreeMap;
 
@@ -30,6 +31,9 @@ pub const DATA_CAPABILITY: &str = "ai.saveSettings";
 
 /// The partition's id: the one settings row, which the save writes whole.
 pub const TARGET_ID: &str = "1";
+
+/// Why a save missing its generation or summary model is refused.
+pub const MISSING_MODELS: &str = "modèles de génération et de résumé requis";
 
 /// The row of each kind of provider and its label, as
 /// `crates/data/migrations/0001_ai_settings.sql` seeds them.
@@ -55,7 +59,7 @@ pub struct Prepared {
     /// so nothing of the provider saved before is left behind.
     pub payload: BTreeMap<String, Value>,
     /// Why the save will be refused, for the DM: the URL's API type is not
-    /// recognised.
+    /// recognised, or a model is missing.
     pub refusal: Option<&'static str>,
 }
 
@@ -125,6 +129,10 @@ pub async fn prepare<L: Llm>(
     payload.insert("generationModel".into(), given("generationModel"));
     payload.insert("summaryModel".into(), given("summaryModel"));
     payload.insert("updatedAt".into(), updated_at.into());
+    let models_given = ["generationModel", "summaryModel"]
+        .iter()
+        .all(|field| !text(wire, field).is_empty());
+    let refusal = refusal.or_else(|| (!models_given).then_some(MISSING_MODELS));
     Prepared { payload, refusal }
 }
 

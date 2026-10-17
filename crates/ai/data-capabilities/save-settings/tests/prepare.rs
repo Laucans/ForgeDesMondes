@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, UNRECOGNISED_API_TYPE};
-use save_settings::{Prepared, names, prepare, timestamp};
+use save_settings::{MISSING_MODELS, Prepared, names, prepare, timestamp};
 use serde_json::{Value, json};
 
 const HOME: &str = "http://192.168.1.40:4096";
@@ -207,6 +207,27 @@ async fn another_binary_or_mode_is_kept_for_the_invariants_to_refuse() {
     let Prepared { payload, .. } = prepared(&llm, json!({ "mode": "local" })).await;
     assert_eq!(payload["mode"], "local");
     assert_eq!(payload["aiProviderId"], Value::Null);
+}
+
+#[tokio::test]
+async fn a_save_missing_a_model_says_why() {
+    let llm = llm();
+    for field in ["generationModel", "summaryModel"] {
+        for given in [api(HOME), binary("claude")] {
+            let mut absent = given.clone();
+            absent.as_object_mut().expect("an object").remove(field);
+            let mut empty = given;
+            empty[field] = json!("");
+            for wire in [absent, empty] {
+                let Prepared { payload, refusal } = prepared(&llm, wire.clone()).await;
+                assert_eq!(refusal, Some(MISSING_MODELS), "{wire}");
+                assert!(
+                    payload[field].as_str().is_none_or(str::is_empty),
+                    "{wire}: {field}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

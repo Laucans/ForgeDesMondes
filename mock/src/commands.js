@@ -24,6 +24,8 @@ export const COMMANDS = {
   'ai.saveSettings': async (server, { payload }) => {
     const settings = await server.load('ai.getSettings');
     const models = { generationModel: payload.generationModel, summaryModel: payload.summaryModel };
+    // Both models are required: `single-settings-row` refuses a provider without them.
+    if (!String(models.generationModel || '') || !String(models.summaryModel || '')) return ['single-settings-row'];
     if (payload.mode === 'api') {
       const url = String(payload.url || '');
       let host = '';

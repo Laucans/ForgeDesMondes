@@ -40,6 +40,9 @@ const LAST_TEST: [&str; 4] = [
 /// The DataCapability behind « Tester la connexion ».
 const TEST_CONNECTION: &str = "ai.testConnection";
 
+/// The models every provider names, which `ai_provider` requires.
+const MODELS: [&str; 2] = ["generationModel", "summaryModel"];
+
 /// The fields only the settings row carries.
 const SETTINGS: [&str; 3] = ["aiSettingsId", "activeProviderId", "updatedAt"];
 
@@ -213,11 +216,12 @@ fn single_settings_row(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
 }
 
 /// Whether the provider the settings row carries is the one it makes active,
-/// named by a uuid as `ai_provider.id` is typed.
+/// named by a uuid as `ai_provider.id` is typed, and whole enough to exist
+/// there: both its models set, as `ai_provider` requires them.
 fn active_provider_carried(state: &BTreeMap<String, Value>) -> bool {
     text(state, "aiProviderId").is_some_and(|id| {
         uuid(id) && state.get("activeProviderId").and_then(Value::as_str) == Some(id)
-    })
+    }) && MODELS.iter().all(|field| set(state, field))
 }
 
 /// A command writes only fields the aggregate declares, each a text, a
@@ -768,6 +772,20 @@ mod tests {
             saved(with(cloud(), "aiProviderId", json!("cloud"))),
         ] {
             rejected_by(&settings(payload).await, "single-settings-row");
+        }
+    }
+
+    #[tokio::test]
+    async fn single_settings_row_rejects_a_carried_provider_without_its_models() {
+        // ai_provider requires both models: such a provider would not exist.
+        for field in ["generationModel", "summaryModel"] {
+            for payload in [
+                saved(without(cloud(), field)),
+                saved(with(cloud(), field, Value::Null)),
+                saved(with(binary("opencode"), field, json!(""))),
+            ] {
+                rejected_by(&settings(payload).await, "single-settings-row");
+            }
         }
     }
 

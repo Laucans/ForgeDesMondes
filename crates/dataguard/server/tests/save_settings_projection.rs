@@ -115,8 +115,13 @@ impl Scratch {
     }
 }
 
-/// Saves `payload` as the DM and settles it.
+/// Saves `payload` as the DM and settles it: it is applied.
 async fn save(engine: &Engine, app: &Router, payload: Value) {
+    assert_eq!(settle(engine, app, payload).await, State::Applied);
+}
+
+/// Saves `payload` as the DM, settles it, and tells how it ended.
+async fn settle(engine: &Engine, app: &Router, payload: Value) -> State {
     let body = json!({
         "dataCapability": "ai.saveSettings@1",
         "payload": payload,
@@ -130,7 +135,7 @@ async fn save(engine: &Engine, app: &Router, payload: Value) {
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     let applied = engine.run_once().await.expect("the applier ran");
     assert_eq!(applied.len(), 1, "{applied:?}");
-    assert_eq!(applied[0].status, State::Applied, "{applied:?}");
+    applied[0].status
 }
 
 #[tokio::test]
@@ -194,6 +199,24 @@ async fn a_save_reaches_ai_provider_and_ai_settings() {
     let cloud = db.provider(CLOUD).await;
     assert_eq!(cloud["api_key"], "sk-ant-du-dm");
     assert_eq!(cloud["detected_api_type"], "cloud");
+    drop((engine, app));
+    db.drop().await;
+}
+
+#[tokio::test]
+async fn a_save_missing_a_model_is_rejected_and_the_tables_keep_theirs() {
+    let db = Scratch::new("models").await;
+    let (engine, app) = db.serve().await;
+    let before = db.provider(OPENCODE).await;
+    let state = settle(
+        &engine,
+        &app,
+        json!({ "mode": "api", "url": HOME, "summaryModel": "qwen3-14b", "key": "" }),
+    )
+    .await;
+    assert_eq!(state, State::Rejected);
+    assert_eq!(db.active().await, CLOUD, "the seed's");
+    assert_eq!(db.provider(OPENCODE).await, before);
     drop((engine, app));
     db.drop().await;
 }
