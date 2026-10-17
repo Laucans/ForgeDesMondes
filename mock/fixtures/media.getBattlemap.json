@@ -1,0 +1,112 @@
+{
+  "id": "bm-gue",
+  "title": "Le Gué des Corbeaux",
+  "file": "gue-des-corbeaux.jpg",
+  "size": "2,4 Mo",
+  "uploadedAt": "2026-10-14",
+  "width": 960,
+  "height": 640,
+  "grid": {
+    "size": 30,
+    "ox": 12,
+    "oy": 8,
+    "orient": "pointy",
+    "color": "text",
+    "opacity": 40
+  },
+  "terrain": [
+    {
+      "tag": "rect",
+      "class": "hm-land",
+      "x": 0,
+      "y": 0,
+      "width": 960,
+      "height": 640
+    },
+    {
+      "tag": "ellipse",
+      "class": "hm-forest",
+      "cx": 130,
+      "cy": 110,
+      "rx": 170,
+      "ry": 105
+    },
+    {
+      "tag": "ellipse",
+      "class": "hm-forest",
+      "cx": 110,
+      "cy": 560,
+      "rx": 130,
+      "ry": 75
+    },
+    {
+      "tag": "ellipse",
+      "class": "hm-forest",
+      "cx": 830,
+      "cy": 530,
+      "rx": 170,
+      "ry": 110
+    },
+    {
+      "tag": "ellipse",
+      "class": "hm-hill",
+      "cx": 790,
+      "cy": 100,
+      "rx": 160,
+      "ry": 70
+    },
+    {
+      "tag": "path",
+      "class": "hm-water",
+      "d": "M440 0 C 425 110, 430 220, 455 320 S 480 520, 450 640 L 530 640 C 560 520, 545 400, 535 320 S 505 110, 520 0 Z"
+    },
+    {
+      "tag": "path",
+      "class": "bm-ford",
+      "d": "M425 296 L 548 290 L 552 348 L 430 354 Z"
+    },
+    {
+      "tag": "ellipse",
+      "class": "bm-reeds",
+      "cx": 565,
+      "cy": 175,
+      "rx": 55,
+      "ry": 80
+    },
+    {
+      "tag": "ellipse",
+      "class": "bm-reeds",
+      "cx": 410,
+      "cy": 480,
+      "rx": 40,
+      "ry": 70
+    },
+    {
+      "tag": "path",
+      "class": "hm-road",
+      "d": "M0 330 C 150 322, 300 338, 430 326 L 550 318 C 680 306, 820 276, 960 246"
+    },
+    {
+      "tag": "circle",
+      "class": "bm-rock",
+      "cx": 690,
+      "cy": 380,
+      "r": 22
+    },
+    {
+      "tag": "circle",
+      "class": "bm-rock",
+      "cx": 300,
+      "cy": 420,
+      "r": 16
+    },
+    {
+      "tag": "circle",
+      "class": "bm-rock",
+      "cx": 720,
+      "cy": 200,
+      "r": 14
+    }
+  ],
+  "place": null
+}

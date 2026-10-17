@@ -1,0 +1,32 @@
+[
+  {
+    "id": "tc-vesna",
+    "type": "pnj",
+    "name": "Vesna la Balafrée",
+    "session": "s4",
+    "sessionTitle": "Séance 4 — L’embuscade du Gué",
+    "excerpt": "…les bandits obéissent à une cheffe, Vesna, qu’on appelle la Balafrée, une ancienne sergente de la garde…",
+    "status": "created",
+    "entity": "vesna"
+  },
+  {
+    "id": "tc-odric",
+    "type": "pnj",
+    "name": "Frère Odric",
+    "session": "s4",
+    "sessionTitle": "Séance 4 — L’embuscade du Gué",
+    "excerpt": "…un pèlerin, frère Odric, les arrête à la sortie du bourg pour les prévenir que le gué n’est plus sûr…",
+    "status": "todo",
+    "entity": null
+  },
+  {
+    "id": "tc-gue",
+    "type": "lieu",
+    "name": "Le Gué des Corbeaux",
+    "session": "s4",
+    "sessionTitle": "Séance 4 — L’embuscade du Gué",
+    "excerpt": "…le gué des Corbeaux, là où la Corbière s’élargit et où les roseaux sont assez hauts pour cacher un cheval…",
+    "status": "todo",
+    "entity": null
+  }
+]

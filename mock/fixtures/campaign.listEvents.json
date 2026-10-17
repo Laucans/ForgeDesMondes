@@ -1,0 +1,27 @@
+[
+  {
+    "id": "incendie-moulin",
+    "name": "L’incendie du moulin",
+    "aliases": [
+      "l’incendie",
+      "le feu du moulin"
+    ],
+    "description": "Il y a trois semaines, le moulin de Valombre a brûlé en une nuit. Le meunier a disparu ; des traces de bottes mènent vers le Gué des Corbeaux."
+  },
+  {
+    "id": "marche-noir",
+    "name": "Le marché noir de Morlox",
+    "aliases": [
+      "le marché noir"
+    ],
+    "description": "Sous le pont, chaque nuit de lune noire. On y trouve des objets de la Tour d’Ébène et de l’huile de lampe en quantité suspecte."
+  },
+  {
+    "id": "embuscade-gue",
+    "name": "L’embuscade du Gué",
+    "aliases": [
+      "l’embuscade"
+    ],
+    "description": "Les bandits de Vesna attendent les voyageurs au gué, cachés dans les roseaux de la rive est. Ils exigent un péage de 5 po par tête."
+  }
+]

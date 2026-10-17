@@ -1,0 +1,55 @@
+[
+  {
+    "id": "taverne-sanglier",
+    "name": "La Taverne du Sanglier",
+    "aliases": [
+      "la taverne",
+      "le Sanglier"
+    ],
+    "description": "Grande salle basse aux poutres noircies, cheminée où rôtit un sanglier les soirs de marché. Une porte de cave grince derrière le comptoir. On y entend toutes les rumeurs de Valombre.",
+    "illustration": "ill-salle-sanglier",
+    "art": "gold",
+    "characters": [
+      "gaspard",
+      "morlox"
+    ]
+  },
+  {
+    "id": "valombre",
+    "name": "Valombre",
+    "aliases": [
+      "le village",
+      "le bourg"
+    ],
+    "description": "Bourg fortifié au bord de la Corbière, couvert de cendres depuis le réveil du mont Pourpre. Un pont de pierre, un marché, une garde trop peu nombreuse.",
+    "illustration": "ill-cover",
+    "art": "ember",
+    "characters": [
+      "gaspard",
+      "morlox"
+    ]
+  },
+  {
+    "id": "moulin",
+    "name": "Le Moulin brûlé",
+    "aliases": [
+      "le moulin",
+      "les ruines du moulin"
+    ],
+    "description": "Il ne reste que les murs et la roue à aubes noircie. Une trappe sous les meules mène à un passage vers la rivière.",
+    "illustration": "ill-moulin",
+    "art": "blood",
+    "characters": []
+  },
+  {
+    "id": "tour-ebene",
+    "name": "La Tour d’Ébène",
+    "aliases": [
+      "la tour"
+    ],
+    "description": "Ruine d’une école de magie au nord du mont Pourpre. Son sceau, un œil fermé, apparaît sur les caisses du marché noir.",
+    "illustration": null,
+    "art": "night",
+    "characters": []
+  }
+]
