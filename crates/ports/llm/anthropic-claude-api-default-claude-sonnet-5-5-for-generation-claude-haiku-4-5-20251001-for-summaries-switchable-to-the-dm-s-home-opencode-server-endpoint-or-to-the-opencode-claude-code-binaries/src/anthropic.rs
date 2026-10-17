@@ -21,10 +21,10 @@ fn authorised(request: RequestBuilder, key: &Secret) -> RequestBuilder {
         .header("anthropic-version", VERSION)
 }
 
-/// Asks `model` for `text`; returns the text it answered.
+/// Asks `model` for `text`; returns the text it answered, which may be empty.
 pub(crate) async fn complete(
     http: &Client,
-    base: &str,
+    url: &str,
     key: &Secret,
     model: &str,
     text: &str,
@@ -36,7 +36,7 @@ pub(crate) async fn complete(
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": text}],
     });
-    let url = endpoint(base, &["messages"])?;
+    let url = endpoint(url, &["messages"])?;
     let reply = send(
         authorised(http.post(url), key).json(&body),
         Some(key),
@@ -49,26 +49,28 @@ pub(crate) async fn complete(
     answer_text(&reply.json).ok_or(Failure::Malformed)
 }
 
-/// The text blocks of a message, joined; `None` when there is none.
+/// The text blocks of a message, joined; `None` when it is no message at all
+/// (no `content` list).
 fn answer_text(message: &Value) -> Option<String> {
-    let text: String = message["content"]
-        .as_array()?
-        .iter()
-        .filter(|block| block["type"] == "text")
-        .filter_map(|block| block["text"].as_str())
-        .collect();
-    (!text.trim().is_empty()).then_some(text)
+    Some(
+        message["content"]
+            .as_array()?
+            .iter()
+            .filter(|block| block["type"] == "text")
+            .filter_map(|block| block["text"].as_str())
+            .collect(),
+    )
 }
 
 /// Whether the API knows `model`: `Ok` if so, [`Failure::UnknownModel`] if not.
 pub(crate) async fn check_model(
     http: &Client,
-    base: &str,
+    url: &str,
     key: &Secret,
     model: &str,
     timeout: Duration,
 ) -> Result<(), Failure> {
-    let url = endpoint(base, &["models", model])?;
+    let url = endpoint(url, &["models", model])?;
     let reply = send(authorised(http.get(url), key), Some(key), timeout).await?;
     if reply.is_success() {
         Ok(())
@@ -92,12 +94,9 @@ mod tests {
     }
 
     #[test]
-    fn a_message_without_text_has_no_answer() {
-        assert_eq!(answer_text(&json!({"content": []})), None);
-        assert_eq!(
-            answer_text(&json!({"content": [{"type": "text", "text": " "}]})),
-            None
-        );
+    fn a_message_without_text_answers_nothing_and_a_page_is_no_message() {
+        assert_eq!(answer_text(&json!({"content": []})).as_deref(), Some(""));
         assert_eq!(answer_text(&json!({"error": "x"})), None);
+        assert_eq!(answer_text(&Value::Null), None);
     }
 }

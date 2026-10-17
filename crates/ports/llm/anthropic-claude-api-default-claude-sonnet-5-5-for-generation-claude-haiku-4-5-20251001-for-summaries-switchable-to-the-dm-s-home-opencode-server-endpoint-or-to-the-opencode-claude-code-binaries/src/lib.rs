@@ -27,14 +27,14 @@ use ports_llm::{
     LlmError, Models, Provider, ProviderConfig, RequestJournal, RequestKind, Secret,
     UNRECOGNISED_API_TYPE, detect_api_type,
 };
-use reqwest::Client;
+use reqwest::{Client, ClientBuilder, Url, redirect};
 use serde_json::{Value, json};
 
 mod anthropic;
 mod http;
 mod opencode_endpoint;
 
-use http::{Failure, api_base};
+use http::Failure;
 
 /// The environment variable of the port's secret.
 const KEY_VARIABLE: &str = "LLM_API_KEY";
@@ -54,29 +54,38 @@ const GENERATE_TIMEOUT: Duration = Duration::from_secs(180);
 const NOT_AN_API: &str = "ce client ne parle qu'aux API : le mode binaire est un autre adaptateur";
 /// What a call says when the cloud API has no key to be sent.
 const NO_KEY: &str = "clé API absente : renseignez-la dans les réglages ou dans LLM_API_KEY";
+/// What a call says to the cloud API's URL in clear: the key would travel in it.
+const CLEARTEXT: &str = "l'API cloud n'accepte que https : la clé API ne circule pas en clair";
 
 /// The `llm` port over HTTP: the Anthropic Messages API, or the opencode
 /// server's endpoint.
+///
+/// The key of a request is the one the configuration carries. Only the cloud
+/// API falls back to `LLM_API_KEY` (it is the cloud's key): the home server
+/// is sent what the DM saved for it, or nothing. No request follows a
+/// redirect, so neither a key nor a prompt goes anywhere the DM did not type.
 #[derive(Clone, Debug)]
 pub struct ApiLlm {
     http: Client,
-    /// The key to use when a configuration carries none (`LLM_API_KEY`).
+    /// The cloud API's key when the configuration carries none (`LLM_API_KEY`).
     default_key: Option<Secret>,
+    /// Whether `http://api.anthropic.com` is spoken to; only a test says yes.
+    cleartext_cloud: bool,
     journal: RequestJournal,
 }
 
 impl ApiLlm {
-    /// A client whose fallback key is `default_key`.
+    /// A client whose fallback key for the cloud API is `default_key`.
     ///
     /// # Panics
     ///
     /// When the TLS backend cannot be initialised.
     #[must_use]
     pub fn new(default_key: Option<Secret>) -> Self {
-        Self::with_client(Client::new(), default_key)
+        Self::with_builder(Client::builder(), default_key)
     }
 
-    /// A client whose fallback key is `LLM_API_KEY`, if it is set and not empty.
+    /// A client whose fallback key is `LLM_API_KEY`, if it is set and not blank.
     ///
     /// # Panics
     ///
@@ -89,36 +98,62 @@ impl ApiLlm {
         Self::new(fallback_key(env::var(KEY_VARIABLE).ok()))
     }
 
-    /// A client over an HTTP client already built, for one that needs a
-    /// setting of its own (a proxy, a resolver).
+    /// A client over an HTTP client `builder` already set (a proxy, a
+    /// resolver); its redirect policy is replaced by none.
+    ///
+    /// # Panics
+    ///
+    /// When the TLS backend cannot be initialised.
     #[must_use]
-    pub fn with_client(http: Client, default_key: Option<Secret>) -> Self {
+    pub fn with_builder(builder: ClientBuilder, default_key: Option<Secret>) -> Self {
+        let http = builder
+            .redirect(redirect::Policy::none())
+            .build()
+            .expect("the HTTP client's TLS backend initialises");
         Self {
             http,
             default_key,
+            cleartext_cloud: false,
             journal: RequestJournal::new(),
         }
     }
 
-    /// The key a call uses: the configuration's, else the fallback.
-    fn key<'a>(&'a self, config_key: Option<&'a Secret>) -> Option<&'a Secret> {
-        config_key.or(self.default_key.as_ref())
+    /// The same client, speaking to the cloud API over plain HTTP too: for a
+    /// stand-in on a local port, which cannot have a certificate.
+    #[must_use]
+    pub fn allowing_cleartext_cloud(mut self) -> Self {
+        self.cleartext_cloud = true;
+        self
+    }
+
+    /// The key the cloud API is sent: the configuration's, else the fallback.
+    fn cloud_key<'a>(&'a self, config_key: Option<&'a Secret>) -> Option<&'a Secret> {
+        usable(config_key).or(self.default_key.as_ref())
+    }
+
+    /// Why the cloud API is not spoken to at `url`, if it is not.
+    fn cloud_refusal(&self, url: &str) -> Option<&'static str> {
+        let clear = Url::parse(url.trim()).is_ok_and(|url| url.scheme() == "http");
+        (clear && !self.cleartext_cloud).then_some(CLEARTEXT)
     }
 
     /// The API type behind `url`, asking the endpoint for its list of models
-    /// when the URL alone cannot tell (`ProviderApiType@1`).
+    /// when the URL alone cannot tell (`ProviderApiType@1`). The endpoint is
+    /// asked with `key` only if the configuration has one: whatever it is,
+    /// the DM saved it for this URL.
     async fn detect(&self, url: &str, key: Option<&Secret>) -> Detection {
         if let Some(api_type) = detect_api_type(url, None) {
             return Detection::Recognised(api_type, None);
         }
-        // No list could make this URL a provider (not an http(s) URL with a
-        // host): nothing is sent.
-        if detect_api_type(url, Some(&json!({"object": "list", "data": []}))).is_none() {
+        // The Concept's own reading of "a URL with a host that a list of
+        // models could make a provider": anything else has nothing to ask, and
+        // nothing is sent. (A URL parser alone reads `https:///v1` as the host
+        // `v1`.)
+        let minimal_list = json!({"object": "list", "data": []});
+        if detect_api_type(url, Some(&minimal_list)).is_none() {
             return Detection::Unrecognised(None);
         }
-        let list =
-            opencode_endpoint::list_models(&self.http, &api_base(url), key, PROBE_TIMEOUT).await;
-        match list {
+        match opencode_endpoint::list_models(&self.http, url, key, PROBE_TIMEOUT).await {
             Ok(list) => match detect_api_type(url, Some(&list)) {
                 Some(api_type) => Detection::Recognised(api_type, Some(list)),
                 None => Detection::Unrecognised(None),
@@ -127,73 +162,71 @@ impl ApiLlm {
         }
     }
 
-    /// Sends the connection-test prompt to the generation model, then checks
-    /// the summary model exists. Returns how long the prompt took.
-    async fn probe(
-        &self,
-        api_type: ApiType,
-        url: &str,
-        key: Option<&Secret>,
-        models: &Models,
-        model_list: Option<Value>,
-    ) -> Result<u64, Failure> {
-        let base = api_base(url);
-        let provider = Provider::from(api_type);
+    /// Prompts the cloud's generation model, then checks its summary model
+    /// exists. Returns how long the prompt took.
+    async fn test_cloud(&self, url: &str, key: &Secret, models: &Models) -> Result<u64, Failure> {
         self.journal.record(
             RequestKind::ConnectionTest,
-            provider,
+            Provider::Cloud,
             CONNECTION_TEST_PROMPT,
         );
         let started = Instant::now();
-        let latency = match api_type {
-            ApiType::Cloud => {
-                let key = key.ok_or(Failure::Refused(401))?;
-                anthropic::complete(
-                    &self.http,
-                    &base,
-                    key,
-                    &models.generation,
-                    CONNECTION_TEST_PROMPT,
-                    TEST_MAX_TOKENS,
-                    TEST_TIMEOUT,
-                )
-                .await?;
-                elapsed_ms(started)
-            }
-            ApiType::Opencode => {
-                opencode_endpoint::complete(
-                    &self.http,
-                    &base,
-                    key,
-                    &models.generation,
-                    CONNECTION_TEST_PROMPT,
-                    TEST_MAX_TOKENS,
-                    TEST_TIMEOUT,
-                )
-                .await?;
-                elapsed_ms(started)
-            }
-        };
-        match api_type {
-            ApiType::Cloud => {
-                let key = key.ok_or(Failure::Refused(401))?;
-                anthropic::check_model(&self.http, &base, key, &models.summary, TEST_TIMEOUT)
-                    .await?;
-            }
-            ApiType::Opencode => {
-                let list = match model_list {
-                    Some(list) => list,
-                    None => {
-                        opencode_endpoint::list_models(&self.http, &base, key, TEST_TIMEOUT).await?
-                    }
-                };
-                if !opencode_endpoint::lists(&list, &models.summary) {
-                    return Err(Failure::UnknownModel(models.summary.clone()));
-                }
-            }
-        }
+        anthropic::complete(
+            &self.http,
+            url,
+            key,
+            &models.generation,
+            CONNECTION_TEST_PROMPT,
+            TEST_MAX_TOKENS,
+            TEST_TIMEOUT,
+        )
+        .await?;
+        let latency = elapsed_ms(started);
+        anthropic::check_model(&self.http, url, key, &models.summary, TEST_TIMEOUT).await?;
         Ok(latency)
     }
+
+    /// Prompts the home server's generation model, then checks its list of
+    /// models holds the summary model. Returns how long the prompt took.
+    async fn test_opencode(
+        &self,
+        url: &str,
+        key: Option<&Secret>,
+        models: &Models,
+        listed: Option<Value>,
+    ) -> Result<u64, Failure> {
+        self.journal.record(
+            RequestKind::ConnectionTest,
+            Provider::OpencodeServer,
+            CONNECTION_TEST_PROMPT,
+        );
+        let started = Instant::now();
+        opencode_endpoint::complete(
+            &self.http,
+            url,
+            key,
+            &models.generation,
+            CONNECTION_TEST_PROMPT,
+            TEST_MAX_TOKENS,
+            TEST_TIMEOUT,
+        )
+        .await?;
+        let latency = elapsed_ms(started);
+        let list = match listed {
+            Some(list) => list,
+            None => opencode_endpoint::list_models(&self.http, url, key, TEST_TIMEOUT).await?,
+        };
+        if opencode_endpoint::lists(&list, &models.summary) {
+            Ok(latency)
+        } else {
+            Err(Failure::UnknownModel(models.summary.clone()))
+        }
+    }
+}
+
+/// A key that is something to send: a blank one is none.
+fn usable(key: Option<&Secret>) -> Option<&Secret> {
+    key.filter(|key| !key.expose().trim().is_empty())
 }
 
 /// What asking a URL what it is came to.
@@ -230,11 +263,11 @@ impl Llm for ApiLlm {
         else {
             return failed(None, NOT_AN_API.to_owned());
         };
-        let key = self.key(key.as_ref());
+        let config_key = usable(key.as_ref());
         // A test always detects anew: the type a saved provider carries is no
         // proof the URL is still what it was.
-        let (api_type, model_list) = match self.detect(url, key).await {
-            Detection::Recognised(api_type, list) => (api_type, list),
+        let (api_type, listed) = match self.detect(url, config_key).await {
+            Detection::Recognised(api_type, listed) => (api_type, listed),
             Detection::Unrecognised(why) => {
                 let message = match why {
                     Some(why) => format!("{why} — {UNRECOGNISED_API_TYPE}"),
@@ -244,10 +277,19 @@ impl Llm for ApiLlm {
             }
         };
         let provider = Provider::from(api_type);
-        if api_type == ApiType::Cloud && key.is_none() {
-            return failed(Some(provider), NO_KEY.to_owned());
-        }
-        match self.probe(api_type, url, key, models, model_list).await {
+        let tested = match api_type {
+            ApiType::Cloud => {
+                if let Some(refusal) = self.cloud_refusal(url) {
+                    return failed(Some(provider), refusal.to_owned());
+                }
+                let Some(key) = self.cloud_key(config_key) else {
+                    return failed(Some(provider), NO_KEY.to_owned());
+                };
+                self.test_cloud(url, key, models).await
+            }
+            ApiType::Opencode => self.test_opencode(url, config_key, models, listed).await,
+        };
+        match tested {
             Ok(latency_ms) => ConnectionReport {
                 ok: true,
                 provider: Some(provider),
@@ -280,25 +322,32 @@ impl Llm for ApiLlm {
         else {
             return Err(LlmError::Failed(NOT_AN_API.to_owned()));
         };
-        let key = self.key(key.as_ref());
+        let config_key = usable(key.as_ref());
+        // A saved type spares the endpoint a question, but only the home
+        // server's: the cloud is told by its host, so a URL that changed since
+        // the type was saved cannot be sent the cloud's key.
         let api_type = match api_type {
-            Some(api_type) => *api_type,
-            None => match self.detect(url, key).await {
+            Some(ApiType::Opencode) if detect_api_type(url, None).is_none() => ApiType::Opencode,
+            _ => match self.detect(url, config_key).await {
                 Detection::Recognised(api_type, _) => api_type,
                 Detection::Unrecognised(_) => return Err(LlmError::UnrecognisedApiType),
             },
         };
         let provider = Provider::from(api_type);
         let model = models.for_kind(request.kind);
-        let base = api_base(url);
         let sent = match api_type {
             ApiType::Cloud => {
-                let key = key.ok_or_else(|| LlmError::Failed(NO_KEY.to_owned()))?;
+                if let Some(refusal) = self.cloud_refusal(url) {
+                    return Err(LlmError::Failed(refusal.to_owned()));
+                }
+                let key = self
+                    .cloud_key(config_key)
+                    .ok_or_else(|| LlmError::Failed(NO_KEY.to_owned()))?;
                 self.journal
                     .record(RequestKind::from(request.kind), provider, &request.text);
                 anthropic::complete(
                     &self.http,
-                    &base,
+                    url,
                     key,
                     model,
                     &request.text,
@@ -312,8 +361,8 @@ impl Llm for ApiLlm {
                     .record(RequestKind::from(request.kind), provider, &request.text);
                 opencode_endpoint::complete(
                     &self.http,
-                    &base,
-                    key,
+                    url,
+                    config_key,
                     model,
                     &request.text,
                     GENERATE_MAX_TOKENS,
@@ -323,6 +372,9 @@ impl Llm for ApiLlm {
             }
         };
         match sent {
+            Ok(text) if text.trim().is_empty() => {
+                Err(LlmError::Failed(Failure::Malformed.reason()))
+            }
             Ok(text) => Ok(GenerateAnswer {
                 text,
                 model: model.to_owned(),
@@ -352,11 +404,34 @@ mod tests {
     }
 
     #[test]
-    fn a_configuration_key_wins_over_the_fallback() {
+    fn a_configuration_key_wins_over_the_fallback_and_a_blank_one_is_none() {
         let llm = ApiLlm::new(Some(Secret::new("env")));
         let own = Secret::new("settings");
-        assert_eq!(llm.key(Some(&own)), Some(&own));
-        assert_eq!(llm.key(None), Some(&Secret::new("env")));
-        assert_eq!(ApiLlm::new(None).key(None), None);
+        assert_eq!(llm.cloud_key(Some(&own)), Some(&own));
+        assert_eq!(llm.cloud_key(None), Some(&Secret::new("env")));
+        assert_eq!(
+            llm.cloud_key(Some(&Secret::new(" "))),
+            Some(&Secret::new("env"))
+        );
+        assert_eq!(ApiLlm::new(None).cloud_key(None), None);
+    }
+
+    #[test]
+    fn the_cloud_is_spoken_to_over_https_only_unless_a_test_allows_it() {
+        let llm = ApiLlm::new(None);
+        assert_eq!(
+            llm.cloud_refusal("http://api.anthropic.com/v1"),
+            Some(CLEARTEXT)
+        );
+        assert_eq!(
+            llm.cloud_refusal(" HTTP://api.anthropic.com"),
+            Some(CLEARTEXT)
+        );
+        assert_eq!(llm.cloud_refusal("https://api.anthropic.com/v1"), None);
+        let local = llm.allowing_cleartext_cloud();
+        assert_eq!(
+            local.cloud_refusal("http://api.anthropic.com:8080/v1"),
+            None
+        );
     }
 }

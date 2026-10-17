@@ -23,11 +23,11 @@ fn authorised(request: RequestBuilder, key: Option<&Secret>) -> RequestBuilder {
 /// The server's answer to its list of models.
 pub(crate) async fn list_models(
     http: &Client,
-    base: &str,
+    url: &str,
     key: Option<&Secret>,
     timeout: Duration,
 ) -> Result<Value, Failure> {
-    let url = endpoint(base, &["models"])?;
+    let url = endpoint(url, &["models"])?;
     let reply = send(authorised(http.get(url), key), key, timeout).await?;
     if reply.is_success() {
         Ok(reply.json)
@@ -43,10 +43,10 @@ pub(crate) fn lists(models: &Value, id: &str) -> bool {
         .is_some_and(|data| data.iter().any(|model| model["id"] == id))
 }
 
-/// Asks `model` for `text`; returns the text it answered.
+/// Asks `model` for `text`; returns the text it answered, which may be empty.
 pub(crate) async fn complete(
     http: &Client,
-    base: &str,
+    url: &str,
     key: Option<&Secret>,
     model: &str,
     text: &str,
@@ -58,7 +58,7 @@ pub(crate) async fn complete(
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": text}],
     });
-    let url = endpoint(base, &["chat", "completions"])?;
+    let url = endpoint(url, &["chat", "completions"])?;
     let reply = send(authorised(http.post(url), key).json(&body), key, timeout).await?;
     if !reply.is_success() {
         return Err(reply.failure(Some(model)));
@@ -66,10 +66,16 @@ pub(crate) async fn complete(
     answer_text(&reply.json).ok_or(Failure::Malformed)
 }
 
-/// The content of the first choice; `None` when it is absent or blank.
+/// The content of the first choice (empty when a model spent its tokens
+/// elsewhere); `None` when it is no completion at all (no `choices` list).
 fn answer_text(completion: &Value) -> Option<String> {
-    let text = completion["choices"][0]["message"]["content"].as_str()?;
-    (!text.trim().is_empty()).then(|| text.to_owned())
+    let first = completion["choices"].as_array()?.first()?;
+    Some(
+        first["message"]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+    )
 }
 
 #[cfg(test)]
@@ -86,16 +92,14 @@ mod tests {
     }
 
     #[test]
-    fn a_completion_without_content_has_no_answer() {
+    fn a_completion_without_content_answers_nothing_and_a_page_is_no_completion() {
+        assert_eq!(
+            answer_text(&json!({"choices": [{"message": {"content": null}}]})).as_deref(),
+            Some("")
+        );
         assert_eq!(answer_text(&json!({"choices": []})), None);
-        assert_eq!(
-            answer_text(&json!({"choices": [{"message": {"content": null}}]})),
-            None
-        );
-        assert_eq!(
-            answer_text(&json!({"choices": [{"message": {"content": "  "}}]})),
-            None
-        );
+        assert_eq!(answer_text(&json!({"error": "x"})), None);
+        assert_eq!(answer_text(&Value::Null), None);
     }
 
     #[test]

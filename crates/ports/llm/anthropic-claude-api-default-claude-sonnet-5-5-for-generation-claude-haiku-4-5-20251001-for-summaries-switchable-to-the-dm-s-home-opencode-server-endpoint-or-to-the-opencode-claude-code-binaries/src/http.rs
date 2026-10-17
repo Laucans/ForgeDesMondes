@@ -56,6 +56,9 @@ pub(crate) struct Reply {
     pub(crate) json: Value,
     /// The provider's explanation of an error: scrubbed, and short.
     detail: String,
+    /// Whether the body was an error object (`{"error": ...}`) and not a
+    /// page: a proxy's 404 is not a provider's.
+    structured: bool,
 }
 
 impl Reply {
@@ -68,7 +71,7 @@ impl Reply {
     pub(crate) fn failure(&self, model: Option<&str>) -> Failure {
         let lower = self.detail.to_lowercase();
         let unknown = model.filter(|_| {
-            self.status == 404
+            (self.status == 404 && self.structured)
                 || (self.status == 400
                     && lower.contains("model")
                     && ["not found", "does not exist", "unknown"]
@@ -102,6 +105,7 @@ pub(crate) async fn send(
     let status = response.status().as_u16();
     let body = response.bytes().await.map_err(|error| transport(&error))?;
     let json = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    let structured = explanation(&json).is_some();
     let said = explanation(&json).map_or_else(
         || String::from_utf8_lossy(&body).into_owned(),
         str::to_owned,
@@ -110,6 +114,7 @@ pub(crate) async fn send(
         status,
         json,
         detail: scrub(&said, key),
+        structured,
     })
 }
 
@@ -141,31 +146,44 @@ fn scrub(text: &str, key: Option<&Secret>) -> String {
     text.trim().chars().take(DETAIL_LIMIT).collect()
 }
 
-/// The URL of an endpoint under `base`, each segment percent-encoded.
-pub(crate) fn endpoint(base: &str, segments: &[&str]) -> Result<Url, Failure> {
-    let mut url = Url::parse(base).map_err(|_| Failure::Unreachable("adresse invalide"))?;
-    url.path_segments_mut()
-        .map_err(|()| Failure::Unreachable("adresse invalide"))?
-        .pop_if_empty()
-        .extend(segments);
+/// The URL of `tail` in the API of `typed`, the URL the DM entered: under its
+/// `/v1`, whether they typed the server's root, the `/v1`, or an endpoint they
+/// have seen in the documentation. A query or a fragment is dropped.
+pub(crate) fn endpoint(typed: &str, tail: &[&str]) -> Result<Url, Failure> {
+    let invalid = || Failure::Unreachable("adresse invalide");
+    let mut url = Url::parse(typed.trim()).map_err(|_| invalid())?;
+    if !matches!(url.scheme(), "http" | "https") || !url.has_host() {
+        return Err(invalid());
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    let mut path: Vec<&str> = url.path().split('/').filter(|s| !s.is_empty()).collect();
+    for suffix in [&["chat", "completions"][..], &["messages"], &["models"]] {
+        if path.ends_with(suffix) {
+            path.truncate(path.len() - suffix.len());
+        }
+    }
+    if path.last() != Some(&"v1") {
+        path.push("v1");
+    }
+    let tail: Vec<String> = tail.iter().map(|segment| encode(segment)).collect();
+    path.extend(tail.iter().map(String::as_str));
+    url.set_path(&path.join("/"));
     Ok(url)
 }
 
-/// The base of the API a URL the DM entered points at: its `/v1`, whether
-/// they typed the server's root, the `/v1`, or the endpoint they have seen in
-/// the documentation.
-pub(crate) fn api_base(url: &str) -> String {
-    let mut base = url.trim().trim_end_matches('/');
-    for endpoint in ["/chat/completions", "/messages", "/models"] {
-        if let Some(rest) = base.strip_suffix(endpoint) {
-            base = rest.trim_end_matches('/');
-        }
-    }
-    if base.ends_with("/v1") {
-        base.to_owned()
-    } else {
-        format!("{base}/v1")
-    }
+/// `segment` as one path segment: everything but the unreserved characters
+/// percent-encoded.
+fn encode(segment: &str) -> String {
+    segment
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                char::from(byte).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -178,51 +196,79 @@ mod tests {
         let said = explanation(&json).unwrap_or_default().to_owned();
         Reply {
             status,
+            structured: explanation(&json).is_some(),
             json,
             detail: scrub(&said, key),
         }
     }
 
     #[test]
-    fn the_base_is_the_v1_of_whatever_was_typed() {
-        for (typed, base) in [
-            ("https://api.anthropic.com", "https://api.anthropic.com/v1"),
-            ("https://api.anthropic.com/", "https://api.anthropic.com/v1"),
+    fn an_endpoint_is_under_the_v1_of_whatever_was_typed() {
+        for (typed, url) in [
+            (
+                "https://api.anthropic.com",
+                "https://api.anthropic.com/v1/messages",
+            ),
+            (
+                "https://api.anthropic.com/",
+                "https://api.anthropic.com/v1/messages",
+            ),
             (
                 "https://api.anthropic.com/v1",
-                "https://api.anthropic.com/v1",
+                "https://api.anthropic.com/v1/messages",
             ),
             (
                 "https://api.anthropic.com/v1/",
-                "https://api.anthropic.com/v1",
+                "https://api.anthropic.com/v1/messages",
             ),
             (
                 "https://api.anthropic.com/v1/messages",
-                "https://api.anthropic.com/v1",
+                "https://api.anthropic.com/v1/messages",
             ),
-            ("http://192.168.1.40:4096", "http://192.168.1.40:4096/v1"),
+            (
+                "http://192.168.1.40:4096",
+                "http://192.168.1.40:4096/v1/messages",
+            ),
             (
                 " http://192.168.1.40:4096/v1/chat/completions ",
-                "http://192.168.1.40:4096/v1",
+                "http://192.168.1.40:4096/v1/messages",
             ),
-            ("http://hote/proxy/v1/models", "http://hote/proxy/v1"),
+            (
+                "http://hote/proxy/v1/models",
+                "http://hote/proxy/v1/messages",
+            ),
+            ("http://hote:4096?x=1", "http://hote:4096/v1/messages"),
+            ("https://hote/#ancre", "https://hote/v1/messages"),
         ] {
-            assert_eq!(api_base(typed), base, "{typed:?}");
+            assert_eq!(
+                endpoint(typed, &["messages"]).unwrap().as_str(),
+                url,
+                "{typed:?}"
+            );
         }
     }
 
     #[test]
-    fn an_endpoint_is_appended_to_the_base_and_encoded() {
+    fn the_tail_is_appended_and_encoded_segment_by_segment() {
         let url = endpoint("http://hote:4096/v1", &["models", "a b/c"]).unwrap();
         assert_eq!(url.as_str(), "http://hote:4096/v1/models/a%20b%2Fc");
-        assert_eq!(
-            endpoint("pas une url", &["models"]).unwrap_err(),
-            Failure::Unreachable("adresse invalide")
-        );
+        let url = endpoint("http://hote", &["chat", "completions"]).unwrap();
+        assert_eq!(url.as_str(), "http://hote/v1/chat/completions");
     }
 
     #[test]
-    fn a_404_on_a_request_for_a_model_is_that_model_unknown() {
+    fn what_is_not_an_http_url_with_a_host_has_no_endpoint() {
+        for typed in ["pas une url", "", "ftp://hote", "127.0.0.1"] {
+            assert_eq!(
+                endpoint(typed, &["models"]).unwrap_err(),
+                Failure::Unreachable("adresse invalide"),
+                "{typed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_404_with_an_error_object_on_a_request_for_a_model_is_that_model_unknown() {
         let body = json!({"error": {"type": "not_found_error", "message": "model: x"}});
         assert_eq!(
             reply(404, body.clone(), None).failure(Some("x")),
@@ -238,6 +284,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_404_that_is_not_an_error_object_is_a_wrong_address_not_a_wrong_model() {
+        assert_eq!(
+            reply(404, Value::Null, None).failure(Some("x")),
+            Failure::Rejected {
+                status: 404,
+                detail: String::new()
+            }
+        );
+    }
     #[test]
     fn a_400_is_an_unknown_model_only_when_it_says_so() {
         let said = |message: &str| reply(400, json!({"error": {"message": message}}), None);

@@ -11,6 +11,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
+use axum::response::{IntoResponse, Response};
 use ports_llm::contract::{Recognised, Scenario, run};
 use ports_llm::{
     Binary, GenerateRequest, Llm, LlmError, Models, Provider, ProviderConfig, RequestKind, Secret,
@@ -38,8 +39,15 @@ enum Flavour {
     Opencode { bearer: Option<&'static str> },
     /// A server that is none of them: JSON for everything.
     Opaque,
-    /// A server that answers every request with this status.
+    /// A server that answers every request with this status and an error object.
     Failing(u16),
+    /// A proxy that answers every request with this status and a page.
+    Page(u16),
+    /// A server that answers every request with a redirect to this URL.
+    Redirecting(&'static str),
+    /// The home server of a model that spends its tokens thinking: it lists
+    /// its models, and its completions have an empty content.
+    Reasoning,
 }
 
 /// One request a stand-in received.
@@ -121,15 +129,17 @@ impl Stub {
     }
 }
 
-fn reply(
-    status: u16,
-    body: &Value,
-) -> (StatusCode, [(header::HeaderName, &'static str); 1], String) {
+fn reply(status: u16, body: &Value) -> Response {
     (
         StatusCode::from_u16(status).unwrap(),
         [(header::CONTENT_TYPE, "application/json")],
         body.to_string(),
     )
+        .into_response()
+}
+
+fn page(status: u16, text: &str) -> Response {
+    (StatusCode::from_u16(status).unwrap(), text.to_owned()).into_response()
 }
 
 fn header_of(headers: &HeaderMap, name: &str) -> String {
@@ -150,7 +160,7 @@ async fn respond(
     uri: Uri,
     headers: HeaderMap,
     body: Bytes,
-) -> (StatusCode, [(header::HeaderName, &'static str); 1], String) {
+) -> Response {
     tokio::time::sleep(state.delay).await;
     let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     let path = uri.path().to_owned();
@@ -165,6 +175,20 @@ async fn respond(
         (Flavour::Failing(status), _, _) => {
             reply(status, &json!({"error": {"message": "en panne"}}))
         }
+        (Flavour::Page(status), _, _) => page(status, "404 Not Found"),
+        (Flavour::Redirecting(to), _, _) => {
+            (StatusCode::TEMPORARY_REDIRECT, [(header::LOCATION, to)]).into_response()
+        }
+        (Flavour::Reasoning, "POST", _) => reply(
+            200,
+            &json!({"object": "chat.completion", "model": model, "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": ""}}]}),
+        ),
+        (Flavour::Reasoning, _, _) => reply(
+            200,
+            &json!({"object": "list", "data": [
+                {"id": GENERATION, "object": "model"}, {"id": SUMMARY, "object": "model"}]}),
+        ),
         (Flavour::Opaque, _, _) => reply(200, &json!({"hello": "world"})),
         (Flavour::Anthropic { key }, _, _) if header_of(&headers, "x-api-key") != key => {
             // A provider that says too much: it quotes the key it was given.
@@ -227,11 +251,8 @@ async fn respond(
 
 /// A client that reaches `api.anthropic.com` at the stand-in.
 fn cloud_client(stub: &Stub, default_key: Option<&str>) -> ApiLlm {
-    let http = reqwest::Client::builder()
-        .resolve(CLOUD_HOST, stub.addr)
-        .build()
-        .unwrap();
-    ApiLlm::with_client(http, default_key.map(Secret::new))
+    let http = reqwest::Client::builder().resolve(CLOUD_HOST, stub.addr);
+    ApiLlm::with_builder(http, default_key.map(Secret::new)).allowing_cleartext_cloud()
 }
 
 fn llm() -> ApiLlm {
@@ -540,11 +561,9 @@ async fn the_latency_is_the_time_the_prompt_took() {
 #[tokio::test]
 async fn a_cloud_that_does_not_answer_is_unreachable() {
     let port = closed_port().await;
-    let http = reqwest::Client::builder()
-        .resolve(CLOUD_HOST, SocketAddr::from(([127, 0, 0, 1], port)))
-        .build()
-        .unwrap();
-    let client = ApiLlm::with_client(http, None);
+    let http =
+        reqwest::Client::builder().resolve(CLOUD_HOST, SocketAddr::from(([127, 0, 0, 1], port)));
+    let client = ApiLlm::with_builder(http, None).allowing_cleartext_cloud();
     let config = api(format!("http://{CLOUD_HOST}:{port}/v1"), Some(CLOUD_KEY));
 
     let report = client.test_connection(&config).await;
@@ -765,10 +784,9 @@ async fn a_look_alike_of_the_cloud_host_is_not_the_cloud() {
     let opaque = Stub::start(Flavour::Opaque).await;
     let http = reqwest::Client::builder()
         .resolve("api.anthropic.com.example.org", opaque.addr)
-        .resolve("evil.example", opaque.addr)
-        .build()
-        .unwrap();
-    let client = ApiLlm::with_client(http, None);
+        .resolve("evil.example", opaque.addr);
+    let client =
+        ApiLlm::with_builder(http, Some(Secret::new(CLOUD_KEY))).allowing_cleartext_cloud();
     for typed in [
         format!(
             "http://api.anthropic.com.example.org:{}/v1",
@@ -833,4 +851,132 @@ async fn a_binary_is_not_for_this_client() {
         Err(LlmError::Failed(_))
     ));
     assert!(client.journal().list().is_empty());
+}
+
+// --- where the key and the prompt may go -----------------------------------
+
+#[tokio::test]
+async fn the_cloud_is_not_spoken_to_in_clear() {
+    let cloud = Stub::start(Flavour::Anthropic { key: CLOUD_KEY }).await;
+    // The same client as the others, without the test's leave for plain HTTP.
+    let http = reqwest::Client::builder().resolve(CLOUD_HOST, cloud.addr);
+    let client = ApiLlm::with_builder(http, None);
+    let config = api(cloud.cloud_url(), Some(CLOUD_KEY));
+
+    let report = client.test_connection(&config).await;
+    assert!(!report.ok);
+    assert_eq!(report.provider, Some(Provider::Cloud));
+    assert!(report.message.contains("https"), "{}", report.message);
+    assert!(matches!(
+        client.generate(&config, &prompt("bonjour")).await,
+        Err(LlmError::Failed(why)) if why.contains("https")
+    ));
+    assert!(cloud.requests().is_empty());
+    assert!(client.journal().list().is_empty());
+}
+
+#[tokio::test]
+async fn the_environments_key_is_the_clouds_and_never_the_home_servers() {
+    let home = Stub::start(Flavour::Opencode { bearer: None }).await;
+    let client = ApiLlm::new(Some(Secret::new(CLOUD_KEY)));
+    assert!(client.test_connection(&api(home.url(), None)).await.ok);
+    client
+        .generate(&api(home.url(), None), &prompt("bonjour"))
+        .await
+        .unwrap();
+    let sent = home.with_seen("POST", "/v1/chat/completions", |seen| {
+        seen.headers.contains_key("authorization")
+    });
+    assert_eq!(sent, [false, false]);
+    let listed = home.with_seen("GET", "/v1/models", |seen| {
+        seen.headers.contains_key("authorization")
+    });
+    assert!(listed.iter().all(|sent| !sent));
+}
+
+#[tokio::test]
+async fn a_blank_key_in_the_settings_leaves_the_environments_key_to_the_cloud() {
+    let cloud = Stub::start(Flavour::Anthropic { key: CLOUD_KEY }).await;
+    let client = cloud_client(&cloud, Some(CLOUD_KEY));
+    for blank in ["", "  "] {
+        let report = client
+            .test_connection(&api(cloud.cloud_url(), Some(blank)))
+            .await;
+        assert!(report.ok, "{blank:?}: {}", report.message);
+    }
+}
+
+#[tokio::test]
+async fn a_redirect_is_not_followed_with_the_key_or_the_prompt() {
+    let elsewhere = Stub::start(Flavour::Opencode { bearer: None }).await;
+    let target: &'static str =
+        Box::leak(format!("{}/v1/chat/completions", elsewhere.url()).into_boxed_str());
+    let redirecting = Stub::start(Flavour::Redirecting(target)).await;
+    let client = cloud_client(&redirecting, None);
+    let config = api(redirecting.cloud_url(), Some(CLOUD_KEY));
+
+    let report = client.test_connection(&config).await;
+    assert!(!report.ok);
+    assert!(report.message.contains("HTTP 307"), "{}", report.message);
+    assert!(client.generate(&config, &prompt("bonjour")).await.is_err());
+    assert!(
+        elsewhere.requests().is_empty(),
+        "{:?}",
+        elsewhere.requests()
+    );
+}
+
+#[tokio::test]
+async fn a_saved_cloud_type_does_not_send_the_key_to_another_host() {
+    // The provider was saved as the cloud; its URL has since been changed.
+    let opaque = Stub::start(Flavour::Opaque).await;
+    let saved = ProviderConfig::Api {
+        url: opaque.url(),
+        api_type: Some(ports_llm::ApiType::Cloud),
+        key: Some(Secret::new(CLOUD_KEY)),
+        models: models(),
+    };
+    assert_eq!(
+        llm().generate(&saved, &prompt("bonjour")).await,
+        Err(LlmError::UnrecognisedApiType)
+    );
+    assert_eq!(opaque.count("POST", "/v1/messages"), 0);
+    let keys = opaque.with_seen("GET", "/v1/models", |seen| {
+        header_of(&seen.headers, "x-api-key")
+    });
+    assert!(keys.iter().all(String::is_empty), "{keys:?}");
+}
+
+// --- what an endpoint can answer ---------------------------------------------
+
+#[tokio::test]
+async fn a_404_page_is_a_wrong_address_not_an_unknown_model() {
+    let proxy = Stub::start(Flavour::Page(404)).await;
+    let report = cloud_client(&proxy, None)
+        .test_connection(&api(proxy.cloud_url(), Some(CLOUD_KEY)))
+        .await;
+    assert!(!report.ok);
+    assert!(report.message.contains("HTTP 404"), "{}", report.message);
+    assert!(
+        !report.message.contains("modèle inconnu"),
+        "{}",
+        report.message
+    );
+}
+
+#[tokio::test]
+async fn a_model_that_answers_nothing_still_connects_but_generates_nothing() {
+    let home = Stub::start(Flavour::Reasoning).await;
+    let client = llm();
+    let config = api(home.url(), None);
+    let report = client.test_connection(&config).await;
+    assert!(report.ok, "{}", report.message);
+    let error = client
+        .generate(&config, &prompt("bonjour"))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&error, LlmError::Failed(why) if why.contains("illisible")),
+        "{error}"
+    );
 }
