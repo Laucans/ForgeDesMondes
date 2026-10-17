@@ -768,6 +768,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-characters"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "list-entity-versions"
 version = "0.1.0"
 dependencies = [
