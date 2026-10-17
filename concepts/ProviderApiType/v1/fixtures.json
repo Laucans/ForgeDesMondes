@@ -1,0 +1,438 @@
+{
+  "concept": "ProviderApiType",
+  "version": 1,
+  "cases": [
+    {
+      "name": "R92: the Anthropic Messages API URL is cloud",
+      "input": {
+        "url": "https://api.anthropic.com/v1",
+        "answer": null
+      },
+      "output": {
+        "type": "cloud",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "R92: the home opencode server answering its model list is opencode",
+      "input": {
+        "url": "http://192.168.1.40:4096",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": "opencode",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "R92: an unknown URL that answers nothing is not recognised",
+      "input": {
+        "url": "https://inconnu.example.org/pas-une-api",
+        "answer": null
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "the cloud host is told by the URL alone, the answer is not asked",
+      "input": {
+        "url": "https://api.anthropic.com/v1"
+      },
+      "output": {
+        "type": "cloud",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "the cloud host wins over an OpenAI-shaped answer",
+      "input": {
+        "url": "https://api.anthropic.com/v1",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": "cloud",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "the cloud host is compared without case, port or path",
+      "input": {
+        "url": "HTTPS://API.Anthropic.com:443/v1/messages",
+        "answer": null
+      },
+      "output": {
+        "type": "cloud",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "a host that merely starts with the cloud host is not the cloud",
+      "input": {
+        "url": "https://api.anthropic.com.example.org/v1",
+        "answer": null
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "another host of the cloud's domain is not the cloud API",
+      "input": {
+        "url": "https://console.anthropic.com/v1",
+        "answer": null
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "a cloud host in the userinfo is not the host",
+      "input": {
+        "url": "https://api.anthropic.com@inconnu.example.org/v1",
+        "answer": null
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "the cloud host with no path is the cloud",
+      "input": {
+        "url": "https://api.anthropic.com",
+        "answer": null
+      },
+      "output": {
+        "type": "cloud",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "the cloud host behind a user and password is the cloud",
+      "input": {
+        "url": "https://user:pw@api.anthropic.com/v1",
+        "answer": null
+      },
+      "output": {
+        "type": "cloud",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "a bracketed IPv6 host with a port is told by its answer",
+      "input": {
+        "url": "http://[::1]:4096",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": "opencode",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "a bracketed IPv6 host without a port is told by its answer",
+      "input": {
+        "url": "http://[::1]",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": "opencode",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "an unknown URL answering an OpenAI-compatible list is opencode",
+      "input": {
+        "url": "https://inconnu.example.org/pas-une-api",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": "opencode",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "an empty OpenAI-compatible list is still that shape",
+      "input": {
+        "url": "http://192.168.1.40:4096",
+        "answer": {
+          "object": "list",
+          "data": []
+        }
+      },
+      "output": {
+        "type": "opencode",
+        "recognized": true,
+        "message": null
+      }
+    },
+    {
+      "name": "an endpoint that did not answer is not recognised",
+      "input": {
+        "url": "http://192.168.1.40:4096"
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "an answer that is an error is not recognised",
+      "input": {
+        "url": "http://192.168.1.40:4096",
+        "answer": {
+          "error": {
+            "message": "not found"
+          }
+        }
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "an answer with no data list is not recognised",
+      "input": {
+        "url": "http://192.168.1.40:4096",
+        "answer": {
+          "object": "list"
+        }
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "an answer whose object is not a list is not recognised",
+      "input": {
+        "url": "http://192.168.1.40:4096",
+        "answer": {
+          "object": "model",
+          "data": []
+        }
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "an answer that is not an object is not recognised",
+      "input": {
+        "url": "http://192.168.1.40:4096",
+        "answer": [
+          "qwen2.5-32b-instruct"
+        ]
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "an answer that is text is not recognised",
+      "input": {
+        "url": "http://192.168.1.40:4096",
+        "answer": "<html>It works</html>"
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "an answer that is a number is not recognised",
+      "input": {
+        "url": "http://192.168.1.40:4096",
+        "answer": 200
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "text that is not a URL is not recognised, whatever the answer",
+      "input": {
+        "url": "pas une url",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "an empty URL is not recognised",
+      "input": {
+        "url": "",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "a scheme other than http or https is not recognised",
+      "input": {
+        "url": "ftp://api.anthropic.com/v1",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    },
+    {
+      "name": "a URL with no host is not recognised",
+      "input": {
+        "url": "https:///v1",
+        "answer": {
+          "object": "list",
+          "data": [
+            {
+              "id": "qwen2.5-32b-instruct",
+              "object": "model"
+            },
+            {
+              "id": "qwen2.5-14b-instruct",
+              "object": "model"
+            }
+          ]
+        }
+      },
+      "output": {
+        "type": null,
+        "recognized": false,
+        "message": "type d'API non reconnu"
+      }
+    }
+  ]
+}
