@@ -41,6 +41,20 @@
       ]
     },
     {
+      "query": "ListEvents",
+      "capability": "campaign.listEvents",
+      "file": "crates/campaign/queries/list-events.graphql",
+      "sha256": "75ec3759864248a27784587e8e4cc1d6194b4d9ece7449726f61002b43e8297a",
+      "fields": [
+        "entity.id",
+        "entity.campaignId",
+        "entity.type",
+        "entity.name",
+        "entity.description",
+        "entity_alias.alias"
+      ]
+    },
+    {
       "query": "ListPlayers",
       "capability": "campaign.listPlayers",
       "file": "crates/campaign/queries/list-players.graphql",
