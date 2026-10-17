@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "heads": {
+    "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
+    "main_agent": "864d594986aafa86e573e2b2d89df2b96f4e2457",
+    "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "3be0979e90c6425bbcec480183b29098e4bae622"
+  },
+  "snapshots": [
+    {
+      "branch": "main_agent",
+      "sha": "864d594986aafa86e573e2b2d89df2b96f4e2457",
+      "at": "2026-10-17T00:20:53Z",
+      "dir": "main_agent/20261017T002053Z-864d594",
+      "schema": false,
+      "model": true
+    },
+    {
+      "branch": "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system",
+      "sha": "3be0979e90c6425bbcec480183b29098e4bae622",
+      "at": "2026-10-17T00:20:53Z",
+      "dir": "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system/20261017T002053Z-3be0979",
+      "schema": false,
+      "model": true
+    }
+  ]
+}
