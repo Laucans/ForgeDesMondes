@@ -126,7 +126,9 @@
         "ai.saveSettings",
         "ai.testConnection"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/ai/ai-settings",
+      "builtFrom": "c34426ced3d7e857"
     },
     {
       "name": "CampaignOverview",
