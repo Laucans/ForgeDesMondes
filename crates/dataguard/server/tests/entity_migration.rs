@@ -217,14 +217,24 @@ impl Scratch {
             .get(0)
     }
 
+    /// Drops the database. An autovacuum worker the writes woke may still be
+    /// on it, which `FORCE` cannot end for a role that is not a superuser:
+    /// the drop is tried again while the worker finishes.
     async fn drop(self) {
         drop(self.client);
         let config: tokio_postgres::Config = url().parse().expect("a PostgreSQL URL");
-        connect(&config)
-            .await
-            .batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name))
-            .await
-            .expect("the scratch database dropped");
+        let admin = connect(&config).await;
+        let sql = format!("DROP DATABASE {} WITH (FORCE)", self.name);
+        for _ in 0..20 {
+            match admin.batch_execute(&sql).await {
+                Ok(()) => return,
+                Err(e) if e.code() == Some(&SqlState::INSUFFICIENT_PRIVILEGE) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+                Err(e) => panic!("the scratch database dropped: {e:?}"),
+            }
+        }
+        panic!("the scratch database {} is still in use", self.name);
     }
 }
 
@@ -415,17 +425,21 @@ async fn a_campaign_s_new_id_reaches_its_elements_and_players_together() {
 }
 
 #[tokio::test]
-async fn a_player_deleted_leaves_their_pc_with_no_player() {
+async fn a_player_s_new_id_reaches_their_pc_and_their_deletion_leaves_it_with_none() {
     let s = Scratch::new("nullify").await;
-    s.accepted(&format!("DELETE FROM player WHERE id = '{CLAIRE}'"))
-        .await;
-    assert_eq!(
-        s.texts(&format!(
-            "SELECT coalesce(player_id::text, 'none') FROM character WHERE entity_id = '{ELOWEN}'"
-        ))
-        .await,
-        ["none"]
+    let player = format!(
+        "SELECT coalesce(player_id::text, 'none') FROM character WHERE entity_id = '{ELOWEN}'"
     );
+    let moved = "b1000000-0000-4000-8000-0000000000ff";
+    // The relation's doing, no one's save: no version is asked for.
+    s.accepted(&format!(
+        "UPDATE player SET id = '{moved}' WHERE id = '{CLAIRE}'"
+    ))
+    .await;
+    assert_eq!(s.texts(&player).await, [moved]);
+    s.accepted(&format!("DELETE FROM player WHERE id = '{moved}'"))
+        .await;
+    assert_eq!(s.texts(&player).await, ["none"]);
     s.drop().await;
 }
 
@@ -714,23 +728,90 @@ async fn restore_exact_rewrites_the_restored_version_s_values_and_nothing_else()
 }
 
 #[tokio::test]
-async fn restore_exact_lets_a_restored_version_go_with_its_relation_s_nullify() {
-    let s = Scratch::new("restore_nullify").await;
+async fn every_change_versioned_lets_a_version_go_with_its_element_alone() {
+    let s = Scratch::new("version_delete").await;
     let first = version_id(&s, ELOWEN, 1).await;
     s.accepted(&restoration(ELOWEN, 2, &first, &json!([])))
         .await;
-    // A human's hard delete of version 1: the restoration forgets it, and is
-    // otherwise untouched.
-    s.accepted(&format!("DELETE FROM entity_version WHERE id = '{first}'"))
+    // A version erased is a history changed: the restoration, which nothing
+    // restores, as much as the version it restores.
+    let restored = version_id(&s, ELOWEN, 2).await;
+    for id in [&restored, &first] {
+        s.refused_by(
+            &format!("DELETE FROM entity_version WHERE id = '{id}'"),
+            "every-change-versioned",
+        )
+        .await;
+    }
+    // The element deleted takes its versions, the restoration and the version
+    // it restores (its relation's nullify) together.
+    s.accepted(&format!("DELETE FROM entity WHERE id = '{ELOWEN}'"))
         .await;
     assert_eq!(
-        s.texts(&format!(
-            "SELECT source || ' ' || coalesce(restored_from_version_id::text, 'none') \
-             FROM entity_version WHERE entity_id = '{ELOWEN}'"
+        s.count(&format!(
+            "SELECT count(*) FROM entity_version WHERE entity_id = '{ELOWEN}'"
         ))
         .await,
-        ["restauration none"]
+        0
     );
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn every_change_versioned_wants_both_elements_versioned_when_an_alias_moves() {
+    let s = Scratch::new("alias_moves").await;
+    let moved =
+        format!("UPDATE entity_alias SET entity_id = '{MORLOX}' WHERE entity_id = '{ELOWEN}'");
+    for versions in [
+        String::new(),
+        version(ELOWEN, 2, "dm", &json!([])),
+        version(MORLOX, 2, "dm", &json!([])),
+    ] {
+        s.refused_by(&format!("{moved}; {versions}"), "every-change-versioned")
+            .await;
+    }
+    s.accepted(&format!(
+        "{moved}; {}{}",
+        version(ELOWEN, 2, "dm", &json!([])),
+        version(MORLOX, 2, "dm", &json!([]))
+    ))
+    .await;
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn every_change_versioned_counts_a_version_a_savepoint_kept_and_not_one_rolled_back() {
+    let s = Scratch::new("savepoint").await;
+    let change = format!("UPDATE entity SET notes = 'Cache une lettre.' WHERE id = '{ELOWEN}'");
+    let added = version(ELOWEN, 2, "dm", &json!([]));
+    s.accepted(&format!(
+        "BEGIN; {change}; SAVEPOINT save; {added} RELEASE SAVEPOINT save; COMMIT"
+    ))
+    .await;
+    let again = version(ELOWEN, 3, "dm", &json!([]));
+    s.refused_by(
+        &format!("BEGIN; {change}; SAVEPOINT save; {again} ROLLBACK TO SAVEPOINT save; COMMIT"),
+        "every-change-versioned",
+    )
+    .await;
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn every_change_versioned_wants_each_change_to_name_its_field() {
+    let s = Scratch::new("diff_field").await;
+    for diff in [
+        json!([{ "old": null, "new": "Elowen" }]),
+        json!([{ "field": null, "old": null, "new": 1 }]),
+        json!([{ "field": 3, "old": null, "new": 1 }]),
+        json!(["name"]),
+    ] {
+        s.refused_by(
+            &version(ELOWEN, 2, "dndbeyond", &diff),
+            "every-change-versioned",
+        )
+        .await;
+    }
     s.drop().await;
 }
 

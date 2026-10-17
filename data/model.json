@@ -392,7 +392,7 @@
     {
       "business": [
         "R4",
-        "R93",
+        "every-change-versioned : tout enregistrement de l'élément, de sa fiche ou de ses alias ajoute une version dans la même transaction (triggers de contrainte différés every_change_versioned sur entity, character et entity_alias) ; ce que font les relations (cascade de la campagne, suppression ou nouvel identifiant du joueur) n'en demande pas",
         "R94",
         "R96",
         "character-is-pj-or-pnj : seul un élément « pj » ou « pnj » a une fiche de personnage",
@@ -806,7 +806,7 @@
           "type": "uuid",
           "technical": [
             "Clé primaire, gen_random_uuid() par défaut.",
-            "Trigger every_change_versioned (BEFORE UPDATE) : toute modification est refusée, sauf la mise à NULL de restored_from_version_id quand la version restaurée a disparu."
+            "Trigger every_change_versioned (BEFORE UPDATE OR DELETE) : une version n'est jamais modifiée ni effacée ; elle part avec son élément seul, par la cascade de entity_version.entity_id."
           ]
         },
         {
@@ -869,7 +869,8 @@
           "purpose": "Différence avec la version précédente.",
           "type": "jsonb",
           "technical": [
-            "CHECK entity_version_diff : un tableau d'entrées {field, old, new} triées par field (EntityVersion@1)."
+            "CHECK entity_version_diff : un tableau d'entrées {field, old, new} triées par field (EntityVersion@1).",
+            "Trigger entity_version_added : chaque entrée nomme son champ par une chaîne ; le trigger marque la transaction (réglage local entity.versioned_<élément>) comme ayant versionné l'élément."
           ]
         },
         {

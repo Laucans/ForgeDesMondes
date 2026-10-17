@@ -172,6 +172,11 @@ fn character_is_pj_or_pnj(state: &BTreeMap<String, Value>, _entry: &Entry) -> bo
 /// Every save adds a version: a number past the last one the engine holds, a
 /// known source, the complete snapshot and the diff. A version written is
 /// never written again.
+///
+/// Past, not next: the engine holds the row as it was when the command was
+/// queued, and a save queued behind another rightly takes the number after
+/// it. The table, which holds the versions written, wants the next one
+/// exactly.
 fn every_change_versioned(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let confirmed = &entry.projection.confirmed;
     let number = value(&entry.payload, "versionNumber").as_u64();

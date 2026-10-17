@@ -256,19 +256,13 @@ CREATE CONSTRAINT TRIGGER alias_unique_in_campaign
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION alias_unique_in_campaign_trigger();
 
--- every-change-versioned: a version is never modified. The one write it takes
--- is the relation's nullify, once the version it restored is gone.
+-- every-change-versioned: a version is never modified, nor erased: it goes
+-- with its element alone, by the relation's cascade once the element is gone.
 CREATE OR REPLACE FUNCTION entity_version_never_modified() RETURNS trigger
     LANGUAGE plpgsql AS $$
 BEGIN
-    IF OLD.restored_from_version_id IS NOT NULL
-        AND NEW.restored_from_version_id IS NULL
-        AND (NEW.id, NEW.entity_id, NEW.version_number, NEW.source, NEW.snapshot, NEW.diff, NEW.created_at)
-            IS NOT DISTINCT FROM
-            (OLD.id, OLD.entity_id, OLD.version_number, OLD.source, OLD.snapshot, OLD.diff, OLD.created_at)
-        AND NOT EXISTS (SELECT 1 FROM entity_version WHERE id = OLD.restored_from_version_id)
-    THEN
-        RETURN NEW;
+    IF TG_OP = 'DELETE' AND NOT EXISTS (SELECT 1 FROM entity WHERE id = OLD.entity_id) THEN
+        RETURN OLD;
     END IF;
     RAISE EXCEPTION 'every-change-versioned: version % of an element is never modified', OLD.version_number
         USING ERRCODE = 'check_violation', CONSTRAINT = 'every_change_versioned';
@@ -277,8 +271,15 @@ $$;
 
 DROP TRIGGER IF EXISTS every_change_versioned ON entity_version;
 CREATE TRIGGER every_change_versioned
-    BEFORE UPDATE ON entity_version
+    BEFORE UPDATE OR DELETE ON entity_version
     FOR EACH ROW EXECUTE FUNCTION entity_version_never_modified();
+
+-- The transaction-local setting saying this transaction added a version of
+-- `element`: kept by a savepoint released, undone by one rolled back, gone
+-- at the end of the transaction.
+CREATE OR REPLACE FUNCTION entity_versioned_setting(element uuid) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+    RETURN 'entity.versioned_' || replace(element::text, '-', '_');
 
 -- What a new version may be: the next number of its element
 -- (every-change-versioned); a restoration's changes are the values of the
@@ -286,7 +287,9 @@ CREATE TRIGGER every_change_versioned
 -- D&D Beyond resync changes the stats, AC, HP max, spells and actions alone
 -- (dndbeyond-resync-scope); an AI proposal, the sheet's background,
 -- behaviour, stats, AC, HP max and actions alone
--- (proposal-fills-sheet-fields). What changed is the version's diff.
+-- (proposal-fills-sheet-fields). What changed is the version's diff, each
+-- change naming its field. The transaction is marked as having versioned the
+-- element, for the check of its writes at commit.
 CREATE OR REPLACE FUNCTION entity_version_added() RETURNS trigger
     LANGUAGE plpgsql AS $$
 DECLARE
@@ -294,6 +297,13 @@ DECLARE
     restored record;
     outside text;
 BEGIN
+    IF EXISTS (
+        SELECT 1 FROM jsonb_array_elements(NEW.diff) AS change
+        WHERE jsonb_typeof(change -> 'field') IS DISTINCT FROM 'string'
+    ) THEN
+        RAISE EXCEPTION 'every-change-versioned: each change of a version names its field'
+            USING ERRCODE = 'check_violation', CONSTRAINT = 'every_change_versioned';
+    END IF;
     SELECT coalesce(max(version_number), 0) + 1 INTO expected
         FROM entity_version WHERE entity_id = NEW.entity_id;
     IF NEW.version_number <> expected THEN
@@ -345,6 +355,7 @@ BEGIN
                 USING ERRCODE = 'check_violation', CONSTRAINT = 'proposal_fills_sheet_fields';
         END IF;
     END IF;
+    PERFORM set_config(entity_versioned_setting(NEW.entity_id), 'on', true);
     RETURN NEW;
 END
 $$;
@@ -355,17 +366,19 @@ CREATE TRIGGER entity_version_added
     FOR EACH ROW EXECUTE FUNCTION entity_version_added();
 
 -- every-change-versioned: whoever writes an element, its sheet or its
--- aliases adds the element's version in the same transaction. What the
--- relations do is no one's save of it: a cascade from the campaign, the
--- element's own deletion, its player's deletion nullifying the PC's player.
+-- aliases adds the element's version in the same transaction — both
+-- elements' when an alias moves from one to the other. What the relations do
+-- is no one's save of it: a cascade from the campaign, the element's own
+-- deletion, its player's deletion or new id reaching the PC's player.
 CREATE OR REPLACE FUNCTION every_change_versioned_trigger() RETURNS trigger
     LANGUAGE plpgsql AS $$
 DECLARE
+    elements uuid[];
     element uuid;
 BEGIN
     -- Nested: PL/pgSQL resolves OLD.player_id before it tests the table.
     IF TG_TABLE_NAME = 'character' AND TG_OP = 'UPDATE' THEN
-        IF OLD.player_id IS NOT NULL AND NEW.player_id IS NULL
+        IF OLD.player_id IS NOT NULL
             AND to_jsonb(NEW) - 'player_id' = to_jsonb(OLD) - 'player_id'
             AND NOT EXISTS (SELECT 1 FROM player WHERE id = OLD.player_id)
         THEN
@@ -373,22 +386,22 @@ BEGIN
         END IF;
     END IF;
     IF TG_TABLE_NAME = 'entity' THEN
-        element := NEW.id;
+        elements := ARRAY[NEW.id];
+    ELSIF TG_OP = 'INSERT' THEN
+        elements := ARRAY[NEW.entity_id];
     ELSIF TG_OP = 'DELETE' THEN
-        element := OLD.entity_id;
+        elements := ARRAY[OLD.entity_id];
     ELSE
-        element := NEW.entity_id;
+        elements := ARRAY[OLD.entity_id, NEW.entity_id];
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM entity WHERE id = element) THEN
-        RETURN NULL;
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM entity_version
-        WHERE entity_id = element AND xmin = pg_current_xact_id()::xid
-    ) THEN
-        RAISE EXCEPTION 'every-change-versioned: element % was written with no version', element
-            USING ERRCODE = 'check_violation', CONSTRAINT = 'every_change_versioned';
-    END IF;
+    FOREACH element IN ARRAY elements LOOP
+        IF EXISTS (SELECT 1 FROM entity WHERE id = element)
+            AND current_setting(entity_versioned_setting(element), true) IS DISTINCT FROM 'on'
+        THEN
+            RAISE EXCEPTION 'every-change-versioned: element % was written with no version', element
+                USING ERRCODE = 'check_violation', CONSTRAINT = 'every_change_versioned';
+        END IF;
+    END LOOP;
     RETURN NULL;
 END
 $$;
@@ -407,7 +420,7 @@ CREATE CONSTRAINT TRIGGER every_change_versioned
 
 DROP TRIGGER IF EXISTS every_change_versioned ON entity_alias;
 CREATE CONSTRAINT TRIGGER every_change_versioned
-    AFTER INSERT OR UPDATE OF alias OR DELETE ON entity_alias
+    AFTER INSERT OR UPDATE OF alias, entity_id OR DELETE ON entity_alias
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION every_change_versioned_trigger();
 

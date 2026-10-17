@@ -3,6 +3,42 @@
   "tables": [
     {
       "business": [
+        "R1"
+      ],
+      "fields": [
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "session_count",
+          "nullable": false,
+          "purpose": "Nombre de séances, compté et jamais stocké.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "last_played_on",
+          "nullable": true,
+          "purpose": "Date de la dernière séance close.",
+          "type": "date"
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "next_session_on",
+          "nullable": true,
+          "purpose": "Date de la prochaine séance en préparation.",
+          "type": "date"
+        }
+      ],
+      "name": "campaign_overview_view",
+      "purpose": "Ce qui reste à construire de campaign_overview_view (data/model.json) : le nombre de séances et leurs dates, avec la table session ; les comptes de médias et de sons rejoignent entity_counts avec leurs tables."
+    },
+    {
+      "business": [
         "R5"
       ],
       "fields": [
