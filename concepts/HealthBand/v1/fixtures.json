@@ -1,0 +1,201 @@
+{
+  "concept": "HealthBand",
+  "version": 1,
+  "cases": [
+    {
+      "name": "R108: an NPC of 20 hit points at 20 is unhurt",
+      "input": {
+        "hp_current": 20,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "indemne"
+      }
+    },
+    {
+      "name": "R108: an NPC of 20 hit points at 13 is hurt, above half",
+      "input": {
+        "hp_current": 13,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "blessé"
+      }
+    },
+    {
+      "name": "R108: an NPC of 20 hit points at 10 is bloodied, at half",
+      "input": {
+        "hp_current": 10,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "en sang"
+      }
+    },
+    {
+      "name": "R108: an NPC of 20 hit points at 0 is dead",
+      "input": {
+        "hp_current": 0,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "mort"
+      }
+    },
+    {
+      "name": "pj-hp-not-tracked: a PC token with no hit points has no band",
+      "input": {},
+      "output": {
+        "band": null
+      }
+    },
+    {
+      "name": "pj-hp-not-tracked: a PC token with null hit points has no band",
+      "input": {
+        "hp_current": null,
+        "hp_max": null
+      },
+      "output": {
+        "band": null
+      }
+    },
+    {
+      "name": "one hit point short of full is already hurt",
+      "input": {
+        "hp_current": 19,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "blessé"
+      }
+    },
+    {
+      "name": "one hit point above half is hurt, not bloodied",
+      "input": {
+        "hp_current": 11,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "blessé"
+      }
+    },
+    {
+      "name": "one hit point is bloodied, not dead",
+      "input": {
+        "hp_current": 1,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "en sang"
+      }
+    },
+    {
+      "name": "an odd maximum: 4 of 7 is above half",
+      "input": {
+        "hp_current": 4,
+        "hp_max": 7
+      },
+      "output": {
+        "band": "blessé"
+      }
+    },
+    {
+      "name": "an odd maximum: 3 of 7 is under half",
+      "input": {
+        "hp_current": 3,
+        "hp_max": 7
+      },
+      "output": {
+        "band": "en sang"
+      }
+    },
+    {
+      "name": "a maximum of 1: at 1 it is unhurt",
+      "input": {
+        "hp_current": 1,
+        "hp_max": 1
+      },
+      "output": {
+        "band": "indemne"
+      }
+    },
+    {
+      "name": "a maximum of 1: at 0 it is dead",
+      "input": {
+        "hp_current": 0,
+        "hp_max": 1
+      },
+      "output": {
+        "band": "mort"
+      }
+    },
+    {
+      "name": "a maximum of 2: at 1 it is at half, so bloodied",
+      "input": {
+        "hp_current": 1,
+        "hp_max": 2
+      },
+      "output": {
+        "band": "en sang"
+      }
+    },
+    {
+      "name": "one figure alone derives nothing: 0 hit points without a maximum give no band",
+      "input": {
+        "hp_current": 0,
+        "hp_max": null
+      },
+      "output": {
+        "band": null
+      }
+    },
+    {
+      "name": "current hit points without a maximum give no band",
+      "input": {
+        "hp_current": 12
+      },
+      "output": {
+        "band": null
+      }
+    },
+    {
+      "name": "a maximum without current hit points gives no band",
+      "input": {
+        "hp_max": 20
+      },
+      "output": {
+        "band": null
+      }
+    },
+    {
+      "name": "dead-derived: hit points below 0 are read as 0",
+      "input": {
+        "hp_current": -3,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "mort"
+      }
+    },
+    {
+      "name": "hit points above the maximum are read as the maximum",
+      "input": {
+        "hp_current": 25,
+        "hp_max": 20
+      },
+      "output": {
+        "band": "indemne"
+      }
+    },
+    {
+      "name": "a large maximum: 600 of 1200 is at half",
+      "input": {
+        "hp_current": 600,
+        "hp_max": 1200
+      },
+      "output": {
+        "band": "en sang"
+      }
+    }
+  ]
+}
