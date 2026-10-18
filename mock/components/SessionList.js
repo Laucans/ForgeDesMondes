@@ -145,8 +145,8 @@
     const allowed = new Set(pcs(characters).map((character) => character.id));
     return { campaign, title: form.title.trim(), plannedOn: form.plannedOn, present: form.present.filter((id) => allowed.has(id)) };
   }
-  function commandBody(dataCapability, body) {
-    return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: body, caller: { by: "dm", from: "SessionList", roles: [] } };
+  function commandBody(dataCapability, body, idempotencyKey) {
+    return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: body, idempotencyKey, caller: { by: "dm", from: "SessionList", roles: [] } };
   }
   var VIOLATIONS = {
     "present-only-pj": "seuls les PJ de la campagne peuvent \xEAtre pr\xE9sents"
@@ -239,7 +239,9 @@
     style.textContent = STYLE;
     doc.head.append(style);
   }
+  var wired = /* @__PURE__ */ new WeakMap();
   function mount(host2, props2, shell2, env = ENV) {
+    wired.get(host2)?.();
     ensureStyle(host2.ownerDocument);
     host2.innerHTML = skeleton();
     const campaign = typeof props2.campaign === "string" ? props2.campaign : "";
@@ -250,6 +252,8 @@
     };
     let sessions = [];
     let characters = [];
+    let charactersRead = false;
+    let latest = 0;
     const paint = () => {
       part("sessions-items").innerHTML = items(sessions, characters);
     };
@@ -257,9 +261,15 @@
       part("sessions-status").textContent = text2;
     };
     async function refresh() {
+      latest += 1;
+      const mine = latest;
       const [listed, known] = await Promise.allSettled([shell2.capability(LIST_SESSIONS, void 0, { campaign }), shell2.capability(LIST_CHARACTERS, void 0, { campaign })]);
+      if (mine !== latest) return listed.status === "fulfilled" && known.status === "fulfilled";
       if (listed.status === "fulfilled") sessions = parseSessions(listed.value.data);
-      if (known.status === "fulfilled") characters = parseCharacters(known.value.data);
+      if (known.status === "fulfilled") {
+        characters = parseCharacters(known.value.data);
+        charactersRead = true;
+      }
       paint();
       const ok = listed.status === "fulfilled" && known.status === "fulfilled";
       say(ok ? "" : listed.status === "rejected" ? "Impossible de lire les s\xE9ances." : "Impossible de lire les personnages.");
@@ -277,6 +287,13 @@
     }
     let open = null;
     let busy = false;
+    let attempt = { key: "", body: "" };
+    const keyFor = (body) => {
+      const text2 = JSON.stringify(body);
+      if (attempt.body !== text2) attempt = { key: globalThis.crypto.randomUUID(), body: text2 };
+      return attempt.key;
+    };
+    let reading = Promise.resolve(true);
     const close = () => {
       open?.remove();
       open = null;
@@ -295,8 +312,11 @@
       const area = open?.querySelector("#session-create-error");
       if (area) area.textContent = text2;
     };
-    function openDialog() {
+    async function openDialog() {
       if (open) return;
+      await reading;
+      if (open) return;
+      if (!charactersRead) return say("Impossible d\u2019ouvrir le formulaire : les personnages n\u2019ont pas pu \xEAtre lus.");
       const players = pcs(characters);
       const wrapper = host2.ownerDocument.createElement("div");
       wrapper.innerHTML = dialog({ title: defaultTitle(sessions), plannedOn: env.today(), pcs: players, present: players.map((pc) => pc.id) });
@@ -317,8 +337,12 @@
       submit.disabled = true;
       complain("");
       try {
-        const state = await send(commandBody(submit.dataset.writes ?? CREATE_SESSION, payload(campaign, form, characters)));
-        if (state.status === "rejected") return complain(`Cr\xE9ation refus\xE9e : ${reasons(state.violations)}.`);
+        const body = payload(campaign, form, characters);
+        const state = await send(commandBody(submit.dataset.writes ?? CREATE_SESSION, body, keyFor(body)));
+        if (state.status === "rejected") {
+          attempt = { key: "", body: "" };
+          return complain(`Cr\xE9ation refus\xE9e : ${reasons(state.violations)}.`);
+        }
         if (state.status !== "applied") return complain(`La cr\xE9ation n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`);
         close();
         if (!await refresh()) say("La s\xE9ance est cr\xE9\xE9e, mais la liste n\u2019a pas pu \xEAtre relue.");
@@ -329,16 +353,21 @@
         submit.disabled = false;
       }
     }
-    host2.addEventListener("click", (event) => {
+    const onClick = (event) => {
       const target = event.target;
       const button = target?.closest("button");
-      if (button?.dataset.writes === CREATE_SESSION && button.id === "sessions-new") openDialog();
+      if (button?.dataset.writes === CREATE_SESSION && button.id === "sessions-new") void openDialog();
       else if (button?.dataset.writes === CREATE_SESSION) void create();
       else if (button?.id === "session-create-cancel" || button?.id === "session-create-close") close();
       else if (target?.classList.contains("kit-dialog__veil")) close();
+    };
+    host2.addEventListener("click", onClick);
+    wired.set(host2, () => {
+      host2.removeEventListener("click", onClick);
+      close();
     });
     paint();
-    void refresh();
+    reading = refresh();
   }
 
   // mock/src/screen.js

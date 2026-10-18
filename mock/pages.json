@@ -167,7 +167,7 @@
         "campaign": "string — id de la campagne dont on liste les séances"
       },
       "source": "apps/session/session-list",
-      "builtFrom": "b10fc42f7b9f13e1"
+      "builtFrom": "4596b72cbf00e325"
     },
     {
       "name": "CampaignElements",

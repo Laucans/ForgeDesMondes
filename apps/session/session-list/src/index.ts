@@ -40,8 +40,12 @@ function ensureStyle(doc: Document): void {
   doc.head.append(style);
 }
 
+/** The listeners of the list a host shows: mounting again on the same host replaces them, it never stacks a second set. */
+const wired = new WeakMap<HTMLElement, () => void>();
+
 /** What the shell calls: fills `host` with the list and wires it. */
 export function mount(host: HTMLElement, props: Record<string, unknown>, shell: Shell, env: Env = ENV): void {
+  wired.get(host)?.();
   ensureStyle(host.ownerDocument);
   host.innerHTML = skeleton();
 
@@ -54,6 +58,9 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
 
   let sessions: Session[] = [];
   let characters: Character[] = [];
+  /** Whether `campaign.listCharacters` has been read: the dialog offers PCs only from what was read. */
+  let charactersRead = false;
+  let latest = 0;
 
   const paint = (): void => {
     part('sessions-items').innerHTML = items(sessions, characters);
@@ -64,9 +71,16 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
 
   /** Reads both Capabilities; what cannot be read is said, and the other still shows. */
   async function refresh(): Promise<boolean> {
+    latest += 1;
+    const mine = latest;
     const [listed, known] = await Promise.allSettled([shell.capability(LIST_SESSIONS, undefined, { campaign }), shell.capability(LIST_CHARACTERS, undefined, { campaign })]);
+    // A read that started later has the last word: an older answer never overwrites a newer one.
+    if (mine !== latest) return listed.status === 'fulfilled' && known.status === 'fulfilled';
     if (listed.status === 'fulfilled') sessions = parseSessions(listed.value.data);
-    if (known.status === 'fulfilled') characters = parseCharacters(known.value.data);
+    if (known.status === 'fulfilled') {
+      characters = parseCharacters(known.value.data);
+      charactersRead = true;
+    }
     paint();
     const ok = listed.status === 'fulfilled' && known.status === 'fulfilled';
     say(ok ? '' : listed.status === 'rejected' ? 'Impossible de lire les séances.' : 'Impossible de lire les personnages.');
@@ -87,6 +101,14 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
 
   let open: HTMLElement | null = null;
   let busy = false;
+  /** The key of the creation last sent: the same creation sent again — the server was slow to answer — carries the same key, never a second session. */
+  let attempt = { key: '', body: '' };
+  const keyFor = (body: unknown): string => {
+    const text = JSON.stringify(body);
+    if (attempt.body !== text) attempt = { key: globalThis.crypto.randomUUID(), body: text };
+    return attempt.key;
+  };
+  let reading: Promise<boolean> = Promise.resolve(true);
 
   const close = (): void => {
     open?.remove();
@@ -109,8 +131,11 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   };
 
   /** The dialog, over the list: PCs only, all ticked to begin with. */
-  function openDialog(): void {
+  async function openDialog(): Promise<void> {
     if (open) return;
+    await reading;
+    if (open) return;
+    if (!charactersRead) return say('Impossible d’ouvrir le formulaire : les personnages n’ont pas pu être lus.');
     const players = pcs(characters);
     const wrapper = host.ownerDocument.createElement('div');
     wrapper.innerHTML = dialog({ title: defaultTitle(sessions), plannedOn: env.today(), pcs: players, present: players.map((pc) => pc.id) });
@@ -133,8 +158,13 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     complain('');
     try {
       // The identifier the actuator names is what is sent, and nothing else.
-      const state = await send(commandBody(submit.dataset.writes ?? CREATE_SESSION, payload(campaign, form, characters)));
-      if (state.status === 'rejected') return complain(`Création refusée : ${reasons(state.violations)}.`);
+      const body = payload(campaign, form, characters);
+      const state = await send(commandBody(submit.dataset.writes ?? CREATE_SESSION, body, keyFor(body)));
+      if (state.status === 'rejected') {
+        // A refusal is final for its key: the DM's next try, changed or not, is a new creation.
+        attempt = { key: '', body: '' };
+        return complain(`Création refusée : ${reasons(state.violations)}.`);
+      }
       if (state.status !== 'applied') return complain(`La création n’a pas abouti (état : ${state.status || 'inconnu'}).`);
       close();
       // The new session is read back, at the end of the list; if it cannot be, the list says so.
@@ -147,15 +177,20 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     }
   }
 
-  host.addEventListener('click', (event) => {
+  const onClick = (event: Event): void => {
     const target = event.target as Element | null;
     const button = target?.closest('button');
-    if (button?.dataset.writes === CREATE_SESSION && button.id === 'sessions-new') openDialog();
+    if (button?.dataset.writes === CREATE_SESSION && button.id === 'sessions-new') void openDialog();
     else if (button?.dataset.writes === CREATE_SESSION) void create();
     else if (button?.id === 'session-create-cancel' || button?.id === 'session-create-close') close();
     else if (target?.classList.contains('kit-dialog__veil')) close();
+  };
+  host.addEventListener('click', onClick);
+  wired.set(host, () => {
+    host.removeEventListener('click', onClick);
+    close();
   });
 
   paint();
-  void refresh();
+  reading = refresh();
 }

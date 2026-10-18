@@ -140,13 +140,14 @@ test('saving triggers session.createSession by identifier with the title, the da
   l.tick('sirielle', false);
   l.tick('kael', false);
   await l.click('#session-create-submit');
-  assert.deepEqual(l.sent, [
-    {
-      dataCapability: 'session.createSession@1',
-      payload: { campaign: 'cendres-valombre', title: 'Le gué', plannedOn: '2026-11-14', present: ['elowen', 'brannoc'] },
-      caller: { by: 'dm', from: 'SessionList', roles: [] },
-    },
-  ]);
+  assert.equal(l.sent.length, 1);
+  const { idempotencyKey, ...command } = l.sent[0] as Sent & { idempotencyKey: string };
+  assert.ok(idempotencyKey.length > 0, 'a creation carries its idempotency key');
+  assert.deepEqual(command, {
+    dataCapability: 'session.createSession@1',
+    payload: { campaign: 'cendres-valombre', title: 'Le gué', plannedOn: '2026-11-14', present: ['elowen', 'brannoc'] },
+    caller: { by: 'dm', from: 'SessionList', roles: [] },
+  });
   assert.equal(l.host.querySelector('#session-create-dialog'), null, 'the dialog closes once it is applied');
   const rows = [...l.host.querySelectorAll('#sessions-items > li')];
   assert.equal(rows.length, 5);
@@ -174,11 +175,92 @@ test('a refused creation says why and keeps the dialog open; an empty title or d
   assert.equal(l.sent.length, 0);
   l.type('#session-create-date', '2026-11-14');
   await l.click('#session-create-submit');
-  assert.equal(l.sent.length, 1);
+  await l.click('#session-create-submit');
+  assert.equal(l.sent.length, 2);
+  assert.notEqual((l.sent[0] as Sent & { idempotencyKey: string }).idempotencyKey, (l.sent[1] as Sent & { idempotencyKey: string }).idempotencyKey, 'a refusal is final for its key');
   assert.match(l.$('#session-create-error').textContent ?? '', /seuls les PJ de la campagne/);
   assert.equal(l.host.querySelectorAll('#sessions-items > li').length, 4);
   await l.click('#session-create-cancel');
   assert.equal(l.host.querySelector('#session-create-dialog'), null);
+});
+
+test('a creation the server is slow to settle, sent again, is the same creation — and a changed one is not', async () => {
+  const l = await list({ later: 1000 });
+  await l.click('#sessions-new');
+  await l.click('#session-create-submit');
+  assert.match(l.$('#session-create-error').textContent ?? '', /n’a pas abouti/);
+  await l.click('#session-create-submit');
+  l.type('#session-create-title', 'Autre titre');
+  await l.click('#session-create-submit');
+  const keys = l.sent.map((c) => (c as Sent & { idempotencyKey: string }).idempotencyKey);
+  assert.equal(keys.length, 3);
+  assert.equal(keys[0], keys[1]);
+  assert.notEqual(keys[1], keys[2]);
+});
+
+test('the form is not offered while the characters cannot be read: it would tick nobody', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div></div></body></html>');
+  const host = dom.window.document.querySelector('div') as HTMLElement;
+  const { shell } = fakeShell();
+  const noCharacters: Shell = { ...shell, capability: (id, sha, variables) => (id === 'campaign.listCharacters' ? Promise.reject(new Error('down')) : shell.capability(id, sha, variables)) };
+  mount(host, { campaign: 'c' }, noCharacters, env);
+  await settle();
+  host.querySelector('#sessions-new')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.equal(host.querySelector('#session-create-dialog'), null);
+  assert.match(host.querySelector('#sessions-status')?.textContent ?? '', /personnages/);
+  assert.equal(host.querySelectorAll('#sessions-items > li').length, 4, 'the sessions still show');
+});
+
+test('mounting again on the same host does not stack a second set of listeners', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div></div></body></html>');
+  const host = dom.window.document.querySelector('div') as HTMLElement;
+  const fake = fakeShell();
+  mount(host, { campaign: 'c' }, fake.shell, env);
+  mount(host, { campaign: 'c' }, fake.shell, env);
+  await settle();
+  host.querySelector('#sessions-new')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.equal(host.querySelectorAll('#session-create-dialog').length, 1);
+  host.querySelector('#session-create-submit')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.equal(fake.sent.length, 1);
+});
+
+test('an older read never overwrites a newer one', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div></div></body></html>');
+  const host = dom.window.document.querySelector('div') as HTMLElement;
+  const fake = fakeShell();
+  let release: () => void = () => undefined;
+  const slow = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let firstSessionsRead = true;
+  const shell: Shell = {
+    ...fake.shell,
+    async capability(id, sha, variables) {
+      // The first read of the sessions is answered late, with the list as it was before the creation.
+      if (id === 'session.listSessions' && firstSessionsRead) {
+        firstSessionsRead = false;
+        const before = await fake.shell.capability(id, sha, variables);
+        await slow;
+        return before;
+      }
+      return fake.shell.capability(id, sha, variables);
+    },
+  };
+  mount(host, { campaign: 'c' }, shell, env);
+  await settle();
+  host.querySelector('#sessions-new')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.equal(host.querySelector('#session-create-dialog'), null, 'the dialog waits for the first read');
+  release();
+  await settle();
+  host.querySelector('#sessions-new')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  host.querySelector('#session-create-submit')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.equal(host.querySelectorAll('#sessions-items > li').length, 5);
 });
 
 test('a list that cannot be read says so, and the button is still there', async () => {

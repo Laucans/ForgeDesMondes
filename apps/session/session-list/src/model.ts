@@ -68,8 +68,8 @@ export function payload(campaign: string, form: Form, characters: readonly Chara
 }
 
 /** `POST /commands` for one DataCapability, by identifier. */
-export function commandBody(dataCapability: string, body: unknown): unknown {
-  return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: body, caller: { by: 'dm', from: 'SessionList', roles: [] } };
+export function commandBody(dataCapability: string, body: unknown, idempotencyKey: string): unknown {
+  return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: body, idempotencyKey, caller: { by: 'dm', from: 'SessionList', roles: [] } };
 }
 
 const VIOLATIONS: Record<string, string> = {
