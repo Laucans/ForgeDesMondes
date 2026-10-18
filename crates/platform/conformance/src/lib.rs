@@ -214,6 +214,30 @@ mod tests {
     }
 
     #[test]
+    fn check_passes_an_implementation_that_answers_every_case() {
+        let cases = fixtures_of("ProviderApiType@1").cases;
+        check("ProviderApiType@1", |input| {
+            cases
+                .iter()
+                .find(|case| case.input == input)
+                .map_or(Value::Null, |case| case.output.clone())
+        });
+    }
+
+    #[test]
+    fn check_fails_the_test_when_an_implementation_answers_a_case_wrong() {
+        let panic = std::panic::catch_unwind(|| {
+            check("ProviderApiType@1", |_| json!({"answer": "never right"}));
+        })
+        .expect_err("a wrong implementation must fail the test");
+        let message = panic.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert!(
+            message.starts_with("ProviderApiType@1: ") && message.contains("fail conformance"),
+            "{message}"
+        );
+    }
+
+    #[test]
     fn the_repository_root_is_the_nearest_folder_above_holding_the_concepts() {
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let nearest = manifest
