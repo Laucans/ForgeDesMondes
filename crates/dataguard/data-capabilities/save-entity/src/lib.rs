@@ -295,6 +295,13 @@ fn is_uuid(text: &str) -> bool {
         })
 }
 
+/// Whether `a` and `b` name the same row: the same id, whatever its case.
+fn same_id(a: &Value, b: &Value) -> bool {
+    a.as_str()
+        .zip(b.as_str())
+        .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
+}
+
 /// The type an element's editor gives: `kind`, or a `type` that is one — the
 /// editor's `type` is otherwise a PC's subtitle (« Elfe des bois… »).
 fn kind_of(entity: &Map<String, Value>) -> Result<Option<&Value>, Refusal> {
@@ -324,7 +331,10 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Result<Prepared, Ref
         (None, Some(campaign)) => {
             payload.insert("entityCampaignId".into(), campaign.clone());
         }
-        (Some(own), Some(campaign)) if own != campaign => return Err(Refusal::OtherCampaign),
+        // A uuid in another case is the same campaign.
+        (Some(own), Some(campaign)) if !same_id(own, campaign) => {
+            return Err(Refusal::OtherCampaign);
+        }
         (Some(_), _) => {}
     }
     if let Some(kind) = kind_of(&entity)? {

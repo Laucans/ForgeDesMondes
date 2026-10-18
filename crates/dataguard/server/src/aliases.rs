@@ -9,8 +9,8 @@
 //! refused takes no term, before a restart or after. Over the engine's
 //! memory, which is the tables, [`crate::versioning::Versioning`] records an
 //! element each time a write of its partition is applied. Either forgets an
-//! element when it is removed. Elements are told apart by their id parsed as
-//! a uuid: the same element in another case is the same element.
+//! element when it is removed. Elements and campaigns are told apart by their
+//! id parsed as a uuid: the same id in another case is the same one.
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
@@ -23,15 +23,15 @@ use crate::ai_settings::uuid;
 /// One element's terms: its campaign, its normalised name and aliases.
 #[derive(Debug)]
 struct Terms {
-    campaign: String,
+    campaign: u128,
     name: String,
     aliases: Vec<String>,
 }
 
 impl Terms {
-    /// `row`'s terms, when it names its campaign.
+    /// `row`'s terms, when it names its campaign by a uuid.
     fn of(row: &Row) -> Option<Self> {
-        let campaign = row.get("entityCampaignId")?.as_str()?.to_owned();
+        let campaign = parsed(row.get("entityCampaignId")?.as_str()?)?;
         let name = row
             .get("name")
             .and_then(Value::as_str)
@@ -60,7 +60,7 @@ impl Terms {
     }
 }
 
-/// An element's id, parsed: the 128 bits a uuid written 8-4-4-4-12 in hex
+/// An id, parsed: the 128 bits a uuid written 8-4-4-4-12 in hex
 /// digits, in either case, names.
 fn parsed(id: &str) -> Option<u128> {
     uuid(id)
@@ -237,6 +237,30 @@ mod tests {
         aliases.forget(TAVERNE);
         assert_eq!(
             aliases.taken(MORLOX, &row(VALOMBRE, "Morlox", &["la taverne"])),
+            None
+        );
+    }
+
+    #[test]
+    fn a_campaign_is_itself_whatever_the_case_of_its_id() {
+        let aliases = valombre();
+        // The tables write a campaign's id in lower case; a save may not.
+        assert_eq!(
+            aliases.taken(
+                MORLOX,
+                &row(&VALOMBRE.to_uppercase(), "Morlox", &["la rodeuse"])
+            ),
+            Some("la rodeuse".to_owned())
+        );
+        aliases.record(BIS, &row(&BRUME.to_uppercase(), "Le Phare", &["le phare"]));
+        assert_eq!(
+            aliases.taken(PHARE, &row(BRUME, "Le Grand Phare", &["le phare"])),
+            Some("le phare".to_owned())
+        );
+        // A campaign that is no uuid holds no term.
+        aliases.record(BIS, &row("valombre", "Le Phare", &["le phare"]));
+        assert_eq!(
+            aliases.taken(PHARE, &row(BRUME, "Le Grand Phare", &["le phare"])),
             None
         );
     }

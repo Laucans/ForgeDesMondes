@@ -348,6 +348,17 @@ fn an_existing_element_needs_no_campaign_kind_or_name_and_a_player_by_uuid_is_ke
 }
 
 #[test]
+fn an_element_s_campaign_named_in_another_case_is_its_own() {
+    let base = after(&Row::new(), &new(morlox()).expect("saved"));
+    let wire = row(json!({
+        "campaign": VALOMBRE.to_uppercase(),
+        "entity": { "id": MORLOX, "notes": "…" },
+    }));
+    let Prepared { payload, .. } = prepare(&wire, &base, fresh("f2", LATER)).expect("saved");
+    assert!(!payload.contains_key("entityCampaignId"));
+}
+
+#[test]
 fn names_is_this_data_capability_with_or_without_its_version() {
     assert!(names("campaign.saveEntity"));
     assert!(names("campaign.saveEntity@1"));
