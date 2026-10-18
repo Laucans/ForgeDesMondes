@@ -1,0 +1,19 @@
+{
+  "dataCapability": "campaign.exportCampaign",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Campaign",
+    "id": "$id"
+  },
+  "touches": ["Campaign.lastExportedAt"],
+  "payload": {
+    "id": "uuid — the campaign exported, when the command names no target; its archive is answered with the command's result once applied"
+  },
+  "mode": "overwrite",
+  "invariants": ["export-stamps-date"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

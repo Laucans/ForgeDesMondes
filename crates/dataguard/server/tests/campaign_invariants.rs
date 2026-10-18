@@ -1,9 +1,9 @@
 //! The Campaign aggregate's invariants, judged by the DataGuard as `plant()`
 //! binds it, over the in-memory store: a command that breaks one is
 //! rejected under its id, and the row stays as it was. The DataCapabilities
-//! here are test-only — no DataCapability of the product writes a campaign
-//! yet — but for `campaign.exportCampaign`, written under the id the
-//! invariant knows it by.
+//! here are test-only — no other DataCapability of the product writes a
+//! campaign yet — but for `campaign.exportCampaign`, the product's own, as
+//! `plant()` registers it.
 
 use dataguard_server::{Engine, MEMORY, plant};
 use harness_dataguard::api::Submission;
@@ -18,8 +18,6 @@ const CREATE: &str = r#"{"dataCapability":"test.createCampaign","owner":"datagua
 const UPDATE: &str = r#"{"dataCapability":"test.updateCampaign","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 /// A campaign deleted: the engine's soft delete, a tombstone.
 const DELETE: &str = r#"{"dataCapability":"test.deleteCampaign","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
-/// An export to an archive, under the id the invariant knows it by.
-const EXPORT: &str = r#"{"dataCapability":"campaign.exportCampaign","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 /// An export that would create its campaign rather than stamp it.
 const EXPORT_AS_INSERT: &str = r#"{"dataCapability":"campaign.exportCampaign","owner":"dataguard","version":2,"effect":"insert","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 
@@ -29,7 +27,7 @@ const COPY: &str = "c1000000-0000-4000-8000-000000000002";
 /// The engine as the server plants it, with the test-only DataCapabilities.
 async fn engine() -> Engine {
     let mut engine = plant(MEMORY).await.expect("the in-memory engine");
-    for manifest in [CREATE, UPDATE, DELETE, EXPORT] {
+    for manifest in [CREATE, UPDATE, DELETE] {
         engine = engine.with_data_capability(DataCapability::parse(manifest).expect("contract F"));
     }
     engine
