@@ -1,0 +1,9 @@
+{
+  "capability": "campaign.listCampaigns",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "Every campaign and oneshot of the home page, newest first: each with its id, name, type (campagne or oneshot), cover art, glyph, pitch, session count and last-played and next-session dates. No account is asked and none is answered: a campaign belongs to no owner. The session count and the dates are counted from the sessions, never stored; they are null until the session table exists.",
+  "input": {},
+  "output": "{ id: string, name: string, type: 'campagne' | 'oneshot', art: string | null, glyph: string | null, pitch: string | null, sessions: number | null, lastPlayed: string | null, next: string | null }[]",
+  "reads": ["queries/list-campaigns.graphql"]
+}

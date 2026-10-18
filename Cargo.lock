@@ -392,6 +392,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "get-entity"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "get-settings"
 version = "0.1.0"
 dependencies = [
@@ -763,7 +771,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-campaigns"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-characters"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-entity-versions"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "list-events"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-places"
 version = "0.1.0"
 dependencies = [
  "serde_json",

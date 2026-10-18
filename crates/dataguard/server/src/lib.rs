@@ -1029,7 +1029,7 @@ mod tests {
         let hash = registered("ai.getSettings").expect("ai.getSettings is registered");
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "{hash}");
-        assert_eq!(registered("campaign.listCampaigns"), None);
+        assert_eq!(registered("nothing.registered"), None);
     }
 
     #[tokio::test]
@@ -1053,9 +1053,9 @@ mod tests {
                 "ai.getSettings",
                 serde_json::json!({ "sha256": "0".repeat(64) }),
             ),
-            ("campaign.listCampaigns", serde_json::json!({})),
+            ("nothing.registered", serde_json::json!({})),
             (
-                "campaign.listCampaigns",
+                "nothing.registered",
                 serde_json::json!({ "sha256": "0".repeat(64) }),
             ),
         ] {

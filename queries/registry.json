@@ -41,6 +41,106 @@
       ]
     },
     {
+      "query": "GetEntity",
+      "capability": "campaign.getEntity",
+      "file": "crates/campaign/queries/get-entity.graphql",
+      "sha256": "4154760b742f85d3f86656769143838a2a9164377e96d02b27ae81592b4d9bae",
+      "fields": [
+        "entity.id",
+        "entity.campaignId",
+        "entity.type",
+        "entity.name",
+        "entity.description",
+        "entity.notes",
+        "character.playerId",
+        "character.initialPrompt",
+        "character.background",
+        "character.behavior",
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armorClass",
+        "character.hpMax",
+        "character.spells",
+        "character.actions",
+        "character.portraitMediaId",
+        "character.tokenMediaId",
+        "character.tokenCrop",
+        "character.tokenColor",
+        "character.dndbeyondId",
+        "character.dndbeyondSyncedAt",
+        "entityAlias.alias"
+      ]
+    },
+    {
+      "query": "ListCampaigns",
+      "capability": "campaign.listCampaigns",
+      "file": "crates/campaign/queries/list-campaigns.graphql",
+      "sha256": "93cd999bf497ef73760cc5a85b31578329d2f347b51679bc8f52d90550b32381",
+      "fields": [
+        "campaign.id",
+        "campaign.name",
+        "campaign.kind",
+        "campaign.art",
+        "campaign.glyph",
+        "campaign.pitch",
+        "campaign.createdAt"
+      ]
+    },
+    {
+      "query": "ListCharacters",
+      "capability": "campaign.listCharacters",
+      "file": "crates/campaign/queries/list-characters.graphql",
+      "sha256": "126eaab6600a8673ff16dd5e8ea441099201df987d16e309abc15c07ba59b44c",
+      "fields": [
+        "entity.id",
+        "entity.campaignId",
+        "entity.type",
+        "entity.name",
+        "entity.description",
+        "entity.notes",
+        "entity.createdAt",
+        "character.playerId",
+        "character.initialPrompt",
+        "character.background",
+        "character.behavior",
+        "character.strength",
+        "character.dexterity",
+        "character.constitution",
+        "character.intelligence",
+        "character.wisdom",
+        "character.charisma",
+        "character.armorClass",
+        "character.hpMax",
+        "character.actions",
+        "character.portraitMediaId",
+        "character.tokenCrop",
+        "character.tokenColor",
+        "character.dndbeyondId",
+        "character.dndbeyondSyncedAt",
+        "entityAlias.alias"
+      ]
+    },
+    {
+      "query": "ListEntityVersions",
+      "capability": "campaign.listEntityVersions",
+      "file": "crates/campaign/queries/list-entity-versions.graphql",
+      "sha256": "5c30bdde12b7892c12ceb8b815b845b5f5d8795d0e8f6667af3a037c5f11eca6",
+      "fields": [
+        "entity.id",
+        "entity.name",
+        "entity_version.entityId",
+        "entity_version.versionNumber",
+        "entity_version.source",
+        "entity_version.snapshot",
+        "entity_version.createdAt",
+        "entity_version.restoredFromVersionId"
+      ]
+    },
+    {
       "query": "ListEvents",
       "capability": "campaign.listEvents",
       "file": "crates/campaign/queries/list-events.graphql",
@@ -52,6 +152,20 @@
         "entity.name",
         "entity.description",
         "entity_alias.alias"
+      ]
+    },
+    {
+      "query": "ListPlaces",
+      "capability": "campaign.listPlaces",
+      "file": "crates/campaign/queries/list-places.graphql",
+      "sha256": "a302d4e1741236b6c2b857ed4866b719653592e29cdff662a199855181da0438",
+      "fields": [
+        "entity.id",
+        "entity.campaignId",
+        "entity.type",
+        "entity.name",
+        "entity.description",
+        "entityAlias.alias"
       ]
     },
     {

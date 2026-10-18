@@ -1,0 +1,9 @@
+{
+  "capability": "campaign.listCharacters",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "The characters of a campaign, PCs then NPCs, for the characters tab: each element of type pj or pnj with its kind, its aliases, its description and notes, its initial prompt, background and behaviour, its six abilities, armour class and maximum hit points, its actions, its token (colour, initials, portrait, crop) and its D&D Beyond link. A PC carries the id of the player it belongs to; an NPC has none. A place or an event is not listed, and neither is a player.",
+  "input": { "campaign": "string" },
+  "output": "{ id: string, name: string, aliases: string[], kind: 'pj' | 'pnj', player: string | null, description: string, prompt: string, background: string, behavior: string, stats: { FOR, DEX, CON, INT, SAG, CHA: number | null }, ca: number | null, pvMax: number | null, features: { name: string, text: string }[], color: string, initials: string, portrait: boolean, crop: object | null, notes: string, ddb: { url: string, syncedAt: string | null } | null }[]",
+  "reads": ["queries/list-characters.graphql"]
+}

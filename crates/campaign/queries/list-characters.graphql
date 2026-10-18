@@ -1,0 +1,37 @@
+# fields: entity.id, entity.campaignId, entity.type, entity.name, entity.description, entity.notes, entity.createdAt, character.playerId, character.initialPrompt, character.background, character.behavior, character.strength, character.dexterity, character.constitution, character.intelligence, character.wisdom, character.charisma, character.armorClass, character.hpMax, character.actions, character.portraitMediaId, character.tokenCrop, character.tokenColor, character.dndbeyondId, character.dndbeyondSyncedAt, entityAlias.alias
+# The characters tab's read: a campaign's PCs and NPCs, the PCs with the player
+# they belong to. Only an element that is a pj or a pnj has a sheet
+# (character-is-pj-or-pnj); a place or an event is another read. The single
+# full sheet is campaign.getEntity's.
+query ListCharacters($campaign: ID!) {
+  characters(campaign: $campaign) {
+    id
+    campaignId
+    type
+    name
+    createdAt
+    aliases {
+      alias
+    }
+    description
+    notes
+    playerId
+    initialPrompt
+    background
+    behavior
+    strength
+    dexterity
+    constitution
+    intelligence
+    wisdom
+    charisma
+    armorClass
+    hpMax
+    actions
+    portraitMediaId
+    tokenCrop
+    tokenColor
+    dndbeyondId
+    dndbeyondSyncedAt
+  }
+}
