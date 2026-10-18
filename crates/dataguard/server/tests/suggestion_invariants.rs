@@ -155,7 +155,7 @@ async fn suggestion_target_rejects_both_an_element_and_a_sound() {
 #[tokio::test]
 async fn suggestion_target_rejects_no_target_and_keeps_the_row() {
     let engine = with_heard().await;
-    for target in [Value::Null, json!(""), json!(42)] {
+    for target in [Value::Null, json!(""), json!(42), json!("Morlox")] {
         rejected_by(
             &written(
                 &engine,
@@ -172,7 +172,12 @@ async fn suggestion_target_rejects_no_target_and_keeps_the_row() {
 #[tokio::test]
 async fn suggestion_target_rejects_a_suggestion_of_no_session() {
     let engine = engine().await;
-    for session in [None, Some(Value::Null), Some(json!("  "))] {
+    for session in [
+        None,
+        Some(Value::Null),
+        Some(json!("  ")),
+        Some(json!("seance-1")),
+    ] {
         let suggestion = match session {
             None => without(heard(), "sessionId"),
             Some(session) => with(heard(), "sessionId", session),
@@ -238,6 +243,28 @@ async fn pile_and_history_derived_rejects_a_rank_set_later_and_keeps_the_row() {
 }
 
 #[tokio::test]
+async fn pile_and_history_derived_lets_an_undeclared_field_through_when_it_holds_nothing() {
+    let engine = engine().await;
+    applied(
+        &written(
+            &engine,
+            "test.addSuggestion",
+            with(heard(), "rank", Value::Null),
+        )
+        .await,
+    );
+    // An instant PostgreSQL reads, written with a space and an offset.
+    applied(
+        &written(
+            &engine,
+            "test.updateSuggestion",
+            json!({"id": HEARD, "detectedAt": "2026-10-18 20:31:07.5+02"}),
+        )
+        .await,
+    );
+}
+
+#[tokio::test]
 async fn pile_and_history_derived_rejects_a_suggestion_of_no_instant() {
     let engine = engine().await;
     rejected_by(
@@ -250,7 +277,13 @@ async fn pile_and_history_derived_rejects_a_suggestion_of_no_instant() {
         &["pile-and-history-derived"],
     );
     let engine = with_heard().await;
-    for instant in [Value::Null, json!(""), json!(1_729_283_467)] {
+    for instant in [
+        Value::Null,
+        json!(""),
+        json!(1_729_283_467),
+        json!("hier soir"),
+        json!("18/10/2026 20:31"),
+    ] {
         rejected_by(
             &written(
                 &engine,

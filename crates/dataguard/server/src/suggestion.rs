@@ -17,6 +17,8 @@ use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
 
+use crate::ai_settings::uuid;
+
 const AGGREGATE: &str = "Suggestion";
 
 /// The fields a suggestion stores, and nothing else: the pill's pile and
@@ -75,21 +77,51 @@ fn unset(row: &BTreeMap<String, Value>, field: &str) -> bool {
     row.get(field).is_none_or(Value::is_null)
 }
 
+/// Whether `field` names a row by its uuid, as the table's keys are typed.
+fn id(row: &BTreeMap<String, Value>, field: &str) -> bool {
+    row.get(field).and_then(Value::as_str).is_some_and(uuid)
+}
+
+/// Whether `field` holds an instant: a date, then a time — what PostgreSQL
+/// reads into a `timestamptz` from ISO 8601.
+fn instant(row: &BTreeMap<String, Value>, field: &str) -> bool {
+    let Some(text) = row.get(field).and_then(Value::as_str) else {
+        return false;
+    };
+    let digits = |range: std::ops::Range<usize>| {
+        text.get(range)
+            .is_some_and(|part| part.bytes().all(|b| b.is_ascii_digit()))
+    };
+    digits(0..4)
+        && text.get(4..5) == Some("-")
+        && digits(5..7)
+        && text.get(7..8) == Some("-")
+        && digits(8..10)
+        && matches!(text.get(10..11), Some("T" | " "))
+        && digits(11..13)
+        && text.get(13..14) == Some(":")
+        && digits(14..16)
+}
+
 /// A suggestion belongs to a session and aims at exactly one target: an
-/// element or a sound, never both, never neither.
+/// element or a sound, never both, never neither — each named by its uuid.
 fn suggestion_target(state: &BTreeMap<String, Value>) -> bool {
-    let entity = text(state, "entityId");
-    let sound = text(state, "soundId");
-    text(state, "sessionId")
+    let entity = id(state, "entityId");
+    let sound = id(state, "soundId");
+    id(state, "sessionId")
         && (unset(state, "entityId") || entity)
         && (unset(state, "soundId") || sound)
         && entity != sound
 }
 
 /// Nothing is stored beyond the suggestion — no pile, no rank, no position
-/// in the history — and its detection's instant, which orders both, is set.
+/// in the history: a field the aggregate does not declare holds no value —
+/// and its detection's instant, which orders both, is set.
 fn pile_and_history_derived(state: &BTreeMap<String, Value>) -> bool {
-    state.keys().all(|field| FIELDS.contains(&field.as_str())) && text(state, "detectedAt")
+    state
+        .iter()
+        .all(|(field, value)| FIELDS.contains(&field.as_str()) || value.is_null())
+        && instant(state, "detectedAt")
 }
 
 /// What the row keeps of the microphone is the words the local
