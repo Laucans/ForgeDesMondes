@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "aada48c6ee08f083"
+      "builtFrom": "f776bd111c59edfb"
     },
     {
       "name": "CampaignOverview",
@@ -145,7 +145,11 @@
       "actions": [
         "campaign.exportCampaign"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
+      },
+      "source": "apps/campaign/campaign-overview",
+      "builtFrom": "453a6c473282ba41"
     },
     {
       "name": "SessionList",
@@ -270,7 +274,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "903c6ec1a179a1b1"
+      "builtFrom": "1c008228ec6b8ce5"
     },
     {
       "name": "PreviousSummary",
