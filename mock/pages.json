@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "6494722802717685"
+      "builtFrom": "f4aaefb11b8d7f19"
     },
     {
       "name": "CampaignOverview",
@@ -145,7 +145,11 @@
       "actions": [
         "campaign.exportCampaign"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
+      },
+      "source": "apps/campaign/campaign-overview",
+      "builtFrom": "2a18d5a90b12333f"
     },
     {
       "name": "SessionList",
