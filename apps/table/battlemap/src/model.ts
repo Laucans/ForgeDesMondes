@@ -4,12 +4,14 @@
 
 import { AGGREGATE, DATA_CAPABILITY_VERSION } from './ids.ts';
 import { FEET_PER_HEX } from './hexgrid.ts';
-import type { Character, Grid, Instance, MapInfo, Props, Shape, Token, View } from './types.ts';
+import type { Character, Combat, Grid, Instance, MapInfo, Participant, Props, Shape, Token, View } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 const num = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 const orNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+const numbers = (value: unknown): Record<string, number> =>
+  isRecord(value) ? Object.fromEntries(Object.entries(value).filter((e): e is [string, number] => typeof e[1] === 'number' && Number.isFinite(e[1]))) : {};
 const texts = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
 
 /** The conditions a token can carry, with their badge. */
@@ -32,24 +34,38 @@ export function parseProps(raw: Record<string, unknown>): Props {
 
 function token(value: Record<string, unknown>): Token {
   const name = text(value.name);
+  const kind = value.kind === 'pnj' ? 'pnj' : 'pj';
+  const hp = orNull(value.hp);
   return {
     id: text(value.id),
     char: text(value.char),
-    kind: value.kind === 'pnj' ? 'pnj' : 'pj',
+    kind,
     name,
     num: orNull(value.num),
     q: num(value.q, 0),
     r: num(value.r, 0),
     visible: value.visible !== false,
-    hp: orNull(value.hp),
+    hp,
     hpMax: orNull(value.hpMax),
     healthBand: text(value.healthBand ?? value.health_band ?? value.band) || null,
     states: texts(value.states),
-    dead: value.dead === true,
+    // dead-derived: an NPC is dead iff its current HP is 0, whatever else the answer says.
+    dead: kind === 'pnj' && hp !== null ? hp <= 0 : value.dead === true,
     initials: text(value.initials) || name.slice(0, 2).toUpperCase(),
     color: text(value.color),
     portrait: value.portrait === true,
   };
+}
+
+function participant(value: Record<string, unknown>): Participant {
+  return { id: text(value.id), init: num(value.init, 0), dex: num(value.dex, 0) };
+}
+
+/** The combat of an instance, or null when none is under way. */
+export function parseCombat(value: unknown): Combat | null {
+  if (!isRecord(value) || !Array.isArray(value.order)) return null;
+  const order = value.order.filter(isRecord).map(participant).filter((p) => p.id !== '');
+  return order.length === 0 ? null : { round: Math.max(1, num(value.round, 1)), current: typeof value.current === 'string' ? value.current : (order[0]?.id ?? ''), order };
 }
 
 /** `table.getBattlemapInstance`: the tokens sit under `state` (or at the top), whichever side of the table asked. */
@@ -57,7 +73,7 @@ export function parseInstance(data: unknown): Instance | null {
   if (!isRecord(data)) return null;
   const state = isRecord(data.state) ? data.state : data;
   const tokens = Array.isArray(state.tokens) ? state.tokens.filter(isRecord).map(token) : [];
-  return { id: text(data.id), battlemap: text(data.battlemap), label: text(data.label), roster: texts(data.roster), tokens };
+  return { id: text(data.id), battlemap: text(data.battlemap), label: text(data.label), roster: texts(data.roster), tokens, combat: parseCombat(state.combat), pjInitiative: numbers(data.pjInitiative) };
 }
 
 const GRID: Grid = { size: 32, ox: 0, oy: 0, orient: 'pointy', color: 'text', opacity: 0.45 };
@@ -92,6 +108,9 @@ export function parseMap(data: unknown): MapInfo | null {
   return { id: text(data.id), title: text(data.title), width: num(data.width, 800), height: num(data.height, 560), grid: grid(data.grid), terrain: shapes(data.terrain) };
 }
 
+/** The ability modifier of a score: floor((score - 10) / 2); 0 without a score. */
+const modifier = (score: unknown): number => (typeof score === 'number' && Number.isFinite(score) ? Math.floor((score - 10) / 2) : 0);
+
 /** `campaign.listCharacters`, by id. */
 export function parseCharacters(data: unknown): Record<string, Character> {
   const out: Record<string, Character> = {};
@@ -107,6 +126,7 @@ export function parseCharacters(data: unknown): Record<string, Character> {
       initials: text(entry.initials) || name.slice(0, 2).toUpperCase(),
       color: text(entry.color),
       portrait: entry.portrait === true,
+      dexMod: modifier(isRecord(entry.stats) ? entry.stats.DEX : undefined),
     };
   }
   return out;
@@ -114,6 +134,64 @@ export function parseCharacters(data: unknown): Record<string, Character> {
 
 /** players-see-band-only: hidden tokens do not exist for the players. */
 export const shown = (tokens: readonly Token[], view: View): Token[] => (view === 'player' ? tokens.filter((t) => t.visible) : [...tokens]);
+
+/** The initiative order a view reads: the players' has no hidden token, and a token revealed again stands at its former rank (hidden-keeps-rank). */
+export function visibleOrder(combat: Combat, tokens: readonly Token[], view: View): Array<{ participant: Participant; token: Token }> {
+  return combat.order.flatMap((participant) => {
+    const found = tokens.find((t) => t.id === participant.id);
+    return found && (view !== 'player' || found.visible) ? [{ participant, token: found }] : [];
+  });
+}
+
+/** next-turn: the next living participant by rank; the round counts up when the order comes back to its start. */
+export function turnAfter(combat: Combat, tokens: readonly Token[]): { current: string; round: number } {
+  const { order } = combat;
+  const from = Math.max(0, order.findIndex((p) => p.id === combat.current));
+  for (let step = 1; step <= order.length; step += 1) {
+    const at = (from + step) % order.length;
+    const next = order[at];
+    if (next && !tokens.find((t) => t.id === next.id)?.dead) return { current: next.id, round: at <= from ? combat.round + 1 : combat.round };
+  }
+  return { current: combat.current, round: combat.round };
+}
+
+/** An HP change kept within 0 and the maximum (hp-change-one-token: the caller applies it to the one token). */
+export const hitPointsAfter = (hp: number, hpMax: number, delta: number): number => Math.max(0, Math.min(hpMax, hp + delta));
+
+/** The order with `id` moved to `position` (clamped); the others keep their relative rank. */
+export function reordered(order: readonly Participant[], id: string, position: number): Participant[] {
+  const from = order.findIndex((p) => p.id === id);
+  const moved = order[from];
+  if (!moved) return [...order];
+  const rest = order.filter((p) => p.id !== id);
+  rest.splice(Math.max(0, Math.min(rest.length, position)), 0, moved);
+  return rest;
+}
+
+/** The participant added to a running order, ranked as at the start: by initiative, then by DEX, then behind the ones already there. */
+export function inserted(order: readonly Participant[], added: Participant): Participant[] {
+  const at = order.findIndex((p) => p.init < added.init || (p.init === added.init && p.dex < added.dex));
+  return [...order.slice(0, at < 0 ? order.length : at), added, ...(at < 0 ? [] : order.slice(at))];
+}
+
+/** The combat once `id` has left the order: the turn passes on if it was its, the combat ends with its last participant. */
+export function without(combat: Combat, tokens: readonly Token[], id: string): Combat | null {
+  const order = combat.order.filter((p) => p.id !== id);
+  if (order.length === 0) return null;
+  if (combat.current !== id) return { ...combat, order };
+  // The leaver counts as gone: the turn goes to the next living participant by rank, and the round counts up if that is a lap.
+  const next = turnAfter(combat, tokens.map((t) => (t.id === id ? { ...t, dead: true } : t)));
+  return next.current === id ? { ...combat, current: order[0]?.id ?? '', order } : { round: next.round, current: next.current, order };
+}
+
+/** A d20 for an NPC, its initiative the roll plus the DEX modifier of its sheet. */
+export const initiativeOf = (roll: number, dexMod: number): number => roll + dexMod;
+
+/** HealthBand@1: told from the current and the maximum hit points and nothing else. */
+export function bandOf(hp: number, hpMax: number): string {
+  const current = Math.max(0, Math.min(hpMax, hp));
+  return current === 0 ? 'mort' : current === hpMax ? 'indemne' : 2 * current > hpMax ? 'blessé' : 'en sang';
+}
 
 /** The band a player reads under an NPC: capitalised, never a figure. */
 export const bandLabel = (band: string | null): string => (band === null || band === '' ? '' : band.charAt(0).toUpperCase() + band.slice(1));
@@ -148,6 +226,10 @@ const VIOLATIONS: Record<string, string> = {
   'token-roster': 'un PJ absent de la séance, ou déjà sur la carte, ne peut pas être placé',
   'instance-isolated': 'ce token n’est pas sur cette carte',
   'base-coherent': 'cette carte n’est pas celle de la séance',
+  'pj-hp-not-tracked': 'les PV d’un PJ ne sont pas suivis',
+  'one-active-combat': 'il n’y a pas de combat en cours, ou il y en a déjà un',
+  'npc-initiative-bounds': 'l’initiative saisie ou tirée est hors limites',
+  'name-required': 'le nom ne peut pas être vide',
   'unhandled-data-capability': 'commande inconnue du serveur',
 };
 

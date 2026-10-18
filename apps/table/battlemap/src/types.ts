@@ -71,12 +71,29 @@ export interface Token extends Hex {
   portrait: boolean;
 }
 
+/** One line of the initiative order: the token, its initiative and the DEX that breaks a tie. */
+export interface Participant {
+  id: string;
+  init: number;
+  dex: number;
+}
+
+/** The combat under way on an instance: the round, whose turn it is, the order by rank. */
+export interface Combat {
+  round: number;
+  current: string;
+  order: Participant[];
+}
+
 export interface Instance {
   id: string;
   battlemap: string;
   label: string;
   roster: string[];
   tokens: Token[];
+  combat: Combat | null;
+  /** The initiative the DM entered for each PC of the scene, by character: kept to prefill the next combat. */
+  pjInitiative: Record<string, number>;
 }
 
 export interface Character {
@@ -87,6 +104,8 @@ export interface Character {
   initials: string;
   color: string;
   portrait: boolean;
+  /** DEX modifier of the sheet: an NPC's initiative is its d20 plus this. */
+  dexMod: number;
 }
 
 /** The pan and zoom of the map, as the DM frames it. */

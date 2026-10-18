@@ -14,7 +14,7 @@
 //     (await server.load('campagnes')).push({ id: server.uuid(), name: payload.name });
 //   },
 
-import { instanceOf, shareInstance } from './reads.js';
+import { instanceOf, pristineState, shareInstance } from './reads.js';
 
 // ProviderApiType@1 as the fixtures know it: the cloud host by itself, the
 // home server at the URL whose model list the fixtures know; null otherwise.
@@ -59,6 +59,38 @@ async function onToken(server, target, token, change) {
   return undefined;
 }
 
+// The DEX modifier of a character's sheet, floor((score - 10) / 2).
+function dexModifier(characters, id) {
+  const sheet = characters.find((c) => c.id === id);
+  return Math.floor(((sheet && sheet.stats ? sheet.stats.DEX : 10) - 10) / 2);
+}
+
+// next-turn: the turn passes to the next living participant by rank; the round counts up when the order comes back to its first.
+function advance(combat, state) {
+  const { order } = combat;
+  const from = Math.max(0, order.findIndex((o) => o.id === combat.current));
+  for (let step = 1; step <= order.length; step += 1) {
+    const at = (from + step) % order.length;
+    const token = state.tokens.find((t) => t.id === order[at].id);
+    if (token && !token.dead) {
+      if (at <= from) combat.round += 1;
+      combat.current = order[at].id;
+      return;
+    }
+  }
+}
+
+// The combat of the instance a command targets, changed by `change`; refused when none is under way.
+async function onCombat(server, id, change) {
+  const data = await instanceOf(server, id);
+  if (!data) return ['instance-isolated'];
+  if (!data.state.combat) return ['one-active-combat'];
+  const violations = await change(data.state.combat, data.state);
+  if (violations) return violations;
+  shareInstance(data);
+  return undefined;
+}
+
 export const COMMANDS = {
   // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
   // one position both views read.
@@ -75,6 +107,94 @@ export const COMMANDS = {
   'table.setTokenCondition': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => { t.states = [...(payload.conditions || [])]; }),
   // table.removeToken: the token leaves the map.
   'table.removeToken': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t, state) => { state.tokens = state.tokens.filter((x) => x !== t); }),
+  // table.changeHitPoints (crates/table/data-capabilities/change-hit-points):
+  // hp-change-one-token — the targeted token only; pj-hp-not-tracked — a PC has
+  // no hit points; the current ones stay within 0 and the maximum, and an NPC
+  // is dead iff they are 0 (dead-derived).
+  'table.changeHitPoints': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+    if (t.kind !== 'pnj' || typeof t.hp !== 'number') return ['pj-hp-not-tracked'];
+    t.hp = Math.max(0, Math.min(t.hpMax, t.hp + Math.trunc(Number(payload.delta) || 0)));
+    t.dead = t.hp === 0;
+    return undefined;
+  }),
+  // table.startCombat: the NPC roll a d20 plus the DEX modifier of their sheet,
+  // the DM enters the PCs' initiative; the order is the initiative, then the DEX,
+  // then at random (initiative-tiebreak). A hidden token is in the order and keeps its rank.
+  'table.startCombat': async (server, { payload, targetId }) => {
+    const data = await instanceOf(server, targetId);
+    if (!data) return ['instance-isolated'];
+    if (data.state.combat) return ['one-active-combat'];
+    const characters = (await server.load('campaign.listCharacters')) || [];
+    const rolls = payload.rolls || {};
+    const entered = payload.initiative || {};
+    const order = [];
+    for (const t of data.state.tokens.filter((x) => !x.dead)) {
+      const dex = dexModifier(characters, t.char);
+      if (t.kind === 'pnj') {
+        const roll = Number(rolls[t.id]);
+        // npc-initiative-bounds: a d20 between 1 and 20.
+        if (!(roll >= 1 && roll <= 20)) return ['npc-initiative-bounds'];
+        order.push({ id: t.id, init: roll + dex, dex, tie: Math.random() });
+      } else {
+        const init = Number(entered[t.char]);
+        if (!(init >= 1)) return ['npc-initiative-bounds'];
+        order.push({ id: t.id, init, dex, tie: Math.random() });
+      }
+    }
+    if (!order.length) return ['one-active-combat'];
+    order.sort((a, b) => b.init - a.init || b.dex - a.dex || b.tie - a.tie);
+    data.pjInitiative = { ...data.pjInitiative, ...entered };
+    data.state.combat = { round: 1, current: order[0].id, order: order.map(({ id, init, dex }) => ({ id, init, dex })) };
+    shareInstance(data);
+    return undefined;
+  },
+  // table.nextTurn: next-turn — the next living participant by rank, the round counting up when it comes back to the first.
+  'table.nextTurn': (server, { targetId }) => onCombat(server, targetId, (combat, state) => { advance(combat, state); return undefined; }),
+  // table.reorderInitiative: the participant takes the rank `position`; nobody else changes relative rank.
+  'table.reorderInitiative': (server, { payload, targetId }) => onCombat(server, targetId, (combat) => {
+    const from = combat.order.findIndex((o) => o.id === payload.token);
+    if (from < 0) return ['instance-isolated'];
+    const [moved] = combat.order.splice(from, 1);
+    combat.order.splice(Math.max(0, Math.min(combat.order.length, Number(payload.position) || 0)), 0, moved);
+    return undefined;
+  }),
+  // table.addParticipant: a token joins the running order at the place its initiative earns.
+  'table.addParticipant': (server, { payload, targetId }) => onCombat(server, targetId, async (combat, state) => {
+    const token = state.tokens.find((t) => t.id === payload.token);
+    if (!token || combat.order.some((o) => o.id === token.id)) return ['instance-isolated'];
+    const dex = dexModifier((await server.load('campaign.listCharacters')) || [], token.char);
+    const roll = Number(payload.roll);
+    const init = token.kind === 'pnj' ? roll + dex : Number(payload.initiative);
+    if (!(init >= 1) || (token.kind === 'pnj' && !(roll >= 1 && roll <= 20))) return ['npc-initiative-bounds'];
+    const at = combat.order.findIndex((o) => o.init < init || (o.init === init && o.dex < dex));
+    combat.order.splice(at < 0 ? combat.order.length : at, 0, { id: token.id, init, dex });
+    return undefined;
+  }),
+  // table.removeParticipant: the token leaves the order, not the map; the turn passes on if it was its turn.
+  'table.removeParticipant': (server, { payload, targetId }) => onCombat(server, targetId, (combat, state) => {
+    if (!combat.order.some((o) => o.id === payload.token)) return ['instance-isolated'];
+    const rest = { ...combat, order: combat.order.filter((o) => o.id !== payload.token) };
+    if (combat.current === payload.token) {
+      // The leaver counts as gone: the turn goes to the next living participant of those left.
+      const gone = { ...state, tokens: state.tokens.map((t) => (t.id === payload.token ? { ...t, dead: true } : t)) };
+      advance(combat, gone);
+      rest.round = combat.round;
+      rest.current = combat.current === payload.token ? (rest.order[0] && rest.order[0].id) || '' : combat.current;
+    }
+    if (rest.order.length) Object.assign(combat, rest); else state.combat = null;
+    return undefined;
+  }),
+  // table.endCombat: the combat ends; the tokens stay as they are.
+  'table.endCombat': (server, { targetId }) => onCombat(server, targetId, (combat, state) => { state.combat = null; return undefined; }),
+  // table.resetBattlemap: state-persisted-reset — the instance goes back to the state it was opened with: no combat, no initiative.
+  'table.resetBattlemap': async (server, { targetId }) => {
+    const data = await instanceOf(server, targetId);
+    if (!data) return ['instance-isolated'];
+    data.state = pristineState(data.id);
+    data.pjInitiative = {};
+    shareInstance(data);
+    return undefined;
+  },
   // table.placeTokens: one character dropped, once or « × n »; the new tokens
   // are numbered after those already taken for it (multi-drop-numbering), a
   // monster takes its hit points from its sheet, a PC has one token.

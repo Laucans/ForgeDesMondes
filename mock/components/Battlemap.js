@@ -104,6 +104,14 @@
   var RENAME_TOKEN = "table.renameToken";
   var SET_TOKEN_VISIBILITY = "table.setTokenVisibility";
   var SET_TOKEN_CONDITION = "table.setTokenCondition";
+  var CHANGE_HIT_POINTS = "table.changeHitPoints";
+  var START_COMBAT = "table.startCombat";
+  var NEXT_TURN = "table.nextTurn";
+  var REORDER_INITIATIVE = "table.reorderInitiative";
+  var ADD_PARTICIPANT = "table.addParticipant";
+  var REMOVE_PARTICIPANT = "table.removeParticipant";
+  var END_COMBAT = "table.endCombat";
+  var RESET_BATTLEMAP = "table.resetBattlemap";
   var SHOW_ON_PLAYER_VIEW = "live.showOnPlayerView";
   var AGGREGATE = "BattlemapInstance";
   var DATA_CAPABILITY_VERSION = 1;
@@ -187,6 +195,7 @@
   var text = (value) => typeof value === "string" ? value : "";
   var num = (value, fallback) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
   var orNull = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
+  var numbers = (value) => isRecord(value) ? Object.fromEntries(Object.entries(value).filter((e) => typeof e[1] === "number" && Number.isFinite(e[1]))) : {};
   var texts = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
   var CONDITIONS = {
     "\xC0 terre": "\u2193",
@@ -204,30 +213,41 @@
   }
   function token(value) {
     const name = text(value.name);
+    const kind = value.kind === "pnj" ? "pnj" : "pj";
+    const hp = orNull(value.hp);
     return {
       id: text(value.id),
       char: text(value.char),
-      kind: value.kind === "pnj" ? "pnj" : "pj",
+      kind,
       name,
       num: orNull(value.num),
       q: num(value.q, 0),
       r: num(value.r, 0),
       visible: value.visible !== false,
-      hp: orNull(value.hp),
+      hp,
       hpMax: orNull(value.hpMax),
       healthBand: text(value.healthBand ?? value.health_band ?? value.band) || null,
       states: texts(value.states),
-      dead: value.dead === true,
+      // dead-derived: an NPC is dead iff its current HP is 0, whatever else the answer says.
+      dead: kind === "pnj" && hp !== null ? hp <= 0 : value.dead === true,
       initials: text(value.initials) || name.slice(0, 2).toUpperCase(),
       color: text(value.color),
       portrait: value.portrait === true
     };
   }
+  function participant(value) {
+    return { id: text(value.id), init: num(value.init, 0), dex: num(value.dex, 0) };
+  }
+  function parseCombat(value) {
+    if (!isRecord(value) || !Array.isArray(value.order)) return null;
+    const order = value.order.filter(isRecord).map(participant).filter((p) => p.id !== "");
+    return order.length === 0 ? null : { round: Math.max(1, num(value.round, 1)), current: typeof value.current === "string" ? value.current : order[0]?.id ?? "", order };
+  }
   function parseInstance(data) {
     if (!isRecord(data)) return null;
     const state = isRecord(data.state) ? data.state : data;
     const tokens = Array.isArray(state.tokens) ? state.tokens.filter(isRecord).map(token) : [];
-    return { id: text(data.id), battlemap: text(data.battlemap), label: text(data.label), roster: texts(data.roster), tokens };
+    return { id: text(data.id), battlemap: text(data.battlemap), label: text(data.label), roster: texts(data.roster), tokens, combat: parseCombat(state.combat), pjInitiative: numbers(data.pjInitiative) };
   }
   var GRID = { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 0.45 };
   function grid(value) {
@@ -254,6 +274,7 @@
     if (!isRecord(data)) return null;
     return { id: text(data.id), title: text(data.title), width: num(data.width, 800), height: num(data.height, 560), grid: grid(data.grid), terrain: shapes(data.terrain) };
   }
+  var modifier = (score) => typeof score === "number" && Number.isFinite(score) ? Math.floor((score - 10) / 2) : 0;
   function parseCharacters(data) {
     const out = {};
     if (!Array.isArray(data)) return out;
@@ -267,12 +288,54 @@
         kind: entry.kind === "pnj" ? "pnj" : "pj",
         initials: text(entry.initials) || name.slice(0, 2).toUpperCase(),
         color: text(entry.color),
-        portrait: entry.portrait === true
+        portrait: entry.portrait === true,
+        dexMod: modifier(isRecord(entry.stats) ? entry.stats.DEX : void 0)
       };
     }
     return out;
   }
   var shown = (tokens, view) => view === "player" ? tokens.filter((t) => t.visible) : [...tokens];
+  function visibleOrder(combat, tokens, view) {
+    return combat.order.flatMap((participant2) => {
+      const found = tokens.find((t) => t.id === participant2.id);
+      return found && (view !== "player" || found.visible) ? [{ participant: participant2, token: found }] : [];
+    });
+  }
+  function turnAfter(combat, tokens) {
+    const { order } = combat;
+    const from = Math.max(0, order.findIndex((p) => p.id === combat.current));
+    for (let step = 1; step <= order.length; step += 1) {
+      const at = (from + step) % order.length;
+      const next = order[at];
+      if (next && !tokens.find((t) => t.id === next.id)?.dead) return { current: next.id, round: at <= from ? combat.round + 1 : combat.round };
+    }
+    return { current: combat.current, round: combat.round };
+  }
+  var hitPointsAfter = (hp, hpMax, delta) => Math.max(0, Math.min(hpMax, hp + delta));
+  function reordered(order, id, position) {
+    const from = order.findIndex((p) => p.id === id);
+    const moved = order[from];
+    if (!moved) return [...order];
+    const rest = order.filter((p) => p.id !== id);
+    rest.splice(Math.max(0, Math.min(rest.length, position)), 0, moved);
+    return rest;
+  }
+  function inserted(order, added) {
+    const at = order.findIndex((p) => p.init < added.init || p.init === added.init && p.dex < added.dex);
+    return [...order.slice(0, at < 0 ? order.length : at), added, ...at < 0 ? [] : order.slice(at)];
+  }
+  function without(combat, tokens, id) {
+    const order = combat.order.filter((p) => p.id !== id);
+    if (order.length === 0) return null;
+    if (combat.current !== id) return { ...combat, order };
+    const next = turnAfter(combat, tokens.map((t) => t.id === id ? { ...t, dead: true } : t));
+    return next.current === id ? { ...combat, current: order[0]?.id ?? "", order } : { round: next.round, current: next.current, order };
+  }
+  var initiativeOf = (roll, dexMod) => roll + dexMod;
+  function bandOf(hp, hpMax) {
+    const current = Math.max(0, Math.min(hpMax, hp));
+    return current === 0 ? "mort" : current === hpMax ? "indemne" : 2 * current > hpMax ? "bless\xE9" : "en sang";
+  }
   var bandLabel = (band) => band === null || band === "" ? "" : band.charAt(0).toUpperCase() + band.slice(1);
   var nextNumber = (tokens, char) => Math.max(0, ...tokens.filter((t) => t.char === char).map((t) => t.num ?? 0)) + 1;
   var existingToken = (tokens, character) => character.kind === "pj" ? tokens.find((t) => t.char === character.id) : void 0;
@@ -291,6 +354,10 @@
     "token-roster": "un PJ absent de la s\xE9ance, ou d\xE9j\xE0 sur la carte, ne peut pas \xEAtre plac\xE9",
     "instance-isolated": "ce token n\u2019est pas sur cette carte",
     "base-coherent": "cette carte n\u2019est pas celle de la s\xE9ance",
+    "pj-hp-not-tracked": "les PV d\u2019un PJ ne sont pas suivis",
+    "one-active-combat": "il n\u2019y a pas de combat en cours, ou il y en a d\xE9j\xE0 un",
+    "npc-initiative-bounds": "l\u2019initiative saisie ou tir\xE9e est hors limites",
+    "name-required": "le nom ne peut pas \xEAtre vide",
     "unhandled-data-capability": "commande inconnue du serveur"
   };
   var reasons = (violations) => violations.map((v) => VIOLATIONS[v] ?? v).join(", ");
@@ -311,7 +378,7 @@
   var tone = (color) => /^[a-z][a-z-]*$/.test(color) ? color : "secondary";
   function skeleton(props2) {
     const modes = `${props2.fill ? " bm--fill" : ""}${props2.view === "player" && !props2.pilot ? " bm--readonly" : ""}`;
-    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}" hidden></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p></div>`;
+    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}" hidden></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
   }
   function button(p) {
     return `<button type="button" class="${p.variant}" id="${p.id}"${attr("data-writes", p.writes ?? "")}${p.disabled ? " disabled" : ""}>${esc(p.label)}</button>`;
@@ -320,7 +387,9 @@
     if (props2.view === "player") return "";
     const hidden = instance.tokens.filter((t) => !t.visible).length;
     const count = `${instance.tokens.length} token${instance.tokens.length > 1 ? "s" : ""}${hidden > 0 ? ` \xB7 ${hidden} cach\xE9${hidden > 1 ? "s" : ""}` : ""}`;
-    return `<div class="bm-title"><h2 id="battlemap-title">${esc(map.title)}</h2><span class="small muted">${esc(instance.label)} \xB7 ${count} \xB7 ${SCALE}</span></div><div class="kit-button kit-button--bare kit-button--small">${button({ id: "bm-send", label: "Envoyer aux joueurs", variant: "secondary", writes: SHOW_ON_PLAYER_VIEW })}</div>`;
+    return `<div class="bm-title"><h2 id="battlemap-title">${esc(map.title)}</h2><span class="small muted">${esc(instance.label)} \xB7 ${count} \xB7 ${SCALE}</span></div>` + group(
+      (props2.view === "dm" ? instance.combat ? button({ id: "bm-end-combat", label: "Terminer le combat", variant: "secondary", writes: END_COMBAT }) : button({ id: "bm-start-combat", label: "Lancer le combat", variant: "primary", writes: START_COMBAT }) : "") + button({ id: "bm-send", label: "Envoyer aux joueurs", variant: "secondary", writes: SHOW_ON_PLAYER_VIEW }) + button({ id: "bm-reset", label: "R\xE9initialiser la carte", variant: "ghost", writes: RESET_BATTLEMAP })
+    );
   }
   function shape(tag, attrs) {
     return `<${tag}${Object.entries(attrs).map(([k, v]) => attr(k, v)).join("")}></${tag}>`;
@@ -331,11 +400,14 @@
     return '<div class="kit-hexmap">' + (canMove ? '<div class="hm-bar"><span class="hm-zoom"><button type="button" data-act="out" aria-label="D\xE9zoomer">\u2212</button><button type="button" data-act="reset">Ajuster</button><button type="button" data-act="in" aria-label="Zoomer">+</button></span></div>' : "") + `<div class="hm-view" tabindex="0" id="battlemap-view" aria-label="${esc(`Battlemap ${map.title}`)}"><div class="hm-stage" id="battlemap-stage" style="width:${map.width}px;height:${map.height}px"><svg class="hm-layer hm-map" ${box} aria-hidden="true">${land}${map.terrain.map((s) => shape(s.tag, s.attrs)).join("")}</svg><svg class="hm-layer hm-grid" ${box} aria-hidden="true"><path class="hm-grid-path" id="battlemap-grid" d=""></path></svg><svg class="hm-layer hm-over" id="battlemap-over" ${box}></svg><div class="kit-token bm-tokens" id="battlemap-tokens"${attr("data-writes", canMove ? MOVE_TOKEN : "")}></div></div><div class="hm-tip" id="battlemap-tip" hidden></div></div></div>`;
   }
   function tokenItem(t, grid2, p) {
-    const player = p.view === "player";
     const c = center(grid2, t);
+    return figure(t, p, { id: `token-${esc(t.id)}`, style: ` style="left:${c.x.toFixed(1)}px;top:${c.y.toFixed(1)}px"`, cls: [], extra: "", attrs: "" });
+  }
+  function figure(t, p, place) {
+    const player = p.view === "player";
     const initials = p.character?.initials ?? t.initials;
     const color = p.character?.color || t.color;
-    const cls = ["kit-token__item", !t.visible && "kit-token__item--hidden", t.dead && "kit-token__item--dead", p.selected && "bm-selected"].filter(Boolean).join(" ");
+    const cls = ["kit-token__item", ...place.cls, !t.visible && "kit-token__item--hidden", t.dead && "kit-token__item--dead", p.selected && "bm-selected"].filter(Boolean).join(" ");
     const badges = t.states.slice(0, 3).map((s, i) => `<span class="kit-token__badge kit-token__badge--${["tl", "tr", "br"][i]}" title="${esc(s)}">${esc(CONDITIONS[s] ?? "\u2022")}</span>`).join("");
     let health = "";
     if (player) {
@@ -346,15 +418,66 @@
       health = `<div class="kit-token__hp"><div class="kit-token__gauge" style="--kit-token-hp: ${pct}%"><div class="kit-token__gauge-fill${fill}"></div></div><span class="kit-token__hp-label">${t.hp}/${t.hpMax} PV</span></div>`;
     }
     const eye = '<div class="kit-token__eye"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Cach\xE9"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg></div>';
-    return `<div class="${cls}" id="token-${esc(t.id)}" data-token="${esc(t.id)}" style="left:${c.x.toFixed(1)}px;top:${c.y.toFixed(1)}px" title="${esc(t.name + (t.visible ? "" : " \u2014 cach\xE9 aux joueurs"))}"><div class="kit-token__disc" style="--kit-token-bg: var(--color-${tone(color)})"><div class="kit-token__clip"><span class="kit-token__initials">${esc(initials)}</span></div>${t.visible ? "" : eye}${t.dead ? '<span class="kit-token__strike"></span>' : ""}${badges}${t.num === null ? "" : `<span class="kit-token__num">${t.num}</span>`}</div><div class="kit-token__name">${esc(t.name)}</div>${health}</div>`;
+    return `<div class="${cls}" id="${place.id}" data-token="${esc(t.id)}"${place.style}${place.attrs} title="${esc(t.name + (t.visible ? "" : " \u2014 cach\xE9 aux joueurs"))}"><div class="kit-token__disc" style="--kit-token-bg: var(--color-${tone(color)})"><div class="kit-token__clip"><span class="kit-token__initials">${esc(initials)}</span></div>${t.visible ? "" : eye}${t.dead ? '<span class="kit-token__strike"></span>' : ""}${badges}${t.num === null ? "" : `<span class="kit-token__num">${t.num}</span>`}</div><div class="kit-token__name">${esc(t.name)}</div>${health}${place.extra}</div>`;
   }
+  var group = (inner) => `<div class="kit-button kit-button--bare kit-button--small">${inner}</div>`;
+  function carousel(combat, tokens, p) {
+    const dm = p.view !== "player";
+    const items = visibleOrder(combat, tokens, p.view).map(
+      ({ participant: participant2, token: token2 }) => figure(token2, { view: p.view, selected: token2.id === p.selected, character: p.characters[token2.char] }, {
+        id: `carousel-${esc(token2.id)}`,
+        style: "",
+        cls: token2.id === combat.current ? ["kit-token__item--current"] : [],
+        extra: `<span class="bm-init" title="Initiative">${participant2.init}</span>`,
+        attrs: dm ? ` draggable="true" data-participant="${esc(token2.id)}"` : ""
+      })
+    ).join("");
+    const listed = new Set(combat.order.map((o) => o.id));
+    const outside = tokens.filter((t) => !listed.has(t.id) && !t.dead);
+    const chosen = p.selected !== null && listed.has(p.selected);
+    const controls = dm ? '<div class="bm-carousel__controls" id="carousel-controls">' + group(
+      button({ id: "combat-next", label: "Suivant \u25B8", variant: "primary", writes: NEXT_TURN }) + button({ id: "combat-earlier", label: "\u25C2 Avancer", variant: "ghost", writes: REORDER_INITIATIVE, disabled: !chosen }) + button({ id: "combat-later", label: "Reculer \u25B8", variant: "ghost", writes: REORDER_INITIATIVE, disabled: !chosen }) + button({ id: "combat-drop", label: "Retirer du combat", variant: "ghost", writes: REMOVE_PARTICIPANT, disabled: !chosen })
+    ) + (outside.length > 0 ? `<span class="row"><select class="num-input bm-add" id="combat-add-select" aria-label="Participant \xE0 ajouter">${outside.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select><input type="number" class="num-input" id="combat-add-init" min="1" max="40" aria-label="Initiative du PJ ajout\xE9" value="${p.pjInitiative[outside[0]?.char ?? ""] ?? 10}">${group(button({ id: "combat-add", label: "Ajouter", variant: "secondary", writes: ADD_PARTICIPANT }))}</span>` : "") + "</div>" : "";
+    return `<div class="bm-carousel__round" id="combat-round"><span class="small muted">Round</span><b>${combat.round}</b></div><div class="bm-carousel__track" id="carousel-track"><div class="kit-token kit-token--row">${items}</div></div>${controls}`;
+  }
+  function dialog(p) {
+    return `<div class="bm-modal" id="${p.id}"><div class="kit-dialog"><div class="kit-dialog__veil"><div class="kit-dialog__window" role="dialog" aria-modal="true" aria-label="${esc(p.title)}"><header class="kit-dialog__header"><h2 class="kit-dialog__title">${esc(p.title)}</h2><button class="kit-dialog__close" type="button" data-act="dialog-close" aria-label="Fermer">\xD7</button></header><div class="kit-dialog__body">${p.text ? `<p class="kit-dialog__text">${esc(p.text)}</p>` : ""}${p.body ?? ""}</div><footer class="kit-dialog__footer">${p.actions.map((a) => `<button type="button" class="kit-dialog__btn kit-dialog__btn--${a.variant}" id="${a.id}"${attr("data-writes", a.writes ?? "")}>${esc(a.label)}</button>`).join("")}</footer></div></div></div></div>`;
+  }
+  var signed = (n) => n < 0 ? `\u2212 ${Math.abs(n)}` : `+ ${n}`;
+  function startDialog(starters) {
+    const rows = starters.map(
+      (s) => `<li class="kit-dialog__row"><span>${esc(s.token.name)}${s.token.visible ? "" : ' <em class="muted">(cach\xE9)</em>'}</span>` + (s.token.kind === "pnj" ? `<strong>d20 (${s.roll}) ${signed(s.dexMod)} = ${initiativeOf(s.roll, s.dexMod)}</strong>` : `<input type="number" class="num-input" data-init="${esc(s.token.id)}" min="1" max="40" value="${s.entered ?? ""}" aria-label="${esc(`Initiative de ${s.token.name}`)}">`) + "</li>"
+    ).join("");
+    return dialog({
+      id: "combat-start-dialog",
+      title: "Lancer le combat",
+      body: `<p class="kit-dialog__text">Les PNJ tirent d20 + modificateur de DEX ; les \xE9galit\xE9s se d\xE9partagent par la DEX, puis au hasard. Saisissez l\u2019initiative des PJ.</p><ul class="kit-dialog__list" id="combat-setup">${rows}</ul><p class="bm-status is-error" id="combat-start-error" role="alert" hidden></p>`,
+      actions: [
+        { id: "combat-start-cancel", label: "Annuler", variant: "ghost" },
+        { id: "combat-start-submit", label: "Commencer le combat", variant: "primary", writes: START_COMBAT }
+      ]
+    });
+  }
+  var resetDialog = () => dialog({
+    id: "battlemap-reset-dialog",
+    title: "R\xE9initialiser la carte",
+    text: "Les tokens, le combat et l\u2019initiative de cette instance sont effac\xE9s ; la carte repart comme \xE0 son ouverture.",
+    actions: [
+      { id: "battlemap-reset-cancel", label: "Annuler", variant: "ghost" },
+      { id: "battlemap-reset-submit", label: "R\xE9initialiser", variant: "primary", writes: RESET_BATTLEMAP }
+    ]
+  });
   function pathMarkup(grid2, hexes) {
     return hexes.map((h, i) => `<polygon class="${i === hexes.length - 1 ? "hm-end" : "hm-step"}" points="${polygon(grid2, h)}"></polygon>`).join("") + `<polyline class="hm-line" points="${trail(grid2, hexes)}"></polyline>`;
   }
-  function inspector(t, siblings, character) {
+  function inspector(t, siblings, character, initiative = null) {
     const chips = siblings.length > 1 ? `<div class="row" id="inspector-instances" role="group" aria-label="Instances de ${esc(character?.name ?? t.name)}">${siblings.map((x) => `<button type="button" class="chip${x.id === t.id ? " is-on" : ""}" data-select="${esc(x.id)}">${esc(x.name)}${x.dead ? " \u2020" : ""}</button>`).join("")}</div>` : "";
     const conditions = Object.entries(CONDITIONS).map(([name, glyph]) => `<button type="button" class="chip${t.states.includes(name) ? " is-on" : ""}" data-state="${esc(name)}" aria-pressed="${t.states.includes(name)}" data-writes="${SET_TOKEN_CONDITION}">${glyph} ${esc(name)}</button>`).join("");
-    return `<div class="panel__head"><h3 id="inspector-title">${esc(t.name)}</h3><button type="button" class="icon-btn" data-act="close" aria-label="Fermer le menu du token">\xD7</button></div><p class="small muted">${esc(character?.name ?? "")}</p>` + chips + `<div class="kit-input is-wide"><label>Nom affich\xE9<input type="text" id="inspector-name" value="${esc(t.name)}" data-writes="${RENAME_TOKEN}"></label></div><div class="kit-toggle kit-toggle--bare"><label><button type="button" role="switch" id="inspector-visible" aria-checked="${t.visible}" data-writes="${SET_TOKEN_VISIBILITY}"><i></i></button><span>${t.visible ? "Visible des joueurs" : "Cach\xE9 aux joueurs"}</span></label></div><div id="inspector-states" class="stack"><h3>\xC9tats</h3><div class="row">${conditions}</div></div>` + (t.dead ? '<p class="bm-dead" id="inspector-dead">Mort \u2014 gris\xE9.</p>' : "") + `<div class="kit-button kit-button--bare kit-button--small">${button({ id: "inspector-remove", label: t.dead ? "Retirer le corps" : "Retirer de la carte", variant: "danger", writes: REMOVE_TOKEN })}</div>`;
+    return `<div class="panel__head"><h3 id="inspector-title">${esc(t.name)}</h3><button type="button" class="icon-btn" data-act="close" aria-label="Fermer le menu du token">\xD7</button></div><p class="small muted">${esc(character?.name ?? "")}${initiative === null ? "" : ` \xB7 initiative ${initiative}`}</p>` + chips + hitPoints(t) + `<div class="kit-input is-wide"><label>Nom affich\xE9<input type="text" id="inspector-name" value="${esc(t.name)}" data-writes="${RENAME_TOKEN}"></label></div><div class="kit-toggle kit-toggle--bare"><label><button type="button" role="switch" id="inspector-visible" aria-checked="${t.visible}" data-writes="${SET_TOKEN_VISIBILITY}"><i></i></button><span>${t.visible ? "Visible des joueurs" : "Cach\xE9 aux joueurs"}</span></label></div><div id="inspector-states" class="stack"><h3>\xC9tats</h3><div class="row">${conditions}</div></div>` + (t.dead ? '<p class="bm-dead" id="inspector-dead">Mort \u2014 gris\xE9.</p>' : "") + `<div class="kit-button kit-button--bare kit-button--small">${button({ id: "inspector-remove", label: t.dead ? "Retirer le corps" : "Retirer de la carte", variant: "danger", writes: REMOVE_TOKEN })}</div>`;
+  }
+  function hitPoints(t) {
+    if (t.kind !== "pnj" || t.hp === null || t.hpMax === null) return '<p class="small muted" id="inspector-pj">Les PV des PJ ne sont pas suivis : les joueurs les g\xE8rent sur leur fiche.</p>';
+    return `<div class="bm-hp" id="inspector-hp"><div class="bm-hp__value"><b>${t.hp}</b> / ${t.hpMax} PV</div><span class="small muted">Vu par les joueurs : ${esc(bandLabel(bandOf(t.hp, t.hpMax)))}</span><div class="row"><input type="number" class="num-input" id="inspector-hp-amount" min="1" max="999" value="7" aria-label="Points de vie"><div class="kit-button kit-button--bare kit-button--small">${button({ id: "inspector-damage", label: "\u2212 D\xE9g\xE2ts", variant: "danger", writes: CHANGE_HIT_POINTS })}${button({ id: "inspector-heal", label: "+ Soins", variant: "secondary", writes: CHANGE_HIT_POINTS })}</div></div></div>`;
   }
   function roster(characters) {
     return `<h3 id="battlemap-roster-title">Personnages de la sc\xE8ne</h3><p class="small muted">Glissez un personnage sur la carte, ou cliquez pour choisir le nombre d\u2019instances (\xD7 N).</p><ul class="list" id="battlemap-roster-list">${characters.map((c) => `<li><button type="button" class="chip chip--${c.kind}" draggable="true" data-writes="${PLACE_TOKENS}" data-char="${esc(c.id)}" id="roster-${esc(c.id)}">\u283F ${esc(c.name)}</button></li>`).join("")}</ul>`;
@@ -415,14 +538,34 @@
 .bm-tokens .kit-token__name { text-shadow: var(--shadow-low); }
 .bm--readonly .bm-tokens .kit-token__item { pointer-events: none; cursor: default; }
 .bm .bm-selected .kit-token__disc { outline: calc(var(--border-width) * 3) solid var(--color-primary); outline-offset: calc(var(--border-width) * 3); }
+.bm .kit-token.kit-token--row { flex-wrap: nowrap; padding: 0; background: transparent; gap: var(--space-3); }
+.bm-carousel { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); }
+.bm-carousel[hidden] { display: none; }
+.bm-carousel__round { display: grid; justify-items: center; }
+.bm-carousel__round b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-accent); line-height: 1; }
+.bm-carousel__track { flex: 1; min-width: 0; overflow-x: auto; padding: var(--space-2) var(--space-1); }
+.bm-carousel .kit-token__item { cursor: pointer; flex: none; }
+.bm-carousel .kit-token__item[draggable="true"] { cursor: grab; }
+.bm-carousel .kit-token__item.bm-drag-over .kit-token__disc { outline: calc(var(--border-width) * 3) dashed var(--color-accent); outline-offset: calc(var(--border-width) * 3); }
+.bm-carousel__controls { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: flex-end; max-width: calc(var(--space-5) * 9); }
+.bm-init { font-size: var(--font-size-small); font-weight: var(--font-weight-heading); color: var(--color-accent); }
+.bm-add { width: auto; max-width: calc(var(--space-5) * 4); }
+.bm-hp { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); background: var(--color-surface); border-radius: var(--radius-medium); }
+.bm-hp__value { font-size: var(--font-size-large); }
+.bm-hp__value b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-success); }
+.bm-modal { position: fixed; inset: 0; z-index: 100; }
+.bm-modal .kit-dialog, .bm-modal .kit-dialog__veil { height: 100%; }
+.bm-modal .kit-dialog__window { max-height: 88vh; }
 .bm-drop { position: absolute; z-index: 5; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-primary); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); cursor: default; }
 @media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } }
 `;
 
   // apps/table/battlemap/src/index.ts
-  var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 500 };
+  var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 500, roll: () => 1 + Math.floor(Math.random() * 20) };
   var DRAG_THRESHOLD = 4;
   var CHARACTER_TYPE = "text/fdm-character";
+  var PARTICIPANT_TYPE = "text/fdm-participant";
+  var DM_ONLY = /* @__PURE__ */ new Set(["bm-start-combat", "bm-end-combat", "bm-reset", "combat-start-submit", "battlemap-reset-submit", "combat-next", "combat-earlier", "combat-later", "combat-drop", "combat-add", "inspector-damage", "inspector-heal"]);
   function ensureStyle(doc) {
     if (doc.querySelector('style[data-micro-ui="Battlemap"]')) return;
     const style = doc.createElement("style");
@@ -498,6 +641,17 @@
       layer.style.setProperty("--bm-scale", (grid2.size * 1.7 / 64).toFixed(3));
       layer.innerHTML = shown(instance.tokens, props2.view).map((t) => tokenItem(t, grid2, { view: props2.view, selected: t.id === selected, character: characters[t.char] })).join("");
     }
+    function paintCarousel() {
+      const box = part("initiative-carousel");
+      if (!box) return;
+      const combat = instance?.combat ?? null;
+      box.hidden = combat === null || !instance;
+      if (box.hidden || !combat || !instance) {
+        box.innerHTML = "";
+        return;
+      }
+      box.innerHTML = carousel(combat, instance.tokens, { view: props2.view, selected, characters, pjInitiative: instance.pjInitiative });
+    }
     function paintInspector() {
       const box = part("token-inspector");
       if (!box) return;
@@ -507,10 +661,16 @@
         box.innerHTML = "";
         return;
       }
-      if (!box.hidden && host2.ownerDocument.activeElement?.id === "inspector-name" && box.dataset.token === t.id) return;
+      const typing = host2.ownerDocument.activeElement?.id;
+      const same2 = !box.hidden && box.dataset.token === t.id;
+      if (same2 && (typing === "inspector-name" || typing === "inspector-hp-amount")) return;
+      const amount = same2 ? box.querySelector("#inspector-hp-amount")?.value : void 0;
       box.hidden = false;
       box.dataset.token = t.id;
-      box.innerHTML = inspector(t, instance.tokens.filter((x) => x.char === t.char), characters[t.char]);
+      const rank = instance.combat?.order.find((o) => o.id === t.id);
+      box.innerHTML = inspector(t, instance.tokens.filter((x) => x.char === t.char), characters[t.char], rank?.init ?? null);
+      const field = box.querySelector("#inspector-hp-amount");
+      if (field && amount !== void 0) field.value = amount;
     }
     function paintRoster() {
       const box = part("battlemap-roster");
@@ -548,6 +708,7 @@
     function paintAll() {
       paintToolbar();
       paintTokens();
+      paintCarousel();
       paintInspector();
       paintRoster();
     }
@@ -645,6 +806,99 @@
       t.q = hex.q;
       t.r = hex.r;
     });
+    const changeHitPoints = (t, delta) => act("Le changement de PV", CHANGE_HIT_POINTS, { token: t.id, delta }, () => {
+      if (t.kind !== "pnj" || t.hp === null || t.hpMax === null) return;
+      t.hp = hitPointsAfter(t.hp, t.hpMax, delta);
+      t.dead = t.hp === 0;
+    });
+    const nextTurn = () => {
+      const current = instance;
+      if (!current?.combat) return Promise.resolve();
+      const combat = current.combat;
+      return act("Le tour suivant", NEXT_TURN, {}, () => Object.assign(combat, turnAfter(combat, current.tokens)));
+    };
+    const reorder = (id, position) => {
+      const combat = instance?.combat;
+      if (!combat || position < 0 || position >= combat.order.length || combat.order[position]?.id === id) return Promise.resolve();
+      return act("Le r\xE9ordonnancement", REORDER_INITIATIVE, { token: id, position }, () => {
+        combat.order = reordered(combat.order, id, position);
+      });
+    };
+    const removeParticipant = (id) => {
+      const current = instance;
+      const combat = current?.combat;
+      if (!current || !combat) return Promise.resolve();
+      return act("Le retrait du combat", REMOVE_PARTICIPANT, { token: id }, () => {
+        current.combat = without(combat, current.tokens, id);
+      });
+    };
+    function addParticipant(id, entered) {
+      const combat = instance?.combat;
+      const added = instance?.tokens.find((t) => t.id === id);
+      if (!combat || !added) return Promise.resolve();
+      const dexMod = characters[added.char]?.dexMod ?? 0;
+      const roll = (timing.roll ?? (() => 10))();
+      const init = added.kind === "pnj" ? initiativeOf(roll, dexMod) : entered;
+      return act("L\u2019ajout au combat", ADD_PARTICIPANT, added.kind === "pnj" ? { token: id, roll } : { token: id, initiative: entered }, () => {
+        combat.order = inserted(combat.order, { id, init, dex: dexMod });
+      });
+    }
+    const endCombat = () => act("La fin du combat", END_COMBAT, {}, () => {
+      if (instance) instance.combat = null;
+    });
+    let starters = [];
+    const closeDialog = () => {
+      const box = part("battlemap-dialog");
+      if (box) box.innerHTML = "";
+      starters = [];
+    };
+    function askStart() {
+      const current = instance;
+      const box = part("battlemap-dialog");
+      if (!current || !box || current.combat) return;
+      const roll = timing.roll ?? (() => 10);
+      starters = current.tokens.filter((t) => !t.dead).map((token2) => ({ token: token2, roll: token2.kind === "pnj" ? roll() : 0, dexMod: characters[token2.char]?.dexMod ?? 0, entered: token2.kind === "pj" ? current.pjInitiative[token2.char] ?? null : null }));
+      box.innerHTML = startDialog(starters);
+      box.querySelector("[data-init]")?.focus();
+    }
+    function startCombat() {
+      const box = part("battlemap-dialog");
+      const rolled = starters;
+      if (!box || rolled.length === 0) return Promise.resolve();
+      const blank = Array.from(box.querySelectorAll("[data-init]")).find((f) => !(Math.floor(Number(f.value)) >= 1));
+      if (blank) {
+        const error = part("combat-start-error");
+        if (error) {
+          error.hidden = false;
+          error.textContent = `Saisissez l\u2019initiative de ${rolled.find((s) => s.token.id === blank.dataset.init)?.token.name ?? "ce PJ"} (1 ou plus).`;
+        }
+        blank.focus();
+        return Promise.resolve();
+      }
+      const fields = new Map(Array.from(box.querySelectorAll("[data-init]")).map((f) => [f.dataset.init ?? "", Math.floor(Number(f.value))]));
+      const initiative = {};
+      const rolls = {};
+      const lines = rolled.map((s, rank) => {
+        const init = s.token.kind === "pnj" ? initiativeOf(s.roll, s.dexMod) : fields.get(s.token.id) ?? 1;
+        if (s.token.kind === "pnj") rolls[s.token.id] = s.roll;
+        else initiative[s.token.char] = init;
+        return { id: s.token.id, init, dex: s.dexMod, rank };
+      });
+      closeDialog();
+      const order = lines.sort((a, b) => b.init - a.init || b.dex - a.dex || a.rank - b.rank).map(({ id, init, dex }) => ({ id, init, dex }));
+      return act("Le lancement du combat", START_COMBAT, { initiative, rolls }, () => {
+        if (instance && order[0]) instance.combat = { round: 1, current: order[0].id, order };
+      });
+    }
+    function askReset() {
+      const box = part("battlemap-dialog");
+      if (box) box.innerHTML = resetDialog();
+    }
+    function resetMap() {
+      closeDialog();
+      selected = null;
+      return act("La r\xE9initialisation", RESET_BATTLEMAP, {});
+    }
     async function place(character, hex, count) {
       if (!instance) return;
       const there = existingToken(instance.tokens, character);
@@ -776,6 +1030,12 @@
     });
     host2.addEventListener("dragstart", (event) => {
       const e = event;
+      const carried = e.target.closest("[data-participant]");
+      if (carried && e.dataTransfer) {
+        e.dataTransfer.setData(PARTICIPANT_TYPE, carried.dataset.participant ?? "");
+        e.dataTransfer.effectAllowed = "move";
+        return;
+      }
       const chip = e.target.closest("[data-char]");
       if (!chip || !e.dataTransfer) return;
       e.dataTransfer.setData(CHARACTER_TYPE, chip.dataset.char ?? "");
@@ -783,13 +1043,33 @@
     });
     host2.addEventListener("dragover", (event) => {
       const e = event;
+      if (dm() && e.target.closest("[data-participant]") && Array.from(e.dataTransfer?.types ?? []).includes(PARTICIPANT_TYPE)) {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        const over = e.target.closest("[data-participant]");
+        for (const item of host2.querySelectorAll(".bm-drag-over")) if (item !== over) item.classList.remove("bm-drag-over");
+        over?.classList.add("bm-drag-over");
+        return;
+      }
       if (dm() && e.target.closest(".hm-view") && Array.from(e.dataTransfer?.types ?? []).includes(CHARACTER_TYPE)) {
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
       }
     });
+    host2.addEventListener("dragend", () => {
+      for (const item of host2.querySelectorAll(".bm-drag-over")) item.classList.remove("bm-drag-over");
+    });
     host2.addEventListener("drop", (event) => {
       const e = event;
+      for (const item of host2.querySelectorAll(".bm-drag-over")) item.classList.remove("bm-drag-over");
+      const carried = e.dataTransfer?.getData(PARTICIPANT_TYPE) ?? "";
+      const over = e.target.closest("[data-participant]");
+      if (dm() && carried !== "" && over) {
+        e.preventDefault();
+        const position = instance?.combat?.order.findIndex((o) => o.id === over.dataset.participant) ?? -1;
+        if (position >= 0) void reorder(carried, position);
+        return;
+      }
       const character = characters[e.dataTransfer?.getData(CHARACTER_TYPE) ?? ""];
       if (!dm() || !character || !map || !e.target.closest(".hm-view")) return;
       e.preventDefault();
@@ -799,8 +1079,16 @@
       else say("error", "Ce hex est hors de la carte.");
     });
     host2.addEventListener("click", (event) => {
-      const button2 = event.target?.closest("button");
+      const target = event.target;
+      const listed = target?.closest("#initiative-carousel .kit-token__item");
+      if (listed && dm()) {
+        selected = listed.dataset.token ?? null;
+        paintAll();
+        return;
+      }
+      const button2 = target?.closest("button");
       if (!button2) return;
+      if (!dm() && DM_ONLY.has(button2.id)) return;
       const t = instance?.tokens.find((x) => x.id === selected);
       const zoomBox = part("battlemap-view");
       const [cx, cy] = [(zoomBox?.clientWidth ?? 0) / 2, (zoomBox?.clientHeight ?? 0) / 2];
@@ -808,6 +1096,7 @@
       if (gesture === "in") zoomAt(1.25, cx, cy);
       else if (gesture === "out") zoomAt(1 / 1.25, cx, cy);
       else if (gesture === "reset") fit();
+      else if (gesture === "dialog-close") closeDialog();
       else if (gesture === "close") {
         selected = null;
         paintAll();
@@ -821,6 +1110,24 @@
           const w = world({ clientX: (box?.getBoundingClientRect().left ?? 0) + (box?.clientWidth ?? 0) / 2, clientY: (box?.getBoundingClientRect().top ?? 0) + (box?.clientHeight ?? 0) / 2 });
           askPlace(character, toHex(map.grid, w), w);
         }
+      } else if (button2.id === "bm-start-combat") askStart();
+      else if (button2.id === "combat-start-submit") void startCombat();
+      else if (button2.id === "combat-start-cancel" || button2.id === "battlemap-reset-cancel") closeDialog();
+      else if (button2.id === "bm-reset") askReset();
+      else if (button2.id === "battlemap-reset-submit") void resetMap();
+      else if (button2.id === "bm-end-combat") void endCombat();
+      else if (button2.id === "combat-next") void nextTurn();
+      else if ((button2.id === "combat-earlier" || button2.id === "combat-later") && selected !== null) {
+        const at = instance?.combat?.order.findIndex((o) => o.id === selected) ?? -1;
+        if (at >= 0 && selected !== null) void reorder(selected, at + (button2.id === "combat-earlier" ? -1 : 1));
+      } else if (button2.id === "combat-drop" && selected !== null) void removeParticipant(selected);
+      else if (button2.id === "combat-add") {
+        const id = part("combat-add-select")?.value ?? "";
+        const entered = Math.max(1, Math.floor(Number(part("combat-add-init")?.value)) || 10);
+        if (id !== "") void addParticipant(id, entered);
+      } else if (t && t.kind === "pnj" && (button2.id === "inspector-damage" || button2.id === "inspector-heal")) {
+        const amount = Math.max(0, Math.floor(Number(part("inspector-hp-amount")?.value)) || 0);
+        if (amount > 0) void changeHitPoints(t, button2.id === "inspector-damage" ? -amount : amount);
       } else if (button2.dataset.writes === SHOW_ON_PLAYER_VIEW) void showOnPlayerView();
       else if (t && button2.dataset.state) {
         const state = button2.dataset.state;
@@ -853,6 +1160,9 @@
       }
     });
     host2.addEventListener("submit", (event) => event.preventDefault());
+    host2.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeDialog();
+    });
     void start();
     return {
       update(next) {
@@ -904,10 +1214,12 @@
 
   // mock/src/reads.js
   var bridged = /* @__PURE__ */ new WeakSet();
+  var pristine = /* @__PURE__ */ new Map();
   async function instanceOf(server, id) {
     const data = await server.load("table.getBattlemapInstance");
     if (!data || id && data.id !== id) return void 0;
     const store = window.Mock && window.Mock.store;
+    if (!pristine.has(data.id)) pristine.set(data.id, structuredClone(data.state));
     if (store && !bridged.has(data)) {
       bridged.add(data);
       data.state = store.get(`map:${data.id}`, data.state);
@@ -920,6 +1232,7 @@
     }
     return data;
   }
+  var pristineState = (id) => structuredClone(pristine.get(id));
   function shareInstance(data) {
     if (window.Mock) window.Mock.store.set(`map:${data.id}`, data.state);
   }
@@ -942,10 +1255,12 @@
     "table.getBattlemapInstance": async (server, { instance, view } = {}) => {
       const data = await instanceOf(server, instance);
       if (!data) return data;
-      const dressedTokens = await dressed(server, data.state.tokens);
+      const dressedTokens = (await dressed(server, data.state.tokens)).map((t) => t.kind === "pnj" ? { ...t, dead: t.hp === 0 } : t);
       if (view !== "player") return { ...data, state: { ...data.state, tokens: dressedTokens } };
       const tokens = dressedTokens.filter((t) => t.visible).map(({ hp, hpMax, ...rest }) => ({ ...rest, healthBand: rest.kind === "pnj" ? healthBand(hp, hpMax) : null }));
-      return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat: null } };
+      const seen = new Set(tokens.map((t) => t.id));
+      const combat = data.state.combat ? { ...data.state.combat, current: seen.has(data.state.combat.current) ? data.state.combat.current : "", order: data.state.combat.order.filter((o) => seen.has(o.id)) } : null;
+      return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat } };
     },
     // media.getBattlemap (crates/media/capabilities/get-battlemap): one battlemap
     // by its id, its grid per HexGrid@1 — the opacity a fraction of 1, a hex 5 feet.
@@ -995,6 +1310,32 @@
     shareInstance(data);
     return void 0;
   }
+  function dexModifier(characters, id) {
+    const sheet = characters.find((c) => c.id === id);
+    return Math.floor(((sheet && sheet.stats ? sheet.stats.DEX : 10) - 10) / 2);
+  }
+  function advance(combat, state) {
+    const { order } = combat;
+    const from = Math.max(0, order.findIndex((o) => o.id === combat.current));
+    for (let step = 1; step <= order.length; step += 1) {
+      const at = (from + step) % order.length;
+      const token2 = state.tokens.find((t) => t.id === order[at].id);
+      if (token2 && !token2.dead) {
+        if (at <= from) combat.round += 1;
+        combat.current = order[at].id;
+        return;
+      }
+    }
+  }
+  async function onCombat(server, id, change) {
+    const data = await instanceOf(server, id);
+    if (!data) return ["instance-isolated"];
+    if (!data.state.combat) return ["one-active-combat"];
+    const violations = await change(data.state.combat, data.state);
+    if (violations) return violations;
+    shareInstance(data);
+    return void 0;
+  }
   var COMMANDS = {
     // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
     // one position both views read.
@@ -1020,6 +1361,99 @@
     "table.removeToken": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t, state) => {
       state.tokens = state.tokens.filter((x) => x !== t);
     }),
+    // table.changeHitPoints (crates/table/data-capabilities/change-hit-points):
+    // hp-change-one-token — the targeted token only; pj-hp-not-tracked — a PC has
+    // no hit points; the current ones stay within 0 and the maximum, and an NPC
+    // is dead iff they are 0 (dead-derived).
+    "table.changeHitPoints": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+      if (t.kind !== "pnj" || typeof t.hp !== "number") return ["pj-hp-not-tracked"];
+      t.hp = Math.max(0, Math.min(t.hpMax, t.hp + Math.trunc(Number(payload.delta) || 0)));
+      t.dead = t.hp === 0;
+      return void 0;
+    }),
+    // table.startCombat: the NPC roll a d20 plus the DEX modifier of their sheet,
+    // the DM enters the PCs' initiative; the order is the initiative, then the DEX,
+    // then at random (initiative-tiebreak). A hidden token is in the order and keeps its rank.
+    "table.startCombat": async (server, { payload, targetId }) => {
+      const data = await instanceOf(server, targetId);
+      if (!data) return ["instance-isolated"];
+      if (data.state.combat) return ["one-active-combat"];
+      const characters = await server.load("campaign.listCharacters") || [];
+      const rolls = payload.rolls || {};
+      const entered = payload.initiative || {};
+      const order = [];
+      for (const t of data.state.tokens.filter((x) => !x.dead)) {
+        const dex = dexModifier(characters, t.char);
+        if (t.kind === "pnj") {
+          const roll = Number(rolls[t.id]);
+          if (!(roll >= 1 && roll <= 20)) return ["npc-initiative-bounds"];
+          order.push({ id: t.id, init: roll + dex, dex, tie: Math.random() });
+        } else {
+          const init = Number(entered[t.char]);
+          if (!(init >= 1)) return ["npc-initiative-bounds"];
+          order.push({ id: t.id, init, dex, tie: Math.random() });
+        }
+      }
+      if (!order.length) return ["one-active-combat"];
+      order.sort((a, b) => b.init - a.init || b.dex - a.dex || b.tie - a.tie);
+      data.pjInitiative = { ...data.pjInitiative, ...entered };
+      data.state.combat = { round: 1, current: order[0].id, order: order.map(({ id, init, dex }) => ({ id, init, dex })) };
+      shareInstance(data);
+      return void 0;
+    },
+    // table.nextTurn: next-turn — the next living participant by rank, the round counting up when it comes back to the first.
+    "table.nextTurn": (server, { targetId }) => onCombat(server, targetId, (combat, state) => {
+      advance(combat, state);
+      return void 0;
+    }),
+    // table.reorderInitiative: the participant takes the rank `position`; nobody else changes relative rank.
+    "table.reorderInitiative": (server, { payload, targetId }) => onCombat(server, targetId, (combat) => {
+      const from = combat.order.findIndex((o) => o.id === payload.token);
+      if (from < 0) return ["instance-isolated"];
+      const [moved] = combat.order.splice(from, 1);
+      combat.order.splice(Math.max(0, Math.min(combat.order.length, Number(payload.position) || 0)), 0, moved);
+      return void 0;
+    }),
+    // table.addParticipant: a token joins the running order at the place its initiative earns.
+    "table.addParticipant": (server, { payload, targetId }) => onCombat(server, targetId, async (combat, state) => {
+      const token2 = state.tokens.find((t) => t.id === payload.token);
+      if (!token2 || combat.order.some((o) => o.id === token2.id)) return ["instance-isolated"];
+      const dex = dexModifier(await server.load("campaign.listCharacters") || [], token2.char);
+      const roll = Number(payload.roll);
+      const init = token2.kind === "pnj" ? roll + dex : Number(payload.initiative);
+      if (!(init >= 1) || token2.kind === "pnj" && !(roll >= 1 && roll <= 20)) return ["npc-initiative-bounds"];
+      const at = combat.order.findIndex((o) => o.init < init || o.init === init && o.dex < dex);
+      combat.order.splice(at < 0 ? combat.order.length : at, 0, { id: token2.id, init, dex });
+      return void 0;
+    }),
+    // table.removeParticipant: the token leaves the order, not the map; the turn passes on if it was its turn.
+    "table.removeParticipant": (server, { payload, targetId }) => onCombat(server, targetId, (combat, state) => {
+      if (!combat.order.some((o) => o.id === payload.token)) return ["instance-isolated"];
+      const rest = { ...combat, order: combat.order.filter((o) => o.id !== payload.token) };
+      if (combat.current === payload.token) {
+        const gone = { ...state, tokens: state.tokens.map((t) => t.id === payload.token ? { ...t, dead: true } : t) };
+        advance(combat, gone);
+        rest.round = combat.round;
+        rest.current = combat.current === payload.token ? rest.order[0] && rest.order[0].id || "" : combat.current;
+      }
+      if (rest.order.length) Object.assign(combat, rest);
+      else state.combat = null;
+      return void 0;
+    }),
+    // table.endCombat: the combat ends; the tokens stay as they are.
+    "table.endCombat": (server, { targetId }) => onCombat(server, targetId, (combat, state) => {
+      state.combat = null;
+      return void 0;
+    }),
+    // table.resetBattlemap: state-persisted-reset — the instance goes back to the state it was opened with: no combat, no initiative.
+    "table.resetBattlemap": async (server, { targetId }) => {
+      const data = await instanceOf(server, targetId);
+      if (!data) return ["instance-isolated"];
+      data.state = pristineState(data.id);
+      data.pjInitiative = {};
+      shareInstance(data);
+      return void 0;
+    },
     // table.placeTokens: one character dropped, once or « × n »; the new tokens
     // are numbered after those already taken for it (multi-drop-numbering), a
     // monster takes its hit points from its sheet, a PC has one token.
