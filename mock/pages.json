@@ -284,7 +284,9 @@
         "session.getSessionJournal"
       ],
       "actions": [],
-      "props": {}
+      "props": {},
+      "source": "apps/session/previous-summary",
+      "builtFrom": "1abee4d434ee6598"
     },
     {
       "name": "OralBrief",
