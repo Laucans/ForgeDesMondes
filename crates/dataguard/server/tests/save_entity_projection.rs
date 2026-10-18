@@ -305,3 +305,43 @@ async fn a_start_judges_an_alias_against_the_elements_the_tables_hold() {
     );
     s.drop().await;
 }
+
+#[tokio::test]
+async fn an_npc_made_a_place_loses_its_sheet_in_the_tables() {
+    let s = Scratch::new("kind").await;
+    let (engine, app) = s.serve().await;
+    let (id, result) = save(
+        &engine,
+        &app,
+        json!({
+            "campaign": VALOMBRE,
+            "entity": { "kind": "pnj", "name": "Le Moulin", "stats": { "DEX": 10 }, "color": "danger" },
+        }),
+    )
+    .await;
+    applied(&result);
+    let sheet = format!("SELECT entity_id FROM character WHERE entity_id = '{id}'");
+    assert_eq!(s.rows(&sheet).await.len(), 1);
+    let (_, result) = save(
+        &engine,
+        &app,
+        json!({ "campaign": VALOMBRE, "entity": { "id": id, "kind": "lieu" } }),
+    )
+    .await;
+    applied(&result);
+    assert!(s.rows(&sheet).await.is_empty());
+    let versions = s
+        .rows(&format!(
+            "SELECT version_number, snapshot -> 'type' AS type FROM entity_version \
+             WHERE entity_id = '{id}' ORDER BY version_number"
+        ))
+        .await;
+    assert_eq!(
+        versions,
+        [
+            json!({ "version_number": 1, "type": "pnj" }),
+            json!({ "version_number": 2, "type": "lieu" })
+        ]
+    );
+    s.drop().await;
+}

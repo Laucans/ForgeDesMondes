@@ -292,7 +292,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// (`test_connection::prepare`): the configuration it tested never is. A
 /// save of an element is made the state and the version it writes on the
 /// element's partition (`save_entity::prepare`), against the row the
-/// commands queued there will leave; a new element is given its id.
+/// commands queued there will leave; a new element is given its id, and a
+/// save the tables could never hold is refused, 422, before it is queued.
 async fn submit<L: Llm>(
     State(served): State<Served<L>>,
     Json(mut body): Json<Submission>,
@@ -321,16 +322,16 @@ async fn submit<L: Llm>(
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
     } else if save_entity::names(&body.data_capability) {
-        let fresh = (fresh_uuid(), fresh_uuid());
-        let (Ok(entity), Ok(version)) = fresh else {
-            return reply(
-                axum::http::StatusCode::ACCEPTED,
-                Err(Error::Store("no randomness for an id".to_string())),
-            );
+        let unrandom = |_| Error::Store("no randomness for an id".to_string());
+        let named = save_entity::element_id(&body.payload).or_else(|| body.target_id.clone());
+        let ids = match named {
+            Some(id) => fresh_uuid().map(|version| (id, version)),
+            None => fresh_uuid().and_then(|id| fresh_uuid().map(|version| (id, version))),
         };
-        let id = save_entity::element_id(&body.payload)
-            .or_else(|| body.target_id.clone())
-            .unwrap_or(entity);
+        let (id, version) = match ids.map_err(unrandom) {
+            Ok(ids) => ids,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
         let base = match served.rows.projected(&format!("Entity/{id}")).await {
             Ok(base) => base,
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
@@ -341,9 +342,19 @@ async fn submit<L: Llm>(
             version: &version,
             now: &now,
         };
-        let prepared = save_entity::prepare(&body.payload, &base, fresh);
-        body.payload = prepared.payload;
-        body.target_id = Some(prepared.target_id);
+        match save_entity::prepare(&body.payload, &base, fresh) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            // What the tables could never hold is not queued.
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));

@@ -88,8 +88,10 @@ impl Store for Versioning {
         }
         let before = self.inner.row(&write.partition).await?;
         let mut values = write.values.clone();
-        // A write that adds no version is the DataGuard's to have rejected.
-        if values.contains_key("source") {
+        // A save carries a version of its own (`every-change-versioned`
+        // refuses one reusing the last id); a write carrying none keeps the
+        // row's.
+        if values.get("entityVersionId") != before.get("entityVersionId") {
             let version = versioned(&before, &values);
             stamp(&mut values, version);
         }
@@ -148,5 +150,120 @@ impl Rows {
             row.extend(entry.payload);
         }
         Ok(row)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use harness_dataguard::command::State;
+    use harness_dataguard::memory::MemoryStore;
+    use serde_json::json;
+
+    use super::*;
+
+    const MORLOX: &str = "Entity/e1000000-0000-4000-8000-000000000003";
+
+    fn write(values: Value, tombstone: bool) -> Write {
+        let Value::Object(values) = values else {
+            panic!("a row is an object");
+        };
+        Write {
+            partition: MORLOX.to_string(),
+            values: values.into_iter().collect(),
+            tombstone,
+        }
+    }
+
+    fn result() -> CommandResult {
+        CommandResult {
+            command_id: "c_1".to_string(),
+            status: State::Applied,
+            data_version: None,
+            violations: Vec::new(),
+            review_id: None,
+        }
+    }
+
+    /// Morlox's row as a save leaves it, numbered `number` with version `id`.
+    fn saved(name: &str, id: &str, number: u64) -> Value {
+        json!({
+            "entityId": "e1000000-0000-4000-8000-000000000003",
+            "entityCampaignId": "c1000000-0000-4000-8000-000000000001",
+            "type": "pnj",
+            "name": name,
+            "alias": ["le gobelin"],
+            "entityVersionId": id,
+            "versionNumber": number,
+            "source": "dm",
+            "snapshot": {},
+            "diff": [],
+        })
+    }
+
+    #[tokio::test]
+    async fn an_applied_save_carries_the_version_after_the_real_row_s_and_records_its_terms() {
+        let inner = Arc::new(MemoryStore::default());
+        let aliases = Arc::new(Aliases::default());
+        let store = Versioning::new(inner.clone(), aliases.clone());
+        // Numbered 5 when submitted, behind saves that never landed.
+        store
+            .apply(&write(saved("Morlox", "v1", 5), false), &result())
+            .await
+            .expect("applied");
+        let row = inner.row_now(MORLOX);
+        assert_eq!(row["versionNumber"], 1);
+        assert_eq!(
+            row["snapshot"],
+            json!({ "type": "pnj", "name": "Morlox", "aliases": ["le gobelin"] })
+        );
+        assert_eq!(row["diff"].as_array().map(Vec::len), Some(3));
+        let other = write(saved("Bandit", "v9", 1), false).values;
+        assert_eq!(
+            aliases.taken("bandit", &other),
+            Some("le gobelin".to_owned())
+        );
+
+        store
+            .apply(&write(saved("Morlox le Vil", "v2", 7), false), &result())
+            .await
+            .expect("applied");
+        let row = inner.row_now(MORLOX);
+        assert_eq!(row["versionNumber"], 2);
+        assert_eq!(
+            row["diff"],
+            json!([{ "field": "name", "old": "Morlox", "new": "Morlox le Vil" }])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_write_carrying_no_version_of_its_own_keeps_the_row_s_and_a_removal_frees_its_terms()
+    {
+        let inner = Arc::new(MemoryStore::default());
+        let aliases = Arc::new(Aliases::default());
+        let store = Versioning::new(inner.clone(), aliases.clone());
+        store
+            .apply(&write(saved("Morlox", "v1", 1), false), &result())
+            .await
+            .expect("applied");
+        let before = inner.row_now(MORLOX);
+        // The same version id: no new version is made of it.
+        let mut same = saved("Morlox le Vil", "v1", 1);
+        same["snapshot"] = before["snapshot"].clone();
+        same["diff"] = before["diff"].clone();
+        store
+            .apply(&write(same, false), &result())
+            .await
+            .expect("applied");
+        let row = inner.row_now(MORLOX);
+        assert_eq!(row["versionNumber"], before["versionNumber"]);
+        assert_eq!(row["snapshot"], before["snapshot"]);
+        assert_eq!(row["name"], "Morlox le Vil");
+
+        store
+            .apply(&write(json!({}), true), &result())
+            .await
+            .expect("removed");
+        let other = write(saved("Bandit", "v9", 1), false).values;
+        assert_eq!(aliases.taken("bandit", &other), None);
     }
 }

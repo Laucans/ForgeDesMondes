@@ -388,3 +388,42 @@ async fn a_player_on_an_npc_or_a_sheet_on_a_place_is_rejected_by_character_is_pj
     assert!(!row.contains_key("characterEntityId"));
     assert!(!row.contains_key("tokenColor"));
 }
+
+#[tokio::test]
+async fn a_save_the_tables_could_never_hold_is_refused_422_and_never_queued() {
+    let s = served().await;
+    for (payload, why) in [
+        (
+            json!({ "entity": { "kind": "pnj", "name": "Morlox" } }),
+            "un nouvel élément nomme sa campagne",
+        ),
+        (
+            json!({ "campaign": "cendres-valombre", "entity": { "kind": "pnj", "name": "Morlox" } }),
+            "entityCampaignId n'est pas un identifiant",
+        ),
+        (
+            json!({ "campaign": VALOMBRE, "entity": { "kind": "PNJ", "name": "Morlox" } }),
+            "un élément est un pj, un pnj, un lieu ou un evenement",
+        ),
+    ] {
+        let (status, answer) = s
+            .post(
+                "/commands",
+                json!({
+                    "dataCapability": "campaign.saveEntity@1",
+                    "payload": payload,
+                    "caller": { "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] },
+                }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{answer}");
+        assert_eq!(answer["error"], why);
+    }
+    assert!(
+        s.engine
+            .run_once()
+            .await
+            .expect("the applier ran")
+            .is_empty()
+    );
+}

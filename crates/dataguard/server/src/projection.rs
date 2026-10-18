@@ -10,8 +10,9 @@
 //! the four `last_test_*` columns of that row — of the active provider's when
 //! the partition is the nil uuid, a test that reached no provider. A save of
 //! an element (`campaign.saveEntity`) writes its partition, `Entity/<its
-//! id>`, whole: [`ProjectingStore`] upserts its `entity` row and its sheet,
-//! makes its `entity_alias` rows its aliases, and adds the version it carries
+//! id>`, whole: [`ProjectingStore`] upserts its `entity` row and its sheet —
+//! or drops the sheet of an element made a place or an event — makes its
+//! `entity_alias` rows its aliases, and adds the version it carries
 //! to `entity_version`, in one transaction — whose triggers judge the
 //! element's campaign again. Every other method is the inner store's.
 //!
@@ -129,6 +130,11 @@ const UPSERT_CHARACTER: &str = "INSERT INTO character
         token_color = EXCLUDED.token_color,
         dndbeyond_id = EXCLUDED.dndbeyond_id,
         dndbeyond_synced_at = EXCLUDED.dndbeyond_synced_at";
+
+/// Its sheet, when it holds none: a place or an event has no sheet.
+const DROP_CHARACTER: &str = "DELETE FROM character
+    WHERE entity_id = ($1::text::jsonb ->> 'entityId')::uuid
+        AND $1::text::jsonb ->> 'characterEntityId' IS NULL";
 
 /// The aliases it no longer has, gone.
 const DROP_ALIASES: &str = "DELETE FROM entity_alias
@@ -321,6 +327,7 @@ impl ProjectingStore {
         for sql in [
             UPSERT_ENTITY,
             UPSERT_CHARACTER,
+            DROP_CHARACTER,
             DROP_ALIASES,
             ADD_ALIASES,
             ADD_VERSION,

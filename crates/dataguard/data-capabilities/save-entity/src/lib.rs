@@ -16,7 +16,12 @@
 //! - the aliases are kept as typed, a blank one or one that normalises
 //!   (AliasMatch@1) as an earlier one dropped. That no other element of the
 //!   campaign answers to one of them is the DataGuard's to judge;
-//! - a PC or an NPC has its sheet, and a token colour to fall back on;
+//! - a PC or an NPC has its sheet, and a token colour to fall back on; an
+//!   element made a place or an event loses its sheet, which its versions
+//!   keep;
+//! - a save the tables could never hold is refused before it is queued
+//!   ([`Refusal`]): a new element names its campaign, its type and its name,
+//!   an element stays in its campaign, and an id is a uuid;
 //! - the version is the next one (EntityVersion@1, source `dm`): its number,
 //!   the complete snapshot of the element as the save leaves it, and the diff
 //!   from the previous snapshot. [`versioned`] computes it from the row before
@@ -45,7 +50,7 @@ const CHARACTERS: [&str; 2] = ["pj", "pnj"];
 const TYPES: [&str; 4] = ["pj", "pnj", "lieu", "evenement"];
 
 /// The editor's name of a field, and the aggregate's.
-const FIELDS: [(&str, &str); 19] = [
+const FIELDS: [(&str, &str); 20] = [
     ("name", "name"),
     ("description", "description"),
     ("notes", "notes"),
@@ -66,6 +71,7 @@ const FIELDS: [(&str, &str); 19] = [
     ("armorClass", "armorClass"),
     ("hpMax", "hpMax"),
     ("tokenColor", "tokenColor"),
+    ("tokenCrop", "tokenCrop"),
 ];
 
 /// The editor's names of the media, and the aggregate's: a media id or
@@ -116,22 +122,87 @@ const SNAPSHOT: [&str; 24] = [
     "dndbeyondSyncedAt",
 ];
 
+/// The fields of the character sheet: a place or an event holds none.
+const SHEET: [&str; 21] = [
+    "characterEntityId",
+    "playerId",
+    "initialPrompt",
+    "background",
+    "behavior",
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "wisdom",
+    "charisma",
+    "armorClass",
+    "hpMax",
+    "spells",
+    "actions",
+    "portraitMediaId",
+    "tokenMediaId",
+    "tokenCrop",
+    "tokenColor",
+    "dndbeyondId",
+    "dndbeyondSyncedAt",
+];
+
+/// The fields that name a row of another table, which a uuid alone can.
+const IDS: [&str; 5] = [
+    "entityId",
+    "entityCampaignId",
+    "playerId",
+    "portraitMediaId",
+    "tokenMediaId",
+];
+
 /// The row's field holding the element's aliases, an array of strings.
 pub const ALIAS: &str = "alias";
 
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
 
-/// What a save is given besides its wire payload: the ids it may need, made
-/// by the server, and the time.
+/// What a save is given besides its wire payload: the element's id — the one
+/// `entity.id` names, else a new one the server made — the new version's,
+/// and the time.
 #[derive(Clone, Copy, Debug)]
 pub struct Fresh<'a> {
-    /// The id a new element takes; unused when the element exists.
+    /// The element's id.
     pub entity: &'a str,
     /// The id of the version the save adds.
     pub version: &'a str,
     /// Now, RFC 3339.
     pub now: &'a str,
+}
+
+/// Why a save is refused before it is queued: what the tables could never
+/// hold, which no invariant of the aggregate names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// A new element names no campaign.
+    NoCampaign,
+    /// A new element has no type, or a type given is none of `pj`, `pnj`,
+    /// `lieu`, `evenement`.
+    NoType,
+    /// A new element has no name.
+    NoName,
+    /// An element saved under another campaign than its own.
+    OtherCampaign,
+    /// A field naming another row (the element, its campaign, its player, a
+    /// media) is not a uuid.
+    NotAnId(&'static str),
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoCampaign => f.write_str("un nouvel élément nomme sa campagne"),
+            Self::NoType => f.write_str("un élément est un pj, un pnj, un lieu ou un evenement"),
+            Self::NoName => f.write_str("un nouvel élément a un nom"),
+            Self::OtherCampaign => f.write_str("un élément ne change pas de campagne"),
+            Self::NotAnId(field) => write!(f, "{field} n'est pas un identifiant"),
+        }
+    }
 }
 
 /// What a save becomes before it is submitted.
@@ -169,37 +240,70 @@ fn entity_of(wire: &Row) -> Map<String, Value> {
     }
 }
 
-/// The element a save names, when it names one: `entity.id`.
-#[must_use]
-pub fn element_id(wire: &Row) -> Option<String> {
-    entity_of(wire)
+/// `entity.id`, when it names one.
+fn id_of(entity: &Map<String, Value>) -> Option<String> {
+    entity
         .get("id")
         .and_then(Value::as_str)
         .filter(|id| !id.trim().is_empty())
         .map(str::to_owned)
 }
 
-/// The command a save of `wire` submits, `base` being the element's row as
-/// the commands queued ahead of it will leave it (empty for a new element).
+/// The element a save names, when it names one: `entity.id`.
 #[must_use]
-pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Prepared {
-    let entity = entity_of(wire);
-    let id = element_id(wire).unwrap_or_else(|| {
-        base.get("entityId")
+pub fn element_id(wire: &Row) -> Option<String> {
+    match wire.get("entity") {
+        Some(Value::Object(entity)) => id_of(entity),
+        _ => wire
+            .get("id")
             .and_then(Value::as_str)
-            .unwrap_or(fresh.entity)
-            .to_owned()
-    });
+            .filter(|id| !id.trim().is_empty())
+            .map(str::to_owned),
+    }
+}
+
+/// Whether `text` is a uuid as PostgreSQL writes one: 8-4-4-4-12 hex digits.
+fn is_uuid(text: &str) -> bool {
+    text.len() == 36
+        && text.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
+}
+
+/// The type an element's editor gives: `kind`, or a `type` that is one — the
+/// editor's `type` is otherwise a PC's subtitle (« Elfe des bois… »).
+fn kind_of(entity: &Map<String, Value>) -> Result<Option<&Value>, Refusal> {
+    let valid = |kind: &Value| kind.as_str().is_some_and(|kind| TYPES.contains(&kind));
+    match entity.get("kind") {
+        Some(kind) if valid(kind) => Ok(Some(kind)),
+        Some(_) => Err(Refusal::NoType),
+        None => Ok(entity.get("type").filter(|kind| valid(kind))),
+    }
+}
+
+/// The command a save of `wire` submits on the element `fresh.entity` — the
+/// one `entity.id` names, else a new one — `base` being its row as the
+/// commands queued ahead of it will leave it (empty for a new element).
+///
+/// # Errors
+///
+/// [`Refusal`] for a save the tables could never hold.
+pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Result<Prepared, Refusal> {
+    let entity = entity_of(wire);
+    let id = fresh.entity.to_owned();
     let mut payload = Row::new();
     payload.insert("entityId".into(), id.clone().into());
-    if let Some(campaign) = wire.get("campaign").filter(|c| c.is_string()) {
-        payload.insert("entityCampaignId".into(), campaign.clone());
+    let campaign = wire.get("campaign").filter(|c| c.is_string());
+    match (base.get("entityCampaignId"), campaign) {
+        (None, None) => return Err(Refusal::NoCampaign),
+        (None, Some(campaign)) => {
+            payload.insert("entityCampaignId".into(), campaign.clone());
+        }
+        (Some(own), Some(campaign)) if own != campaign => return Err(Refusal::OtherCampaign),
+        (Some(_), _) => {}
     }
-    let kind = entity
-        .get("kind")
-        .or_else(|| entity.get("type"))
-        .filter(|kind| kind.as_str().is_some_and(|kind| TYPES.contains(&kind)));
-    if let Some(kind) = kind {
+    if let Some(kind) = kind_of(&entity)? {
         payload.insert("type".into(), kind.clone());
     }
     for (given, field) in FIELDS {
@@ -230,11 +334,26 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Prepared {
         after
     };
     let after = merged(&payload);
-    if after
+    if !after.get("type").is_some_and(Value::is_string) {
+        return Err(Refusal::NoType);
+    }
+    if !after.get("name").is_some_and(Value::is_string) {
+        return Err(Refusal::NoName);
+    }
+    for field in IDS {
+        if after
+            .get(field)
+            .and_then(Value::as_str)
+            .is_some_and(|id| !is_uuid(id))
+        {
+            return Err(Refusal::NotAnId(field));
+        }
+    }
+    let character = after
         .get("type")
         .and_then(Value::as_str)
-        .is_some_and(|kind| CHARACTERS.contains(&kind))
-    {
+        .is_some_and(|kind| CHARACTERS.contains(&kind));
+    if character {
         payload.insert("characterEntityId".into(), id.clone().into());
         let colored = after
             .get("tokenColor")
@@ -246,6 +365,12 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Prepared {
         for list in ["spells", "actions"] {
             if after.get(list).is_none_or(Value::is_null) {
                 payload.insert(list.into(), Value::Array(Vec::new()));
+            }
+        }
+    } else {
+        for field in SHEET {
+            if after.get(field).is_some_and(|value| !value.is_null()) {
+                payload.insert(field.into(), Value::Null);
             }
         }
     }
@@ -266,10 +391,10 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Prepared {
     }
     let version = versioned(base, &merged(&payload));
     stamp(&mut payload, version);
-    Prepared {
+    Ok(Prepared {
         target_id: id,
         payload,
-    }
+    })
 }
 
 /// `row`'s version fields made `version`'s.
