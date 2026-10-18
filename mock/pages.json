@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "41e69308c1c4b24a"
+      "builtFrom": "746573bb695401a7"
     },
     {
       "name": "CampaignOverview",
@@ -407,7 +407,9 @@
       ],
       "props": {
         "battlemap": "string — id de la battlemap à régler"
-      }
+      },
+      "source": "apps/media/grid-settings",
+      "builtFrom": "c2c57e006228e2a6"
     },
     {
       "name": "SoundLibrary",
