@@ -381,6 +381,8 @@ async fn decide(
 struct Read {
     #[serde(default)]
     sha256: Option<String>,
+    #[serde(default)]
+    variables: serde_json::Value,
 }
 
 /// The hash `scripts/queries.sh` registered for `capability`.
@@ -409,7 +411,10 @@ async fn capability(
         .or_else(|| registered(&id))
         .unwrap_or_default();
     let answer = match engine.served(&id, sha256) {
-        Ok(()) => match (engine.data_version().await, reads.run(&id).await) {
+        Ok(()) => match (
+            engine.data_version().await,
+            reads.run(&id, &body.variables).await,
+        ) {
             (Ok(as_of), Ok(data)) => Ok(ReadResponse { as_of, data }),
             (Err(e), _) | (_, Err(e)) => Err(e),
         },
@@ -910,6 +915,26 @@ mod tests {
             assert_eq!(status, StatusCode::OK, "{answered}");
             assert!(answered["data"]["providers"].is_object(), "{answered}");
             assert!(answered["asOf"].is_u64(), "{answered}");
+        }
+    }
+
+    #[tokio::test]
+    async fn every_campaign_capability_the_product_serves_has_a_persisted_query() {
+        let variables =
+            serde_json::json!({ "variables": { "campaign": "c", "id": "e", "entity": "e" } });
+        for id in [
+            "campaign.listCampaigns",
+            "campaign.getCampaign",
+            "campaign.listPlayers",
+            "campaign.listCharacters",
+            "campaign.listPlaces",
+            "campaign.listEvents",
+            "campaign.getEntity",
+            "campaign.listEntityVersions",
+        ] {
+            assert!(registered(id).is_some(), "{id} has no persisted query");
+            let (status, answered) = read(id, variables.clone()).await;
+            assert_eq!(status, StatusCode::OK, "{id}: {answered}");
         }
     }
 
