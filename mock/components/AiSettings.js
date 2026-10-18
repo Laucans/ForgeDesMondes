@@ -591,6 +591,12 @@
     };
     s.uuid = uuid;
     s.next = () => s.tick++;
+    s.planned = async (id) => {
+      if (!s.graph) s.graph = fetch(new URL("../../plan/graph.json", location.href)).then((r) => r.ok ? r.json() : void 0).catch(() => void 0);
+      const graph = await s.graph;
+      const entry = graph && graph.ids && graph.ids[id];
+      return Boolean(entry && entry.kind === "data-capability" && entry.producer != null);
+    };
     s.tell = (message, to, commandId2, extra = {}) => {
       const m = { message, to: Array.isArray(to) ? to : [to], commandId: commandId2, at: (/* @__PURE__ */ new Date()).toISOString(), ...extra };
       s.messages.push(m);
@@ -693,6 +699,13 @@
       const entry = { commandId: commandId2, dataCapability, version: Number(version) || 1, aggregate, partition, targetId, by, payload: payload2, basedOn: body.basedOn, idempotencyKey: body.idempotencyKey, handler, position: s.next(), state: "queued", warnings: [] };
       s.queue.set(commandId2, entry);
       s.commands.set(commandId2, entry);
+      if (!handler && await s.planned(dataCapability)) {
+        entry.state = "applied";
+        entry.warnings.push(`mocked-data-capability: ${dataCapability} is planned, not built`);
+        s.tell("CommandApplied", by, commandId2, { mocked: true });
+        s.bump();
+        return answer(entry);
+      }
       if (!handler) {
         entry.state = "rejected";
         entry.violations = ["unhandled-data-capability"];
