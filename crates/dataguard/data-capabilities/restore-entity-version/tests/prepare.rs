@@ -388,3 +388,28 @@ fn lists_and_objects_are_compared_as_json_their_numbers_by_value() {
     );
     assert_eq!(restore_entity_version::diff(&before, &grown).len(), 2);
 }
+
+#[test]
+fn the_fields_a_restore_writes_are_exactly_the_ones_its_manifest_touches() {
+    let manifest: Value =
+        serde_json::from_str(include_str!("../data-capability.json")).expect("contract F");
+    let mut touches: Vec<String> = manifest["touches"]
+        .as_array()
+        .expect("touches")
+        .iter()
+        .map(|touch| touch.as_str().expect("a touch").to_owned())
+        .collect();
+    touches.sort();
+    for wire in [
+        json!({ "version": 1 }),
+        json!({ "version": 3 }),
+        json!({ "version": 1, "changes": [1] }),
+    ] {
+        let written: Vec<String> = restore(wire)
+            .expect("restored")
+            .keys()
+            .map(|field| format!("Entity.{field}"))
+            .collect();
+        assert_eq!(written, touches);
+    }
+}

@@ -8,6 +8,7 @@
     "id": "$entityId"
   },
   "touches": [
+    "Entity.entityId",
     "Entity.type",
     "Entity.name",
     "Entity.description",
@@ -34,7 +35,6 @@
     "Entity.tokenColor",
     "Entity.dndbeyondId",
     "Entity.dndbeyondSyncedAt",
-    "Entity.entityAliasId",
     "Entity.entityAliasEntityId",
     "Entity.alias",
     "Entity.entityVersionId",
