@@ -1,0 +1,10 @@
+[package]
+name = "list-scenes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability session.listScenes: a session's scenes by rank, each with its places, characters, events, notes, 'to create' entries and the media attached to it — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"
