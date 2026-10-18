@@ -61,6 +61,7 @@ mod note_import;
 mod player;
 mod projection;
 mod reads;
+mod session;
 mod sound;
 mod sound_playback;
 mod versioning;
@@ -238,6 +239,7 @@ impl Invariants for Product {
             &self.entity,
             &media::Media,
             &note_import::NoteImport,
+            &session::Session,
             &sound::Sound,
             &sound_playback::SoundPlayback,
         ];
