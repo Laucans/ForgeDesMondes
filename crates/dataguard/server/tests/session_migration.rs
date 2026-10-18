@@ -318,6 +318,9 @@ async fn each_relation_the_aggregate_declares_is_its_foreign_key_s_actions() {
     s.drop().await;
 }
 
+/// `present-only-pj`: the roster is a view of the presences. That a present
+/// character is a PC of the session's campaign is not the table's to check:
+/// it reads the Entity aggregate's rows (see session.rs).
 #[tokio::test]
 async fn present_only_pj_offers_exactly_the_present_pcs_those_checked_later_included() {
     let s = Scratch::new("roster").await;
@@ -366,6 +369,7 @@ async fn present_only_pj_offers_exactly_the_present_pcs_those_checked_later_incl
     s.drop().await;
 }
 
+/// `session-media-by-place`: the media of a session are a view, never stored.
 #[tokio::test]
 async fn session_media_by_place_follows_every_change_of_place_and_keeps_a_media_with_none() {
     let s = Scratch::new("media").await;
@@ -411,6 +415,11 @@ async fn session_media_by_place_follows_every_change_of_place_and_keeps_a_media_
     s.drop().await;
 }
 
+/// `scene-links-same-campaign`: what the tables hold of it — every link
+/// reaches its campaign through its scene's session, and goes with its
+/// element, its media or its campaign. A link to another campaign's element
+/// or media is not refused by the table: it reads the Entity and Media
+/// aggregates' rows (see session.rs).
 #[tokio::test]
 async fn scene_links_same_campaign_a_scene_s_links_go_with_their_element_their_media_and_their_campaign()
  {
@@ -464,6 +473,8 @@ async fn scene_links_same_campaign_a_scene_s_links_go_with_their_element_their_m
     s.drop().await;
 }
 
+/// `status-lifecycle` and `close-session`: the statuses the table takes, and
+/// what a close records.
 #[tokio::test]
 async fn status_lifecycle_and_close_session_take_only_their_statuses_and_record_the_close() {
     let s = Scratch::new("status").await;
@@ -516,6 +527,8 @@ async fn status_lifecycle_and_close_session_take_only_their_statuses_and_record_
     s.drop().await;
 }
 
+/// `brief-no-auto-creation` and `to-create-leaves-once-created`: the values
+/// an entry « à créer » takes, and the element its creation names.
 #[tokio::test]
 async fn brief_no_auto_creation_and_to_create_leaves_once_created_take_only_their_values() {
     let s = Scratch::new("to_create").await;
@@ -556,6 +569,7 @@ async fn brief_no_auto_creation_and_to_create_leaves_once_created_take_only_thei
     s.drop().await;
 }
 
+/// `text-only-no-audio`: no column of the aggregate's tables holds audio.
 #[tokio::test]
 async fn text_only_no_audio_no_column_of_the_aggregate_holds_audio() {
     let s = Scratch::new("text_only").await;
@@ -582,6 +596,8 @@ async fn text_only_no_audio_no_column_of_the_aggregate_holds_audio() {
     s.drop().await;
 }
 
+/// `previous-summary-visible`: the next session reads the closed one's
+/// summary and journal.
 #[tokio::test]
 async fn previous_summary_visible_the_next_session_reads_the_closed_one_s_summary_and_journal() {
     let s = Scratch::new("previous").await;

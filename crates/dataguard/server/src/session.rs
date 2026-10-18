@@ -28,8 +28,8 @@ const AGGREGATE: &str = "Session";
 
 /// A session's status, in the order it passes through them.
 const STATUS: &str = "sessionStatus";
-const LIFECYCLE: [&str; 3] = ["prep", "live", "closed"];
 const CLOSED: &str = "closed";
+const LIFECYCLE: [&str; 3] = ["prep", "live", CLOSED];
 
 /// The fields of a journal line, which a closed session no longer takes.
 const JOURNAL: [&str; 5] = [
@@ -52,11 +52,11 @@ const SCENE_POSITION: &str = "scenePosition";
 
 /// An entry of the « à créer » list: its id and status, which say a row is
 /// one; the element it created; what the analysis of a brief writes it with.
-const TO_CREATE: [&str; 2] = ["entityToCreateId", "entityToCreateStatus"];
 const TO_CREATE_STATUS: &str = "entityToCreateStatus";
-const TO_CREATE_STATUSES: [&str; 2] = ["a_creer", "creee"];
+const TO_CREATE: [&str; 2] = ["entityToCreateId", TO_CREATE_STATUS];
 const A_CREER: &str = "a_creer";
 const CREEE: &str = "creee";
+const TO_CREATE_STATUSES: [&str; 2] = [A_CREER, CREEE];
 const CREATED: &str = "createdEntityId";
 const TYPE: &str = "type";
 const TO_CREATE_TYPES: [&str; 3] = ["pnj", "lieu", "evenement"];
@@ -175,7 +175,8 @@ fn session_media_by_place(state: &BTreeMap<String, Value>, _entry: &Entry) -> bo
 /// créer », with no element, with its type and its excerpt.
 fn brief_no_auto_creation(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     // Written now: an insert, or an upsert of a row the engine does not hold.
-    let born = entry.effect == Effect::Insert || entry.projection.confirmed.is_empty();
+    let born = entry.effect == Effect::Insert
+        || (entry.effect == Effect::Upsert && entry.projection.confirmed.is_empty());
     if !born || !TO_CREATE.iter().any(|field| set(state, field)) {
         return true;
     }
