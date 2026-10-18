@@ -2,7 +2,7 @@
   "version": 1,
   "heads": {
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
-    "main_agent": "bf43857db87a7497b6a61021704bc68fba849358",
+    "main_agent": "c91ece0defbb2c39696de7e0462912009ef8417f",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
     "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8231e1957a1c7f5f44be11679c0f3bf1380ff473",
     "milestone/18-campaigns-players-and-characters-with-versioned-history": "dff51aa8df9a46b6179c5e8861de892d8046fee2",
@@ -12,7 +12,7 @@
     "milestone/23-notes-import-extraction-then-validation-in-a-batch": "6a68b23e4b85ff361ded198f7150b7ab941bce18",
     "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "d10b53ce54920367e28f1f65927767ebd23da00b",
     "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "19da7a92ef53a39df9c0c86adf0e86c04c02dcaf",
-    "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "5b1ed4ce7f019e893ca34f4c85b4cf8689fde07a",
+    "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "1c44e3da6e344c17e30d15bba9d5fd00fd9d5233",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
   },
