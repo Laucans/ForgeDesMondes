@@ -1,0 +1,16 @@
+[package]
+name = "soundbox-read"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The soundbox system's read crate: the read-only connection its Capabilities read through (DATABASE_URL_READONLY), with no write API."
+publish = false
+
+[dependencies]
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", default-features = false, features = ["rt"] }
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

@@ -533,4 +533,44 @@ mod tests {
             "{body}"
         );
     }
+
+    #[tokio::test]
+    async fn a_soundbox_read_no_capability_registers_is_a_clean_404() {
+        for body in [
+            json!({ "sha256": "0".repeat(64), "variables": {} }),
+            json!({ "variables": {} }),
+        ] {
+            let (status, answer) = answer(
+                Method::POST,
+                "/capabilities/soundbox.listSounds",
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
+            assert!(
+                answer["error"]
+                    .as_str()
+                    .is_some_and(|e| e.contains("soundbox.listSounds")
+                        && e.contains("not a registered persisted query")),
+                "{answer}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_soundbox_command_goes_to_the_engine_like_an_ai_one() {
+        // Neither is registered in the in-memory engine of this test: both are
+        // answered by the engine's queue (`POST /commands`), the same way.
+        for data_capability in ["soundbox.playSound", "ai.noSuchCapability"] {
+            let (status, body) = answer(
+                Method::POST,
+                "/commands",
+                Some(json!({ "dataCapability": data_capability, "payload": {} })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+            let error = body["error"].as_str().unwrap_or_default();
+            assert_eq!(error, format!("no DataCapability named {data_capability}"));
+        }
+    }
 }
