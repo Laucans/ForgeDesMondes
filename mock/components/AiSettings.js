@@ -540,7 +540,16 @@
   };
 
   // mock/src/reads.js
-  var READS = {};
+  var STATUS_LABELS = { prep: "En pr\xE9paration", live: "En direct", closed: "Jou\xE9e", played: "Jou\xE9e" };
+  var READS = {
+    // One session's header and its present PCs: a session of `session.listSessions`.
+    "session.getSession": async (server, { id }) => {
+      const session = (await server.load("session.listSessions")).find((s) => s.id === id);
+      if (!session) return void 0;
+      const { summary: _summary, ...header } = session;
+      return { ...header, statusLabel: STATUS_LABELS[session.status] ?? null };
+    }
+  };
 
   // mock/src/server.js
   var LATENCY_MS = 120;

@@ -1,0 +1,19 @@
+# fields: session.id, session.position, session.title, session.plannedOn, session.status, sessionPresentCharacter.sessionId, sessionPresentCharacter.characterId, sessionPresentCharacter.addedAt
+# One session's header for the preparation screen: its number, title, date and
+# status, with the PCs ticked present, in the order they were ticked. The
+# present PCs are exactly the rows of the session's present list, those added
+# later included (present-only-pj). The status is read as stored; its label is
+# derived (SessionLifecycle@1), never read.
+query GetSession($id: ID!) {
+  session(id: $id) {
+    id
+    position
+    title
+    plannedOn
+    status
+    presentCharacters {
+      characterId
+      addedAt
+    }
+  }
+}

@@ -7,4 +7,16 @@
 //   'campagne.listerPjs': async (server, { campagneId }) =>
 //     (await server.load('pjs')).filter((p) => p.campagneId === campagneId),
 
-export const READS = {};
+// The label of each status, SessionLifecycle@1; the mock-up's list writes a
+// session already played `played`.
+const STATUS_LABELS = { prep: 'En préparation', live: 'En direct', closed: 'Jouée', played: 'Jouée' };
+
+export const READS = {
+  // One session's header and its present PCs: a session of `session.listSessions`.
+  'session.getSession': async (server, { id }) => {
+    const session = (await server.load('session.listSessions')).find((s) => s.id === id);
+    if (!session) return undefined;
+    const { summary: _summary, ...header } = session;
+    return { ...header, statusLabel: STATUS_LABELS[session.status] ?? null };
+  },
+};
