@@ -480,6 +480,60 @@
     return mounted;
   }
 
+  // mock/src/reads.js
+  var bridged = /* @__PURE__ */ new WeakSet();
+  async function instanceOf(server, id) {
+    const data = await server.load("table.getBattlemapInstance");
+    if (!data || id && data.id !== id) return void 0;
+    const store = window.Mock && window.Mock.store;
+    if (store && !bridged.has(data)) {
+      bridged.add(data);
+      data.state = store.get(`map:${data.id}`, data.state);
+      store.on(`map:${data.id}`, (state) => {
+        if (state && state !== data.state) {
+          data.state = state;
+          server.bump();
+        }
+      });
+    }
+    return data;
+  }
+  function shareInstance(data) {
+    if (window.Mock) window.Mock.store.set(`map:${data.id}`, data.state);
+  }
+  function healthBand(hp, hpMax) {
+    if (typeof hp !== "number" || typeof hpMax !== "number") return null;
+    const current = Math.max(0, Math.min(hpMax, hp));
+    return current === 0 ? "mort" : current === hpMax ? "indemne" : 2 * current > hpMax ? "bless\xE9" : "en sang";
+  }
+  async function dressed(server, tokens) {
+    const characters = await server.load("campaign.listCharacters") || [];
+    return tokens.map((t) => {
+      const c = characters.find((x) => x.id === t.char);
+      return c ? { ...t, initials: c.initials, color: c.color, portrait: c.portrait } : t;
+    });
+  }
+  var READS = {
+    // table.getBattlemapInstance (crates/table/capabilities/get-battlemap-instance):
+    // the DM sees everything; the players no hidden token, no hit point figure, no
+    // note — each visible NPC gives its HealthBand@1 band instead.
+    "table.getBattlemapInstance": async (server, { instance, view } = {}) => {
+      const data = await instanceOf(server, instance);
+      if (!data) return data;
+      const dressedTokens = await dressed(server, data.state.tokens);
+      if (view !== "player") return { ...data, state: { ...data.state, tokens: dressedTokens } };
+      const tokens = dressedTokens.filter((t) => t.visible).map(({ hp, hpMax, ...rest }) => ({ ...rest, healthBand: rest.kind === "pnj" ? healthBand(hp, hpMax) : null }));
+      return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat: null } };
+    },
+    // media.getBattlemap (crates/media/capabilities/get-battlemap): one battlemap
+    // by its id, its grid per HexGrid@1 — the opacity a fraction of 1, a hex 5 feet.
+    "media.getBattlemap": async (server, { id } = {}) => {
+      const map = await server.load("media.getBattlemap");
+      if (!map || id && map.id !== id) return void 0;
+      return { ...map, grid: { ...map.grid, opacity: map.grid.opacity > 1 ? map.grid.opacity / 100 : map.grid.opacity, feetPerHex: 5 } };
+    }
+  };
+
   // mock/src/commands.js
   function apiType(settings, url) {
     let host2 = "";
@@ -491,7 +545,108 @@
     const home = settings.providers.opencode.url;
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
+  var AROUND = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  function freeHexes(start, taken, count) {
+    const busy = new Set(taken.map((t) => `${t.q},${t.r}`));
+    const seen = /* @__PURE__ */ new Set([`${start.q},${start.r}`]);
+    const queue = [start];
+    const out = [];
+    for (let i = 0; i < queue.length && out.length < count; i += 1) {
+      const hex = queue[i];
+      if (!busy.has(`${hex.q},${hex.r}`)) out.push(hex);
+      for (const [dq, dr] of AROUND) {
+        const next = { q: hex.q + dq, r: hex.r + dr };
+        if (!seen.has(`${next.q},${next.r}`)) {
+          seen.add(`${next.q},${next.r}`);
+          queue.push(next);
+        }
+      }
+    }
+    return out;
+  }
+  async function onToken(server, target, token, change) {
+    const data = await instanceOf(server, target && target.id);
+    const found = data && data.state.tokens.find((t) => t.id === token);
+    if (!found) return ["instance-isolated"];
+    const violations = change(found, data.state);
+    if (violations) return violations;
+    shareInstance(data);
+    return void 0;
+  }
   var COMMANDS = {
+    // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
+    // one position both views read.
+    "table.moveToken": (server, { payload: payload2, targetId }) => onToken(server, { id: targetId }, payload2.token, (t) => {
+      t.q = payload2.q;
+      t.r = payload2.r;
+    }),
+    // table.renameToken: only that token's name; an empty name is refused.
+    "table.renameToken": (server, { payload: payload2, targetId }) => onToken(server, { id: targetId }, payload2.token, (t) => {
+      if (!String(payload2.name || "").trim()) return ["name-required"];
+      t.name = String(payload2.name).trim();
+      return void 0;
+    }),
+    // table.setTokenVisibility: hidden tokens keep their place; the players do not read them.
+    "table.setTokenVisibility": (server, { payload: payload2, targetId }) => onToken(server, { id: targetId }, payload2.token, (t) => {
+      t.visible = payload2.visible === true;
+    }),
+    // table.setTokenCondition: the badges of that token alone.
+    "table.setTokenCondition": (server, { payload: payload2, targetId }) => onToken(server, { id: targetId }, payload2.token, (t) => {
+      t.states = [...payload2.conditions || []];
+    }),
+    // table.removeToken: the token leaves the map.
+    "table.removeToken": (server, { payload: payload2, targetId }) => onToken(server, { id: targetId }, payload2.token, (t, state) => {
+      state.tokens = state.tokens.filter((x) => x !== t);
+    }),
+    // table.placeTokens: one character dropped, once or « × n »; the new tokens
+    // are numbered after those already taken for it (multi-drop-numbering), a
+    // monster takes its hit points from its sheet, a PC has one token.
+    "table.placeTokens": async (server, { payload: payload2, targetId }) => {
+      const data = await instanceOf(server, targetId);
+      const character = (await server.load("campaign.listCharacters") || []).find((c) => c.id === payload2.character);
+      if (!data || !character) return ["instance-isolated"];
+      const { tokens } = data.state;
+      const mine = tokens.filter((t) => t.char === character.id);
+      const pnj = character.kind === "pnj";
+      if (!pnj && mine.length) return ["token-roster"];
+      const count = pnj ? Math.max(1, Math.min(12, Number(payload2.count) || 1)) : 1;
+      const base = character.tokenName || String(character.name).split(" ")[0];
+      let num = Math.max(0, ...mine.map((t) => t.num || 0));
+      const numbered = pnj && (count > 1 || mine.length > 0);
+      for (const hex of freeHexes({ q: payload2.q, r: payload2.r }, tokens, count)) {
+        num += 1;
+        tokens.push({
+          id: `t-${character.id}${pnj ? `-${num}` : ""}`,
+          char: character.id,
+          kind: character.kind,
+          name: numbered ? `${base} ${num}` : base,
+          num: pnj ? num : null,
+          q: hex.q,
+          r: hex.r,
+          visible: true,
+          hp: pnj ? character.pvMax : null,
+          hpMax: pnj ? character.pvMax : null,
+          states: [],
+          dead: false
+        });
+      }
+      shareInstance(data);
+      return void 0;
+    },
+    // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
+    // the battlemap becomes the player view's base, framed as the DM framed it.
+    "live.showOnPlayerView": async (server, { payload: payload2 }) => {
+      const data = await instanceOf(server, payload2.instance);
+      if (payload2.kind !== "battlemap" || !data) return ["base-coherent"];
+      const store = window.Mock && window.Mock.store;
+      if (store) {
+        const diffusion = store.get("diffusion", { base: { kind: "cover" }, window: null, view: null });
+        diffusion.base = { kind: "battlemap", id: data.id };
+        diffusion.view = { z: payload2.zoom, px: payload2.panX, py: payload2.panY };
+        store.set("diffusion", diffusion);
+      }
+      return void 0;
+    },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
     // never taken from the payload: the cloud host by itself, the home server
@@ -538,9 +693,6 @@
       return void 0;
     }
   };
-
-  // mock/src/reads.js
-  var READS = {};
 
   // mock/src/server.js
   var LATENCY_MS = 120;
