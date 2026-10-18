@@ -56,6 +56,7 @@ mod campaign;
 mod entity;
 mod exports;
 mod history;
+mod media;
 mod note_import;
 mod player;
 mod projection;
@@ -229,11 +230,12 @@ impl Invariants for Product {
         state: &std::collections::BTreeMap<String, serde_json::Value>,
         entry: &Entry,
     ) -> Vec<String> {
-        let judges: [&dyn Invariants; 6] = [
+        let judges: [&dyn Invariants; 7] = [
             &ai_settings::AiSettings,
             &campaign::Campaign,
             &player::Player,
             &self.entity,
+            &media::Media,
             &note_import::NoteImport,
             &sound::Sound,
         ];

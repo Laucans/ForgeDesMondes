@@ -290,13 +290,15 @@ async fn the_migration_replays_as_a_no_op_over_the_campaign_and_player_tables() 
     };
     assert!(at("0003_player.sql") < at("0004_entity.sql"), "{applied:?}");
     assert_eq!(s.snapshot().await, first);
-    // A trigger dropped and created again is there once, as it was. Counted
-    // on the tables this migration puts its triggers on: a later migration's
-    // own are not this one's.
+    // A trigger dropped and created again is there once, as it was: those
+    // of this migration's functions, which the later migrations' triggers
+    // are not.
     assert_eq!(
         s.count(
-            "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = ANY (ARRAY[\
-             'entity', 'character', 'entity_alias', 'entity_version', 'player']::regclass[])"
+            "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal \
+             AND tgfoid::regproc::text IN ('character_is_pj_or_pnj_trigger', \
+             'alias_unique_in_campaign_trigger', 'entity_version_never_modified', \
+             'entity_version_added', 'every_change_versioned_trigger')"
         )
         .await,
         10
@@ -306,7 +308,13 @@ async fn the_migration_replays_as_a_no_op_over_the_campaign_and_player_tables() 
 
 #[tokio::test]
 async fn the_tables_and_views_are_what_data_model_json_describes() {
-    let s = Scratch::new("model").await;
+    let mut s = Scratch::new("model").await;
+    // The model describes the schema every migration builds: the later ones
+    // give the sheet's portrait and token their foreign keys to media.id.
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/migrations");
+    data::migrate(&mut s.client, std::path::Path::new(dir))
+        .await
+        .expect("migrated by the Data layer");
     for table in TABLES {
         let keys = s.foreign_keys(table).await;
         let real: Vec<(String, String, bool, Option<String>)> = s

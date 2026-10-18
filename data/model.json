@@ -261,9 +261,10 @@
           "name": "cover_media_id",
           "nullable": true,
           "purpose": "Illustration de couverture, aussi affichée par défaut sur la player view.",
+          "references": "media.id",
           "type": "uuid",
           "technical": [
-            "Colonne simple pour l'instant : sa clé étrangère vers media.id (onDelete nullify, onUpdate propagate de l'agrégat) arrive avec la table de l'agrégat Media."
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Campaign.coverMediaId : onDelete nullify, onUpdate propagate), posée par crates/data/migrations/0005_media.sql ; indexée (campaign_cover_media_id)."
           ]
         },
         {
@@ -678,9 +679,10 @@
           "name": "portrait_media_id",
           "nullable": true,
           "purpose": "Portrait du personnage.",
+          "references": "media.id",
           "type": "uuid",
           "technical": [
-            "Colonne simple pour l'instant : sa clé étrangère vers media.id (relation Entity.portraitMediaId : onDelete nullify, onUpdate propagate) vient avec la table du Media aggregate."
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Entity.portraitMediaId : onDelete nullify, onUpdate propagate), posée par crates/data/migrations/0005_media.sql ; indexée (character_portrait_media_id). Ce que fait la relation n'est l'enregistrement de personne : every_change_versioned ne demande pas de version, et le recadrage part avec le portrait (trigger token_crop_follows_portrait)."
           ]
         },
         {
@@ -690,9 +692,10 @@
           "name": "token_media_id",
           "nullable": true,
           "purpose": "Image de token dédiée, si le DM en a fourni une.",
+          "references": "media.id",
           "type": "uuid",
           "technical": [
-            "Colonne simple pour l'instant : sa clé étrangère vers media.id (relation Entity.tokenMediaId : onDelete nullify, onUpdate propagate) vient avec la table du Media aggregate."
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Entity.tokenMediaId : onDelete nullify, onUpdate propagate), posée par crates/data/migrations/0005_media.sql ; indexée (character_token_media_id). Ce que fait la relation n'est l'enregistrement de personne : every_change_versioned ne demande pas de version."
           ]
         },
         {
@@ -704,7 +707,8 @@
           "purpose": "Recadrage du portrait utilisé comme token.",
           "type": "jsonb",
           "technical": [
-            "CHECK character_default_token_crop : un recadrage n'existe qu'avec un portrait (default-token)."
+            "CHECK character_default_token_crop : un recadrage n'existe qu'avec un portrait (default-token).",
+            "Trigger token_crop_follows_portrait (0005_media.sql) : un portrait annulé par la suppression de son média emporte son recadrage."
           ]
         },
         {
@@ -901,6 +905,215 @@
       ],
       "name": "entity_version",
       "purpose": "Version enregistrée d'un élément, avec son diff et sa source. Une version n'est jamais modifiée."
+    },
+    {
+      "business": [
+        "R14",
+        "R97",
+        "R112",
+        "grid-only-for-battlemap : seule une battlemap a un réglage de grille, et elle en a toujours un dès son téléversement",
+        "media-place-is-lieu : le lieu d'un média, s'il est renseigné, est un élément de type « lieu » de la même campagne",
+        "Une suppression est logique, une pierre tombale du DataGuard, sauf accord d'un humain"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du média.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0005_media.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne du média.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Media.campaignId : onDelete cascade, onUpdate propagate).",
+            "Indexée (media_campaign_id) : les médias d'une campagne sont lus et supprimés par elle.",
+            "Trigger de contrainte différé media_place_is_lieu : le lieu du média est de cette campagne."
+          ]
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "kind",
+          "nullable": false,
+          "purpose": "« battlemap » ou « illustration ».",
+          "type": "text",
+          "technical": [
+            "CHECK media_kind : « battlemap » ou « illustration ».",
+            "Trigger de contrainte différé grid_only_for_battlemap : une battlemap a sa grille dans la transaction de son téléversement, un autre média n'en a pas."
+          ]
+        },
+        {
+          "business": [],
+          "name": "title",
+          "nullable": false,
+          "purpose": "Titre affiché sur la carte du média.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "file_path",
+          "nullable": false,
+          "purpose": "Chemin local du fichier image.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R112"
+          ],
+          "name": "width_px",
+          "nullable": false,
+          "purpose": "Largeur de l'image.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R112"
+          ],
+          "name": "height_px",
+          "nullable": false,
+          "purpose": "Hauteur de l'image.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R97"
+          ],
+          "name": "place_id",
+          "nullable": true,
+          "purpose": "Lieu auquel le média est rattaché. Facultatif.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Media.placeId : onDelete nullify, onUpdate propagate).",
+            "Indexée (media_place_id).",
+            "Trigger de contrainte différé media_place_is_lieu, sur media et sur entity : l'élément est de type « lieu » et de la campagne du média."
+          ]
+        },
+        {
+          "business": [],
+          "name": "uploaded_at",
+          "nullable": false,
+          "purpose": "Date du téléversement.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "media",
+      "purpose": "Battlemap ou illustration préconstruite et téléversée, éventuellement rattachée à un lieu."
+    },
+    {
+      "business": [
+        "R14",
+        "grid-only-for-battlemap : seule une battlemap a un réglage de grille, et elle en a toujours un dès son téléversement",
+        "hex-is-five-feet : un hex vaut toujours 5 pieds, quels que soient sa taille, son décalage ou son orientation",
+        "grid-values-range : la taille d'un hex est strictement positive et l'opacité reste entre 0 et 1"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "media_id",
+          "nullable": false,
+          "purpose": "Battlemap réglée.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire : une grille au plus par battlemap.",
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Media.mediaId : onDelete cascade, onUpdate propagate).",
+            "Trigger de contrainte différé grid_only_for_battlemap : le média est une battlemap ; sa grille ne la quitte qu'avec elle."
+          ]
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "hex_size_px",
+          "nullable": false,
+          "purpose": "Taille d'un hex en pixels de l'image.",
+          "type": "numeric(7,2)",
+          "technical": [
+            "CHECK grid_values_range : strictement positive."
+          ]
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "offset_x",
+          "nullable": false,
+          "purpose": "Décalage horizontal de la grille.",
+          "type": "numeric(7,2)"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "offset_y",
+          "nullable": false,
+          "purpose": "Décalage vertical de la grille.",
+          "type": "numeric(7,2)"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "orientation",
+          "nullable": false,
+          "purpose": "« pointe » ou « plat ».",
+          "type": "text",
+          "technical": [
+            "CHECK battlemap_grid_orientation : « pointe » ou « plat »."
+          ]
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "color",
+          "nullable": false,
+          "purpose": "Couleur des traits de la grille.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "opacity",
+          "nullable": false,
+          "purpose": "Opacité de la grille, entre 0 et 1.",
+          "type": "numeric(3,2)",
+          "technical": [
+            "CHECK grid_values_range : entre 0 et 1."
+          ]
+        },
+        {
+          "business": [
+            "R14",
+            "R19"
+          ],
+          "name": "feet_per_hex",
+          "nullable": false,
+          "purpose": "Colonne générée, toujours égale à 5.",
+          "type": "smallint",
+          "technical": [
+            "GENERATED ALWAYS AS (5) STORED : jamais écrite.",
+            "CHECK hex_is_five_feet : égale à 5."
+          ]
+        }
+      ],
+      "name": "battlemap_grid",
+      "purpose": "Réglage de la grille hexagonale d'une battlemap."
     },
     {
       "business": [
