@@ -15,6 +15,12 @@
 //!   text — never the key.
 //! - **[`fake`]** answers deterministically and sends nothing: the tests, the
 //!   CI, the rules' runtime and the mock-up run on it.
+//! - **The answer to a [`TextKind::Notes`] request** is one JSON object, no
+//!   prose around it: `{"proposals":[{"type":"pnj","name":"…","excerpt":"…"}]}`,
+//!   `type` being `pj`, `pnj`, `lieu` or `evenement`, `excerpt` the words of
+//!   the notes that justify the proposal. `ai.extractFromNotes` parses it; the
+//!   fake answers it ([`fake`] says how) and an adapter's prompt asks the model
+//!   for the same shape.
 //! - **[`contract`]** is the suite every adapter passes, run against itself
 //!   from its own tests.
 //!
