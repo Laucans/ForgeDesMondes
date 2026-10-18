@@ -1,0 +1,28 @@
+# fields: Media.id, Media.campaignId, Media.kind, Media.title, Media.filePath, Media.widthPx, Media.heightPx, Media.placeId, Media.uploadedAt, Media.hexSizePx, Media.offsetX, Media.offsetY, Media.orientation, Media.color, Media.opacity, Campaign.coverMediaId
+# The media library's read: every media with its grid settings when it is a
+# battlemap, and whether it is its campaign's cover. The Capability keeps the
+# rows of the campaign it is asked for (crates/media/capabilities/list-media).
+query ListMedia {
+  media {
+    id
+    campaignId
+    kind
+    title
+    filePath
+    widthPx
+    heightPx
+    placeId
+    uploadedAt
+    grid {
+      hexSizePx
+      offsetX
+      offsetY
+      orientation
+      color
+      opacity
+    }
+    campaign {
+      coverMediaId
+    }
+  }
+}
