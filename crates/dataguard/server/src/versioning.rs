@@ -26,6 +26,7 @@ use serde_json::Value;
 
 use crate::aliases::Aliases;
 use crate::history::History;
+use crate::projection::ProjectingStore;
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -148,11 +149,13 @@ impl Store for Versioning {
     }
 }
 
-/// The rows the engine holds, as a command about to be submitted sees them.
+/// The rows the engine holds, as a command about to be submitted sees them,
+/// and — over a database — what its tables hold of a campaign.
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
     history: Arc<History>,
+    tables: Option<Arc<ProjectingStore>>,
 }
 
 impl Rows {
@@ -163,7 +166,35 @@ impl Rows {
 
     /// The rows of `store`, the versions of its elements kept in `history`.
     pub(crate) fn keeping(store: Arc<dyn Store>, history: Arc<History>) -> Self {
-        Self { store, history }
+        Self {
+            store,
+            history,
+            tables: None,
+        }
+    }
+
+    /// The same, a campaign's archive read from `tables`.
+    pub(crate) fn reading(self, tables: Option<Arc<ProjectingStore>>) -> Self {
+        Self { tables, ..self }
+    }
+
+    /// What the tables hold of the campaign `id` names, as an archive holds
+    /// it (`campaign.exportCampaign`): `None` when they hold no such
+    /// campaign — and over the engine's memory, which has no table.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn archived(&self, id: &str) -> Result<Option<Value>> {
+        let Some(tables) = &self.tables else {
+            return Ok(None);
+        };
+        tables.archived(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
     }
 
     /// The versions of `element` a restoration can name, oldest first.
