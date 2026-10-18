@@ -12,6 +12,7 @@
     "milestone/23-notes-import-extraction-then-validation-in-a-batch": "ac2a764e4b7b422616d28986b5f5498703646527",
     "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "5513b20e3fbd9b9c16c0dd0081e6e67b0b05503c",
     "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "87ed7e8714683bd43e2cf6ebd011b71544f6a09b",
+    "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "f6bfd93a5777276dc60504784701c487e8c8a902",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
   },
@@ -157,6 +158,14 @@
       "sha": "f6bfd93a5777276dc60504784701c487e8c8a902",
       "at": "2026-10-18T09:31:55Z",
       "dir": "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations/20261018T093155Z-f6bfd93",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/28-closing-a-session-journal-summary-and-preparation-screen",
+      "sha": "f6bfd93a5777276dc60504784701c487e8c8a902",
+      "at": "2026-10-18T09:45:26Z",
+      "dir": "milestone/28-closing-a-session-journal-summary-and-preparation-screen/20261018T094526Z-f6bfd93",
       "schema": true,
       "model": true
     }
