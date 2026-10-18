@@ -540,7 +540,13 @@
   };
 
   // mock/src/reads.js
-  var READS = {};
+  var READS = {
+    // One element's sheet: a character, a place or an event of `entities`.
+    "campaign.getEntity": async (server, { id }) => {
+      const entities = await server.load("entities");
+      return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+    }
+  };
 
   // mock/src/server.js
   var LATENCY_MS = 120;

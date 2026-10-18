@@ -7,4 +7,10 @@
 //   'campagne.listerPjs': async (server, { campagneId }) =>
 //     (await server.load('pjs')).filter((p) => p.campagneId === campagneId),
 
-export const READS = {};
+export const READS = {
+  // One element's sheet: a character, a place or an event of `entities`.
+  'campaign.getEntity': async (server, { id }) => {
+    const entities = await server.load('entities');
+    return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+  },
+};
