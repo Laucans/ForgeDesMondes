@@ -215,6 +215,14 @@ fn a_save_the_tables_could_never_hold_is_refused() {
         ),
         Refusal::NoName
     );
+    // A name of blanks alone is none: AliasMatch@1 normalises it to nothing.
+    assert_eq!(
+        refused(
+            json!({ "campaign": VALOMBRE, "entity": { "kind": "pnj", "name": " \t " } }),
+            &none
+        ),
+        Refusal::NoName
+    );
     for (wire, field) in [
         (
             json!({ "campaign": "cendres-valombre", "entity": { "kind": "pnj", "name": "Morlox" } }),
@@ -243,6 +251,31 @@ fn a_save_the_tables_could_never_hold_is_refused() {
             &base
         ),
         Refusal::OtherCampaign
+    );
+}
+
+#[test]
+fn aliases_that_are_not_a_list_are_refused_never_read_as_none() {
+    let base = after(&Row::new(), &new(morlox()).expect("saved"));
+    for aliases in [
+        Value::Null,
+        json!("le gobelin"),
+        json!({ "0": "le gobelin" }),
+    ] {
+        let wire = json!({ "campaign": VALOMBRE, "entity": { "id": MORLOX, "aliases": aliases } });
+        assert_eq!(
+            prepare(&row(wire), &base, fresh("f2", NOW)),
+            Err(Refusal::NotAliases),
+            "{aliases}"
+        );
+    }
+    // Left out, they are kept as they were.
+    let wire = json!({ "campaign": VALOMBRE, "entity": { "id": MORLOX, "notes": "…" } });
+    let kept = prepare(&row(wire), &base, fresh("f2", NOW)).expect("saved");
+    assert!(!kept.payload.contains_key("alias"));
+    assert_eq!(
+        after(&base, &kept)["alias"],
+        json!(["le gobelin", "le marchand"])
     );
 }
 
@@ -376,6 +409,7 @@ fn a_refusal_says_what_the_tables_could_never_hold() {
         Refusal::NotAnId("playerId"),
         Refusal::NotASmallint("hpMax"),
         Refusal::Nul("notes".to_owned()),
+        Refusal::NotAliases,
     ]
     .iter()
     .map(ToString::to_string)
@@ -390,6 +424,7 @@ fn a_refusal_says_what_the_tables_could_never_hold() {
             "playerId n'est pas un identifiant",
             "hpMax n'est pas un entier de -32768 à 32767",
             "notes contient un caractère nul",
+            "les alias sont une liste",
         ]
     );
 }

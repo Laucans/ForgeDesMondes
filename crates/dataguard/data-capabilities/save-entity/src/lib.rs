@@ -199,7 +199,7 @@ pub enum Refusal {
     /// A new element has no type, or a type given is none of `pj`, `pnj`,
     /// `lieu`, `evenement`.
     NoType,
-    /// A new element has no name.
+    /// A new element has no name, or one of blanks alone.
     NoName,
     /// An element saved under another campaign than its own.
     OtherCampaign,
@@ -211,6 +211,8 @@ pub enum Refusal {
     /// A field holds the character U+0000 somewhere, which neither `text`
     /// nor `jsonb` can hold.
     Nul(String),
+    /// The aliases given are not a list: `null` would erase them all.
+    NotAliases,
 }
 
 impl std::fmt::Display for Refusal {
@@ -225,6 +227,7 @@ impl std::fmt::Display for Refusal {
                 write!(f, "{field} n'est pas un entier de -32768 à 32767")
             }
             Self::Nul(field) => write!(f, "{field} contient un caractère nul"),
+            Self::NotAliases => f.write_str("les alias sont une liste"),
         }
     }
 }
@@ -359,8 +362,12 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Result<Prepared, Ref
             payload.insert(field.into(), score.clone());
         }
     }
-    if let Some(aliases) = entity.get("aliases") {
-        payload.insert(ALIAS.into(), Value::Array(unique(aliases)));
+    match entity.get("aliases") {
+        Some(aliases) if aliases.is_array() => {
+            payload.insert(ALIAS.into(), Value::Array(unique(aliases)));
+        }
+        Some(_) => return Err(Refusal::NotAliases),
+        None => {}
     }
     let merged = |payload: &Row| {
         let mut after = base.clone();
@@ -371,7 +378,11 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Result<Prepared, Ref
     if !after.get("type").is_some_and(Value::is_string) {
         return Err(Refusal::NoType);
     }
-    if !after.get("name").is_some_and(Value::is_string) {
+    let named = after
+        .get("name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty());
+    if !named {
         return Err(Refusal::NoName);
     }
     for field in IDS {
