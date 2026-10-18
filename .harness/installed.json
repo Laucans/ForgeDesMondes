@@ -27,7 +27,7 @@
     "crates/dataguard/server/build.rs": "4c1f3f3a2b37bff8",
     "crates/platform/conformance/Cargo.toml": "cdc993103aadd4ff",
     "data/model.json": "648bb79d0211ab3a",
-    "docs/ARCHITECTURE.md": "1a010da78662923e",
+    "docs/ARCHITECTURE.md": "3eac1b350f84afcd",
     "docs/DATA-INTEGRITY.md": "7ab3a9aab87f743d",
     "mock/build.mjs": "e8064496c4c0c0b6",
     "mock/build.sh": "459136bdf084ac81",
