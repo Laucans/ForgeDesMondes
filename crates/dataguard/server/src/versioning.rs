@@ -7,7 +7,8 @@
 //! computation (`save_entity::versioned`): a command ahead that was
 //! cancelled or rejected leaves no gap in the numbers and no change in the
 //! diff that never happened. Over the engine's memory it keeps [`Aliases`]
-//! too, which `alias-unique-in-campaign` reads; over a database the
+//! too, which `alias-unique-in-campaign` reads, and the [`History`] of the
+//! versions a restoration is prepared against; over a database the
 //! projection keeps them, once the tables hold the write. Every other method
 //! is the inner store's.
 
@@ -19,10 +20,12 @@ use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
+use restore_entity_version::Kept;
 use save_entity::{stamp, versioned};
 use serde_json::Value;
 
 use crate::aliases::Aliases;
+use crate::history::History;
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -36,13 +39,24 @@ pub fn element_of(write: &Write) -> Option<&str> {
 pub struct Versioning {
     inner: Arc<dyn Store>,
     aliases: Option<Arc<Aliases>>,
+    history: Option<Arc<History>>,
 }
 
 impl Versioning {
     /// The store over `inner`, keeping `aliases` — `None` when `inner` keeps
     /// them itself, after its tables.
     pub fn new(inner: Arc<dyn Store>, aliases: Option<Arc<Aliases>>) -> Self {
-        Self { inner, aliases }
+        Self {
+            inner,
+            aliases,
+            history: None,
+        }
+    }
+
+    /// The same, keeping `history` too — as `aliases`, when `inner` does not.
+    #[must_use]
+    pub fn keeping(self, history: Option<Arc<History>>) -> Self {
+        Self { history, ..self }
     }
 }
 
@@ -89,6 +103,9 @@ impl Store for Versioning {
             if let Some(aliases) = &self.aliases {
                 aliases.forget(element);
             }
+            if let Some(history) = &self.history {
+                history.forget(element);
+            }
             return Ok(version);
         }
         let before = self.inner.row(&write.partition).await?;
@@ -96,7 +113,8 @@ impl Store for Versioning {
         // A save carries a version of its own (`every-change-versioned`
         // refuses one reusing the last id); a write carrying none keeps the
         // row's.
-        if values.get("entityVersionId") != before.get("entityVersionId") {
+        let versioning = values.get("entityVersionId") != before.get("entityVersionId");
+        if versioning {
             let version = versioned(&before, &values);
             stamp(&mut values, version);
         }
@@ -108,6 +126,11 @@ impl Store for Versioning {
         let version = self.inner.apply(&settled, result).await?;
         if let Some(aliases) = &self.aliases {
             aliases.record(element, &settled.values);
+        }
+        if let Some(history) = self.history.as_ref().filter(|_| versioning)
+            && let Some(kept) = Kept::of(&settled.values)
+        {
+            history.record(element, kept);
         }
         Ok(version)
     }
@@ -129,12 +152,23 @@ impl Store for Versioning {
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
+    history: Arc<History>,
 }
 
 impl Rows {
-    /// The rows of `store`.
+    /// The rows of `store`, whose elements have no version kept.
     pub fn new(store: Arc<dyn Store>) -> Self {
-        Self { store }
+        Self::keeping(store, Arc::default())
+    }
+
+    /// The rows of `store`, the versions of its elements kept in `history`.
+    pub(crate) fn keeping(store: Arc<dyn Store>, history: Arc<History>) -> Self {
+        Self { store, history }
+    }
+
+    /// The versions of `element` a restoration can name, oldest first.
+    pub fn versions(&self, element: &str) -> Vec<Kept> {
+        self.history.of(element)
     }
 
     /// `partition`'s row as the commands queued on it will leave it: the row

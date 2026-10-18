@@ -25,7 +25,9 @@
 //! prepared before they are submitted, with the `llm` port [`router`] is
 //! given. A save of an element (`campaign.saveEntity`) is prepared against
 //! the element's row as the queue will leave it, which [`Rows`] reads, and
-//! its version is settled when it is applied ([`versioning::Versioning`]).
+//! its version is settled when it is applied ([`versioning::Versioning`]). A
+//! restoration of an element (`campaign.restoreEntityVersion`) is prepared
+//! so too, against the versions the element has, which [`Rows`] keeps.
 
 use std::sync::Arc;
 
@@ -49,10 +51,12 @@ mod ai_settings;
 mod aliases;
 mod campaign;
 mod entity;
+mod history;
 mod media;
 mod player;
 mod projection;
 mod reads;
+mod sound;
 mod versioning;
 
 pub use reads::Reads;
@@ -140,6 +144,7 @@ pub struct Planted {
 /// As [`plant`].
 pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     let aliases = Arc::new(aliases::Aliases::default());
+    let history = Arc::new(history::History::default());
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
     } else {
@@ -149,15 +154,20 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
                 eprintln!("postgres: {e}");
             }
         });
-        let store = projection::ProjectingStore::new(PgStore::open(client).await?, aliases.clone());
+        let store = projection::ProjectingStore::new(PgStore::open(client).await?, aliases.clone())
+            .keeping(history.clone());
         store.repair().await;
         store.repair_tests().await;
         store.elements().await;
+        store.versions(None).await;
         Arc::new(store)
     };
-    // Over memory, the engine's rows are the tables: they keep the terms.
+    // Over memory, the engine's rows are the tables: they keep the terms and
+    // the versions.
     let kept = (url == MEMORY).then(|| aliases.clone());
-    let store: Arc<dyn Store> = Arc::new(versioning::Versioning::new(store, kept));
+    let versions = (url == MEMORY).then(|| history.clone());
+    let store: Arc<dyn Store> =
+        Arc::new(versioning::Versioning::new(store, kept).keeping(versions));
     let engine = bound(
         Engine::new(
             store.clone(),
@@ -169,7 +179,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     engine.load().await?;
     Ok(Planted {
         engine,
-        rows: Rows::new(store),
+        rows: Rows::keeping(store, history),
     })
 }
 
@@ -204,12 +214,13 @@ impl Invariants for Product {
         state: &std::collections::BTreeMap<String, serde_json::Value>,
         entry: &Entry,
     ) -> Vec<String> {
-        let judges: [&dyn Invariants; 5] = [
+        let judges: [&dyn Invariants; 6] = [
             &ai_settings::AiSettings,
             &campaign::Campaign,
             &player::Player,
             &self.entity,
             &media::Media,
+            &sound::Sound,
         ];
         judges
             .iter()
@@ -297,11 +308,36 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// save of an element is made the state and the version it writes on the
 /// element's partition (`save_entity::prepare`), against the row the
 /// commands queued there will leave; a new element is given its id, and a
-/// save the tables could never hold is refused, 422, before it is queued.
+/// save the tables could never hold is refused, 422, before it is queued. A
+/// restoration is made so the state and the version it writes
+/// (`restore_entity_version::prepare`), against the element's row and its
+/// versions: one naming a version the element does not have — or any of an
+/// element the engine does not hold — is refused, 404, and one naming no
+/// element, no version or a change there is not, 422.
+///
+/// The element a command targets is its `targetId`, or the `id` of its
+/// `target`, as the Micro-UIs and the rules' tests name it.
 async fn submit<L: Llm>(
     State(served): State<Served<L>>,
-    Json(mut body): Json<Submission>,
+    Json(raw): Json<serde_json::Value>,
 ) -> Reply<harness_dataguard::api::Submitted> {
+    let target = raw
+        .get("target")
+        .and_then(|target| target.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let mut body: Submission = match serde_json::from_value(raw) {
+        Ok(body) => body,
+        Err(e) => {
+            return Err((
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            ));
+        }
+    };
+    if body.target_id.is_none() {
+        body.target_id = target;
+    }
     let mut refusal = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
@@ -355,6 +391,46 @@ async fn submit<L: Llm>(
             Err(refusal) => {
                 return Err((
                     axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
+    } else if restore_entity_version::names(&body.data_capability) {
+        let id = body
+            .target_id
+            .clone()
+            .or_else(|| restore_entity_version::element_id(&body.payload))
+            .unwrap_or_default();
+        let version = match fresh_uuid() {
+            Ok(version) => version,
+            Err(_) => {
+                let e = Error::Store("no randomness for an id".to_string());
+                return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+            }
+        };
+        let base = match served.rows.projected(&format!("Entity/{id}")).await {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let now = now();
+        let fresh = restore_entity_version::Fresh {
+            version: &version,
+            now: &now,
+        };
+        let history = served.rows.versions(&id);
+        match restore_entity_version::prepare(&body.payload, &base, &history, &id, fresh) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(id);
+            }
+            Err(refusal) => {
+                let status = if refusal == restore_entity_version::Refusal::UnknownVersion {
+                    axum::http::StatusCode::NOT_FOUND
+                } else {
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY
+                };
+                return Err((
+                    status,
                     Json(serde_json::json!({ "error": refusal.to_string() })),
                 ));
             }
