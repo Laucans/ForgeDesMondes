@@ -382,6 +382,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "get-battlemap"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "get-settings"
 version = "0.1.0"
 dependencies = [
