@@ -21,6 +21,29 @@
         "AiSettings.lastTestMessage",
         "AiSettings.lastTestLatencyMs"
       ]
+    },
+    {
+      "query": "GetBattlemap",
+      "capability": "media.getBattlemap",
+      "file": "crates/media/queries/getBattlemap.graphql",
+      "sha256": "03816dd132e1c499c039b1e9c999059acc8bce39eb090877a3e728291c422e49",
+      "fields": [
+        "Media.id",
+        "Media.kind",
+        "Media.title",
+        "Media.filePath",
+        "Media.widthPx",
+        "Media.heightPx",
+        "Media.placeId",
+        "Media.uploadedAt",
+        "Media.mediaId",
+        "Media.hexSizePx",
+        "Media.offsetX",
+        "Media.offsetY",
+        "Media.orientation",
+        "Media.color",
+        "Media.opacity"
+      ]
     }
   ]
 }
