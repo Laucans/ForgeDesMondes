@@ -1,0 +1,10 @@
+{
+  "capability": "session.getSession",
+  "system": "session",
+  "version": "1.0.0",
+  "description": "One session's header, for the DM who prepares it: its id, order (the session number), title, date, status (prep, live or closed) with its label as SessionLifecycle@1 says it (En préparation, En direct, Jouée), and present, the ids of the PCs ticked present, in the order they were ticked, those added later included. An unknown session has no answer (null).",
+  "implements": "SessionLifecycle@1",
+  "input": { "id": "string" },
+  "output": "{ id: string, order: number, title: string, date: string | null, status: 'prep' | 'live' | 'closed', statusLabel: string, present: string[] } | null",
+  "reads": ["queries/get-session.graphql"]
+}
