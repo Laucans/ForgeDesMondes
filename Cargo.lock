@@ -1455,10 +1455,9 @@ dependencies = [
 name = "soundbox-read"
 version = "0.1.0"
 dependencies = [
+ "data",
  "serde_json",
- "thiserror",
  "tokio",
- "tokio-postgres",
 ]
 
 [[package]]

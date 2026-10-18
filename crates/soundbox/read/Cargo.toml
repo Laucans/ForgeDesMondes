@@ -7,10 +7,8 @@ description = "The soundbox system's read crate: the read-only connection its Ca
 publish = false
 
 [dependencies]
-serde_json = "1"
-thiserror = "2"
-tokio = { version = "1", default-features = false, features = ["rt"] }
-tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
+data = { path = "../../data" }
 
 [dev-dependencies]
+serde_json = "1"
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
