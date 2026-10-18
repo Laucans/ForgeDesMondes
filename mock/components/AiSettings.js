@@ -536,11 +536,46 @@
       const latency = message.match(/répond en ([\d,]+ s)/)?.[1] || "0,01 s";
       settings.lastTest = { ok: true, at, provider, latency, message };
       return void 0;
+    },
+    // ai.extractFromNotes (crates/ai/data-capabilities/extract-from-notes): the
+    // note analysed into proposals, nothing created (`no-creation-before-
+    // validation`). The mock's AI proposes what the fixture NoteImport lists; a
+    // proposal that names an existing element starts unchecked.
+    "ai.extractFromNotes": async (server, { payload: payload2 }) => {
+      const text2 = String(payload2.text || "");
+      const { proposals } = await server.load("NoteImport");
+      server.noteText = text2;
+      server.noteProposals = proposals.map((p) => ({ id: p.id, type: p.type, name: p.name, excerpt: p.excerpt, existing: p.existing, checked: !p.existing }));
+      return void 0;
+    },
+    // campaign.createEntitiesFromNote (crates/campaign/data-capabilities/create-entities-from-note):
+    // one element per accepted proposal, the raw note kept as an import listed
+    // newest first, the proposals no longer awaiting.
+    "campaign.createEntitiesFromNote": async (server, { payload: payload2 }) => {
+      const proposals = server.noteProposals || [];
+      const accepted = Array.isArray(payload2.accepted) ? payload2.accepted : [];
+      const created = proposals.filter((p) => accepted.includes(p.id));
+      const fixture = await server.load("campaign.listImportedNotes");
+      const imports = Array.isArray(fixture) ? fixture : fixture.imports;
+      const note = server.noteText || "";
+      imports.unshift({ id: `imp-${server.uuid()}`, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), title: note.split("\n")[0].replace(/[.\s]+$/, "") || "Notes import\xE9es", chars: note.length, proposed: proposals.length, created: created.length });
+      server.noteProposals = [];
+      return void 0;
     }
   };
 
   // mock/src/reads.js
-  var READS = {};
+  var READS = {
+    // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
+    // the notes already imported, newest first, and the proposals of the latest
+    // analysed note still awaiting validation. The imports are the fixture's
+    // list; the proposals are what `ai.extractFromNotes` recorded (commands.js).
+    "campaign.listImportedNotes": async (server) => {
+      const fixture = await server.load("campaign.listImportedNotes");
+      const imports = Array.isArray(fixture) ? fixture : fixture && fixture.imports || [];
+      return { imports: [...imports].sort((x, y) => String(y.date).localeCompare(String(x.date))), proposals: server.noteProposals || [] };
+    }
+  };
 
   // mock/src/server.js
   var LATENCY_MS = 120;
