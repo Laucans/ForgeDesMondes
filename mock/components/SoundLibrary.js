@@ -668,11 +668,55 @@
       const latency = message.match(/répond en ([\d,]+ s)/)?.[1] || "0,01 s";
       settings.lastTest = { ok: true, at, provider, latency, message };
       return void 0;
+    },
+    // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
+    // playback of the sound starts, whatever else plays (`simultaneous-playback`).
+    "soundbox.playSound": async (server, { targetId }) => {
+      const library = await server.load("soundbox.listSounds");
+      if (!library.sounds.some((sound) => sound.id === targetId)) return ["not-found"];
+      (server.playing = server.playing || /* @__PURE__ */ new Set()).add(targetId);
+      return void 0;
+    },
+    // soundbox.stopAll (crates/soundbox/data-capabilities/stop-all): every
+    // running playback gets its stop (`stop-all`); with none, nothing changes.
+    "soundbox.stopAll": async (server) => {
+      (server.playing = server.playing || /* @__PURE__ */ new Set()).clear();
+      return void 0;
+    },
+    // soundbox.setSoundVolume (crates/soundbox/data-capabilities/set-sound-volume):
+    // one sound's own volume, a percent from 0 to 100 (`sound-volume-range`).
+    "soundbox.setSoundVolume": async (server, { payload, targetId }) => {
+      const sound = (await server.load("soundbox.listSounds")).sounds.find((candidate) => candidate.id === targetId);
+      if (!sound) return ["not-found"];
+      if (!(payload.volume >= 0 && payload.volume <= 100)) return ["sound-volume-range"];
+      sound.volume = payload.volume;
+      return void 0;
+    },
+    // soundbox.setMasterVolume (crates/soundbox/data-capabilities/set-master-volume):
+    // the campaign's master volume, a percent from 0 to 100 (`master-volume-range`).
+    "soundbox.setMasterVolume": async (server, { payload }) => {
+      if (!(payload.volume >= 0 && payload.volume <= 100)) return ["master-volume-range"];
+      (await server.load("soundbox.listSounds")).masterVolume = payload.volume;
+      return void 0;
     }
   };
 
   // mock/src/reads.js
-  var READS = {};
+  var READS = {
+    // soundbox.listSounds (crates/soundbox/capabilities/list-sounds): the
+    // library as the fixture holds it, each sound with its effective gain —
+    // EffectiveVolume@1, volume × master as a fraction — and whether a playback
+    // of it runs (`server.playing`, which the soundbox's commands change).
+    "soundbox.listSounds": async (server) => {
+      const library = await server.load("soundbox.listSounds");
+      if (!library) return void 0;
+      const playing = server.playing = server.playing || /* @__PURE__ */ new Set();
+      return {
+        masterVolume: library.masterVolume,
+        sounds: library.sounds.map((sound) => ({ ...sound, gain: Math.round(sound.volume * library.masterVolume) / 1e4, playing: playing.has(sound.id) }))
+      };
+    }
+  };
 
   // mock/src/server.js
   var LATENCY_MS = 120;

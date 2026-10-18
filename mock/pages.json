@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "a1c297686e6b78b7"
+      "builtFrom": "c70d3fd00effafe5"
     },
     {
       "name": "CampaignOverview",
@@ -429,7 +429,7 @@
         "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
       },
       "source": "apps/soundbox/sound-library",
-      "builtFrom": "8289a98dba625e9a"
+      "builtFrom": "4a0dfb743ea12cc6"
     },
     {
       "name": "LiveSessionBar",
@@ -515,7 +515,9 @@
         "soundbox.setSoundVolume",
         "soundbox.setMasterVolume"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/soundbox/live-soundbox",
+      "builtFrom": "b9f7949ed3bc7332"
     },
     {
       "name": "SuggestionPill",
