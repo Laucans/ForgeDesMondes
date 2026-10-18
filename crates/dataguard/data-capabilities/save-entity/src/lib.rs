@@ -21,7 +21,9 @@
 //!   keep;
 //! - a save the tables could never hold is refused before it is queued
 //!   ([`Refusal`]): a new element names its campaign, its type and its name,
-//!   an element stays in its campaign, and an id is a uuid;
+//!   an element stays in its campaign, an id is a uuid, a score, the AC and
+//!   the HP max are integers a `smallint` holds, and no value holds the
+//!   character U+0000 — every cast of the projection then succeeds;
 //! - the version is the next one (EntityVersion@1, source `dm`): its number,
 //!   the complete snapshot of the element as the save leaves it, and the diff
 //!   from the previous snapshot. [`versioned`] computes it from the row before
@@ -156,6 +158,19 @@ const IDS: [&str; 5] = [
     "tokenMediaId",
 ];
 
+/// The fields the tables hold as a `smallint`: the six scores, the AC and the
+/// HP max.
+const SMALLINTS: [&str; 8] = [
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "wisdom",
+    "charisma",
+    "armorClass",
+    "hpMax",
+];
+
 /// The row's field holding the element's aliases, an array of strings.
 pub const ALIAS: &str = "alias";
 
@@ -191,6 +206,11 @@ pub enum Refusal {
     /// A field naming another row (the element, its campaign, its player, a
     /// media) is not a uuid.
     NotAnId(&'static str),
+    /// A score, the AC or the HP max is not an integer a `smallint` holds.
+    NotASmallint(&'static str),
+    /// A field holds the character U+0000 somewhere, which neither `text`
+    /// nor `jsonb` can hold.
+    Nul(String),
 }
 
 impl std::fmt::Display for Refusal {
@@ -201,6 +221,10 @@ impl std::fmt::Display for Refusal {
             Self::NoName => f.write_str("un nouvel élément a un nom"),
             Self::OtherCampaign => f.write_str("un élément ne change pas de campagne"),
             Self::NotAnId(field) => write!(f, "{field} n'est pas un identifiant"),
+            Self::NotASmallint(field) => {
+                write!(f, "{field} n'est pas un entier de -32768 à 32767")
+            }
+            Self::Nul(field) => write!(f, "{field} contient un caractère nul"),
         }
     }
 }
@@ -341,11 +365,8 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Result<Prepared, Ref
         return Err(Refusal::NoName);
     }
     for field in IDS {
-        if after
-            .get(field)
-            .and_then(Value::as_str)
-            .is_some_and(|id| !is_uuid(id))
-        {
+        let id = after.get(field).unwrap_or(&Value::Null);
+        if !id.is_null() && !id.as_str().is_some_and(is_uuid) {
             return Err(Refusal::NotAnId(field));
         }
     }
@@ -389,12 +410,55 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Result<Prepared, Ref
     ] {
         payload.insert(field.into(), value);
     }
-    let version = versioned(base, &merged(&payload));
+    let row = merged(&payload);
+    held(&row)?;
+    let version = versioned(base, &row);
     stamp(&mut payload, version);
     Ok(Prepared {
         target_id: id,
         payload,
     })
+}
+
+/// Whether `row`'s values are ones the tables' casts hold: a `smallint` for
+/// each score, the AC and the HP max, and nowhere the character U+0000.
+fn held(row: &Row) -> Result<(), Refusal> {
+    if let Some(field) = SMALLINTS
+        .into_iter()
+        .find(|field| !row.get(*field).is_none_or(smallint))
+    {
+        return Err(Refusal::NotASmallint(field));
+    }
+    match row.iter().find(|(_, value)| nul(value)) {
+        Some((field, _)) => Err(Refusal::Nul(field.clone())),
+        None => Ok(()),
+    }
+}
+
+/// Whether `value` is `null`, or an integer — written with a fraction of
+/// zero or not — from -32768 to 32767.
+fn smallint(value: &Value) -> bool {
+    value.is_null()
+        || value.as_i64().map_or_else(
+            || {
+                value.as_f64().is_some_and(|number| {
+                    number.fract() == 0.0 && (-32_768.0..=32_767.0).contains(&number)
+                })
+            },
+            |number| i16::try_from(number).is_ok(),
+        )
+}
+
+/// Whether `value` holds the character U+0000, in a string or a key.
+fn nul(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text.contains('\0'),
+        Value::Array(values) => values.iter().any(nul),
+        Value::Object(fields) => fields
+            .iter()
+            .any(|(key, value)| key.contains('\0') || nul(value)),
+        _ => false,
+    }
 }
 
 /// `row`'s version fields made `version`'s.

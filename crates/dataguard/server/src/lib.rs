@@ -148,13 +148,15 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
                 eprintln!("postgres: {e}");
             }
         });
-        let store = projection::ProjectingStore::new(PgStore::open(client).await?);
+        let store = projection::ProjectingStore::new(PgStore::open(client).await?, aliases.clone());
         store.repair().await;
         store.repair_tests().await;
-        store.elements(&aliases).await;
+        store.elements().await;
         Arc::new(store)
     };
-    let store: Arc<dyn Store> = Arc::new(versioning::Versioning::new(store, aliases.clone()));
+    // Over memory, the engine's rows are the tables: they keep the terms.
+    let kept = (url == MEMORY).then(|| aliases.clone());
+    let store: Arc<dyn Store> = Arc::new(versioning::Versioning::new(store, kept));
     let engine = bound(
         Engine::new(
             store.clone(),

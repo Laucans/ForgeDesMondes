@@ -306,6 +306,87 @@ async fn a_start_judges_an_alias_against_the_elements_the_tables_hold() {
     s.drop().await;
 }
 
+/// A player the tables do not hold.
+const NOBODY: &str = "b1000000-0000-4000-8000-0000000000ff";
+
+/// Morlox, a new NPC of Valombre, answering to `alias`.
+fn morlox(alias: &str) -> Value {
+    json!({
+        "campaign": VALOMBRE,
+        "entity": { "kind": "pnj", "name": "Morlox", "aliases": [alias] },
+    })
+}
+
+/// Elowen, the PC of a player the tables do not hold: the engine applies her
+/// save, the tables refuse it (`character.player_id`'s foreign key).
+fn orphan() -> Value {
+    let mut elowen = elowen(None, "", &["la Rôdeuse"]);
+    elowen["entity"]["player"] = json!(NOBODY);
+    elowen
+}
+
+#[tokio::test]
+async fn a_save_the_tables_refuse_leaves_its_aliases_free() {
+    let s = Scratch::new("refused").await;
+    let (engine, app) = s.serve().await;
+    let (elowen, result) = save(&engine, &app, orphan()).await;
+    applied(&result);
+    assert!(
+        s.rows(&format!("SELECT id FROM entity WHERE id = '{elowen}'"))
+            .await
+            .is_empty()
+    );
+    // Free, as the tables have it.
+    let (id, result) = save(&engine, &app, morlox("la rodeuse")).await;
+    applied(&result);
+    assert_eq!(
+        s.rows(&format!(
+            "SELECT alias FROM entity_alias WHERE entity_id = '{id}'"
+        ))
+        .await,
+        [json!({ "alias": "la rodeuse" })]
+    );
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_save_the_tables_refused_is_projected_again_after_the_next_apply_and_at_a_start() {
+    let s = Scratch::new("repair").await;
+    let (engine, app) = s.serve().await;
+    let (elowen, result) = save(&engine, &app, orphan()).await;
+    applied(&result);
+    let projected = |id: &str| {
+        format!(
+            "SELECT e.name, c.player_id, v.version_number FROM entity e \
+             JOIN character c ON c.entity_id = e.id JOIN entity_version v ON v.entity_id = e.id \
+             WHERE e.id = '{id}'"
+        )
+    };
+    assert!(s.rows(&projected(&elowen)).await.is_empty());
+    s.client
+        .batch_execute(&format!(
+            "INSERT INTO player (id, campaign_id, name) VALUES ('{NOBODY}', '{VALOMBRE}', 'Julie')"
+        ))
+        .await
+        .expect("her player");
+    // The next save, whichever element it writes, projects her too.
+    applied(&save(&engine, &app, morlox("le gobelin")).await.1);
+    let whole = [json!({ "name": "Elowen Ventargent", "player_id": NOBODY, "version_number": 1 })];
+    assert_eq!(s.rows(&projected(&elowen)).await, whole);
+
+    // Lost from the tables: a start projects her again, her alias with her.
+    s.client
+        .batch_execute(&format!("DELETE FROM entity WHERE id = '{elowen}'"))
+        .await
+        .expect("lost");
+    drop((engine, app));
+    let (engine, app) = s.serve().await;
+    assert_eq!(s.rows(&projected(&elowen)).await, whole);
+    let (_, result) = save(&engine, &app, morlox("la rôdeuse")).await;
+    assert_eq!(result.violations, ["alias-unique-in-campaign"]);
+    s.drop().await;
+}
+
 #[tokio::test]
 async fn an_npc_made_a_place_loses_its_sheet_in_the_tables() {
     let s = Scratch::new("kind").await;

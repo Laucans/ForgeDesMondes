@@ -345,6 +345,56 @@ async fn a_save_queued_behind_one_cancelled_takes_the_next_number_and_its_diff_f
 }
 
 #[tokio::test]
+async fn an_edit_queued_behind_a_create_rejected_is_rejected_too_and_no_element_exists() {
+    let s = served().await;
+    let (_, result) = s.save(elowen(None, "v1")).await;
+    applied(&result);
+    // A place: no sheet trips its edit by accident.
+    let id = "e1000000-0000-4000-8000-0000000000aa";
+    let (status, hold) = s
+        .post(
+            "/holds",
+            json!({ "partition": format!("Entity/{id}"), "by": "dm" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{hold}");
+    // Its alias is Elowen's: the create is rejected once it reaches the head.
+    s.submit(
+        "dm",
+        json!({
+            "campaign": VALOMBRE,
+            "entity": { "id": id, "kind": "lieu", "name": "La Clairière", "aliases": ["la rodeuse"] },
+        }),
+        None,
+    )
+    .await;
+    let edit = s
+        .submit(
+            "dm-2",
+            json!({ "entity": { "id": id, "notes": "Un cercle de pierres." } }),
+            None,
+        )
+        .await;
+    let command = edit["commandId"].as_str().expect("an id");
+    if edit["result"]["status"] == "awaiting_confirmation" {
+        s.post(
+            &format!("/commands/{command}/confirm"),
+            json!({ "by": "dm-2" }),
+        )
+        .await;
+    }
+    let hold = hold["id"].as_str().expect("a hold");
+    s.post(&format!("/holds/{hold}/release"), json!({})).await;
+    let mut settled = s.engine.run_once().await.expect("the applier ran");
+    settled.extend(s.engine.run_once().await.expect("the applier ran"));
+    assert_eq!(settled.len(), 2, "{settled:?}");
+    assert_eq!(settled[0].violations, ["alias-unique-in-campaign"]);
+    assert_eq!(settled[1].status, State::Rejected, "{settled:?}");
+    assert_eq!(settled[1].violations, ["every-change-versioned"]);
+    assert!(s.row(id).await.is_empty(), "{:?}", s.row(id).await);
+}
+
+#[tokio::test]
 async fn the_same_idempotency_key_twice_adds_one_version() {
     let s = served().await;
     let (id, result) = s.save(elowen(None, "v1")).await;

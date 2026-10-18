@@ -65,6 +65,11 @@ const VERSION: [&str; 8] = [
     "entityVersionCreatedAt",
 ];
 
+/// What an element holds from its creation on: its campaign, its type, its
+/// name and the time it was made. A complete snapshot is of an element
+/// holding them.
+const WHOLE: [&str; 4] = ["entityCampaignId", "type", "name", "entityCreatedAt"];
+
 /// What names the element, or stamps the save: written by any source.
 const BOOKKEEPING: [&str; 5] = [
     "entityId",
@@ -204,11 +209,16 @@ fn character_is_pj_or_pnj(state: &BTreeMap<String, Value>, _entry: &Entry) -> bo
 /// known source, the complete snapshot and the diff. A version written is
 /// never written again.
 ///
+/// The snapshot is complete of a whole element alone ([`WHOLE`]): judged at
+/// application on the row as it really is, a save queued behind the creation
+/// of its element is rejected when that creation was not applied — cancelled
+/// or rejected — instead of writing an element that never was.
+///
 /// Past, not next: the engine holds the row as it was when the command was
 /// queued, and a save queued behind another rightly takes the number after
 /// it. The table, which holds the versions written, wants the next one
 /// exactly.
-fn every_change_versioned(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+fn every_change_versioned(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let confirmed = &entry.projection.confirmed;
     let number = value(&entry.payload, "versionNumber").as_u64();
     let last = value(confirmed, "versionNumber").as_u64().unwrap_or(0);
@@ -218,6 +228,7 @@ fn every_change_versioned(_state: &BTreeMap<String, Value>, entry: &Entry) -> bo
         && value(&entry.payload, "snapshot").is_object()
         && value(&entry.payload, "diff").is_array()
         && (id.is_null() || id != value(confirmed, "entityVersionId"))
+        && WHOLE.iter().all(|field| value(state, field).is_string())
 }
 
 /// A restoration names the version it restores, which is not itself; no
@@ -291,7 +302,7 @@ fn dex_modifier_derived(state: &BTreeMap<String, Value>, entry: &Entry) -> bool 
 mod tests {
     use super::{
         ABILITIES, ALIAS_UNIQUE, BOOKKEEPING, CHECKS, DEX_MODIFIER, PROPOSAL, RESYNC, SHEET,
-        VERSION,
+        VERSION, WHOLE,
     };
 
     fn aggregate() -> serde_json::Value {
@@ -307,6 +318,7 @@ mod tests {
             .iter()
             .chain(&VERSION)
             .chain(&BOOKKEEPING)
+            .chain(&WHOLE)
             .chain(&ABILITIES)
             .chain(&RESYNC)
             .chain(&PROPOSAL)

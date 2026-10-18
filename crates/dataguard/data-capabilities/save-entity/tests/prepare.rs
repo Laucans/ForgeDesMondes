@@ -246,6 +246,96 @@ fn a_save_the_tables_could_never_hold_is_refused() {
     );
 }
 
+/// The entity Elowen is saved new with, `field` set to `value`.
+fn elowen_with(field: &str, value: Value) -> Value {
+    let mut entity = json!({ "kind": "pj", "name": "Elowen", "stats": {} });
+    if field.len() == 3 {
+        entity["stats"][field] = value;
+    } else {
+        entity[field] = value;
+    }
+    entity
+}
+
+#[test]
+fn a_score_the_ac_or_the_hp_max_is_refused_unless_an_integer_a_smallint_holds() {
+    for (given, field) in [
+        ("FOR", "strength"),
+        ("DEX", "dexterity"),
+        ("CON", "constitution"),
+        ("INT", "intelligence"),
+        ("SAG", "wisdom"),
+        ("CHA", "charisma"),
+        ("ca", "armorClass"),
+        ("pvMax", "hpMax"),
+    ] {
+        for value in [
+            json!("15"),
+            json!(true),
+            json!([15]),
+            json!(15.5),
+            json!(32_768),
+            json!(-32_769),
+        ] {
+            assert_eq!(
+                new(elowen_with(given, value.clone())).expect_err("refused"),
+                Refusal::NotASmallint(field),
+                "{given}: {value}"
+            );
+        }
+        // The bounds, an integer written with a fraction of zero, and none.
+        for value in [json!(32_767), json!(-32_768), json!(15.0), Value::Null] {
+            assert!(
+                new(elowen_with(given, value.clone())).is_ok(),
+                "{given}: {value}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_id_that_is_not_a_string_is_not_an_id() {
+    for given in ["player", "playerId"] {
+        assert_eq!(
+            new(elowen_with(given, json!(5))).expect_err("refused"),
+            Refusal::NotAnId("playerId"),
+            "{given}"
+        );
+    }
+    // A media is a string or nothing: anything else is never written.
+    for (given, field) in [("portrait", "portraitMediaId"), ("token", "tokenMediaId")] {
+        let Prepared { payload, .. } = new(elowen_with(given, json!(5))).expect("saved");
+        assert!(!payload.contains_key(field), "{given}");
+    }
+    let refused = prepare(
+        &row(json!({ "entity": { "notes": "…" } })),
+        &row(json!({ "entityCampaignId": 7, "type": "pj", "name": "Elowen" })),
+        fresh("f1", NOW),
+    )
+    .expect_err("refused");
+    assert_eq!(refused, Refusal::NotAnId("entityCampaignId"));
+}
+
+#[test]
+fn a_nul_character_jsonb_or_text_cannot_hold_is_refused_wherever_it_hides() {
+    for (given, value, field) in [
+        ("spells", json!([{ "name": "Soins\u{0}" }]), "spells"),
+        ("actions", json!([{ "nom\u{0}": "Fuite" }]), "actions"),
+        ("features", json!(["\u{0}"]), "actions"),
+        ("crop", json!({ "x": "\u{0}" }), "tokenCrop"),
+        ("name", json!("Elo\u{0}wen"), "name"),
+        ("notes", json!("\u{0}"), "notes"),
+        ("aliases", json!(["la rôdeuse\u{0}"]), "alias"),
+        ("color", json!("accent\u{0}"), "tokenColor"),
+    ] {
+        assert_eq!(
+            new(elowen_with(given, value)).expect_err("refused"),
+            Refusal::Nul(field.to_owned()),
+            "{given}"
+        );
+    }
+}
+
 #[test]
 fn an_existing_element_needs_no_campaign_kind_or_name_and_a_player_by_uuid_is_kept() {
     let mut entity = morlox();
@@ -273,6 +363,8 @@ fn a_refusal_says_what_the_tables_could_never_hold() {
         Refusal::NoName,
         Refusal::OtherCampaign,
         Refusal::NotAnId("playerId"),
+        Refusal::NotASmallint("hpMax"),
+        Refusal::Nul("notes".to_owned()),
     ]
     .iter()
     .map(ToString::to_string)
@@ -285,6 +377,8 @@ fn a_refusal_says_what_the_tables_could_never_hold() {
             "un nouvel élément a un nom",
             "un élément ne change pas de campagne",
             "playerId n'est pas un identifiant",
+            "hpMax n'est pas un entier de -32768 à 32767",
+            "notes contient un caractère nul",
         ]
     );
 }
