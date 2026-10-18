@@ -270,11 +270,14 @@ mod tests {
     /// test-only DataCapabilities.
     async fn engine(store: MemoryStore) -> (Engine, Arc<MemoryStore>) {
         let store = Arc::new(store);
-        let mut engine = bound(Engine::new(
-            store.clone(),
-            Arc::new(MemoryNotifier::default()),
-            Arc::new(FixedClock::at(1000)),
-        ))
+        let mut engine = bound(
+            Engine::new(
+                store.clone(),
+                Arc::new(MemoryNotifier::default()),
+                Arc::new(FixedClock::at(1000)),
+            ),
+            Arc::default(),
+        )
         .expect("the product's manifests parse");
         for manifest in [
             WRITE_PROVIDER,

@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use dataguard_server::{MEMORY, applier, plant};
+use dataguard_server::{MEMORY, Planted, applier, planted};
 use server::{Config, Error, Ports, app, fixtures, llm, reads};
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
@@ -49,7 +49,8 @@ async fn run() -> Result<(), Error> {
         eprintln!("server: no migrations/ folder — no migration to apply");
     }
 
-    let engine = Arc::new(plant(&config.database_url).await?);
+    let Planted { engine, rows } = planted(&config.database_url).await?;
+    let engine = Arc::new(engine);
     let llm = Arc::new(llm(config.ports, config.fixtures.as_deref()));
     if config.read_only_url.is_none() && config.database_url != MEMORY {
         eprintln!(
@@ -84,7 +85,7 @@ async fn run() -> Result<(), Error> {
         .map_err(|source| Error::Serve { addr, source })?;
     let applier = applier(engine.clone());
     eprintln!("server: listening on {addr}");
-    let served = axum::serve(listener, app(engine, llm, reads))
+    let served = axum::serve(listener, app(engine, rows, llm, reads))
         .with_graceful_shutdown(stopped())
         .await
         .map_err(|source| Error::Serve { addr, source });

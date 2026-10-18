@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use dataguard_server::{MEMORY, applier, plant, router};
+use dataguard_server::{MEMORY, Planted, applier, planted, router};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -28,11 +28,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Some("serve") | None => {
-            let engine = Arc::new(plant(&url).await?);
+            let Planted { engine, rows } = planted(&url).await?;
+            let engine = Arc::new(engine);
             let addr = args.next().unwrap_or_else(|| "127.0.0.1:8800".to_string());
             // This binary is the mock-up's and the smoke test's: the llm
             // port on its fake. The product's server (crates/server) wires it.
-            let app = router(engine.clone(), Arc::new(ports_llm::fake::FakeLlm::new()));
+            let app = router(
+                engine.clone(),
+                rows,
+                Arc::new(ports_llm::fake::FakeLlm::new()),
+            );
             let listener = tokio::net::TcpListener::bind(&addr).await?;
             let applier = applier(engine);
             println!("dataguard-server on {addr}");

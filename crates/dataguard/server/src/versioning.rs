@@ -1,0 +1,152 @@
+//! The Entity aggregate's versions, settled when a write is applied.
+//!
+//! A save is numbered, snapshotted and diffed when it is submitted, against
+//! the row the commands queued ahead of it will leave ([`Rows::projected`]):
+//! what the DataGuard judges. [`Versioning`] settles it at application, on
+//! the single applier, against the row as it really is — the same
+//! computation (`save_entity::versioned`): a command ahead that was
+//! cancelled or rejected leaves no gap in the numbers and no change in the
+//! diff that never happened. It keeps [`Aliases`] too, which
+//! `alias-unique-in-campaign` reads. Every other method is the inner store's.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use harness_dataguard::Result;
+use harness_dataguard::command::{CommandResult, Entry};
+use harness_dataguard::queue::Hold;
+use harness_dataguard::store::{Collision, Store, Write};
+use save_entity::{stamp, versioned};
+use serde_json::Value;
+
+use crate::aliases::Aliases;
+
+/// The partitions of the Entity aggregate: `Entity/<element id>`.
+const ENTITY: &str = "Entity/";
+
+/// The element a write is of, when it is a write of the Entity aggregate.
+pub fn element_of(write: &Write) -> Option<&str> {
+    write.partition.strip_prefix(ENTITY)
+}
+
+/// A store whose applied Entity writes carry their settled version.
+pub struct Versioning {
+    inner: Arc<dyn Store>,
+    aliases: Arc<Aliases>,
+}
+
+impl Versioning {
+    /// The store over `inner`, keeping `aliases`.
+    pub fn new(inner: Arc<dyn Store>, aliases: Arc<Aliases>) -> Self {
+        Self { inner, aliases }
+    }
+}
+
+#[async_trait]
+impl Store for Versioning {
+    async fn pending(&self) -> Result<Vec<Entry>> {
+        self.inner.pending().await
+    }
+
+    async fn holds(&self) -> Result<Vec<Hold>> {
+        self.inner.holds().await
+    }
+
+    async fn save(&self, entry: &Entry) -> Result<()> {
+        self.inner.save(entry).await
+    }
+
+    async fn save_hold(&self, hold: &Hold, alive: bool) -> Result<()> {
+        self.inner.save_hold(hold, alive).await
+    }
+
+    async fn data_version(&self) -> Result<u64> {
+        self.inner.data_version().await
+    }
+
+    async fn row(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
+        self.inner.row(partition).await
+    }
+
+    async fn collision(&self, entry: &Entry) -> Result<Collision> {
+        self.inner.collision(entry).await
+    }
+
+    async fn incoming(&self, partition: &str) -> Result<Vec<(String, u64)>> {
+        self.inner.incoming(partition).await
+    }
+
+    async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
+        let Some(element) = element_of(write) else {
+            return self.inner.apply(write, result).await;
+        };
+        if write.tombstone {
+            let version = self.inner.apply(write, result).await?;
+            self.aliases.forget(element);
+            return Ok(version);
+        }
+        let before = self.inner.row(&write.partition).await?;
+        let mut values = write.values.clone();
+        // A write that adds no version is the DataGuard's to have rejected.
+        if values.contains_key("source") {
+            let version = versioned(&before, &values);
+            stamp(&mut values, version);
+        }
+        let settled = Write {
+            partition: write.partition.clone(),
+            values,
+            tombstone: false,
+        };
+        let version = self.inner.apply(&settled, result).await?;
+        self.aliases.record(element, &settled.values);
+        Ok(version)
+    }
+
+    async fn journal(&self, result: &CommandResult) -> Result<()> {
+        self.inner.journal(result).await
+    }
+
+    async fn result(&self, command: &str) -> Result<Option<CommandResult>> {
+        self.inner.result(command).await
+    }
+
+    async fn by_idempotency_key(&self, data_capability: &str, key: &str) -> Result<Option<String>> {
+        self.inner.by_idempotency_key(data_capability, key).await
+    }
+}
+
+/// The rows the engine holds, as a command about to be submitted sees them.
+#[derive(Clone)]
+pub struct Rows {
+    store: Arc<dyn Store>,
+}
+
+impl Rows {
+    /// The rows of `store`.
+    pub fn new(store: Arc<dyn Store>) -> Self {
+        Self { store }
+    }
+
+    /// `partition`'s row as the commands queued on it will leave it: the row
+    /// applied, then each pending command's payload, in queue order.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn projected(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
+        let mut row = self.store.row(partition).await?;
+        let mut ahead: Vec<Entry> = self
+            .store
+            .pending()
+            .await?
+            .into_iter()
+            .filter(|entry| entry.partition == partition)
+            .collect();
+        ahead.sort_by_key(|entry| entry.position);
+        for entry in ahead {
+            row.extend(entry.payload);
+        }
+        Ok(row)
+    }
+}

@@ -8,8 +8,12 @@
 //! connection test (`ai.testConnection`) writes a provider's partition,
 //! `AiSettings/<its id>`, with its outcome alone: [`ProjectingStore`] writes
 //! the four `last_test_*` columns of that row — of the active provider's when
-//! the partition is the nil uuid, a test that reached no provider. Every
-//! other method is the inner store's.
+//! the partition is the nil uuid, a test that reached no provider. A save of
+//! an element (`campaign.saveEntity`) writes its partition, `Entity/<its
+//! id>`, whole: [`ProjectingStore`] upserts its `entity` row and its sheet,
+//! makes its `entity_alias` rows its aliases, and adds the version it carries
+//! to `entity_version`, in one transaction — whose triggers judge the
+//! element's campaign again. Every other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -29,6 +33,8 @@ use serde_json::Value;
 use test_connection::NO_PROVIDER;
 
 use crate::ai_settings::uuid;
+use crate::aliases::Aliases;
+use crate::versioning::element_of;
 
 /// The partition whose writes reach the tables: the one settings row.
 pub const AI_SETTINGS: &str = "AiSettings/1";
@@ -66,6 +72,97 @@ const LAST_TEST: &str = "UPDATE ai_provider
         AND (last_test_at IS NULL
             OR last_test_at < ($3::text)::timestamptz
             OR (NOT $6 AND last_test_at = ($3::text)::timestamptz))";
+
+/// An element's row, `$1` the engine's row as JSON text: its `entity` row
+/// upserted by its id.
+const UPSERT_ENTITY: &str = "INSERT INTO entity
+        (id, campaign_id, type, name, description, notes, created_at, updated_at)
+    SELECT (v ->> 'entityId')::uuid, (v ->> 'entityCampaignId')::uuid, v ->> 'type',
+        v ->> 'name', v ->> 'description', v ->> 'notes',
+        coalesce((v ->> 'entityCreatedAt')::timestamptz, now()),
+        coalesce((v ->> 'updatedAt')::timestamptz, now())
+    FROM (SELECT $1::text::jsonb AS v) saved
+    ON CONFLICT (id) DO UPDATE SET
+        campaign_id = EXCLUDED.campaign_id,
+        type = EXCLUDED.type,
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        notes = EXCLUDED.notes,
+        updated_at = EXCLUDED.updated_at";
+
+/// Its sheet, when the row holds one, upserted by the element's id.
+const UPSERT_CHARACTER: &str = "INSERT INTO character
+        (entity_id, player_id, initial_prompt, background, behavior,
+         strength, dexterity, constitution, intelligence, wisdom, charisma,
+         armor_class, hp_max, spells, actions, portrait_media_id, token_media_id,
+         token_crop, token_color, dndbeyond_id, dndbeyond_synced_at)
+    SELECT (v ->> 'characterEntityId')::uuid, (v ->> 'playerId')::uuid,
+        v ->> 'initialPrompt', v ->> 'background', v ->> 'behavior',
+        (v ->> 'strength')::numeric::smallint, (v ->> 'dexterity')::numeric::smallint,
+        (v ->> 'constitution')::numeric::smallint, (v ->> 'intelligence')::numeric::smallint,
+        (v ->> 'wisdom')::numeric::smallint, (v ->> 'charisma')::numeric::smallint,
+        (v ->> 'armorClass')::numeric::smallint, (v ->> 'hpMax')::numeric::smallint,
+        coalesce(nullif(v -> 'spells', 'null'), '[]'), coalesce(nullif(v -> 'actions', 'null'), '[]'),
+        (v ->> 'portraitMediaId')::uuid, (v ->> 'tokenMediaId')::uuid,
+        nullif(v -> 'tokenCrop', 'null'), v ->> 'tokenColor',
+        v ->> 'dndbeyondId', (v ->> 'dndbeyondSyncedAt')::timestamptz
+    FROM (SELECT $1::text::jsonb AS v) saved
+    WHERE v ->> 'characterEntityId' IS NOT NULL
+    ON CONFLICT (entity_id) DO UPDATE SET
+        player_id = EXCLUDED.player_id,
+        initial_prompt = EXCLUDED.initial_prompt,
+        background = EXCLUDED.background,
+        behavior = EXCLUDED.behavior,
+        strength = EXCLUDED.strength,
+        dexterity = EXCLUDED.dexterity,
+        constitution = EXCLUDED.constitution,
+        intelligence = EXCLUDED.intelligence,
+        wisdom = EXCLUDED.wisdom,
+        charisma = EXCLUDED.charisma,
+        armor_class = EXCLUDED.armor_class,
+        hp_max = EXCLUDED.hp_max,
+        spells = EXCLUDED.spells,
+        actions = EXCLUDED.actions,
+        portrait_media_id = EXCLUDED.portrait_media_id,
+        token_media_id = EXCLUDED.token_media_id,
+        token_crop = EXCLUDED.token_crop,
+        token_color = EXCLUDED.token_color,
+        dndbeyond_id = EXCLUDED.dndbeyond_id,
+        dndbeyond_synced_at = EXCLUDED.dndbeyond_synced_at";
+
+/// The aliases it no longer has, gone.
+const DROP_ALIASES: &str = "DELETE FROM entity_alias
+    WHERE entity_id = ($1::text::jsonb ->> 'entityId')::uuid
+        AND alias <> ALL (ARRAY(SELECT jsonb_array_elements_text(
+            coalesce(nullif($1::text::jsonb -> 'alias', 'null'), '[]'))))";
+
+/// The aliases it did not have yet, added.
+const ADD_ALIASES: &str = "INSERT INTO entity_alias (entity_id, alias)
+    SELECT DISTINCT (v ->> 'entityId')::uuid, given.term
+    FROM (SELECT $1::text::jsonb AS v) saved,
+        jsonb_array_elements_text(coalesce(nullif(v -> 'alias', 'null'), '[]')) AS given (term)
+    WHERE NOT EXISTS (SELECT 1 FROM entity_alias a
+        WHERE a.entity_id = (v ->> 'entityId')::uuid AND a.alias = given.term)";
+
+/// The version the save carries, numbered after the element's last one in
+/// the table — which a projection lost earlier may have left behind the
+/// engine's.
+const ADD_VERSION: &str = "INSERT INTO entity_version
+        (id, entity_id, version_number, source, snapshot, diff, restored_from_version_id, created_at)
+    SELECT (v ->> 'entityVersionId')::uuid, (v ->> 'entityId')::uuid,
+        (SELECT coalesce(max(version_number), 0) + 1 FROM entity_version
+            WHERE entity_id = (v ->> 'entityId')::uuid),
+        v ->> 'source', v -> 'snapshot', v -> 'diff', (v ->> 'restoredFromVersionId')::uuid,
+        coalesce((v ->> 'entityVersionCreatedAt')::timestamptz, now())
+    FROM (SELECT $1::text::jsonb AS v) saved";
+
+/// Every element of the tables with its campaign, name and aliases, as the
+/// engine's row holds them: what [`Aliases`] starts from.
+const ELEMENTS: &str = "SELECT jsonb_build_object(
+        'entityId', e.id, 'entityCampaignId', e.campaign_id, 'name', e.name,
+        'alias', coalesce((SELECT jsonb_agg(a.alias) FROM entity_alias a WHERE a.entity_id = e.id), '[]')
+    )::text
+    FROM entity e";
 
 /// A [`PgStore`] whose applied `AiSettings/1` writes reach the tables.
 pub struct ProjectingStore {
@@ -170,6 +267,69 @@ impl ProjectingStore {
         }
     }
 
+    /// Records every element the tables hold in `aliases`: at a start, so
+    /// the elements saved before are judged against. Tables not migrated yet
+    /// hold none.
+    pub async fn elements(&self, aliases: &Aliases) {
+        let rows = {
+            let client = self.inner.client().lock().await;
+            client.query(ELEMENTS, &[]).await
+        };
+        match rows {
+            Ok(rows) => {
+                for row in rows {
+                    let json: String = row.get(0);
+                    let Ok(Value::Object(element)) = serde_json::from_str(&json) else {
+                        continue;
+                    };
+                    let element: BTreeMap<String, Value> = element.into_iter().collect();
+                    if let Some(id) = text(&element, "entityId") {
+                        aliases.record(id, &element);
+                    }
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: entity not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
+    }
+
+    /// Writes the element `write` saves, logging a failure by its SQLSTATE
+    /// and the invariant its constraint names.
+    async fn record_element(&self, write: &Write) {
+        if let Err(e) = self.project_element(&write.values).await {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: {} not projected: {} {}",
+                write.partition,
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
+    }
+
+    /// Writes `row`'s element, sheet, aliases and version, in one
+    /// transaction.
+    async fn project_element(
+        &self,
+        row: &BTreeMap<String, Value>,
+    ) -> std::result::Result<(), tokio_postgres::Error> {
+        let json = Value::Object(row.clone().into_iter().collect()).to_string();
+        let mut client = self.inner.client().lock().await;
+        let tx = client.transaction().await?;
+        for sql in [
+            UPSERT_ENTITY,
+            UPSERT_CHARACTER,
+            DROP_ALIASES,
+            ADD_ALIASES,
+            ADD_VERSION,
+        ] {
+            tx.execute(sql, &[&json]).await?;
+        }
+        tx.commit().await
+    }
+
     /// Writes `row`'s provider and makes it active, in one transaction.
     async fn project(
         &self,
@@ -269,6 +429,8 @@ impl Store for ProjectingStore {
             self.repair().await;
         } else if let Some(provider) = tested(write) {
             self.record_test(&write.partition, provider, false).await;
+        } else if !write.tombstone && element_of(write).is_some() {
+            self.record_element(write).await;
         }
         Ok(version)
     }
@@ -459,11 +621,14 @@ mod tests {
                 .await
                 .expect("the store"),
         ));
-        let engine = bound(Engine::new(
-            store.clone(),
-            Arc::new(MemoryNotifier::default()),
-            Arc::new(SystemClock),
-        ))
+        let engine = bound(
+            Engine::new(
+                store.clone(),
+                Arc::new(MemoryNotifier::default()),
+                Arc::new(SystemClock),
+            ),
+            Arc::default(),
+        )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
         let before = snapshot(&tables, false).await;
@@ -607,11 +772,14 @@ mod tests {
         let plain = PgStore::open(connect(&scratch).await)
             .await
             .expect("the store");
-        let engine = bound(Engine::new(
-            projecting.clone(),
-            Arc::new(MemoryNotifier::default()),
-            Arc::new(SystemClock),
-        ))
+        let engine = bound(
+            Engine::new(
+                projecting.clone(),
+                Arc::new(MemoryNotifier::default()),
+                Arc::new(SystemClock),
+            ),
+            Arc::default(),
+        )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
 

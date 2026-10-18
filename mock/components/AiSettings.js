@@ -491,6 +491,9 @@
     const home = settings.providers.opencode.url;
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
+  var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
+  var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
+  var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
@@ -535,6 +538,51 @@
       const message = payload2.mode === "api" && settings.testResults?.[provider]?.message || `Connexion r\xE9ussie (binaire ${provider})`;
       const latency = message.match(/répond en ([\d,]+ s)/)?.[1] || "0,01 s";
       settings.lastTest = { ok: true, at, provider, latency, message };
+      return void 0;
+    },
+    // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
+    // DM's explicit save of an element, its sheet and its aliases, which adds a
+    // version (EntityVersion@1, source `dm`) whose changes are the fields that
+    // moved. An alias naming another element, by its name or an alias
+    // (AliasMatch@1), is refused by `alias-unique-in-campaign`; a player on
+    // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
+    // are kept: a DEX modifier given is never written.
+    "campaign.saveEntity": async (server, { payload: payload2 }) => {
+      const given = payload2.entity || payload2;
+      const lists = await Promise.all(Object.values(LISTS).filter((v2, i, all2) => all2.indexOf(v2) === i).map(async (name) => [name, await server.load(name) || []]));
+      const all = lists.flatMap(([name, list2]) => list2.map((element) => ({ name, element })));
+      const found = all.find(({ element }) => given.id && element.id === given.id);
+      const before = found ? found.element : {};
+      const kind = given.kind || before.kind || (found && found.name === "campaign.listPlaces" ? "lieu" : found && found.name === "campaign.listEvents" ? "evenement" : void 0);
+      if (!LISTS[kind]) return ["character-is-pj-or-pnj"];
+      const after = { ...before };
+      for (const field of SAVED) if (field in given) after[field] = given[field];
+      after.kind = kind;
+      if (Array.isArray(after.aliases)) {
+        const seen = /* @__PURE__ */ new Set();
+        after.aliases = after.aliases.filter((a) => typeof a === "string" && normalized(a) && !seen.has(normalized(a)) && seen.add(normalized(a)));
+      }
+      if (after.player && kind !== "pj") return ["character-is-pj-or-pnj"];
+      const own = [[normalized(after.name), false], ...(after.aliases || []).map((a) => [normalized(a), true])].filter(([t]) => t);
+      const others = all.filter(({ element }) => element !== before).flatMap(({ element }) => [[normalized(element.name), false], ...(element.aliases || []).map((a) => [normalized(a), true])]);
+      if (own.some(([t, alias]) => others.some(([o, otherAlias]) => o === t && (alias || otherAlias)))) return ["alias-unique-in-campaign"];
+      if ((kind === "pj" || kind === "pnj") && !after.color) after.color = "accent";
+      const id = before.id || given.id || server.uuid();
+      after.id = id;
+      const list = await server.load(LISTS[kind]) || [];
+      if (found && found.name !== LISTS[kind]) {
+        const old = lists.find(([name]) => name === found.name)[1];
+        old.splice(old.indexOf(before), 1);
+      }
+      const at = list.indexOf(before);
+      if (at >= 0) list[at] = after;
+      else list.push(after);
+      const history = await server.load("campaign.listEntityVersions") || {};
+      const entry = history[id] || (history[id] = { name: after.name, versions: [] });
+      entry.name = after.name;
+      const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
+      const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Fiche enregistr\xE9e par le DM", seen: true, changes });
       return void 0;
     }
   };

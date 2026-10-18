@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "c34426ced3d7e857"
+      "builtFrom": "f32bf890df679718"
     },
     {
       "name": "CampaignOverview",
