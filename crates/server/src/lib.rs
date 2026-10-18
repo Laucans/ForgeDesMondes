@@ -32,7 +32,7 @@ use std::sync::Arc;
 
 use axum::routing::get;
 use axum::{Json, Router};
-use dataguard_server::{Engine, Reads};
+use dataguard_server::{Engine, Reads, Rows};
 pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
 use ports_llm::Llm;
 use ports_llm::fake::FakeLlm;
@@ -184,10 +184,15 @@ pub async fn reads(config: &Config) -> Result<Reads, Error> {
     Ok(Reads::open(url).await?)
 }
 
-/// The shell's wire protocol through `engine` and `llm`, its reads through
-/// `reads`, and `GET /health`.
-pub fn app<L: Llm + 'static>(engine: Arc<Engine>, llm: Arc<L>, reads: Arc<Reads>) -> Router {
-    dataguard_server::router_reading(engine, llm, reads).route("/health", get(health))
+/// The shell's wire protocol through `engine`, whose rows are `rows`, and
+/// `llm`, its reads through `reads`, and `GET /health`.
+pub fn app<L: Llm + 'static>(
+    engine: Arc<Engine>,
+    rows: Rows,
+    llm: Arc<L>,
+    reads: Arc<Reads>,
+) -> Router {
+    dataguard_server::router_reading(engine, rows, llm, reads).route("/health", get(health))
 }
 
 /// Answers 200 once the server serves: migrations applied, engine planted.
@@ -354,9 +359,10 @@ mod tests {
 
     /// The app over the in-memory engine, answering one request.
     async fn answer(method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
-        let engine = dataguard_server::plant(dataguard_server::MEMORY)
-            .await
-            .expect("the in-memory engine");
+        let dataguard_server::Planted { engine, rows } =
+            dataguard_server::planted(dataguard_server::MEMORY)
+                .await
+                .expect("the in-memory engine");
         let request = Request::builder().method(method).uri(uri);
         let request = match body {
             Some(body) => request
@@ -368,10 +374,15 @@ mod tests {
         let reads = Reads::open(dataguard_server::MEMORY)
             .await
             .expect("no database");
-        let response = app(Arc::new(engine), Arc::new(FakeLlm::new()), Arc::new(reads))
-            .oneshot(request)
-            .await
-            .expect("an answer");
+        let response = app(
+            Arc::new(engine),
+            rows,
+            Arc::new(FakeLlm::new()),
+            Arc::new(reads),
+        )
+        .oneshot(request)
+        .await
+        .expect("an answer");
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await

@@ -32,6 +32,8 @@ const CLAIRE: &str = "b1000000-0000-4000-8000-000000000001";
 const ELOWEN: &str = "e1000000-0000-4000-8000-000000000001";
 const TAVERNE: &str = "e1000000-0000-4000-8000-000000000002";
 const PORTRAIT: &str = "d1000000-0000-4000-8000-000000000001";
+/// When an element was made: a whole element holds it (every-change-versioned).
+const CREATED: &str = "2026-10-17T10:00:00Z";
 
 /// The engine as the server plants it, with the test-only DataCapabilities.
 async fn engine() -> Engine {
@@ -127,6 +129,7 @@ fn elowen() -> Value {
         json!({
             "entityId": ELOWEN,
             "entityCampaignId": VALOMBRE,
+            "entityCreatedAt": CREATED,
             "type": "pj",
             "name": "Elowen",
             "notes": "Cache une lettre de sa sœur.",
@@ -151,6 +154,7 @@ fn taverne() -> Value {
         json!({
             "entityId": TAVERNE,
             "entityCampaignId": VALOMBRE,
+            "entityCreatedAt": CREATED,
             "type": "lieu",
             "name": "La Taverne du Sanglier",
             "description": "Une salle basse, enfumée.",
@@ -197,6 +201,7 @@ async fn an_element_saved_whole_with_its_version_is_applied() {
                 json!({
                     "entityId": "e1000000-0000-4000-8000-000000000003",
                     "entityCampaignId": VALOMBRE,
+                    "entityCreatedAt": CREATED,
                     "type": "pnj",
                     "name": "Morlox",
                     "hpMax": 18,
@@ -272,22 +277,24 @@ async fn character_is_pj_or_pnj_rejects_a_player_on_an_npc() {
         )
         .await,
     );
-    // A sheet with no type is no PJ's or PNJ's either.
-    rejected_by(
-        &written(
-            &engine,
-            "test.createEntity",
-            without(
-                with(
-                    elowen(),
-                    "entityId",
-                    json!("e1000000-0000-4000-8000-000000000009"),
-                ),
-                "type",
+    // A sheet with no type is no PJ's or PNJ's either — nor a whole element.
+    let result = written(
+        &engine,
+        "test.createEntity",
+        without(
+            with(
+                elowen(),
+                "entityId",
+                json!("e1000000-0000-4000-8000-000000000009"),
             ),
-        )
-        .await,
-        "character-is-pj-or-pnj",
+            "type",
+        ),
+    )
+    .await;
+    assert_eq!(result.status, State::Rejected, "{result:?}");
+    assert_eq!(
+        result.violations,
+        ["character-is-pj-or-pnj", "every-change-versioned"]
     );
 }
 
@@ -319,6 +326,28 @@ async fn every_change_versioned_rejects_a_save_with_no_complete_version() {
             "every-change-versioned",
         );
     }
+    // A new element missing what an element holds from its creation on — as
+    // a save queued behind a creation that was never applied has it.
+    for (field, id) in [
+        ("entityCampaignId", "e1000000-0000-4000-8000-000000000011"),
+        ("name", "e1000000-0000-4000-8000-000000000012"),
+        ("entityCreatedAt", "e1000000-0000-4000-8000-000000000013"),
+    ] {
+        let place = with(taverne(), "entityId", json!(id));
+        rejected_by(
+            &written(&engine, "test.createEntity", without(place, field)).await,
+            "every-change-versioned",
+        );
+    }
+    let place = with(
+        taverne(),
+        "entityId",
+        json!("e1000000-0000-4000-8000-000000000014"),
+    );
+    rejected_by(
+        &written(&engine, "test.createEntity", without(place, "type")).await,
+        "every-change-versioned",
+    );
 }
 
 #[tokio::test]

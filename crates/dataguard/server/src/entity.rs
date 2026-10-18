@@ -1,10 +1,12 @@
 //! The invariants of the `Entity` aggregate
 //! (`crates/dataguard/aggregates/Entity/aggregate.json`), which its rules
 //! write in words: the engine judges here what one element's row and its
-//! command can say, on the row's state after the command. The tables
+//! command can say, on the row's state after the command — and, for
+//! `alias-unique-in-campaign`, against the other elements of its campaign
+//! the engine has applied ([`Aliases`]). The tables
 //! (`crates/data/migrations/0004_entity.sql`) judge again what reads other
-//! rows: the player's campaign, the other elements' aliases
-//! (`alias-unique-in-campaign`, there alone), the versions already written.
+//! rows: the player's campaign, the other elements' aliases, the versions
+//! already written.
 //!
 //! A command writes an element as one explicit save: the element, its sheet
 //! and its aliases, with the new version it adds — its number, source,
@@ -13,10 +15,13 @@
 //! not inherit.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use harness_dataguard::command::{Effect, Entry, Mode};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
+
+use crate::aliases::Aliases;
 
 const AGGREGATE: &str = "Entity";
 
@@ -59,6 +64,11 @@ const VERSION: [&str; 8] = [
     "restoredFromVersionId",
     "entityVersionCreatedAt",
 ];
+
+/// What an element holds from its creation on: its campaign, its type, its
+/// name and the time it was made. A complete snapshot is of an element
+/// holding them.
+const WHOLE: [&str; 4] = ["entityCampaignId", "type", "name", "entityCreatedAt"];
 
 /// What names the element, or stamps the save: written by any source.
 const BOOKKEEPING: [&str; 5] = [
@@ -122,8 +132,21 @@ const CHECKS: [Check; 8] = [
     ("dex-modifier-derived", dex_modifier_derived),
 ];
 
-/// The invariants `plant()` binds the engine with.
-pub struct Entity;
+/// The invariant judged against the rest of the campaign.
+const ALIAS_UNIQUE: &str = "alias-unique-in-campaign";
+
+/// The invariants `plant()` binds the engine with, `alias-unique-in-campaign`
+/// read from the applied elements' terms.
+pub struct Entity {
+    aliases: Arc<Aliases>,
+}
+
+impl Entity {
+    /// The judge reading `aliases`.
+    pub const fn new(aliases: Arc<Aliases>) -> Self {
+        Self { aliases }
+    }
+}
 
 impl Invariants for Entity {
     fn violated(
@@ -137,12 +160,25 @@ impl Invariants for Entity {
         if aggregate != AGGREGATE || entry.effect == Effect::Delete {
             return Vec::new();
         }
-        CHECKS
+        let mut violated: Vec<String> = CHECKS
             .iter()
             .filter(|(_, holds)| !holds(state, entry))
             .map(|(id, _)| (*id).to_string())
-            .collect()
+            .collect();
+        if !alias_unique_in_campaign(&self.aliases, state) {
+            violated.push(ALIAS_UNIQUE.to_string());
+        }
+        violated
     }
+}
+
+/// No alias of the element, normalised (AliasMatch@1), names another element
+/// of its campaign, by its name or one of its aliases; nor does its name
+/// double another's alias.
+fn alias_unique_in_campaign(aliases: &Aliases, state: &BTreeMap<String, Value>) -> bool {
+    value(state, "entityId")
+        .as_str()
+        .is_none_or(|element| aliases.taken(element, state).is_none())
 }
 
 /// `field`'s value in `row`, an absent field and a null being the same.
@@ -173,11 +209,16 @@ fn character_is_pj_or_pnj(state: &BTreeMap<String, Value>, _entry: &Entry) -> bo
 /// known source, the complete snapshot and the diff. A version written is
 /// never written again.
 ///
+/// The snapshot is complete of a whole element alone ([`WHOLE`]): judged at
+/// application on the row as it really is, a save queued behind the creation
+/// of its element is rejected when that creation was not applied — cancelled
+/// or rejected — instead of writing an element that never was.
+///
 /// Past, not next: the engine holds the row as it was when the command was
 /// queued, and a save queued behind another rightly takes the number after
 /// it. The table, which holds the versions written, wants the next one
 /// exactly.
-fn every_change_versioned(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+fn every_change_versioned(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let confirmed = &entry.projection.confirmed;
     let number = value(&entry.payload, "versionNumber").as_u64();
     let last = value(confirmed, "versionNumber").as_u64().unwrap_or(0);
@@ -187,6 +228,7 @@ fn every_change_versioned(_state: &BTreeMap<String, Value>, entry: &Entry) -> bo
         && value(&entry.payload, "snapshot").is_object()
         && value(&entry.payload, "diff").is_array()
         && (id.is_null() || id != value(confirmed, "entityVersionId"))
+        && WHOLE.iter().all(|field| value(state, field).is_string())
 }
 
 /// A restoration names the version it restores, which is not itself; no
@@ -258,7 +300,10 @@ fn dex_modifier_derived(state: &BTreeMap<String, Value>, entry: &Entry) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use super::{ABILITIES, BOOKKEEPING, CHECKS, DEX_MODIFIER, PROPOSAL, RESYNC, SHEET, VERSION};
+    use super::{
+        ABILITIES, ALIAS_UNIQUE, BOOKKEEPING, CHECKS, DEX_MODIFIER, PROPOSAL, RESYNC, SHEET,
+        VERSION, WHOLE,
+    };
 
     fn aggregate() -> serde_json::Value {
         serde_json::from_str(include_str!("../../aggregates/Entity/aggregate.json"))
@@ -273,6 +318,7 @@ mod tests {
             .iter()
             .chain(&VERSION)
             .chain(&BOOKKEEPING)
+            .chain(&WHOLE)
             .chain(&ABILITIES)
             .chain(&RESYNC)
             .chain(&PROPOSAL)
@@ -284,16 +330,16 @@ mod tests {
     }
 
     #[test]
-    fn the_judge_checks_the_invariants_the_aggregate_declares_but_alias_unique_in_campaign() {
+    fn the_judge_checks_every_invariant_the_aggregate_declares() {
         let aggregate = aggregate();
         let mut declared: Vec<&str> = aggregate["invariants"]
             .as_array()
             .expect("invariants")
             .iter()
             .map(|invariant| invariant["id"].as_str().expect("an id"))
-            .filter(|id| *id != "alias-unique-in-campaign")
             .collect();
         let mut judged: Vec<&str> = CHECKS.iter().map(|(id, _)| *id).collect();
+        judged.push(ALIAS_UNIQUE);
         declared.sort_unstable();
         judged.sort_unstable();
         assert_eq!(judged, declared);

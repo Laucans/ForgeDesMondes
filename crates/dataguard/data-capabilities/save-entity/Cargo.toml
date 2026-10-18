@@ -1,0 +1,15 @@
+[package]
+name = "save-entity"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability campaign.saveEntity: the DM's explicit save of an element, its sheet and its aliases, on its Entity partition, with the version it adds (EntityVersion@1) — the wire payload mapped, the aliases normalised (AliasMatch@1), a DEX modifier never written (AbilityModifier@1)."
+publish = false
+
+[dependencies]
+serde_json = "1"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+# The Concepts' fixtures `version` and `normalized` are held to.
+platform-conformance = { path = "../../../platform/conformance" }

@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f776bd111c59edfb"
+      "builtFrom": "0335bbf298dde450"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "453a6c473282ba41"
+      "builtFrom": "01a4599515b844ca"
     },
     {
       "name": "SessionList",
@@ -274,7 +274,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "1c008228ec6b8ce5"
+      "builtFrom": "528f21e8a6c75d86"
     },
     {
       "name": "PreviousSummary",
