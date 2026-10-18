@@ -1,0 +1,1170 @@
+{
+  "version": 1,
+  "milestones": [
+    {
+      "number": 16,
+      "title": "Product skeleton: one server binary, the shell, the Data layer",
+      "systems": [
+        "platform"
+      ],
+      "produces": [],
+      "consumes": [],
+      "depends_on": []
+    },
+    {
+      "number": 17,
+      "title": "AI provider settings: API or binary, connection test",
+      "systems": [
+        "ai"
+      ],
+      "produces": [
+        "AiSettings",
+        "ProviderApiType@1",
+        "ai.getSettings",
+        "ai.saveSettings",
+        "ai.testConnection"
+      ],
+      "consumes": [],
+      "depends_on": []
+    },
+    {
+      "number": 18,
+      "title": "Campaigns, players and characters with versioned history",
+      "systems": [
+        "campaign"
+      ],
+      "produces": [
+        "AbilityModifier@1",
+        "AliasMatch@1",
+        "Campaign",
+        "CampaignOverview",
+        "Entity",
+        "EntityVersion@1",
+        "Player",
+        "VersionHistory",
+        "campaign.exportCampaign",
+        "campaign.getCampaign",
+        "campaign.listEntityVersions",
+        "campaign.restoreEntityVersion",
+        "campaign.saveEntity"
+      ],
+      "consumes": [],
+      "depends_on": []
+    },
+    {
+      "number": 19,
+      "title": "Media library data and hex-grid settings",
+      "systems": [
+        "media"
+      ],
+      "produces": [
+        "GridSettings",
+        "HexGrid@1",
+        "Media",
+        "MediaLibrary",
+        "media.getBattlemap",
+        "media.listMedia",
+        "media.saveGridSettings",
+        "media.setMediaPlace",
+        "media.uploadMedia"
+      ],
+      "consumes": [
+        "Campaign",
+        "Entity",
+        "campaign.listPlaces",
+        "session.addPlaceToSession",
+        "session.listScenes"
+      ],
+      "depends_on": [
+        18,
+        20
+      ]
+    },
+    {
+      "number": 20,
+      "title": "Sessions, present PCs, scenes and media attached by place",
+      "systems": [
+        "session",
+        "media",
+        "campaign"
+      ],
+      "produces": [
+        "SceneBoard",
+        "Session",
+        "SessionLifecycle@1",
+        "SessionList",
+        "campaign.createCampaign",
+        "campaign.listCharacters",
+        "campaign.listPlaces",
+        "session.addPlaceToSession",
+        "session.addPresentCharacter",
+        "session.addScene",
+        "session.createSession",
+        "session.getSession",
+        "session.listScenes",
+        "session.listSessions",
+        "session.removePresentCharacter",
+        "session.reorderScenes"
+      ],
+      "consumes": [
+        "Campaign",
+        "media.listMedia",
+        "media.setMediaPlace",
+        "media.uploadMedia",
+        "table.createBattlemapInstance",
+        "table.getBattlemapInstance"
+      ],
+      "depends_on": [
+        18,
+        19,
+        25
+      ]
+    },
+    {
+      "number": 21,
+      "title": "Soundbox: tagged sound library and live playback",
+      "systems": [
+        "soundbox"
+      ],
+      "produces": [
+        "EffectiveVolume@1",
+        "LiveSoundbox",
+        "Sound",
+        "SoundLibrary",
+        "SoundPlayback",
+        "SoundTag@1",
+        "soundbox.addSound",
+        "soundbox.listSounds",
+        "soundbox.playSound",
+        "soundbox.removeSound",
+        "soundbox.setMasterVolume",
+        "soundbox.setSoundVolume",
+        "soundbox.stopAll",
+        "soundbox.updateSound"
+      ],
+      "consumes": [
+        "Campaign"
+      ],
+      "depends_on": [
+        18
+      ]
+    },
+    {
+      "number": 22,
+      "title": "Entity sheet: assisted creation, D&D Beyond, navigation rail",
+      "systems": [
+        "campaign",
+        "ai"
+      ],
+      "produces": [
+        "CampaignElements",
+        "EntityEditor",
+        "StatBlock@1",
+        "TokenAppearance@1",
+        "ai.proposeCharacter",
+        "campaign.getEntity",
+        "campaign.listEvents",
+        "campaign.listPlayers",
+        "dndbeyond.importCharacter",
+        "dndbeyond.resyncCharacter"
+      ],
+      "consumes": [
+        "Entity",
+        "campaign.listCharacters",
+        "campaign.listPlaces",
+        "campaign.saveEntity",
+        "media.listMedia",
+        "soundbox.listSounds"
+      ],
+      "depends_on": [
+        18,
+        19,
+        20,
+        21
+      ]
+    },
+    {
+      "number": 23,
+      "title": "Notes import: extraction, then validation in a batch",
+      "systems": [
+        "ai",
+        "campaign"
+      ],
+      "produces": [
+        "NoteImport",
+        "ai.extractFromNotes",
+        "campaign.createEntitiesFromNote",
+        "campaign.listImportedNotes"
+      ],
+      "consumes": [
+        "Entity"
+      ],
+      "depends_on": [
+        18
+      ]
+    },
+    {
+      "number": 24,
+      "title": "Oral brief: scenes, updated NPCs and the to-create list",
+      "systems": [
+        "ai",
+        "session",
+        "campaign"
+      ],
+      "produces": [
+        "OralBrief",
+        "ToCreateList",
+        "ai.analyzeBrief",
+        "ai.createFromBrief",
+        "campaign.listEntitiesToCreate",
+        "session.getLastBrief"
+      ],
+      "consumes": [
+        "Entity",
+        "Session"
+      ],
+      "depends_on": [
+        18,
+        20
+      ]
+    },
+    {
+      "number": 25,
+      "title": "Battlemap instances: tokens, hit points and combat",
+      "systems": [
+        "table",
+        "session"
+      ],
+      "produces": [
+        "BattlemapInstance",
+        "HealthBand@1",
+        "Initiative@1",
+        "table.addParticipant",
+        "table.changeHitPoints",
+        "table.createBattlemapInstance",
+        "table.endCombat",
+        "table.getBattlemapInstance",
+        "table.moveToken",
+        "table.nextTurn",
+        "table.placeTokens",
+        "table.removeParticipant",
+        "table.removeToken",
+        "table.renameToken",
+        "table.reorderInitiative",
+        "table.resetBattlemap",
+        "table.setTokenCondition",
+        "table.setTokenVisibility",
+        "table.startCombat"
+      ],
+      "consumes": [
+        "Session",
+        "campaign.listCharacters",
+        "media.listMedia",
+        "session.addPresentCharacter",
+        "session.addScene",
+        "session.getSession",
+        "session.listScenes",
+        "session.removePresentCharacter",
+        "session.reorderScenes"
+      ],
+      "depends_on": [
+        19,
+        20
+      ]
+    },
+    {
+      "number": 26,
+      "title": "Diffusion to the player view: battlemap and illustrations",
+      "systems": [
+        "live",
+        "table"
+      ],
+      "produces": [
+        "Battlemap",
+        "Diffusion",
+        "PlayerStage",
+        "live.closeWindow",
+        "live.getDiffusion",
+        "live.moveWindow",
+        "live.resizeWindow",
+        "live.showCover",
+        "live.showOnPlayerView",
+        "live.showWindowOnPlayerView"
+      ],
+      "consumes": [
+        "BattlemapInstance",
+        "campaign.getCampaign",
+        "campaign.listCharacters",
+        "media.getBattlemap",
+        "media.listMedia",
+        "table.addParticipant",
+        "table.changeHitPoints",
+        "table.endCombat",
+        "table.getBattlemapInstance",
+        "table.moveToken",
+        "table.nextTurn",
+        "table.placeTokens",
+        "table.removeParticipant",
+        "table.removeToken",
+        "table.renameToken",
+        "table.reorderInitiative",
+        "table.resetBattlemap",
+        "table.setTokenCondition",
+        "table.setTokenVisibility",
+        "table.startCombat"
+      ],
+      "depends_on": [
+        18,
+        19,
+        20,
+        25
+      ]
+    },
+    {
+      "number": 27,
+      "title": "Live microphone and suggestions",
+      "systems": [
+        "live"
+      ],
+      "produces": [
+        "DetectionVocabulary@1",
+        "Suggestion",
+        "SuggestionPill",
+        "live.listSuggestions",
+        "live.setMicrophone"
+      ],
+      "consumes": [
+        "Session",
+        "Sound",
+        "soundbox.playSound"
+      ],
+      "depends_on": [
+        20,
+        21
+      ]
+    },
+    {
+      "number": 28,
+      "title": "Closing a session: journal, summary and preparation screen",
+      "systems": [
+        "session"
+      ],
+      "produces": [
+        "LiveSessionBar",
+        "PreviousSummary",
+        "session.closeSession",
+        "session.getLiveSession",
+        "session.getPreviousSessionSummary",
+        "session.getSessionJournal"
+      ],
+      "consumes": [
+        "Session",
+        "SoundPlayback",
+        "live.closeWindow",
+        "live.getDiffusion",
+        "live.showCover"
+      ],
+      "depends_on": [
+        20,
+        21,
+        26
+      ]
+    },
+    {
+      "number": 29,
+      "title": "DM view: elements panel and table sheet",
+      "systems": [
+        "live"
+      ],
+      "produces": [
+        "ElementsPanel",
+        "TableSheet"
+      ],
+      "consumes": [
+        "campaign.getEntity",
+        "campaign.listCharacters",
+        "campaign.listEvents",
+        "campaign.listPlaces",
+        "live.showOnPlayerView",
+        "live.showWindowOnPlayerView",
+        "media.listMedia",
+        "session.listScenes"
+      ],
+      "depends_on": [
+        19,
+        20,
+        22,
+        26
+      ]
+    },
+    {
+      "number": 30,
+      "title": "Campaign home and archive import",
+      "systems": [
+        "campaign"
+      ],
+      "produces": [
+        "CampaignArchive@1",
+        "CampaignList",
+        "campaign.importCampaign",
+        "campaign.listCampaigns"
+      ],
+      "consumes": [
+        "Campaign",
+        "Entity",
+        "Media",
+        "Player",
+        "Session",
+        "Sound",
+        "campaign.createCampaign",
+        "campaign.exportCampaign"
+      ],
+      "depends_on": [
+        18,
+        19,
+        20,
+        21
+      ]
+    }
+  ],
+  "ids": {
+    "AbilityModifier@1": {
+      "kind": "concept",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "AiSettings": {
+      "kind": "aggregate",
+      "producer": 17,
+      "state": "planned",
+      "version": 1
+    },
+    "AliasMatch@1": {
+      "kind": "concept",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "Battlemap": {
+      "kind": "micro-ui",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "BattlemapInstance": {
+      "kind": "aggregate",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "Campaign": {
+      "kind": "aggregate",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "CampaignArchive@1": {
+      "kind": "concept",
+      "producer": 30,
+      "state": "planned",
+      "version": 1
+    },
+    "CampaignElements": {
+      "kind": "micro-ui",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "CampaignList": {
+      "kind": "micro-ui",
+      "producer": 30,
+      "state": "planned",
+      "version": 1
+    },
+    "CampaignOverview": {
+      "kind": "micro-ui",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "DetectionVocabulary@1": {
+      "kind": "concept",
+      "producer": 27,
+      "state": "planned",
+      "version": 1
+    },
+    "Diffusion": {
+      "kind": "aggregate",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "EffectiveVolume@1": {
+      "kind": "concept",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "ElementsPanel": {
+      "kind": "micro-ui",
+      "producer": 29,
+      "state": "planned",
+      "version": 1
+    },
+    "Entity": {
+      "kind": "aggregate",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "EntityEditor": {
+      "kind": "micro-ui",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "EntityVersion@1": {
+      "kind": "concept",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "GridSettings": {
+      "kind": "micro-ui",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "HealthBand@1": {
+      "kind": "concept",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "HexGrid@1": {
+      "kind": "concept",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "Initiative@1": {
+      "kind": "concept",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "LiveSessionBar": {
+      "kind": "micro-ui",
+      "producer": 28,
+      "state": "planned",
+      "version": 1
+    },
+    "LiveSoundbox": {
+      "kind": "micro-ui",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "Media": {
+      "kind": "aggregate",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "MediaLibrary": {
+      "kind": "micro-ui",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "NoteImport": {
+      "kind": "aggregate",
+      "producer": 23,
+      "state": "planned",
+      "version": 1
+    },
+    "OralBrief": {
+      "kind": "micro-ui",
+      "producer": 24,
+      "state": "planned",
+      "version": 1
+    },
+    "Player": {
+      "kind": "aggregate",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "PlayerStage": {
+      "kind": "micro-ui",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "PreviousSummary": {
+      "kind": "micro-ui",
+      "producer": 28,
+      "state": "planned",
+      "version": 1
+    },
+    "ProviderApiType@1": {
+      "kind": "concept",
+      "producer": 17,
+      "state": "planned",
+      "version": 1
+    },
+    "SceneBoard": {
+      "kind": "micro-ui",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "Session": {
+      "kind": "aggregate",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "SessionLifecycle@1": {
+      "kind": "concept",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "SessionList": {
+      "kind": "micro-ui",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "Sound": {
+      "kind": "aggregate",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "SoundLibrary": {
+      "kind": "micro-ui",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "SoundPlayback": {
+      "kind": "aggregate",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "SoundTag@1": {
+      "kind": "concept",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "StatBlock@1": {
+      "kind": "concept",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "Suggestion": {
+      "kind": "aggregate",
+      "producer": 27,
+      "state": "planned",
+      "version": 1
+    },
+    "SuggestionPill": {
+      "kind": "micro-ui",
+      "producer": 27,
+      "state": "planned",
+      "version": 1
+    },
+    "TableSheet": {
+      "kind": "micro-ui",
+      "producer": 29,
+      "state": "planned",
+      "version": 1
+    },
+    "ToCreateList": {
+      "kind": "micro-ui",
+      "producer": 24,
+      "state": "planned",
+      "version": 1
+    },
+    "TokenAppearance@1": {
+      "kind": "concept",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "VersionHistory": {
+      "kind": "micro-ui",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "ai.analyzeBrief": {
+      "kind": "data-capability",
+      "producer": 24,
+      "state": "planned",
+      "version": 1
+    },
+    "ai.createFromBrief": {
+      "kind": "data-capability",
+      "producer": 24,
+      "state": "planned",
+      "version": 1
+    },
+    "ai.extractFromNotes": {
+      "kind": "data-capability",
+      "producer": 23,
+      "state": "planned",
+      "version": 1
+    },
+    "ai.getSettings": {
+      "kind": "capability",
+      "producer": 17,
+      "state": "planned",
+      "version": 1
+    },
+    "ai.proposeCharacter": {
+      "kind": "data-capability",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "ai.saveSettings": {
+      "kind": "data-capability",
+      "producer": 17,
+      "state": "planned",
+      "version": 1
+    },
+    "ai.testConnection": {
+      "kind": "data-capability",
+      "producer": 17,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.createCampaign": {
+      "kind": "data-capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.createEntitiesFromNote": {
+      "kind": "data-capability",
+      "producer": 23,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.exportCampaign": {
+      "kind": "data-capability",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.getCampaign": {
+      "kind": "capability",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.getEntity": {
+      "kind": "capability",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.importCampaign": {
+      "kind": "data-capability",
+      "producer": 30,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.listCampaigns": {
+      "kind": "capability",
+      "producer": 30,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.listCharacters": {
+      "kind": "capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.listEntitiesToCreate": {
+      "kind": "capability",
+      "producer": 24,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.listEntityVersions": {
+      "kind": "capability",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.listEvents": {
+      "kind": "capability",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.listImportedNotes": {
+      "kind": "capability",
+      "producer": 23,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.listPlaces": {
+      "kind": "capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.listPlayers": {
+      "kind": "capability",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.restoreEntityVersion": {
+      "kind": "data-capability",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "campaign.saveEntity": {
+      "kind": "data-capability",
+      "producer": 18,
+      "state": "planned",
+      "version": 1
+    },
+    "dndbeyond.importCharacter": {
+      "kind": "data-capability",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "dndbeyond.resyncCharacter": {
+      "kind": "data-capability",
+      "producer": 22,
+      "state": "planned",
+      "version": 1
+    },
+    "live.closeWindow": {
+      "kind": "data-capability",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "live.getDiffusion": {
+      "kind": "capability",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "live.listSuggestions": {
+      "kind": "capability",
+      "producer": 27,
+      "state": "planned",
+      "version": 1
+    },
+    "live.moveWindow": {
+      "kind": "data-capability",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "live.resizeWindow": {
+      "kind": "data-capability",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "live.setMicrophone": {
+      "kind": "data-capability",
+      "producer": 27,
+      "state": "planned",
+      "version": 1
+    },
+    "live.showCover": {
+      "kind": "data-capability",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "live.showOnPlayerView": {
+      "kind": "data-capability",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "live.showWindowOnPlayerView": {
+      "kind": "data-capability",
+      "producer": 26,
+      "state": "planned",
+      "version": 1
+    },
+    "media.getBattlemap": {
+      "kind": "capability",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "media.listMedia": {
+      "kind": "capability",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "media.saveGridSettings": {
+      "kind": "data-capability",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "media.setMediaPlace": {
+      "kind": "data-capability",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "media.uploadMedia": {
+      "kind": "data-capability",
+      "producer": 19,
+      "state": "planned",
+      "version": 1
+    },
+    "session.addPlaceToSession": {
+      "kind": "data-capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "session.addPresentCharacter": {
+      "kind": "data-capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "session.addScene": {
+      "kind": "data-capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "session.closeSession": {
+      "kind": "data-capability",
+      "producer": 28,
+      "state": "planned",
+      "version": 1
+    },
+    "session.createSession": {
+      "kind": "data-capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "session.getLastBrief": {
+      "kind": "capability",
+      "producer": 24,
+      "state": "planned",
+      "version": 1
+    },
+    "session.getLiveSession": {
+      "kind": "capability",
+      "producer": 28,
+      "state": "planned",
+      "version": 1
+    },
+    "session.getPreviousSessionSummary": {
+      "kind": "capability",
+      "producer": 28,
+      "state": "planned",
+      "version": 1
+    },
+    "session.getSession": {
+      "kind": "capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "session.getSessionJournal": {
+      "kind": "capability",
+      "producer": 28,
+      "state": "planned",
+      "version": 1
+    },
+    "session.listScenes": {
+      "kind": "capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "session.listSessions": {
+      "kind": "capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "session.removePresentCharacter": {
+      "kind": "data-capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "session.reorderScenes": {
+      "kind": "data-capability",
+      "producer": 20,
+      "state": "planned",
+      "version": 1
+    },
+    "soundbox.addSound": {
+      "kind": "data-capability",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "soundbox.listSounds": {
+      "kind": "capability",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "soundbox.playSound": {
+      "kind": "data-capability",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "soundbox.removeSound": {
+      "kind": "data-capability",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "soundbox.setMasterVolume": {
+      "kind": "data-capability",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "soundbox.setSoundVolume": {
+      "kind": "data-capability",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "soundbox.stopAll": {
+      "kind": "data-capability",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "soundbox.updateSound": {
+      "kind": "data-capability",
+      "producer": 21,
+      "state": "planned",
+      "version": 1
+    },
+    "table.addParticipant": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.changeHitPoints": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.createBattlemapInstance": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.endCombat": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.getBattlemapInstance": {
+      "kind": "capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.moveToken": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.nextTurn": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.placeTokens": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.removeParticipant": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.removeToken": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.renameToken": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.reorderInitiative": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.resetBattlemap": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.setTokenCondition": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.setTokenVisibility": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    },
+    "table.startCombat": {
+      "kind": "data-capability",
+      "producer": 25,
+      "state": "planned",
+      "version": 1
+    }
+  }
+}
