@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f40bef5a97044598"
+      "builtFrom": "da766b04e407d35a"
     },
     {
       "name": "CampaignOverview",
@@ -328,7 +328,9 @@
         "session.reorderScenes",
         "table.createBattlemapInstance"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/session/scene-board",
+      "builtFrom": "56418db6d7a4ef5e"
     },
     {
       "name": "Battlemap",
