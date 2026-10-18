@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use dataguard_server::{Engine, plant, router};
+use dataguard_server::{Engine, Planted, planted, router};
 use harness_dataguard::command::State;
 use ports_llm::fake::FakeLlm;
 use serde_json::{Value, json};
@@ -74,9 +74,12 @@ impl Scratch {
     /// The engine as the server plants it, and its wire protocol with the
     /// llm port's fake, whose home server answers its model list.
     async fn serve(&self) -> (Arc<Engine>, Router) {
-        let engine = Arc::new(plant(&self.url).await.expect("the engine over PostgreSQL"));
+        let Planted { engine, rows } = planted(&self.url)
+            .await
+            .expect("the engine over PostgreSQL");
+        let engine = Arc::new(engine);
         let llm = FakeLlm::new().with_endpoint(HOME, json!({ "object": "list", "data": [] }));
-        let app = router(engine.clone(), Arc::new(llm));
+        let app = router(engine.clone(), rows, Arc::new(llm));
         (engine, app)
     }
 
