@@ -2,7 +2,7 @@
   "version": 1,
   "heads": {
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
-    "main_agent": "ab646368d5203b1e306255076c2a44e646c3cbd8",
+    "main_agent": "1004019744e698f60b8d583243ce0351315c6d71",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
     "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8231e1957a1c7f5f44be11679c0f3bf1380ff473",
     "milestone/18-campaigns-players-and-characters-with-versioned-history": "9e4074678958aeed1d24585db709aa3851942989",
@@ -10,8 +10,8 @@
     "milestone/20-sessions-present-pcs-scenes-and-media-attached-by-place": "e3ef8a1ed1003e09ea711562dd88d4e7187c07d4",
     "milestone/21-soundbox-tagged-sound-library-and-live-playback": "000709ad846e1ef28370365d385d4c87854b77dc",
     "milestone/23-notes-import-extraction-then-validation-in-a-batch": "ac2a764e4b7b422616d28986b5f5498703646527",
-    "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "5513b20e3fbd9b9c16c0dd0081e6e67b0b05503c",
-    "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "87ed7e8714683bd43e2cf6ebd011b71544f6a09b",
+    "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "0d95e3356967872266dee0598cba55f1ed7e286b",
+    "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "157efb63cff4d24f971c56cc3be0ff4726f48493",
     "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "f6bfd93a5777276dc60504784701c487e8c8a902",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
