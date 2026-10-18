@@ -64,7 +64,7 @@
     return parsed;
   }
   var POLL_MS = 2e3;
-  function createShell(fetcher = (input, init) => fetch(input, init)) {
+  function createShell(fetcher = (input2, init) => fetch(input2, init)) {
     return {
       capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
       command: (body) => call(fetcher, "POST", "/commands", body),
@@ -103,53 +103,63 @@
   // apps/session/session-list/src/model.ts
   var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
   var text = (value) => typeof value === "string" ? value : "";
+  var optionalText = (value) => typeof value === "string" ? value : null;
   var texts = (value) => Array.isArray(value) ? value.filter((item2) => typeof item2 === "string") : [];
   function parseSessions(data) {
-    if (!Array.isArray(data)) return [];
-    const sessions = data.filter(isRecord).map(
-      (entry) => ({
+    const sessions = [];
+    for (const entry of Array.isArray(data) ? data : []) {
+      if (!isRecord(entry) || text(entry.id) === "") continue;
+      sessions.push({
         id: text(entry.id),
         order: typeof entry.order === "number" ? entry.order : 0,
         title: text(entry.title),
-        date: typeof entry.date === "string" && entry.date !== "" ? entry.date : null,
+        date: optionalText(entry.date),
         status: text(entry.status),
-        label: typeof entry.label === "string" && entry.label !== "" ? entry.label : null,
+        label: optionalText(entry.label),
         present: texts(entry.present),
-        summary: typeof entry.summary === "string" && entry.summary !== "" ? entry.summary : null
-      })
-    );
+        summary: optionalText(entry.summary)
+      });
+    }
     return sessions.sort((a, b) => a.order - b.order);
   }
   function parseCharacters(data) {
-    if (!Array.isArray(data)) return [];
-    return data.filter(isRecord).map((entry) => ({ id: text(entry.id), name: text(entry.name), kind: text(entry.kind) }));
+    const characters = [];
+    for (const entry of Array.isArray(data) ? data : []) {
+      if (isRecord(entry) && text(entry.id) !== "") characters.push({ id: text(entry.id), name: text(entry.name), kind: text(entry.kind) });
+    }
+    return characters;
   }
-  var pcs = (characters) => characters.filter((character) => character.kind === "pj");
-  var isPlayed = (session) => session.status === "closed" || session.status === "played";
+  var playerCharacters = (characters) => characters.filter((c) => c.kind === "pj");
+  var firstName = (characters, id) => (characters.find((c) => c.id === id)?.name ?? id).split(" ")[0] ?? id;
+  var isNext = (session) => session.status === "prep" || session.status === "live";
   function statusLabel(session) {
-    if (session.label !== null) return session.label;
-    if (isPlayed(session)) return "Jou\xE9e";
-    return session.status === "live" ? "En direct" : "En pr\xE9paration";
+    if (session.label) return session.label;
+    return session.status === "prep" ? "En pr\xE9paration" : session.status === "live" ? "En direct" : "Jou\xE9e";
   }
-  function presentName(characters, id) {
-    const found = characters.find((character) => character.id === id);
-    return (found?.name.split(" ")[0] ?? "") || id;
+  var statusTone = (session) => session.status === "prep" ? "accent" : session.status === "live" ? "primary" : "success";
+  function dateLabel(date) {
+    if (date === null || date === "") return "";
+    const parsed = /* @__PURE__ */ new Date(`${date.slice(0, 10)}T12:00:00`);
+    return Number.isNaN(parsed.getTime()) ? date : parsed.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "long" });
   }
-  var defaultTitle = (sessions) => `S\xE9ance ${sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1}`;
-  function problem(form) {
-    if (!form.title.trim()) return "Donnez un titre \xE0 la s\xE9ance.";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.plannedOn)) return "Choisissez la date de la s\xE9ance.";
-    return "";
+  var nextOrder = (sessions) => sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1;
+  function initialForm(sessions, characters) {
+    return { title: `S\xE9ance ${nextOrder(sessions)}`, date: "", present: playerCharacters(characters).map((c) => c.id) };
   }
-  function payload(campaign, form, characters) {
-    const allowed = new Set(pcs(characters).map((character) => character.id));
-    return { campaign, title: form.title.trim(), plannedOn: form.plannedOn, present: form.present.filter((id) => allowed.has(id)) };
+  function payload(campaign, form, sessions) {
+    const title = form.title.trim() || `S\xE9ance ${nextOrder(sessions)}`;
+    return { campaign, title, ...form.date === "" ? {} : { plannedOn: form.date }, present: form.present };
+  }
+  function newKey() {
+    const crypto2 = globalThis.crypto;
+    return typeof crypto2?.randomUUID === "function" ? crypto2.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   }
   function commandBody(dataCapability, body, idempotencyKey) {
-    return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: body, idempotencyKey, caller: { by: "dm", from: "SessionList", roles: [] } };
+    return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: body, caller: { by: "dm", from: "SessionList", roles: [] }, idempotencyKey };
   }
   var VIOLATIONS = {
-    "present-only-pj": "seuls les PJ de la campagne peuvent \xEAtre pr\xE9sents"
+    "present-only-pj": "seuls les PJ de la campagne peuvent \xEAtre pr\xE9sents",
+    "oneshot-single-session": "un one-shot n\u2019a qu\u2019une seule s\xE9ance"
   };
   var reasons = (violations) => violations.map((v) => VIOLATIONS[v] ?? v).join(", ");
   var FINAL = /* @__PURE__ */ new Set(["applied", "rejected", "cancelled", "expired"]);
@@ -165,73 +175,80 @@
   // apps/session/session-list/src/render.ts
   var esc = (value) => value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   var attr = (name, value) => value === "" ? "" : ` ${name}="${esc(value)}"`;
-  function day(date) {
-    const when = /* @__PURE__ */ new Date(`${date}T12:00:00`);
-    return Number.isNaN(when.getTime()) ? date : when.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "long" });
-  }
   function skeleton() {
-    return `<section class="panel mf-sessions" id="session-list" aria-labelledby="sessions-title"><div class="panel__head"><h2 id="sessions-title">S\xE9ances</h2><div class="kit-button kit-button--bare kit-button--small"><button type="button" class="primary" id="sessions-new" data-writes="${CREATE_SESSION}">Nouvelle s\xE9ance</button></div></div><ol class="mf-sessions__list" id="sessions-items" data-reads="${LIST_SESSIONS}"></ol><p class="mf-sessions__status" id="sessions-status" aria-live="polite"></p></section>`;
+    return `<section class="panel mf-sessions" id="session-list" aria-labelledby="sessions-title"><div class="panel__head"><h2 id="sessions-title">S\xE9ances</h2><div class="kit-button kit-button--bare kit-button--small"><button type="button" class="primary" id="sessions-new" data-writes="${CREATE_SESSION}" disabled>Nouvelle s\xE9ance</button></div></div><ol class="mf-sessions__list" id="sessions-items" data-reads="${LIST_SESSIONS}" aria-live="polite"></ol><div id="sessions-dialog"></div></section>`;
   }
-  function badges(session) {
-    const tone = isPlayed(session) ? "success" : "accent";
-    return `<div class="kit-badge"><span class="${tone}">${esc(statusLabel(session))}</span>` + (session.date === null ? "" : `<span>${esc(day(session.date))}</span>`) + "</div>";
-  }
-  function links(session) {
-    const link = (label, href, variant) => `<button type="button" class="${variant}" data-href="${href}">${esc(label)}</button>`;
-    return '<div class="kit-button kit-button--bare kit-button--small">' + (isPlayed(session) ? link("R\xE9sum\xE9 et journal", "preparation-seance.html", "ghost") : link("Pr\xE9parer", "preparation-seance.html", "secondary") + link("Lancer en direct", "dm-view.html", "primary")) + "</div>";
+  function kitButtons(buttons) {
+    return '<div class="kit-button kit-button--bare kit-button--small">' + buttons.map((b) => `<button type="button" class="${b.variant}"${attr("data-href", b.href)}>${esc(b.label)}</button>`).join("") + "</div>";
   }
   function item(session, characters) {
-    const there = session.present.map((id) => presentName(characters, id)).join(", ") || "\u2014";
-    return `<li class="mf-sessions__item${isPlayed(session) ? "" : " is-next"}" id="session-${esc(session.id)}"><span class="mf-sessions__num">${session.order}</span><div class="mf-sessions__main"><div class="panel__head"><h3>${esc(session.title)}</h3>${badges(session)}</div>` + (session.summary === null ? "" : `<p class="mf-sessions__summary">${esc(session.summary)}</p>`) + `<p class="small muted" data-reads="${LIST_CHARACTERS}">PJ pr\xE9sents : ${esc(there)}</p>${links(session)}</div></li>`;
+    const next = isNext(session);
+    const date = dateLabel(session.date);
+    const names = session.present.map((id) => firstName(characters, id)).join(", ") || "\u2014";
+    return `<li class="mf-sessions__item${next ? " is-next" : ""}" id="session-${esc(session.id)}"><span class="mf-sessions__num">${session.order}</span><div class="mf-sessions__main"><div class="panel__head"><h3>${esc(session.title)}</h3><div class="kit-badge"><span class="${statusTone(session)}">${esc(statusLabel(session))}</span>${date === "" ? "" : `<span>${esc(date)}</span>`}</div></div>` + (session.summary ? `<p class="mf-sessions__summary">${esc(session.summary)}</p>` : "") + `<p class="small muted" data-reads="${LIST_CHARACTERS}">PJ pr\xE9sents : ${esc(names)}</p>` + kitButtons(
+      session.status === "live" ? [{ label: "Reprendre en direct", href: "dm-view.html", variant: "primary" }] : next ? [
+        { label: "Pr\xE9parer", href: "preparation-seance.html", variant: "secondary" },
+        { label: "Lancer en direct", href: "dm-view.html", variant: "primary" }
+      ] : [{ label: "R\xE9sum\xE9 et journal", href: "preparation-seance.html", variant: "ghost" }]
+    ) + "</div></li>";
   }
-  var items = (sessions, characters) => sessions.map((session) => item(session, characters)).join("");
-  function dialog(p) {
-    const ticked = new Set(p.present);
-    const input = (id, label, value, type) => `<div class="kit-input is-wide"><label>${label}<input type="${type}" id="${id}"${attr("value", value)}></label></div>`;
-    const options = p.pcs.map((pc) => `<label><input type="checkbox" name="present" value="${esc(pc.id)}"${ticked.has(pc.id) ? " checked" : ""}><span>${esc(pc.name)}</span></label>`).join("");
-    return '<div class="mf-sessions__modal" id="session-create-dialog"><div class="kit-dialog"><div class="kit-dialog__veil"><div class="kit-dialog__window" role="dialog" aria-modal="true" aria-label="Nouvelle s\xE9ance"><header class="kit-dialog__header"><h2 class="kit-dialog__title">Nouvelle s\xE9ance</h2><button class="kit-dialog__close" type="button" aria-label="Fermer" id="session-create-close">\xD7</button></header><div class="kit-dialog__body">' + input("session-create-title", "Titre", p.title, "text") + input("session-create-date", "Date", p.plannedOn, "date") + `<div class="kit-checkbox"><fieldset id="session-create-present" data-reads="${LIST_CHARACTERS}"><legend>PJ pr\xE9sents</legend>${options}</fieldset></div><p class="small muted">Vous pourrez retirer ou ajouter des PJ dans la pr\xE9paration.</p><p class="mf-sessions__error" id="session-create-error" aria-live="polite"></p></div><footer class="kit-dialog__footer"><button type="button" class="kit-dialog__btn kit-dialog__btn--ghost" id="session-create-cancel">Annuler</button><button type="button" class="kit-dialog__btn kit-dialog__btn--primary" id="session-create-submit" data-writes="${CREATE_SESSION}">Cr\xE9er la s\xE9ance</button></footer></div></div></div></div>`;
+  function items(sessions, characters, reading) {
+    if (reading === "loading") return '<li class="mf-sessions__empty muted">Chargement des s\xE9ances\u2026</li>';
+    if (reading === "failed") return '<li class="mf-sessions__empty is-error">Impossible de lire les s\xE9ances.</li>';
+    if (sessions.length === 0) return '<li class="mf-sessions__empty muted">Aucune s\xE9ance pour l\u2019instant.</li>';
+    return sessions.map((session) => item(session, characters)).join("");
+  }
+  function input(p) {
+    return `<div class="kit-input${p.wide ? " is-wide" : ""}"><label>${esc(p.label)}<input type="${p.type}" id="${p.id}"${attr("value", p.value)}></label></div>`;
+  }
+  function presentChoice(characters, form) {
+    const options = playerCharacters(characters).map((c) => `<label><input type="checkbox" name="present" value="${esc(c.id)}"${form.present.includes(c.id) ? " checked" : ""}><span>${esc(c.name)}</span></label>`).join("");
+    return `<div class="kit-checkbox"><fieldset id="session-create-present" data-reads="${LIST_CHARACTERS}"><legend>PJ pr\xE9sents</legend>${options}</fieldset></div>`;
+  }
+  function notice(state) {
+    switch (state.kind) {
+      case "none":
+        return "";
+      case "busy":
+        return '<p class="muted">Cr\xE9ation en cours\u2026</p>';
+      case "error":
+        return `<p class="is-error" id="session-create-message">${esc(state.text)}</p>`;
+    }
+  }
+  function dialog(form, characters) {
+    return '<div class="mf-modal" id="session-create-dialog"><div class="kit-dialog"><div class="kit-dialog__veil"><div class="kit-dialog__window" role="dialog" aria-modal="true" aria-label="Nouvelle s\xE9ance"><header class="kit-dialog__header"><h2 class="kit-dialog__title">Nouvelle s\xE9ance</h2><button class="kit-dialog__close" type="button" aria-label="Fermer">\xD7</button></header><div class="kit-dialog__body">' + input({ id: "session-create-title", label: "Titre", type: "text", value: form.title, wide: true }) + input({ id: "session-create-date", label: "Date", type: "date", value: form.date, wide: false }) + presentChoice(characters, form) + `<p class="small muted">Vous pourrez retirer ou ajouter des PJ dans la pr\xE9paration.</p><div id="session-create-notice" aria-live="polite"></div></div><footer class="kit-dialog__footer"><button type="button" class="kit-dialog__btn kit-dialog__btn--ghost" id="session-create-cancel">Annuler</button><button type="button" class="kit-dialog__btn kit-dialog__btn--primary" id="session-create-submit" data-writes="${CREATE_SESSION}">Cr\xE9er la s\xE9ance</button></footer></div></div></div></div>`;
   }
 
   // apps/session/session-list/src/style.ts
   var STYLE = `
-.mf-sessions, .mf-sessions__modal { box-sizing: border-box; color: var(--color-text); font-family: var(--font-family); font-size: var(--font-size-base); }
-.mf-sessions *, .mf-sessions *::before, .mf-sessions *::after, .mf-sessions__modal *, .mf-sessions__modal *::before, .mf-sessions__modal *::after { box-sizing: inherit; }
+.mf-sessions { box-sizing: border-box; color: var(--color-text); font-family: var(--font-family); font-size: var(--font-size-base); line-height: 1.5; }
+.mf-sessions *, .mf-sessions *::before, .mf-sessions *::after { box-sizing: inherit; }
 .mf-sessions h2, .mf-sessions h3 { margin: 0; font-family: var(--font-family-heading); font-weight: var(--font-weight-heading); text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.15; }
 .mf-sessions h2 { font-size: var(--font-size-large); color: var(--color-accent); }
 .mf-sessions h3 { font-size: var(--font-size-base); color: var(--color-text); }
-.mf-sessions p, .mf-sessions__modal p { margin: 0; }
+.mf-sessions p { margin: 0; }
 .mf-sessions.panel { display: grid; gap: var(--space-3); align-content: start; padding: var(--space-4); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-large); box-shadow: var(--shadow-low); min-width: 0; }
 .mf-sessions .panel__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.mf-sessions .muted, .mf-sessions__modal .muted { color: var(--color-text-muted); }
-.mf-sessions .small, .mf-sessions__modal .small { font-size: var(--font-size-small); }
-.mf-sessions .kit-button.kit-button--bare, .mf-sessions__modal .kit-button.kit-button--bare { padding: 0; background: transparent; border: 0; gap: var(--space-2); }
+.mf-sessions .muted { color: var(--color-text-muted); }
+.mf-sessions .small { font-size: var(--font-size-small); }
+.mf-sessions .kit-button.kit-button--bare { padding: 0; background: transparent; border: 0; gap: var(--space-2); }
 .mf-sessions .kit-button--small button { padding: var(--space-1) var(--space-3); font-size: var(--font-size-small); }
-.mf-sessions__modal .kit-input.is-wide { max-width: none; }
+.mf-sessions .kit-input.is-wide { max-width: none; }
 .mf-sessions__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
 .mf-sessions__item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); }
 .mf-sessions__item.is-next { border-color: var(--color-primary); box-shadow: var(--shadow-high); }
 .mf-sessions__num { display: grid; place-items: center; width: calc(var(--space-5) + var(--space-1)); height: calc(var(--space-5) + var(--space-1)); border-radius: var(--radius-pill); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); font-family: var(--font-family-heading); font-size: var(--font-size-large); color: var(--color-accent); }
 .mf-sessions__main { display: grid; gap: var(--space-2); min-width: 0; }
 .mf-sessions__summary { color: var(--color-text-muted); }
-.mf-sessions__status, .mf-sessions__error { min-height: var(--space-3); }
-.mf-sessions__status:empty { display: none; }
-.mf-sessions__status, .mf-sessions__error { color: var(--color-danger); }
-.mf-sessions__modal { position: fixed; inset: 0; z-index: 100; }
-.mf-sessions__modal .kit-dialog, .mf-sessions__modal .kit-dialog__veil { height: 100%; }
-.mf-sessions__modal .kit-dialog__window { max-height: 88vh; }
-.mf-sessions__modal .kit-dialog__body > * + * { margin-top: var(--space-3); }
+.mf-sessions .is-error { color: var(--color-danger); }
+.mf-sessions .mf-modal { position: fixed; inset: 0; z-index: 100; }
+.mf-sessions .mf-modal .kit-dialog, .mf-sessions .mf-modal .kit-dialog__veil { height: 100%; }
+.mf-sessions .mf-modal .kit-dialog__window { max-height: 88vh; }
+.mf-sessions .kit-dialog__body { display: grid; gap: var(--space-3); align-content: start; }
 `;
 
   // apps/session/session-list/src/index.ts
-  var ENV = {
-    today: () => {
-      const now = /* @__PURE__ */ new Date();
-      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    },
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    everyMs: 400,
-    polls: 120
-  };
+  var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 400, polls: 120 };
   function ensureStyle(doc) {
     if (doc.querySelector('style[data-micro-ui="SessionList"]')) return;
     const style = doc.createElement("style");
@@ -239,135 +256,142 @@
     style.textContent = STYLE;
     doc.head.append(style);
   }
-  var wired = /* @__PURE__ */ new WeakMap();
-  function mount(host2, props2, shell2, env = ENV) {
-    wired.get(host2)?.();
+  function mount(host2, props2, shell2, timing = WAITING) {
     ensureStyle(host2.ownerDocument);
     host2.innerHTML = skeleton();
-    const campaign = typeof props2.campaign === "string" ? props2.campaign : "";
     const part = (id) => {
       const found = host2.querySelector(`#${id}`);
       if (!found) throw new Error(`SessionList: #${id} is not in the list`);
       return found;
     };
+    const campaignOf = (raw) => typeof raw.campaign === "string" ? raw.campaign : "";
+    let campaign = campaignOf(props2);
     let sessions = [];
     let characters = [];
+    let reading = "loading";
     let charactersRead = false;
-    let latest = 0;
-    const paint = () => {
-      part("sessions-items").innerHTML = items(sessions, characters);
+    let form = initialForm(sessions, characters);
+    let opened = false;
+    let busy = false;
+    let loading = 0;
+    let key = "";
+    const paintList = () => {
+      part("sessions-items").innerHTML = items(sessions, characters, reading);
+      const opener = part("sessions-new");
+      opener.disabled = reading !== "ready" || !charactersRead;
+      opener.title = reading === "ready" && !charactersRead ? "Impossible de lire les PJ de la campagne." : "";
     };
-    const say = (text2) => {
-      part("sessions-status").textContent = text2;
-    };
-    async function refresh() {
-      latest += 1;
-      const mine = latest;
-      const [listed, known] = await Promise.allSettled([shell2.capability(LIST_SESSIONS, void 0, { campaign }), shell2.capability(LIST_CHARACTERS, void 0, { campaign })]);
-      if (mine !== latest) return listed.status === "fulfilled" && known.status === "fulfilled";
-      if (listed.status === "fulfilled") sessions = parseSessions(listed.value.data);
-      if (known.status === "fulfilled") {
-        characters = parseCharacters(known.value.data);
+    async function load() {
+      const mine = loading += 1;
+      const variables = { campaign };
+      const [read, people] = await Promise.allSettled([shell2.capability(LIST_SESSIONS, void 0, variables), shell2.capability(LIST_CHARACTERS, void 0, variables)]);
+      if (mine !== loading) return;
+      if (read.status === "fulfilled") {
+        sessions = parseSessions(read.value.data);
+        reading = "ready";
+      } else if (reading !== "ready") reading = "failed";
+      if (people.status === "fulfilled") {
+        characters = parseCharacters(people.value.data);
         charactersRead = true;
       }
-      paint();
-      const ok = listed.status === "fulfilled" && known.status === "fulfilled";
-      say(ok ? "" : listed.status === "rejected" ? "Impossible de lire les s\xE9ances." : "Impossible de lire les personnages.");
-      return ok;
+      paintList();
     }
-    async function send(body) {
-      const answer = await shell2.command(body);
+    const say = (next) => {
+      part("session-create-notice").innerHTML = notice(next);
+    };
+    const lock = (locked) => {
+      for (const control of host2.querySelectorAll("#session-create-dialog input, #session-create-dialog button")) control.disabled = locked;
+    };
+    function open() {
+      if (opened) return;
+      opened = true;
+      form = initialForm(sessions, characters);
+      key = newKey();
+      part("sessions-dialog").innerHTML = dialog(form, characters);
+      host2.querySelector("#session-create-title")?.focus();
+    }
+    function close() {
+      if (!opened || busy) return;
+      opened = false;
+      part("sessions-dialog").innerHTML = "";
+    }
+    async function send() {
+      const answer = await shell2.command(commandBody(CREATE_SESSION, payload(campaign, form, sessions), key));
       const id = commandId(answer);
-      let state = settled(answer);
-      for (let asked = 0; !isFinal(state.status) && id !== "" && asked < env.polls; asked += 1) {
-        await env.sleep(env.everyMs);
-        state = settled(await shell2.commandResult(id));
+      let result = settled(answer);
+      for (let asked = 0; !isFinal(result.status) && id !== "" && asked < timing.polls; asked += 1) {
+        await timing.sleep(timing.everyMs);
+        result = settled(await shell2.commandResult(id));
       }
-      return state;
-    }
-    let open = null;
-    let busy = false;
-    let attempt = { key: "", body: "" };
-    const keyFor = (body) => {
-      const text2 = JSON.stringify(body);
-      if (attempt.body !== text2) attempt = { key: globalThis.crypto.randomUUID(), body: text2 };
-      return attempt.key;
-    };
-    let reading = Promise.resolve(true);
-    const close = () => {
-      open?.remove();
-      open = null;
-    };
-    const field = (id) => {
-      const found = open?.querySelector(`#${id}`);
-      if (!found) throw new Error(`SessionList: #${id} is not in the dialog`);
-      return found;
-    };
-    const ask = () => ({
-      title: field("session-create-title").value,
-      plannedOn: field("session-create-date").value,
-      present: Array.from(open?.querySelectorAll('input[name="present"]:checked') ?? []).map((box) => box.value)
-    });
-    const complain = (text2) => {
-      const area = open?.querySelector("#session-create-error");
-      if (area) area.textContent = text2;
-    };
-    async function openDialog() {
-      if (open) return;
-      await reading;
-      if (open) return;
-      if (!charactersRead) return say("Impossible d\u2019ouvrir le formulaire : les personnages n\u2019ont pas pu \xEAtre lus.");
-      const players = pcs(characters);
-      const wrapper = host2.ownerDocument.createElement("div");
-      wrapper.innerHTML = dialog({ title: defaultTitle(sessions), plannedOn: env.today(), pcs: players, present: players.map((pc) => pc.id) });
-      open = wrapper.firstElementChild;
-      host2.append(open);
-      open.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") close();
-      });
-      field("session-create-title").focus();
+      return result;
     }
     async function create() {
-      if (busy || !open) return;
-      const form = ask();
-      const why = problem(form);
-      if (why) return complain(why);
+      if (busy || !opened) return;
       busy = true;
-      const submit = part("session-create-submit");
-      submit.disabled = true;
-      complain("");
+      lock(true);
+      say({ kind: "busy" });
+      let created = false;
       try {
-        const body = payload(campaign, form, characters);
-        const state = await send(commandBody(submit.dataset.writes ?? CREATE_SESSION, body, keyFor(body)));
-        if (state.status === "rejected") {
-          attempt = { key: "", body: "" };
-          return complain(`Cr\xE9ation refus\xE9e : ${reasons(state.violations)}.`);
-        }
-        if (state.status !== "applied") return complain(`La cr\xE9ation n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`);
-        close();
-        if (!await refresh()) say("La s\xE9ance est cr\xE9\xE9e, mais la liste n\u2019a pas pu \xEAtre relue.");
+        const result = await send();
+        if (result.status === "applied") created = true;
+        else if (result.status === "rejected") {
+          key = newKey();
+          say({ kind: "error", text: `Cr\xE9ation refus\xE9e : ${reasons(result.violations)}.` });
+        } else say({ kind: "error", text: `La cr\xE9ation n\u2019a pas abouti (\xE9tat : ${result.status || "inconnu"}).` });
       } catch {
-        complain("La cr\xE9ation a \xE9chou\xE9.");
+        say({ kind: "error", text: "La cr\xE9ation a \xE9chou\xE9." });
       } finally {
         busy = false;
-        submit.disabled = false;
+        lock(false);
       }
-    }
-    const onClick = (event) => {
-      const target = event.target;
-      const button = target?.closest("button");
-      if (button?.dataset.writes === CREATE_SESSION && button.id === "sessions-new") void openDialog();
-      else if (button?.dataset.writes === CREATE_SESSION) void create();
-      else if (button?.id === "session-create-cancel" || button?.id === "session-create-close") close();
-      else if (target?.classList.contains("kit-dialog__veil")) close();
-    };
-    host2.addEventListener("click", onClick);
-    wired.set(host2, () => {
-      host2.removeEventListener("click", onClick);
+      if (!created) return;
       close();
+      await load();
+    }
+    host2.addEventListener("submit", (event) => event.preventDefault());
+    host2.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") close();
     });
-    paint();
-    reading = refresh();
+    host2.addEventListener("input", (event) => {
+      const target = event.target;
+      if (target?.id === "session-create-title") form = { ...form, title: target.value ?? "" };
+      else if (target?.id === "session-create-date") form = { ...form, date: target.value ?? "" };
+      else return;
+      key = newKey();
+    });
+    host2.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target?.name !== "present") return;
+      const id = target.value ?? "";
+      form = { ...form, present: target.checked ? [...form.present.filter((p) => p !== id), id] : form.present.filter((p) => p !== id) };
+      key = newKey();
+    });
+    host2.addEventListener("click", (event) => {
+      const target = event.target;
+      if (target?.classList.contains("kit-dialog__veil")) return close();
+      const button = target?.closest("button");
+      if (!button) return;
+      if (button.id === "sessions-new") open();
+      else if (button.dataset.writes === CREATE_SESSION) void create();
+      else if (button.id === "session-create-cancel" || button.classList.contains("kit-dialog__close")) close();
+    });
+    paintList();
+    void load();
+    return {
+      update(next) {
+        const following = campaignOf(next);
+        if (following === campaign) return;
+        campaign = following;
+        busy = false;
+        close();
+        sessions = [];
+        characters = [];
+        reading = "loading";
+        charactersRead = false;
+        paintList();
+        void load();
+      }
+    };
   }
 
   // mock/src/screen.js
@@ -420,16 +444,25 @@
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
   var COMMANDS = {
-    // session.createSession (#157, planned): the next session of the campaign,
-    // at the end of the list, in preparation, with the PCs ticked present.
-    // `present-only-pj` refuses a character that is not a PC.
+    // session.createSession (planned, #157): the next session of the campaign, at
+    // the position after the last, in preparation, with the PCs ticked present.
+    // `present-only-pj` refuses a character that is not a PC of the fixtures.
     "session.createSession": async (server, { payload: payload2 }) => {
-      const pcs2 = new Set((await server.load("campaign.listCharacters")).filter((c) => c.kind === "pj").map((c) => c.id));
-      const present = Array.isArray(payload2.present) ? payload2.present : [];
-      if (present.some((id) => !pcs2.has(id))) return ["present-only-pj"];
       const sessions = await server.load("session.listSessions");
-      const order = sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1;
-      sessions.push({ id: `s${order}`, order, title: payload2.title, date: payload2.plannedOn, status: "prep", present, summary: null });
+      const characters = await server.load("campaign.listCharacters");
+      const present = Array.isArray(payload2.present) ? payload2.present : [];
+      const pcs = new Set(characters.filter((c) => c.kind === "pj").map((c) => c.id));
+      if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
+      sessions.push({
+        id: server.uuid(),
+        order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
+        title: String(payload2.title || ""),
+        date: payload2.plannedOn || null,
+        status: "prep",
+        label: "En pr\xE9paration",
+        present,
+        summary: null
+      });
       return void 0;
     },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
@@ -723,9 +756,9 @@
       await drive();
       return json({ result: resultOf(entry) });
     };
-    s.fetch = async (input, init) => {
+    s.fetch = async (input2, init) => {
       await delay(LATENCY_MS);
-      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      const url = new URL(typeof input2 === "string" ? input2 : input2 instanceof URL ? input2.href : input2.url);
       const method = init && init.method || "GET";
       const body = init && typeof init.body === "string" ? JSON.parse(init.body) : {};
       if (method === "POST" && url.pathname.startsWith("/capabilities/")) {
@@ -761,6 +794,6 @@
 
   // mock/src/SessionList.js
   var { host, props } = mountPoint();
-  var shell = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
-  compose({ campaign: "cendres-valombre", ...props }, (resolved) => mount(host, resolved, shell));
+  var shell = shellOnce((server) => createShell((input2, init) => server.fetch(new URL(input2, location.href), init)));
+  compose(props, (resolved) => mount(host, resolved, shell));
 })();

@@ -492,16 +492,25 @@
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
   var COMMANDS = {
-    // session.createSession (#157, planned): the next session of the campaign,
-    // at the end of the list, in preparation, with the PCs ticked present.
-    // `present-only-pj` refuses a character that is not a PC.
+    // session.createSession (planned, #157): the next session of the campaign, at
+    // the position after the last, in preparation, with the PCs ticked present.
+    // `present-only-pj` refuses a character that is not a PC of the fixtures.
     "session.createSession": async (server, { payload: payload2 }) => {
-      const pcs = new Set((await server.load("campaign.listCharacters")).filter((c) => c.kind === "pj").map((c) => c.id));
-      const present = Array.isArray(payload2.present) ? payload2.present : [];
-      if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
       const sessions = await server.load("session.listSessions");
-      const order = sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1;
-      sessions.push({ id: `s${order}`, order, title: payload2.title, date: payload2.plannedOn, status: "prep", present, summary: null });
+      const characters = await server.load("campaign.listCharacters");
+      const present = Array.isArray(payload2.present) ? payload2.present : [];
+      const pcs = new Set(characters.filter((c) => c.kind === "pj").map((c) => c.id));
+      if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
+      sessions.push({
+        id: server.uuid(),
+        order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
+        title: String(payload2.title || ""),
+        date: payload2.plannedOn || null,
+        status: "prep",
+        label: "En pr\xE9paration",
+        present,
+        summary: null
+      });
       return void 0;
     },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's

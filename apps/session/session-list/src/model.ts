@@ -1,79 +1,96 @@
-// What the list knows, with no DOM: the Capabilities' answers, the form the DM
-// fills, the command that form becomes.
+// What the list knows, with no DOM: the sessions and characters as the
+// Capabilities answer them, the form the DM edits, the command that form becomes.
 
 import { DATA_CAPABILITY_VERSION } from './ids.ts';
 import type { Character, Form, Session } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+const optionalText = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 const texts = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
 
-/** The sessions as `session.listSessions` answers them, by number: a campaign with none is an empty list, not an error. */
+/** The sessions as `session.listSessions` answers them, in the order of their position. */
 export function parseSessions(data: unknown): Session[] {
-  if (!Array.isArray(data)) return [];
-  const sessions = data.filter(isRecord).map(
-    (entry): Session => ({
+  const sessions: Session[] = [];
+  for (const entry of Array.isArray(data) ? data : []) {
+    if (!isRecord(entry) || text(entry.id) === '') continue;
+    sessions.push({
       id: text(entry.id),
       order: typeof entry.order === 'number' ? entry.order : 0,
       title: text(entry.title),
-      date: typeof entry.date === 'string' && entry.date !== '' ? entry.date : null,
+      date: optionalText(entry.date),
       status: text(entry.status),
-      label: typeof entry.label === 'string' && entry.label !== '' ? entry.label : null,
+      label: optionalText(entry.label),
       present: texts(entry.present),
-      summary: typeof entry.summary === 'string' && entry.summary !== '' ? entry.summary : null,
-    }),
-  );
+      summary: optionalText(entry.summary),
+    });
+  }
   return sessions.sort((a, b) => a.order - b.order);
 }
 
-/** The characters as `campaign.listCharacters` answers them. */
+/** The characters as `campaign.listCharacters` answers them: only what the list shows of each. */
 export function parseCharacters(data: unknown): Character[] {
-  if (!Array.isArray(data)) return [];
-  return data.filter(isRecord).map((entry): Character => ({ id: text(entry.id), name: text(entry.name), kind: text(entry.kind) }));
+  const characters: Character[] = [];
+  for (const entry of Array.isArray(data) ? data : []) {
+    if (isRecord(entry) && text(entry.id) !== '') characters.push({ id: text(entry.id), name: text(entry.name), kind: text(entry.kind) });
+  }
+  return characters;
 }
 
-/** `present-only-pj`: only a player's character can be ticked present. */
-export const pcs = (characters: readonly Character[]): Character[] => characters.filter((character) => character.kind === 'pj');
+/** Only the PCs can be ticked present (present-only-pj): an NPC is never offered. */
+export const playerCharacters = (characters: readonly Character[]): Character[] => characters.filter((c) => c.kind === 'pj');
 
-/** A session already played: `closed`, which the mock-up's fixture writes `played`. */
-export const isPlayed = (session: Session): boolean => session.status === 'closed' || session.status === 'played';
+/** The first name of a present PC; an id the characters do not know is shown as it is. */
+export const firstName = (characters: readonly Character[], id: string): string => (characters.find((c) => c.id === id)?.name ?? id).split(' ')[0] ?? id;
 
-/** SessionLifecycle@1's label of a status, when the Capability did not bring it. */
+/** The session being prepared, or run, is the one the list draws attention to. */
+export const isNext = (session: Session): boolean => session.status === 'prep' || session.status === 'live';
+
+/** The status in words: the label SessionLifecycle@1 gives it, else the one for the status the mock-up knows. */
 export function statusLabel(session: Session): string {
-  if (session.label !== null) return session.label;
-  if (isPlayed(session)) return 'Jouée';
-  return session.status === 'live' ? 'En direct' : 'En préparation';
+  if (session.label) return session.label;
+  return session.status === 'prep' ? 'En préparation' : session.status === 'live' ? 'En direct' : 'Jouée';
 }
 
-/** The first name of a PC, as the list shows who was there; the id when the character is not known. */
-export function presentName(characters: readonly Character[], id: string): string {
-  const found = characters.find((character) => character.id === id);
-  return (found?.name.split(' ')[0] ?? '') || id;
+/** The tone of the kit's Badge for the status. */
+export const statusTone = (session: Session): 'accent' | 'primary' | 'success' => (session.status === 'prep' ? 'accent' : session.status === 'live' ? 'primary' : 'success');
+
+/** « sam. 5 septembre », or nothing for a session with no date. */
+export function dateLabel(date: string | null): string {
+  if (date === null || date === '') return '';
+  // Only the day counts: a date that carries a time is read at noon, away from the edges of the day.
+  const parsed = new Date(`${date.slice(0, 10)}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? date : parsed.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' });
 }
 
-/** The title the form opens on: the session that would come next. */
-export const defaultTitle = (sessions: readonly Session[]): string => `Séance ${sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1}`;
+/** The number the next session takes: one after the last. */
+export const nextOrder = (sessions: readonly Session[]): number => sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1;
 
-/** Why the form cannot be sent, or nothing. */
-export function problem(form: Form): string {
-  if (!form.title.trim()) return 'Donnez un titre à la séance.';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(form.plannedOn)) return 'Choisissez la date de la séance.';
-  return '';
+/** The form the DM opens: a title proposed, no date, every PC ticked. */
+export function initialForm(sessions: readonly Session[], characters: readonly Character[]): Form {
+  return { title: `Séance ${nextOrder(sessions)}`, date: '', present: playerCharacters(characters).map((c) => c.id) };
 }
 
-/** The payload of session.createSession: only PCs of the campaign are sent as present. */
-export function payload(campaign: string, form: Form, characters: readonly Character[]): { campaign: string; title: string; plannedOn: string; present: string[] } {
-  const allowed = new Set(pcs(characters).map((character) => character.id));
-  return { campaign, title: form.title.trim(), plannedOn: form.plannedOn, present: form.present.filter((id) => allowed.has(id)) };
+/** The payload of session.createSession: a title left blank takes the proposed one, a date left blank is not sent. */
+export function payload(campaign: string, form: Form, sessions: readonly Session[]): Record<string, unknown> {
+  const title = form.title.trim() || `Séance ${nextOrder(sessions)}`;
+  return { campaign, title, ...(form.date === '' ? {} : { plannedOn: form.date }), present: form.present };
 }
 
-/** `POST /commands` for one DataCapability, by identifier. */
-export function commandBody(dataCapability: string, body: unknown, idempotencyKey: string): unknown {
-  return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: body, idempotencyKey, caller: { by: 'dm', from: 'SessionList', roles: [] } };
+/** A key for one command: a browser that is not in a secure context has no `randomUUID`. */
+export function newKey(): string {
+  const crypto = globalThis.crypto as Crypto | undefined;
+  return typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** `POST /commands` for session.createSession, by identifier: the DM's own command. The same key is the same command: sent again, it creates nothing more. */
+export function commandBody(dataCapability: string, body: Record<string, unknown>, idempotencyKey: string): unknown {
+  return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: body, caller: { by: 'dm', from: 'SessionList', roles: [] }, idempotencyKey };
 }
 
 const VIOLATIONS: Record<string, string> = {
   'present-only-pj': 'seuls les PJ de la campagne peuvent être présents',
+  'oneshot-single-session': 'un one-shot n’a qu’une seule séance',
 };
 
 /** A rejected command's reasons, in words. */

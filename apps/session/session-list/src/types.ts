@@ -1,5 +1,6 @@
 // The two sides of the Micro-UI: the shell it is handed, and what
-// `session.listSessions` and `campaign.listCharacters` answer.
+// `session.listSessions` and `campaign.listCharacters` answer
+// (crates/session/capabilities/list-sessions, crates/campaign/capabilities/list-characters).
 
 /** The part of the shell's client (apps/shell/src/client/shell.ts) this Micro-UI uses. */
 export interface Shell {
@@ -9,32 +10,36 @@ export interface Shell {
   commandResult(commandId: string): Promise<unknown>;
 }
 
-/** A session of the list, in the order of its `order` (the session number). */
+/** A session of the list. The status is the Capability's (`prep`, `live`, `closed`; the mock-up's older `played` is a closed one). */
 export interface Session {
   id: string;
   order: number;
   title: string;
-  /** The day it is planned or was played, `YYYY-MM-DD`. */
   date: string | null;
-  /** `prep`, `live` or `closed` (SessionLifecycle@1); the mock-up's fixture also writes `played`. */
   status: string;
-  /** The status in words, as SessionLifecycle@1 gives it. */
+  /** The label SessionLifecycle@1 gives the status, when the Capability answers it. */
   label: string | null;
   /** The ids of the PCs present. */
   present: string[];
   summary: string | null;
 }
 
+/** The part of a character the list needs: who it is, and whether it is a PC. */
 export interface Character {
   id: string;
   name: string;
-  /** `pj` for a player's character, `pnj` for the DM's. */
   kind: string;
 }
 
-/** What the creation dialog holds. */
+/** What the creation form holds while the DM edits it: nothing of it is sent until « Créer la séance ». */
 export interface Form {
   title: string;
-  plannedOn: string;
+  date: string;
   present: string[];
 }
+
+/** What the open form says of the command it sent. */
+export type Notice = { kind: 'none' } | { kind: 'busy' } | { kind: 'error'; text: string };
+
+/** Where the reading of the sessions stands. */
+export type Reading = 'loading' | 'ready' | 'failed';

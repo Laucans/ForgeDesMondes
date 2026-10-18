@@ -11,5 +11,4 @@ import { shellOnce } from './server.js';
 const { host, props } = mountPoint();
 // The shell's client calls its own origin by path; the mock server wants an absolute URL.
 const shell = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
-// The page names no campaign: the mock-up's one is the fixture's.
-compose({ campaign: 'cendres-valombre', ...props }, (resolved) => mount(host, resolved, shell));
+compose(props, (resolved) => mount(host, resolved, shell));
