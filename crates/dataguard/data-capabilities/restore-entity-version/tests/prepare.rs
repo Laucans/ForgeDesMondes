@@ -361,3 +361,30 @@ fn the_version_a_row_carries_is_kept_as_it_was_written() {
         assert_eq!(Kept::of(&without), None, "{field}");
     }
 }
+
+#[test]
+fn lists_and_objects_are_compared_as_json_their_numbers_by_value() {
+    let snapshot = |crop: Value, actions: Value| {
+        object(json!({ "name": "Morlox", "tokenCrop": crop, "actions": actions }))
+    };
+    let before = snapshot(json!({ "x": 10, "y": 5 }), json!([{ "dc": 15 }]));
+    // The same values, written otherwise: no change.
+    let same = snapshot(json!({ "x": 10.0, "y": 5 }), json!([{ "dc": 15.0 }]));
+    assert_eq!(
+        restore_entity_version::diff(&before, &same),
+        Vec::<Value>::new()
+    );
+    // A value that moved, in an object or in a list, is a change of its field.
+    let moved = snapshot(json!({ "x": 10, "y": 6 }), json!([{ "dc": 16 }]));
+    let fields: Vec<Value> = restore_entity_version::diff(&before, &moved)
+        .iter()
+        .map(|change| change["field"].clone())
+        .collect();
+    assert_eq!(fields, [json!("actions"), json!("tokenCrop")]);
+    // A key more, or an item more, is a change too.
+    let grown = snapshot(
+        json!({ "x": 10, "y": 5, "w": 2 }),
+        json!([{ "dc": 15 }, { "dc": 15 }]),
+    );
+    assert_eq!(restore_entity_version::diff(&before, &grown).len(), 2);
+}
