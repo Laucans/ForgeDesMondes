@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "e87b65ab3996023f"
+      "builtFrom": "10e51d60029cc7fb"
     },
     {
       "name": "CampaignOverview",
@@ -368,7 +368,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "4aadc4aa0e68fd60"
+      "builtFrom": "3ac358ccbf924a2e"
     },
     {
       "name": "MediaLibrary",
@@ -552,7 +552,9 @@
       ],
       "props": {
         "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse"
-      }
+      },
+      "source": "apps/live/player-stage",
+      "builtFrom": "836f42b0cde0cc05"
     }
   ]
 }

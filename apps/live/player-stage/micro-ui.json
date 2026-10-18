@@ -1,0 +1,17 @@
+{
+  "microUi": "PlayerStage",
+  "system": "live",
+  "description": "L’écran des joueurs : couverture, battlemap ou illustration en scène, et fenêtre d’illustration flottante ; dans l’onglet piloté par le MJ, la fenêtre se déplace par sa barre et se redimensionne par son coin, proportions de l’image gardées",
+  "needs": [
+    "live.getDiffusion",
+    "campaign.getCampaign",
+    "media.listMedia"
+  ],
+  "actions": [
+    "live.moveWindow",
+    "live.resizeWindow"
+  ],
+  "props": {
+    "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse"
+  }
+}
