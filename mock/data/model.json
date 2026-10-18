@@ -723,6 +723,171 @@
     },
     {
       "business": [
+        "R14",
+        "R97",
+        "R112"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du média.",
+          "type": "uuid"
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne du média.",
+          "references": "campaign.id",
+          "type": "uuid"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "kind",
+          "nullable": false,
+          "purpose": "« battlemap » ou « illustration ».",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "title",
+          "nullable": false,
+          "purpose": "Titre affiché sur la carte du média.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "file_path",
+          "nullable": false,
+          "purpose": "Chemin local du fichier image.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R112"
+          ],
+          "name": "width_px",
+          "nullable": false,
+          "purpose": "Largeur de l'image.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R112"
+          ],
+          "name": "height_px",
+          "nullable": false,
+          "purpose": "Hauteur de l'image.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R97"
+          ],
+          "name": "place_id",
+          "nullable": true,
+          "purpose": "Lieu auquel le média est rattaché. Facultatif.",
+          "references": "entity.id",
+          "type": "uuid"
+        },
+        {
+          "business": [],
+          "name": "uploaded_at",
+          "nullable": false,
+          "purpose": "Date du téléversement.",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "media",
+      "purpose": "Battlemap ou illustration préconstruite et téléversée, éventuellement rattachée à un lieu."
+    },
+    {
+      "business": [
+        "R14"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "media_id",
+          "nullable": false,
+          "purpose": "Battlemap réglée.",
+          "references": "media.id",
+          "type": "uuid"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "hex_size_px",
+          "nullable": false,
+          "purpose": "Taille d'un hex en pixels de l'image.",
+          "type": "numeric(7,2)"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "offset_x",
+          "nullable": false,
+          "purpose": "Décalage horizontal de la grille.",
+          "type": "numeric(7,2)"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "offset_y",
+          "nullable": false,
+          "purpose": "Décalage vertical de la grille.",
+          "type": "numeric(7,2)"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "orientation",
+          "nullable": false,
+          "purpose": "« pointe » ou « plat ».",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "color",
+          "nullable": false,
+          "purpose": "Couleur des traits de la grille.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "opacity",
+          "nullable": false,
+          "purpose": "Opacité de la grille, entre 0 et 1.",
+          "type": "numeric(3,2)"
+        },
+        {
+          "business": [
+            "R14",
+            "R19"
+          ],
+          "name": "feet_per_hex",
+          "nullable": false,
+          "purpose": "Colonne générée, toujours égale à 5.",
+          "type": "smallint"
+        }
+      ],
+      "name": "battlemap_grid",
+      "purpose": "Réglage de la grille hexagonale d'une battlemap."
+    },
+    {
+      "business": [
         "R15",
         "R23"
       ],
