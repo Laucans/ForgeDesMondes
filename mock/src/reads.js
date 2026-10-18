@@ -8,6 +8,8 @@
 //     (await server.load('pjs')).filter((p) => p.campagneId === campagneId),
 
 const bridged = new WeakSet();
+// The state each instance was loaded with: « Réinitialiser la carte » sets it back.
+const pristine = new Map();
 
 /**
  * The battlemap instance of `fixtures/table.getBattlemapInstance.json`, shared
@@ -19,6 +21,7 @@ export async function instanceOf(server, id) {
   const data = await server.load('table.getBattlemapInstance');
   if (!data || (id && data.id !== id)) return undefined;
   const store = window.Mock && window.Mock.store;
+  if (!pristine.has(data.id)) pristine.set(data.id, structuredClone(data.state));
   if (store && !bridged.has(data)) {
     bridged.add(data);
     data.state = store.get(`map:${data.id}`, data.state);
@@ -32,6 +35,9 @@ export async function instanceOf(server, id) {
   }
   return data;
 }
+
+/** The state the instance was loaded with, as a copy. */
+export const pristineState = (id) => structuredClone(pristine.get(id));
 
 /** The instance's state written for the other tabs. */
 export function shareInstance(data) {
@@ -61,12 +67,17 @@ export const READS = {
   'table.getBattlemapInstance': async (server, { instance, view } = {}) => {
     const data = await instanceOf(server, instance);
     if (!data) return data;
-    const dressedTokens = await dressed(server, data.state.tokens);
+    // dead-derived: an NPC is dead iff its current hit points are 0.
+    const dressedTokens = (await dressed(server, data.state.tokens)).map((t) => (t.kind === 'pnj' ? { ...t, dead: t.hp === 0 } : t));
     if (view !== 'player') return { ...data, state: { ...data.state, tokens: dressedTokens } };
     const tokens = dressedTokens
       .filter((t) => t.visible)
       .map(({ hp, hpMax, ...rest }) => ({ ...rest, healthBand: rest.kind === 'pnj' ? healthBand(hp, hpMax) : null }));
-    return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat: null } };
+    // hidden-keeps-rank: the players' order is the DM's without the hidden tokens, so a revealed one returns to its rank.
+    const seen = new Set(tokens.map((t) => t.id));
+    // A hidden token holding the turn is not named: nobody the players see has it.
+    const combat = data.state.combat ? { ...data.state.combat, current: seen.has(data.state.combat.current) ? data.state.combat.current : '', order: data.state.combat.order.filter((o) => seen.has(o.id)) } : null;
+    return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat } };
   },
   // media.getBattlemap (crates/media/capabilities/get-battlemap): one battlemap
   // by its id, its grid per HexGrid@1 — the opacity a fraction of 1, a hex 5 feet.
