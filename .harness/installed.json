@@ -2,6 +2,7 @@
   "files": {
     ".cargo/mutants.toml": "b6f9126456581956",
     ".github/workflows/ci.yml": "b948325b24da8867",
+    ".github/workflows/gates.yml": "034ee8e37dbd4cfd",
     ".gitignore": "600d6171799bdb07",
     ".sops.yaml": "561c8b897521edab",
     "contracts/README.md": "88650d7b7b87a520",
