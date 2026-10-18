@@ -791,8 +791,8 @@
     "campaign.listCharacters": {
       "kind": "capability",
       "producer": 20,
-      "state": "evolving",
-      "version": 2
+      "state": "planned",
+      "version": 1
     },
     "campaign.listEntitiesToCreate": {
       "kind": "capability",
