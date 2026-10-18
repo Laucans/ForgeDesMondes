@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f40bef5a97044598"
+      "builtFrom": "a4c1bf93c0a2dbfc"
     },
     {
       "name": "CampaignOverview",
@@ -511,7 +511,9 @@
         "soundbox.setSoundVolume",
         "soundbox.setMasterVolume"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/soundbox/live-soundbox",
+      "builtFrom": "bb5f324965d70483"
     },
     {
       "name": "SuggestionPill",
