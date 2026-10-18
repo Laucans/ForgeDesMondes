@@ -16,9 +16,13 @@ rule('R106', ['screen:dm-view', 'micro-ui:Battlemap', 'micro-ui:TableSheet'], "F
   const carousel = map.getByLabel('Ordre d’initiative');
   await expect(carousel).toBeVisible();
 
+  // A carousel item by the exact name: « Bandit 1 » must not also match the hidden « Chef bandit 1 ».
+  const item = (name: string) =>
+    carousel.locator('.kit-token__item').filter({ has: page.locator('.kit-token__name').getByText(name, { exact: true }) });
+
   // A click on Bandit 2 in the carousel opens its own sheet; 7 PV are taken off.
-  await carousel.locator('.kit-token__item').filter({ hasText: 'Bandit 2' }).click();
-  const sheet = map.getByRole('complementary', { name: 'Bandit 2' });
+  await item('Bandit 2').click();
+  const sheet = map.getByRole('complementary', { name: 'Bandit 2', exact: true });
   await expect(sheet).toBeVisible();
   const hp = (scope: typeof sheet) => scope.getByText(/\d+ \/ \d+ PV/);
   await expect(hp(sheet)).toContainText('11 / 11');
@@ -28,8 +32,8 @@ rule('R106', ['screen:dm-view', 'micro-ui:Battlemap', 'micro-ui:TableSheet'], "F
 
   // The two other instances are untouched.
   for (const other of ['Bandit 1', 'Bandit 3']) {
-    await carousel.locator('.kit-token__item').filter({ hasText: other }).click();
-    const own = map.getByRole('complementary', { name: other });
+    await item(other).click();
+    const own = map.getByRole('complementary', { name: other, exact: true });
     await expect(hp(own)).toContainText('11 / 11');
   }
 });
