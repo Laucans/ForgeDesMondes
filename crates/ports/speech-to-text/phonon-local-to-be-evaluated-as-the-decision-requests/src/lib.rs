@@ -11,8 +11,10 @@
 //!   the campaign's names are not readable in the process list.
 //! - **stdout**: the French text it heard.
 //!
-//! The program to run comes from configuration ([`SIDECAR_VARIABLE`], or
-//! [`PhononSidecar::at`]); none is hard-coded. A path with nothing runnable at
+//! The sidecar must read its input to the end. The program to run comes from
+//! configuration ([`SIDECAR_VARIABLE`], or [`PhononSidecar::at`]); none is
+//! hard-coded. It is a path — a relative one is taken from the working
+//! directory of the process — never a name searched on `PATH`. A path with nothing runnable at
 //! it, or no path at all, is a failure that says so, and nothing is journalled
 //! for a request that never reached a started process. The sidecar is run from
 //! the system's temporary directory and given up on after
@@ -53,6 +55,10 @@ enum Failure {
     NotFound(PathBuf),
     /// It is there but could not be started.
     Unlaunchable(io::ErrorKind),
+    /// It was started, and talking to it failed.
+    Io(io::ErrorKind),
+    /// It answered something that is not text.
+    NotText,
     /// It did not answer in time.
     TimedOut(Duration),
     /// It ended with an error: its exit code (none when a signal ended it)
@@ -76,6 +82,10 @@ impl Failure {
             Self::Unlaunchable(kind) => {
                 format!("impossible de lancer le sidecar de transcription : {kind}")
             }
+            Self::Io(kind) => {
+                format!("échange impossible avec le sidecar de transcription : {kind}")
+            }
+            Self::NotText => "le sidecar de transcription n'a pas répondu en texte".to_owned(),
             Self::TimedOut(limit) => {
                 format!(
                     "le sidecar de transcription n'a pas répondu en {} s",
@@ -146,11 +156,16 @@ impl PhononSidecar {
     /// Runs the sidecar on `dictation`, journalling the request once the
     /// process is started, and returns what it printed.
     async fn run(&self, dictation: &Dictation, vocabulary: &Vocabulary) -> Result<String, Failure> {
-        let path = self.path.as_deref().ok_or(Failure::NotConfigured)?;
-        if !is_executable(path) {
-            return Err(Failure::NotFound(path.to_owned()));
+        let configured = self.path.as_deref().ok_or(Failure::NotConfigured)?;
+        // The sidecar is run from another directory than the process's own: a
+        // relative path is made absolute first, so the check and the start
+        // look at the same file.
+        let path =
+            std::path::absolute(configured).map_err(|error| Failure::Unlaunchable(error.kind()))?;
+        if !is_executable(&path) {
+            return Err(Failure::NotFound(configured.to_owned()));
         }
-        let mut child = command(path)
+        let mut child = command(&path)
             .spawn()
             .map_err(|error| Failure::Unlaunchable(error.kind()))?;
         self.journal.record(dictation, vocabulary);
@@ -172,7 +187,7 @@ impl PhononSidecar {
         // On a timeout the child is dropped with the future: it is killed.
         let output = finished
             .map_err(|_| Failure::TimedOut(self.timeout))?
-            .map_err(|error| Failure::Unlaunchable(error.kind()))?;
+            .map_err(|error| Failure::Io(error.kind()))?;
         if !output.status.success() {
             let said = String::from_utf8_lossy(&output.stderr);
             return Err(Failure::Exited {
@@ -180,7 +195,10 @@ impl PhononSidecar {
                 detail: said.trim().chars().take(DETAIL_LIMIT).collect(),
             });
         }
-        let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        let text = String::from_utf8(output.stdout)
+            .map_err(|_| Failure::NotText)?
+            .trim()
+            .to_owned();
         if text.is_empty() {
             return Err(Failure::Empty);
         }
@@ -270,6 +288,20 @@ mod tests {
     }
 
     #[test]
+    fn the_environment_variable_is_the_setting() {
+        let expected = env::var_os(SIDECAR_VARIABLE)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
+        assert_eq!(PhononSidecar::from_environment().path, expected);
+    }
+
+    #[test]
+    fn the_configured_path_is_made_absolute_before_the_sidecar_is_run_elsewhere() {
+        let relative = std::path::absolute("bin/phonon").unwrap();
+        assert!(relative.is_absolute() && relative.ends_with("bin/phonon"));
+    }
+
+    #[test]
     fn the_header_is_one_line_carrying_the_language_and_the_vocabulary_as_passed() {
         let vocabulary = Vocabulary {
             campaign_names: vec!["Élowen".into(), "ligne\nbrisée".into()],
@@ -320,6 +352,12 @@ mod tests {
             Failure::TimedOut(Duration::from_secs(30)).reason(),
             "le sidecar de transcription n'a pas répondu en 30 s"
         );
+        assert!(
+            Failure::Io(io::ErrorKind::BrokenPipe)
+                .reason()
+                .contains("échange impossible")
+        );
+        assert!(Failure::NotText.reason().contains("texte"));
         assert_eq!(
             Failure::Empty.reason(),
             "aucun texte reconnu dans la dictée"

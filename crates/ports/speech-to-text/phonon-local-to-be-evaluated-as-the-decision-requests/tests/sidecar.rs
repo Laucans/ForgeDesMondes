@@ -36,6 +36,9 @@ const FAILING: &str = "#!/bin/sh\ncat > /dev/null\necho 'boom : modèle absent' 
 /// A sidecar that succeeds and hears nothing.
 const SILENT: &str = "#!/bin/sh\ncat > /dev/null\n";
 
+/// A sidecar that answers bytes that are not text.
+const GARBLED: &str = "#!/bin/sh\ncat > /dev/null\nprintf '\\377\\376\\n'\n";
+
 /// A sidecar that never answers.
 const HANGING: &str = "#!/bin/sh\nexec sleep 30\n";
 
@@ -44,6 +47,7 @@ struct Stubs {
     recording: PathBuf,
     failing: PathBuf,
     silent: PathBuf,
+    garbled: PathBuf,
     hanging: PathBuf,
     /// A file that is there but not executable.
     plain: PathBuf,
@@ -73,6 +77,7 @@ fn stubs() -> &'static Stubs {
             recording: stub("recording", Some((RECORDING, 0o755))),
             failing: stub("failing", Some((FAILING, 0o755))),
             silent: stub("silent", Some((SILENT, 0o755))),
+            garbled: stub("garbled", Some((GARBLED, 0o755))),
             hanging: stub("hanging", Some((HANGING, 0o755))),
             plain: stub("plain", Some((RECORDING, 0o644))),
             missing: stub("missing", None),
@@ -262,4 +267,14 @@ async fn a_sidecar_that_never_answers_is_given_up_on() {
             .await,
     );
     assert!(reason.contains("n'a pas répondu"), "{reason}");
+}
+
+#[tokio::test]
+async fn a_sidecar_that_answers_something_other_than_text_is_a_failure() {
+    let reason = failed(
+        PhononSidecar::at(&stubs().garbled)
+            .transcribe(&Dictation::new(audio(19)), &vocabulary())
+            .await,
+    );
+    assert!(reason.contains("pas répondu en texte"), "{reason}");
 }
