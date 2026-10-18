@@ -948,6 +948,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ports-speech-to-text"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "postgres-protocol"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
