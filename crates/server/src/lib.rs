@@ -14,11 +14,17 @@
 //!   default: every built port on its fake, no secret read, nothing reached
 //!   outside — the `llm` port's fake is [`llm`];
 //! - `FIXTURES_DIR`: when set and not empty, the folder of the mock-up's
-//!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]).
+//!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]) and
+//!   loaded into the store by the Data layer ([`data::insert_missing`]) —
+//!   once: a restart loads nothing twice.
 //!
 //! The server adds no read and no write path of its own: a read is served
 //! only when the engine's registry holds its persisted query, a write only
-//! through a DataCapability the engine registers.
+//! through a DataCapability the engine registers. The fixtures are the one
+//! exception on the write side: rows the mock-up's data describes, inserted
+//! as the tables' own constraints and triggers judge them.
+
+mod fixtures;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -27,6 +33,7 @@ use std::sync::Arc;
 use axum::routing::get;
 use axum::{Json, Router};
 use dataguard_server::{Engine, Reads, Rows};
+pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
 use ports_llm::Llm;
 use ports_llm::fake::FakeLlm;
 use serde_json::{Value, json};
@@ -131,44 +138,6 @@ impl Config {
             fixtures,
         })
     }
-}
-
-/// A fixture file not loaded into the store: its name, and why.
-pub type Skipped = (String, String);
-
-/// Reads every `*.json` file directly under `dir`, by name, and answers the
-/// ones it skipped. None is loaded while no aggregate exists to hold it:
-/// each is skipped, and so is a file that is not JSON — neither stops the
-/// server.
-///
-/// # Errors
-///
-/// The folder's, when it cannot be listed.
-pub fn fixtures(dir: &Path) -> std::io::Result<Vec<Skipped>> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.extension().is_some_and(|e| e == "json") && path.is_file() {
-            files.push(path);
-        }
-    }
-    files.sort();
-    let mut skipped = Vec::new();
-    for path in files {
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let why = match std::fs::read_to_string(&path) {
-            Err(e) => format!("cannot be read: {e}"),
-            Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
-                Err(e) => format!("not JSON: {e}"),
-                Ok(_) => "no aggregate holds it".to_string(),
-            },
-        };
-        skipped.push((name, why));
-    }
-    Ok(skipped)
 }
 
 /// The `llm` port as `ports` wires it: its fake, whose home server answers
@@ -351,30 +320,6 @@ mod tests {
             std::fs::write(dir.join(file), text).expect("a fixture file");
         }
         dir
-    }
-
-    #[test]
-    fn every_json_fixture_is_read_and_skipped_with_why() {
-        let dir = folder(
-            "fixtures",
-            &[
-                ("b.json", "{\"items\": []}"),
-                ("a.json", "not json"),
-                ("notes.txt", "not a fixture"),
-            ],
-        );
-        let skipped = fixtures(&dir).expect("the folder is listed");
-        std::fs::remove_dir_all(&dir).ok();
-        let names: Vec<&str> = skipped.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, ["a.json", "b.json"]);
-        assert!(skipped[0].1.starts_with("not JSON"), "{skipped:?}");
-        assert_eq!(skipped[1].1, "no aggregate holds it");
-    }
-
-    #[test]
-    fn a_missing_fixtures_folder_is_an_error_the_caller_logs() {
-        let dir = std::env::temp_dir().join(format!("server-absent-{}", std::process::id()));
-        assert!(fixtures(&dir).is_err());
     }
 
     /// The provider the fake's connection test reaches at `url`.

@@ -34,6 +34,14 @@ getrandom = "0.4"
 ports-llm = { path = "../../ports/llm" }
 # The Capability a read is answered by (`reads.rs`): rows in, answer out.
 get-settings = { path = "../../ai/capabilities/get-settings" }
+get-campaign = { path = "../../campaign/capabilities/get-campaign" }
+get-entity = { path = "../../campaign/capabilities/get-entity" }
+list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
+list-characters = { path = "../../campaign/capabilities/list-characters" }
+list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
+list-events = { path = "../../campaign/capabilities/list-events" }
+list-places = { path = "../../campaign/capabilities/list-places" }
+list-players = { path = "../../campaign/capabilities/list-players" }
 # --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
