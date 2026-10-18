@@ -49,6 +49,7 @@ jobs:
           validate m-data-model.schema.json data/model.json
           validate n-mock-pages.schema.json mock/pages.json
           validate q-ports.schema.json ports.json
+          validate r-plan-graph.schema.json plan/graph.json
 
   # Contract B, principle 5 — a slice knows no other slice. Checked on the
   # graph `cargo metadata` answers, not on a Cargo.toml's text: a Capability
@@ -264,14 +265,16 @@ jobs:
           done
           exit $failed
 
-  # Contract B — a Micro-UI's `needs` reference only Capabilities of its own
-  # system: each one is the `capability` of a capability.json whose `system`
-  # is the Micro-UI's.
+  # Contract B — a Micro-UI's `needs` reference Capabilities that exist or
+  # the plan declares, in any system: reading is free. (A shared Capability
+  # that must behave differently is duplicated into a new id, never edited —
+  # a review rule, not a static one.) The job keeps its name: branch
+  # protections require it.
   system-frontier:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Every `needs` of a Micro-UI is a Capability of its own system
+      - name: Every `needs` of a Micro-UI is a Capability that exists or is planned
         shell: bash
         run: |
           set -euo pipefail
@@ -281,16 +284,17 @@ jobs:
             for m in crates/**/capability.json; do
               if [ "$(jq -r '.capability' "$m")" = "$1" ]; then jq -r '.system' "$m"; return; fi
             done
+            # A Capability a milestone of the plan will produce (contract R) is
+            # declared by the graph; its system is its namespace.
+            if [ -e plan/graph.json ] && jq -e --arg id "$1" '.ids[$id] | select(.kind == "capability" and .producer != null)' plan/graph.json >/dev/null; then
+              echo "${1%%.*}"
+            fi
           }
           for ui in apps/**/micro-ui.json; do
-            system=$(jq -r '.system' "$ui")
             for need in $(jq -r '.needs[]? | if type=="string" then . else (.capability // empty) end' "$ui"); do
               found=$(system_of "$need")
               if [ -z "$found" ]; then
                 echo "::error file=$ui::needs $need, which no capability.json declares"
-                failed=1
-              elif [ "$found" != "$system" ]; then
-                echo "::error file=$ui::needs $need of system $found — outside its own system $system"
                 failed=1
               fi
             done
@@ -315,10 +319,16 @@ jobs:
               if [ "$(jq -r '.dataCapability' "$m")" = "$1" ]; then echo "$m"; return; fi
             done
           }
+          planned() {
+            [ -e plan/graph.json ] && jq -e --arg id "$1" '.ids[$id] | select(.kind == "data-capability" and .producer != null)' plan/graph.json >/dev/null
+          }
           for ui in apps/**/micro-ui.json; do
             me=$(jq -r '.microUi' "$ui"); system=$(jq -r '.system' "$ui")
             for action in $(jq -r '.actions[]? | if type=="string" then . else (.dataCapability // .id // empty) end' "$ui"); do
               manifest=$(manifest_of "$action")
+              # A DataCapability a milestone of the plan will produce (contract R)
+              # is declared by the graph; who may call it is the producer's to say.
+              if [ -z "$manifest" ] && planned "$action"; then continue; fi
               if [ -z "$manifest" ]; then
                 echo "::error file=$ui::action $action names no DataCapability"
                 failed=1
@@ -331,6 +341,29 @@ jobs:
             done
           done
           exit $failed
+
+  # Contract R — a milestone changes the interfaces it produces, and no
+  # other's: a `capability.json` or `data-capability.json` whose id the
+  # plan's graph gives another milestone is not this change's to touch. A
+  # consumer that needs a contract to change stops with
+  # `AGENT_LOOP_STOP: contract <id> — <what it needs>`; the contract manager
+  # evolves it for every consumer at once (scripts/contracts-gate.mjs).
+  contracts-untouched:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Every contract changed is this milestone's own
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          node scripts/contracts-gate.mjs untouched "origin/${GITHUB_BASE_REF}"
 
   # Rule 2 — the slices are workspace members by glob, never by name. A
   # glob matches what is on the disk: a sparse checkout that leaves a slice
@@ -681,7 +714,10 @@ jobs:
           done
           exit $failed
       # The bundles are the real Micro-UIs' code: a change under apps/ or
-      # mock/src/ without a rebuild would show stale code on the easel.
+      # mock/src/ without a rebuild would show stale code on the easel. The
+      # `builtFrom` digests in mock/pages.json are part of the build — a
+      # bundle whose code came out the same but whose digest is stale let a
+      # milestone land, and two branches rebuilding it later collided there.
       - name: The micro-frontends' bundles are rebuilt from the Micro-UIs' code
         shell: bash
         run: |
@@ -689,8 +725,8 @@ jobs:
           [ -f mock/build.sh ] || exit 0
           [ -f package.json ] && npm ci --no-audit --no-fund --loglevel=error
           sh mock/build.sh
-          if ! git diff --exit-code --stat -- mock/components; then
-            echo "::error file=mock/build.sh::the bundles under mock/components/ are stale — run mock/build.sh and commit them"
+          if ! git diff --exit-code --stat -- mock/components mock/pages.json; then
+            echo "::error file=mock/build.sh::the bundles under mock/components/ or their builtFrom in mock/pages.json are stale — run mock/build.sh and commit them"
             exit 1
           fi
 
@@ -773,8 +809,8 @@ jobs:
   # external `url(` anywhere else. Files are found by glob under `mock/`
   # (mock/design/ and mock/kit/ excluded, being the design system's own); the
   # gate fails on an empty scan, reports every violation and gives its verdict
-  # last (scripts/design-system-gate.mjs, proved by
-  # scripts/test-design-system-values-gate.sh). Every push and pull request,
+  # last (scripts/design-system-gate.mjs, proved in the harness by
+  # crates/architecture/tests/design_system_gate.rs). Every push and pull request,
   # no `paths:` filter: a rule of the mock-up is never skipped.
   design-system:
     runs-on: ubuntu-latest
