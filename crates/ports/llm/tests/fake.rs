@@ -6,7 +6,7 @@ use ports_llm::{
     ApiType, Binary, GenerateRequest, Llm, LlmError, Models, Provider, ProviderConfig, RequestKind,
     TextKind,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 const OPENCODE_URL: &str = "http://192.168.1.40:4096";
 
@@ -112,7 +112,7 @@ async fn each_binary_connects() {
 async fn the_same_request_gets_the_same_answer() {
     let fake = FakeLlm::new();
     let config = api("https://api.anthropic.com", None);
-    let request = GenerateRequest::new(TextKind::Notes, "Les notes");
+    let request = GenerateRequest::new(TextKind::Brief, "Les notes");
     let first = fake.generate(&config, &request).await;
     let second = fake.generate(&config, &request).await;
     assert_eq!(first, second);
@@ -203,4 +203,259 @@ async fn the_journal_a_capability_holds_is_the_one_the_port_writes() {
         json,
         json!([{"sequence": 1, "kind": "prompt", "provider": "claude-code-binary", "text": "bonjour"}])
     );
+}
+
+const PROPOSAL_TYPES: [&str; 4] = ["pj", "pnj", "lieu", "evenement"];
+
+/// The draft of the mock-up's notes import.
+fn draft() -> String {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../mock/fixtures/NoteImport.json"
+    );
+    let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    fixture["draft"].as_str().unwrap().to_owned()
+}
+
+/// The proposals the fake answers to `text`, as `(type, name)` pairs.
+async fn proposals_of(text: &str) -> Vec<(String, String)> {
+    let answer = notes_answer(text).await;
+    answer["proposals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|proposal| {
+            (
+                proposal["type"].as_str().unwrap().to_owned(),
+                proposal["name"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+async fn notes_answer(text: &str) -> Value {
+    let answer = FakeLlm::new()
+        .generate(
+            &api("https://api.anthropic.com", None),
+            &GenerateRequest::new(TextKind::Notes, text),
+        )
+        .await
+        .unwrap();
+    assert_eq!(answer.model, "qwen2.5-32b-instruct");
+    serde_json::from_str(&answer.text).unwrap_or_else(|error| panic!("{error}: {}", answer.text))
+}
+
+#[tokio::test]
+async fn the_draft_of_the_mock_up_yields_typed_proposals_taken_from_its_text() {
+    let text = draft();
+    let answer = notes_answer(&text).await;
+    let proposals = answer["proposals"].as_array().unwrap();
+    assert!(proposals.len() >= 2, "{answer}");
+    for proposal in proposals {
+        assert_eq!(
+            proposal.as_object().unwrap().len(),
+            3,
+            "type, name and excerpt, nothing else: {proposal}"
+        );
+        let kind = proposal["type"].as_str().unwrap();
+        assert!(PROPOSAL_TYPES.contains(&kind), "{proposal}");
+        let name = proposal["name"].as_str().unwrap();
+        assert!(!name.is_empty(), "{proposal}");
+        assert!(text.contains(name), "the name is in the notes: {proposal}");
+        let excerpt = proposal["excerpt"].as_str().unwrap();
+        assert!(!excerpt.is_empty(), "{proposal}");
+        assert!(
+            text.contains(excerpt),
+            "the excerpt is in the notes: {proposal}"
+        );
+        assert!(excerpt.contains(name) || kind == "evenement", "{proposal}");
+    }
+}
+
+#[tokio::test]
+async fn the_draft_names_its_characters_places_and_event() {
+    let proposals = proposals_of(&draft()).await;
+    let has = |kind: &str, name: &str| proposals.contains(&(kind.to_owned(), name.to_owned()));
+    for (kind, name) in [
+        ("pnj", "Gaspard"),
+        ("pnj", "Mère Ombeline"),
+        ("pnj", "Aerin"),
+        ("pnj", "Elowen"),
+        ("lieu", "La Tour d’Ébène"),
+        ("lieu", "bois de Corbière"),
+        ("lieu", "mont Pourpre"),
+        ("evenement", "Le moulin a brûlé dans la nuit"),
+    ] {
+        assert!(has(kind, name), "{kind} {name}: {proposals:?}");
+    }
+    assert!(
+        proposals.iter().all(|(kind, _)| kind != "pj"),
+        "a player character cannot be guessed: {proposals:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_same_notes_get_the_same_answer_from_any_fake() {
+    let request = GenerateRequest::new(TextKind::Notes, draft());
+    let config = api("https://api.anthropic.com", None);
+    let fake = FakeLlm::new();
+    let first = fake.generate(&config, &request).await.unwrap();
+    let second = fake.generate(&config, &request).await.unwrap();
+    let other = FakeLlm::new().generate(&config, &request).await.unwrap();
+    assert_eq!(first, second);
+    assert_eq!(first, other);
+}
+
+#[tokio::test]
+async fn a_name_is_proposed_once_whatever_the_times_it_is_met() {
+    let proposals = proposals_of("Gaspard rit. Puis Gaspard partit. gaspard revint.").await;
+    assert_eq!(proposals, [("pnj".to_owned(), "Gaspard".to_owned())]);
+}
+
+#[tokio::test]
+async fn notes_that_name_nothing_yield_no_proposal() {
+    for text in ["", "   \n ", "rien à signaler ici, tout est calme."] {
+        let answer = notes_answer(text).await;
+        assert_eq!(answer, json!({"proposals": []}), "{text:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_place_is_told_by_the_noun_that_leads_or_holds_its_name() {
+    let proposals = proposals_of(
+        "Ils marchent vers le mont Pourpre. Puis la forêt de Brume. Ensuite Port Lointain. Hier, Mara et d’Anselme dormaient.",
+    )
+    .await;
+    assert_eq!(
+        proposals,
+        [
+            ("lieu", "mont Pourpre"),
+            ("lieu", "forêt de Brume"),
+            ("lieu", "Port Lointain"),
+            ("pnj", "Mara"),
+            ("pnj", "Anselme"),
+        ]
+        .map(|(kind, name)| (kind.to_owned(), name.to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn a_name_stops_at_a_comma_and_a_function_word_opening_a_sentence_is_no_name() {
+    let proposals =
+        proposals_of("Il vit Aerin, Elowen. Le moulin a brûlé. Les Cavaliers Gris passent.").await;
+    let names: Vec<_> = proposals.iter().map(|(_, name)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["Aerin", "Elowen", "Le moulin a brûlé", "Les Cavaliers Gris"]
+    );
+}
+
+#[tokio::test]
+async fn an_event_is_named_by_the_clause_that_holds_it_and_excerpted_by_its_sentence() {
+    let answer = notes_answer("La nuit fut calme, une embuscade a eu lieu au gué !").await;
+    assert_eq!(
+        answer,
+        json!({"proposals": [
+            {"type": "evenement", "name": "Une embuscade a eu lieu au gué", "excerpt": "La nuit fut calme, une embuscade a eu lieu au gué"},
+        ]})
+    );
+}
+
+#[tokio::test]
+async fn an_event_is_named_by_the_words_of_its_clause_spacing_and_all_and_no_more_than_eight() {
+    let proposals =
+        proposals_of("rien. le  moulin\ta brûlé et puis un deux trois quatre cinq six.").await;
+    assert_eq!(
+        proposals,
+        [(
+            "evenement".to_owned(),
+            "Le  moulin\ta brûlé et puis un deux".to_owned()
+        )]
+    );
+}
+
+#[tokio::test]
+async fn the_other_kinds_keep_their_canned_sentence() {
+    let fake = FakeLlm::new();
+    let config = api("https://api.anthropic.com", None);
+    for (kind, text, model, chars) in [
+        (
+            TextKind::Prompt,
+            "Gaspard le tavernier",
+            "qwen2.5-32b-instruct",
+            20,
+        ),
+        (
+            TextKind::Brief,
+            "Une embuscade au gué.",
+            "qwen2.5-32b-instruct",
+            21,
+        ),
+        (
+            TextKind::Journal,
+            "00:01 Elowen brûle le moulin.",
+            "qwen2.5-14b-instruct",
+            29,
+        ),
+    ] {
+        let answer = fake
+            .generate(&config, &GenerateRequest::new(kind, text))
+            .await
+            .unwrap();
+        assert_eq!(
+            answer.text,
+            format!("Réponse simulée de {model} (API cloud, {chars} caractères)"),
+            "{kind:?}"
+        );
+        assert_eq!(answer.model, model);
+    }
+}
+
+#[tokio::test]
+async fn a_notes_request_is_journalled_with_its_text_and_the_answer_is_not() {
+    let fake = FakeLlm::new();
+    let text = draft();
+    fake.generate(
+        &api("https://api.anthropic.com", None),
+        &GenerateRequest::new(TextKind::Notes, text.clone()),
+    )
+    .await
+    .unwrap();
+    let records = fake.journal().list();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        (records[0].kind, records[0].provider, &records[0].text),
+        (RequestKind::Notes, Provider::Cloud, &text)
+    );
+}
+
+#[tokio::test]
+async fn a_name_runs_over_the_joiners_between_capitalised_words_and_only_those() {
+    for (text, names) in [
+        (
+            "Ils croisent Jean de Brume Noir.",
+            vec!["Jean de Brume Noir"],
+        ),
+        ("Ils croisent Jean de Brume demain.", vec!["Jean de Brume"]),
+        ("Ils croisent Jean de la forêt.", vec!["Jean"]),
+        ("Ils croisent Jean du, Brume.", vec!["Jean", "Brume"]),
+        ("Ils suivent Le Corbeau.", vec!["Le Corbeau"]),
+        ("Pour l’annexe B.", vec![]),
+        ("du Sanglier", vec!["Sanglier"]),
+        ("Dans la forêt, Gaspard dort.", vec!["Gaspard"]),
+        ("Ils longent le pont de, Mara.", vec!["Mara"]),
+        (
+            "Son frère attend. Chaque soir, le village chante. Tous dorment.",
+            vec![],
+        ),
+        (
+            "Gaspard, tavernier du Sanglier, parle.",
+            vec!["Gaspard", "Sanglier"],
+        ),
+        ("Ils croisent le roi du Sanglier.", vec!["Sanglier"]),
+    ] {
+        let proposals = proposals_of(text).await;
+        let found: Vec<_> = proposals.iter().map(|(_, name)| name.as_str()).collect();
+        assert_eq!(found, names, "{text:?}");
+    }
 }
