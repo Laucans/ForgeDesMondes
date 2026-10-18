@@ -700,7 +700,8 @@ impl Store for ProjectingStore {
             self.record_test(&write.partition, provider, false).await;
         } else if element(write) {
             self.repair_elements().await;
-        } else if !write.tombstone && write.partition.starts_with(CAMPAIGN) {
+        } else if write.partition.starts_with(CAMPAIGN) {
+            // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
