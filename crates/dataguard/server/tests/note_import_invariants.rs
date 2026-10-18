@@ -244,7 +244,16 @@ async fn no_creation_before_validation_leaves_a_proposal_s_removal_to_the_tombst
         )
         .await,
     );
-    applied(&written(&engine, "test.removeProposal", json!({ "id": GRIMBALD })).await);
+    // Even a removal that clears the element and the check: nothing of the
+    // row is left to judge.
+    applied(
+        &written(
+            &engine,
+            "test.removeProposal",
+            json!({ "id": GRIMBALD, "checked": false, "createdEntityId": Value::Null }),
+        )
+        .await,
+    );
 }
 
 #[tokio::test]
