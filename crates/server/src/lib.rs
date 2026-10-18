@@ -18,7 +18,11 @@
 //!
 //! The server adds no read and no write path of its own: a read is served
 //! only when the engine's registry holds its persisted query, a write only
-//! through a DataCapability the engine registers.
+//! through a DataCapability the engine registers. Both are by identifier, so
+//! the session system is served the way the ai system is: `session.*` reads
+//! through `POST /capabilities/<id>` once a session Capability's query is
+//! registered, session writes through `POST /commands` once a session
+//! DataCapability is — each slice by its folder, no route to add here.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -532,5 +536,61 @@ mod tests {
                 .is_some_and(|e| e.contains("no DataCapability named campaign.createCampaign")),
             "{body}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_session_read_no_capability_registers_is_404_as_the_other_systems_say() {
+        let unregistered = json!({ "sha256": "0".repeat(64), "variables": {} });
+        let (status, session) = answer(
+            Method::POST,
+            "/capabilities/session.anything",
+            Some(unregistered.clone()),
+        )
+        .await;
+        let (other_status, other) = answer(
+            Method::POST,
+            "/capabilities/ai.getSettings",
+            Some(unregistered),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{session}");
+        assert_eq!(status, other_status);
+        let said = |body: &Value| body["error"].as_str().unwrap_or_default().to_string();
+        assert!(said(&session).contains("session.anything"), "{session}");
+        assert!(
+            said(&session).contains("not a registered persisted query"),
+            "{session}"
+        );
+        assert!(said(&other).contains("not a registered persisted query"));
+    }
+
+    #[tokio::test]
+    async fn a_session_data_capability_reaches_the_engine_like_an_ai_one() {
+        // Neither is registered in the in-memory engine of this test: both are
+        // answered by the engine's queue (`POST /commands`), the same way.
+        for data_capability in ["session.anything", "ai.noSuchCapability"] {
+            let (status, body) = answer(
+                Method::POST,
+                "/commands",
+                Some(json!({ "dataCapability": data_capability, "payload": {} })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+            let error = body["error"].as_str().unwrap_or_default();
+            assert_eq!(error, format!("no DataCapability named {data_capability}"));
+        }
+    }
+
+    #[test]
+    fn the_mock_ups_session_fixtures_are_in_the_folder_the_server_loads() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        assert!(fixtures(&dir).is_ok(), "the server lists {dir:?}");
+        for session in [
+            "session.listSessions.json",
+            "session.getSession.json",
+            "session.listScenes.json",
+        ] {
+            assert!(dir.join(session).is_file(), "{session} in {dir:?}");
+        }
     }
 }

@@ -7,6 +7,7 @@ resolver = "3"
 members = [
     "crates/*/capabilities/*",
     "crates/*/data-capabilities/*",
+    "crates/*/read",
     "crates/data",
     "crates/dataguard/server",
     "crates/ports/*",
