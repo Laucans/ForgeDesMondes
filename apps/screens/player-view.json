@@ -4,6 +4,6 @@
   "version": 1,
   "layout": [
     { "PlayerStage": {} },
-    { "Battlemap": { "instance": "$ctx.battlemap", "view": "player", "fill": true } }
+    { "Battlemap": { "instance": "$ctx.battlemap", "view": "player" } }
   ]
 }
