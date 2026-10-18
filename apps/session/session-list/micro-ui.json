@@ -1,0 +1,8 @@
+{
+  "microUi": "SessionList",
+  "system": "session",
+  "description": "Les séances d’une campagne dans l’ordre avec leur résumé et leurs PJ présents ; création d’une séance avec choix des PJ",
+  "needs": ["session.listSessions", "campaign.listCharacters"],
+  "actions": ["session.createSession"],
+  "props": { "campaign": "string — id de la campagne dont on liste les séances" }
+}

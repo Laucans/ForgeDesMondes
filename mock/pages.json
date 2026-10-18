@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "e71f7e745b680932"
+      "builtFrom": "12e811c5293716ab"
     },
     {
       "name": "CampaignOverview",
@@ -163,7 +163,11 @@
       "actions": [
         "session.createSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on liste les séances"
+      },
+      "source": "apps/session/session-list",
+      "builtFrom": "b10fc42f7b9f13e1"
     },
     {
       "name": "CampaignElements",
