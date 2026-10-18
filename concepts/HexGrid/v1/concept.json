@@ -1,0 +1,39 @@
+{
+  "concept": "HexGrid",
+  "version": 1,
+  "kind": "derived",
+  "definition": "The hexagonal grid laid over a battlemap, and what it measures. A grid is described by `size` (the hex size in image pixels, a number strictly greater than 0), `ox` and `oy` (the horizontal and vertical offset of the grid in image pixels, any finite numbers, negative ones included), `orient` (`pointy` or `flat`, the hex's top), `color` (a non-empty string naming the grid's colour) and `opacity` (a number from 0 to 1 inclusive, a fraction of 1: a screen that shows a percentage divides it by 100 before it reaches the grid). The grid is valid when every one of these holds; `problems` lists the fields that do not, in the order size, ox, oy, orient, color, opacity, and is empty when the grid is valid. A field that is missing or of another type does not hold. One hex is always 5 feet, whatever its size, offset or orientation, and whether the grid is valid or not: `feetPerHex` is 5. A distance of `hexes` hexes, a whole number from 0 up, reads `hexes` times 5 feet in `feet`; `feet` is null when `hexes` is absent, negative, not a number or not a whole number (2.0 is whole, 2.5 is not). Converting a distance never depends on the grid's other settings.",
+  "output": {
+    "valid": {
+      "type": "boolean",
+      "rule": "true exactly when problems is empty"
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "enum": ["size", "ox", "oy", "orient", "color", "opacity"]
+      },
+      "rule": "the fields that do not hold, in the order size, ox, oy, orient, color, opacity; size holds when it is a number strictly above 0, ox and oy when they are numbers, orient when it is pointy or flat, color when it is a non-empty string, opacity when it is a number from 0 to 1 inclusive"
+    },
+    "feetPerHex": {
+      "type": "integer",
+      "rule": "always 5, whatever the size, offset and orientation, valid grid or not"
+    },
+    "feet": {
+      "type": "integer",
+      "nullable": true,
+      "rule": "hexes times feetPerHex when hexes is a whole number from 0 up; null otherwise"
+    }
+  },
+  "inputs": [
+    "grid.size",
+    "grid.ox",
+    "grid.oy",
+    "grid.orient",
+    "grid.color",
+    "grid.opacity",
+    "distance.hexes"
+  ],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}
