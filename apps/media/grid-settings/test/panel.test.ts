@@ -18,6 +18,7 @@ interface Sent {
   payload: Record<string, unknown>;
 }
 interface Options {
+  status?: string;
   read?: (id: string) => unknown;
   apply?: (sent: Sent) => { status: string; violations?: string[] };
   readAfterSave?: () => unknown;
@@ -38,12 +39,12 @@ function fakeShell(options: Options = {}) {
     async command(body) {
       const command = body as Sent;
       sent.push(command);
-      const outcome = options.apply ? options.apply(command) : { status: 'applied' };
+      const outcome = options.apply ? options.apply(command) : { status: options.status ?? 'applied' };
       saved = true;
       return { commandId: `c${sent.length}`, result: { status: outcome.status, violations: outcome.violations ?? [] } };
     },
     async commandResult(commandId) {
-      return { result: { commandId, status: 'applied', violations: [] } };
+      return { result: { commandId, status: options.status ?? 'applied', violations: [] } };
     },
   };
   return { shell, sent, reads };
@@ -213,4 +214,32 @@ test('the parts name what they read and write, by identifier', async () => {
   const p = await panel();
   assert.ok(p.host.querySelector('[data-reads="media.getBattlemap"]'));
   assert.equal(p.$('#grid-save').dataset.writes, 'media.saveGridSettings');
+});
+
+test('a save still queued or parked when the panel stops asking is said to be waiting, not failed', async () => {
+  const p = await panel({ status: 'parked' });
+  await p.click('#grid-save');
+  assert.match(p.$('.mf-grid__result').textContent ?? '', /en attente \(état : parked\)/);
+  assert.equal((p.$('#grid-save') as HTMLButtonElement).disabled, false);
+});
+
+test('a save that ends after the screen handed the panel another battlemap says nothing of it and keeps the new one', async () => {
+  const other = { ...battlemap({ size: 34 }), id: 'bm-moulin', title: 'Les ruines du moulin' };
+  const p = await panel({ read: (id) => (id === 'bm-gue' ? battlemap() : other), apply: () => ({ status: 'applied' }) }, { battlemap: 'bm-gue' });
+  const shell = p.mounted;
+  // The screen moves on before the server has answered the command.
+  const original = p.$('#grid-save');
+  original.dispatchEvent(new (original.ownerDocument.defaultView as Window & typeof globalThis).MouseEvent('click', { bubbles: true }));
+  shell.update({ battlemap: 'bm-moulin' });
+  await settle();
+  assert.match(p.$('#grid-title').textContent ?? '', /Les ruines du moulin/);
+  assert.equal((p.$('#grid-size') as HTMLInputElement).value, '34');
+  assert.doesNotMatch(p.$('.mf-grid__result').textContent ?? '', /enregistré/);
+  await p.click('#grid-reset');
+  assert.equal((p.$('#grid-size') as HTMLInputElement).value, '34', 'the baseline is the new battlemap, not the one that was saved');
+});
+
+test('an answer that is not a battlemap is unreadable, not an empty one', async () => {
+  const p = await panel({ read: () => ({ id: 'bm-gue', grid: { size: null } }) });
+  assert.match(p.$('#grid-notice').textContent ?? '', /Impossible de lire/);
 });

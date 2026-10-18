@@ -57,6 +57,12 @@ test('the grid path changes with each setting and covers the whole image', () =>
   assert.ok(gridPath({ ...grid, ox: -37 }, 2000, 1500).length > gridPath({ ...grid, ox: -37 }, 500, 400).length);
 });
 
+test('a grid too fine to draw is not drawn, whatever its size says', () => {
+  assert.ok(gridPath({ ...grid, size: 16 }, 960, 640).length > 0);
+  assert.equal(gridPath({ ...grid, size: 0.05 }, 960, 640), '');
+  assert.equal(gridPath({ ...grid, size: 2 }, 4000, 3000), '');
+});
+
 test('a grid that cannot be drawn draws nothing', () => {
   assert.equal(gridPath({ ...grid, size: 0 }, 960, 640), '');
   assert.equal(gridPath({ ...grid, ox: Number.NaN }, 960, 640), '');

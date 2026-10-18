@@ -409,7 +409,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "ad4793f336082731"
+      "builtFrom": "c2c57e006228e2a6"
     },
     {
       "name": "SoundLibrary",

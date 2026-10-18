@@ -7,7 +7,6 @@ import type { Battlemap, Form, Grid, Orient, Shape } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
-const num = (value: unknown, otherwise: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : otherwise);
 
 /** The colours a grid may have: the design system's, by the name `color` carries. */
 export const COLORS = [
@@ -21,10 +20,10 @@ export const COLORS = [
 /** The CSS colour of a grid colour: a token, `text` for a name the design system does not know. */
 export const cssColor = (color: string): string => `var(--color-${COLORS.some((c) => c.value === color) ? color : 'text'})`;
 
-/** The shapes the map may draw: what the Capability's terrain is made of, nothing that runs. */
+/** The shapes the map may draw: what the Capability's terrain is made of, nothing that runs or fetches. */
 const TAGS = new Set(['rect', 'ellipse', 'circle', 'path', 'polygon', 'polyline', 'line']);
-/** An attribute is a name of letters and dashes — never an event handler (`on…`). */
-const ATTRIBUTE = /^(?!on)[a-z][a-z-]*$/;
+/** The attributes a shape keeps: its class (the kit colours it) and its geometry — no style, no link, no handler. */
+const ATTRIBUTES = new Set(['class', 'x', 'y', 'width', 'height', 'd', 'points', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'transform', 'opacity']);
 
 function terrain(value: unknown): Shape[] {
   if (!Array.isArray(value)) return [];
@@ -33,31 +32,49 @@ function terrain(value: unknown): Shape[] {
     if (!isRecord(entry) || typeof entry.tag !== 'string' || !TAGS.has(entry.tag)) continue;
     const attrs: Record<string, string> = {};
     for (const [name, attribute] of Object.entries(entry)) {
-      if (name !== 'tag' && ATTRIBUTE.test(name) && (typeof attribute === 'string' || typeof attribute === 'number')) attrs[name] = String(attribute);
+      if (name !== 'tag' && ATTRIBUTES.has(name) && (typeof attribute === 'string' || typeof attribute === 'number')) attrs[name] = String(attribute);
     }
     shapes.push({ tag: entry.tag, attrs });
   }
   return shapes;
 }
 
-/** The Capability's answer: `null` when there is no battlemap (an illustration, an unknown id) or nothing readable. */
+/** A grid field the Capability must have answered: nothing is invented for a value that is missing, a save would keep it. */
+function required<T>(value: T | undefined, what: string): T {
+  if (value === undefined) throw new Error(`media.getBattlemap: ${what} is not readable`);
+  return value;
+}
+const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
+
+/** The Capability's answer: `null` when there is no battlemap (an illustration, an unknown id); an answer that is no battlemap but is not `null` either throws. */
 export function parseBattlemap(data: unknown): Battlemap | null {
-  if (!isRecord(data) || typeof data.id !== 'string' || data.id === '' || !isRecord(data.grid)) return null;
+  if (data === null || data === undefined) return null;
+  if (!isRecord(data) || typeof data.id !== 'string' || data.id === '' || !isRecord(data.grid)) throw new Error('media.getBattlemap: the answer is not a battlemap');
   const grid = data.grid;
-  const orient: Orient = grid.orient === 'flat' ? 'flat' : 'pointy';
+  const width = required(finite(data.width), 'width');
+  const height = required(finite(data.height), 'height');
+  if (width <= 0 || height <= 0) throw new Error('media.getBattlemap: the map has no size');
+  const orient = grid.orient === 'flat' || grid.orient === 'pointy' ? grid.orient : required<Orient>(undefined, 'orient');
   return {
     id: data.id,
     title: text(data.title),
-    width: num(data.width, 800),
-    height: num(data.height, 560),
-    grid: { size: num(grid.size, 30), ox: num(grid.ox, 0), oy: num(grid.oy, 0), orient, color: text(grid.color) || 'text', opacity: num(grid.opacity, 0.4) },
+    width,
+    height,
+    grid: {
+      size: required(finite(grid.size), 'size'),
+      ox: required(finite(grid.ox), 'ox'),
+      oy: required(finite(grid.oy), 'oy'),
+      orient,
+      color: required(text(grid.color) || undefined, 'color'),
+      opacity: required(finite(grid.opacity), 'opacity'),
+    },
     terrain: terrain(data.terrain),
   };
 }
 
-/** The form a battlemap opens on: its grid as last saved, the opacity shown as a percentage — a value out of range is shown as it is, and cannot be saved. */
+/** The form a battlemap opens on: its grid as last saved, the opacity shown as a percentage, to the hundredth so that saving another field leaves it as it was — a value out of range is shown as it is, and cannot be saved. */
 export function initialForm(map: Battlemap): Form {
-  return { ...map.grid, opacity: Math.round(map.grid.opacity * 100) };
+  return { ...map.grid, opacity: Math.round(map.grid.opacity * 10000) / 100 };
 }
 
 /** The grid HexGrid@1 judges and the preview draws: the opacity back to a fraction of 1. */

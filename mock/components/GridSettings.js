@@ -169,9 +169,11 @@
   }
   var pair = (p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`;
   var points = (grid, hex) => corners(grid, center(grid, hex)).map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+  var MAX_HEXES = 4e4;
   function gridPath(grid, width, height) {
     if (!finite(grid.size) || grid.size <= 0 || !finite(grid.ox) || !finite(grid.oy)) return "";
     const s = grid.size;
+    if (width * height / (2.598 * s * s) > MAX_HEXES) return "";
     const edges = [axial(grid, -s, -s), axial(grid, width + s, -s), axial(grid, -s, height + s), axial(grid, width + s, height + s)];
     const qs = edges.map((e) => e.q);
     const rs = edges.map((e) => e.r);
@@ -189,7 +191,6 @@
   // apps/media/grid-settings/src/model.ts
   var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
   var text = (value) => typeof value === "string" ? value : "";
-  var num = (value, otherwise) => typeof value === "number" && Number.isFinite(value) ? value : otherwise;
   var COLORS = [
     { value: "text", label: "Ivoire" },
     { value: "accent", label: "Ambre" },
@@ -199,7 +200,7 @@
   ];
   var cssColor = (color) => `var(--color-${COLORS.some((c) => c.value === color) ? color : "text"})`;
   var TAGS = /* @__PURE__ */ new Set(["rect", "ellipse", "circle", "path", "polygon", "polyline", "line"]);
-  var ATTRIBUTE = /^(?!on)[a-z][a-z-]*$/;
+  var ATTRIBUTES = /* @__PURE__ */ new Set(["class", "x", "y", "width", "height", "d", "points", "cx", "cy", "r", "rx", "ry", "x1", "y1", "x2", "y2", "transform", "opacity"]);
   function terrain(value) {
     if (!Array.isArray(value)) return [];
     const shapes = [];
@@ -207,27 +208,43 @@
       if (!isRecord(entry) || typeof entry.tag !== "string" || !TAGS.has(entry.tag)) continue;
       const attrs = {};
       for (const [name, attribute] of Object.entries(entry)) {
-        if (name !== "tag" && ATTRIBUTE.test(name) && (typeof attribute === "string" || typeof attribute === "number")) attrs[name] = String(attribute);
+        if (name !== "tag" && ATTRIBUTES.has(name) && (typeof attribute === "string" || typeof attribute === "number")) attrs[name] = String(attribute);
       }
       shapes.push({ tag: entry.tag, attrs });
     }
     return shapes;
   }
+  function required(value, what) {
+    if (value === void 0) throw new Error(`media.getBattlemap: ${what} is not readable`);
+    return value;
+  }
+  var finite2 = (value) => typeof value === "number" && Number.isFinite(value) ? value : void 0;
   function parseBattlemap(data) {
-    if (!isRecord(data) || typeof data.id !== "string" || data.id === "" || !isRecord(data.grid)) return null;
+    if (data === null || data === void 0) return null;
+    if (!isRecord(data) || typeof data.id !== "string" || data.id === "" || !isRecord(data.grid)) throw new Error("media.getBattlemap: the answer is not a battlemap");
     const grid = data.grid;
-    const orient = grid.orient === "flat" ? "flat" : "pointy";
+    const width = required(finite2(data.width), "width");
+    const height = required(finite2(data.height), "height");
+    if (width <= 0 || height <= 0) throw new Error("media.getBattlemap: the map has no size");
+    const orient = grid.orient === "flat" || grid.orient === "pointy" ? grid.orient : required(void 0, "orient");
     return {
       id: data.id,
       title: text(data.title),
-      width: num(data.width, 800),
-      height: num(data.height, 560),
-      grid: { size: num(grid.size, 30), ox: num(grid.ox, 0), oy: num(grid.oy, 0), orient, color: text(grid.color) || "text", opacity: num(grid.opacity, 0.4) },
+      width,
+      height,
+      grid: {
+        size: required(finite2(grid.size), "size"),
+        ox: required(finite2(grid.ox), "ox"),
+        oy: required(finite2(grid.oy), "oy"),
+        orient,
+        color: required(text(grid.color) || void 0, "color"),
+        opacity: required(finite2(grid.opacity), "opacity")
+      },
       terrain: terrain(data.terrain)
     };
   }
   function initialForm(map) {
-    return { ...map.grid, opacity: Math.round(map.grid.opacity * 100) };
+    return { ...map.grid, opacity: Math.round(map.grid.opacity * 1e4) / 100 };
   }
   var gridOf = (form) => ({ ...form, opacity: form.opacity / 100 });
   var WORDS = {
@@ -288,7 +305,7 @@
     const radio = (value, label) => `<label><input type="radio" name="grid-orient" value="${value}"${form.orient === value ? " checked" : ""}><span>${label}</span></label>`;
     const known = COLORS.some((c) => c.value === form.color);
     const colors = known ? COLORS : [...COLORS, { value: form.color, label: form.color }];
-    return '<div class="kit-slider kit-slider--bare">' + slider({ id: "grid-size", name: "size", label: "Taille d\u2019un hex", value: form.size, min: 16, max: 60, unit: "px", step: "any" }) + slider({ id: "grid-ox", name: "ox", label: "D\xE9calage horizontal", value: form.ox, min: -30, max: 60, unit: "px", step: "any" }) + slider({ id: "grid-oy", name: "oy", label: "D\xE9calage vertical", value: form.oy, min: -30, max: 60, unit: "px", step: "any" }) + slider({ id: "grid-opacity", name: "opacity", label: "Opacit\xE9", value: form.opacity, min: 5, max: 100, unit: "%" }) + `</div><div class="kit-radio"><fieldset id="grid-orient"><legend>Orientation</legend>${radio("pointy", "Pointe en haut")}${radio("flat", "C\xF4t\xE9 plat en haut")}</fieldset></div><div class="kit-select is-wide"><span id="grid-color-label">Couleur de la grille</span><select id="grid-color" name="color" aria-labelledby="grid-color-label">${colors.map((c) => `<option value="${esc(c.value)}"${c.value === form.color ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>`;
+    return '<div class="kit-slider kit-slider--bare">' + slider({ id: "grid-size", name: "size", label: "Taille d\u2019un hex", value: form.size, min: 16, max: 60, unit: "px", step: "any" }) + slider({ id: "grid-ox", name: "ox", label: "D\xE9calage horizontal", value: form.ox, min: -30, max: 60, unit: "px", step: "any" }) + slider({ id: "grid-oy", name: "oy", label: "D\xE9calage vertical", value: form.oy, min: -30, max: 60, unit: "px", step: "any" }) + slider({ id: "grid-opacity", name: "opacity", label: "Opacit\xE9", value: form.opacity, min: 5, max: 100, unit: "%", step: "any" }) + `</div><div class="kit-radio"><fieldset id="grid-orient"><legend>Orientation</legend>${radio("pointy", "Pointe en haut")}${radio("flat", "C\xF4t\xE9 plat en haut")}</fieldset></div><div class="kit-select is-wide"><span id="grid-color-label">Couleur de la grille</span><select id="grid-color" name="color" aria-labelledby="grid-color-label">${colors.map((c) => `<option value="${esc(c.value)}"${c.value === form.color ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>`;
   }
   var title = (map) => map === null ? "R\xE9glage de la grille" : `R\xE9glage de la grille \u2014 ${map.title}`;
   function result(outcome) {
@@ -427,6 +444,11 @@
       const w = world(e);
       showTip(label(drawPath(start, toHex(current, w.x, w.y))), w.lx, w.ly);
     });
+    const release = () => {
+      down = null;
+      view.classList.remove("hm-drag");
+    };
+    view.addEventListener("pointercancel", release);
     view.addEventListener("pointerup", (e) => {
       const click = down !== null && !down.moved;
       down = null;
@@ -469,10 +491,12 @@
     }
     const draw = (next) => {
       if (problems(next).length > 0) return;
+      const d = gridPath(next, map.width, map.height);
+      if (d === "" && path.getAttribute("d")) return;
       current = next;
       root.style.setProperty("--hm-grid", cssColor(next.color));
       path.style.opacity = String(next.opacity);
-      path.setAttribute("d", gridPath(next, map.width, map.height));
+      path.setAttribute("d", d);
       forget();
     };
     draw(grid);
@@ -592,23 +616,28 @@
       if (why) return say({ kind: "error", text: why });
       const id = map.id;
       const sent = form;
+      const mine = asked;
       busy = true;
       lock(true);
       say({ kind: "busy", text: "Enregistrement\u2026" });
       try {
         const state = await send(id, sent);
+        if (mine !== asked) return;
         if (state.status === "rejected") return say({ kind: "error", text: `Enregistrement refus\xE9 : ${reasons(state.violations)}.` });
+        if (state.status !== "applied" && !isFinal(state.status) && state.status !== "") return say({ kind: "busy", text: `Enregistrement en attente (\xE9tat : ${state.status}) : il s\u2019appliquera d\xE8s que la file le permettra.` });
         if (state.status !== "applied") return say({ kind: "error", text: `L\u2019enregistrement n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).` });
         try {
           const saved = await read(id);
-          if (saved !== null && map !== null && map.id === id) map = saved;
+          if (mine !== asked) return;
+          if (saved !== null && map !== null) map = saved;
         } catch {
-          map = { ...map, grid: gridOf(sent) };
+          if (mine !== asked) return;
+          if (map !== null) map = { ...map, grid: gridOf(sent) };
           return say({ kind: "ok", text: "R\xE9glage enregistr\xE9, mais il n\u2019a pas pu \xEAtre relu." });
         }
         say({ kind: "ok", text: "R\xE9glage enregistr\xE9." });
       } catch {
-        say({ kind: "error", text: "L\u2019enregistrement a \xE9chou\xE9." });
+        if (mine === asked) say({ kind: "error", text: "L\u2019enregistrement a \xE9chou\xE9." });
       } finally {
         busy = false;
         lock(false);
@@ -644,7 +673,8 @@
       else if (button.id === "grid-reset" && map !== null && !busy) {
         form = initialForm(map);
         say({ kind: "none" });
-        paintMap();
+        paintForm();
+        preview?.setGrid(gridOf(form));
       }
     });
     let shown = battlemapOf(props2);

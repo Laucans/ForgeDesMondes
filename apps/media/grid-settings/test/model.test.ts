@@ -11,18 +11,37 @@ const answer = {
   terrain: [{ tag: 'rect', class: 'hm-land', x: 0, y: 0, width: 960, height: 640 }, { tag: 'script', src: 'x' }, { tag: 'path', 'onload': 'x', d: 'M0 0' }, 'junk'],
 };
 
-test('the Capability answers a battlemap; no battlemap, or nothing readable, is null', () => {
+test('the Capability answers a battlemap; no battlemap is null, and an answer that is not a readable one throws', () => {
   const map = parseBattlemap(answer);
   assert.equal(map?.title, 'Le Gué des Corbeaux');
   assert.deepEqual(map?.grid, { size: 30, ox: 12, oy: 8, orient: 'pointy', color: 'text', opacity: 0.4 });
-  for (const none of [null, undefined, 'x', [], { id: '' }, { id: 'a' }, { id: 'a', grid: 3 }]) assert.equal(parseBattlemap(none), null);
+  for (const none of [null, undefined]) assert.equal(parseBattlemap(none), null);
+  for (const bad of ['x', [], { id: '' }, { id: 'a' }, { id: 'a', grid: 3 }]) assert.throws(() => parseBattlemap(bad));
+});
+
+test('a grid field that is missing or of another type is not replaced by a default a save would keep', () => {
+  for (const field of ['size', 'ox', 'oy', 'orient', 'color', 'opacity']) {
+    assert.throws(() => parseBattlemap({ ...answer, grid: { ...answer.grid, [field]: null } }), new RegExp(field), field);
+  }
+  assert.throws(() => parseBattlemap({ ...answer, grid: { ...answer.grid, opacity: '0.4' } }));
+  assert.throws(() => parseBattlemap({ ...answer, width: 0 }));
+  assert.throws(() => parseBattlemap({ ...answer, height: undefined }));
+});
+
+test('the opacity is kept to the hundredth of a percent: saving another field leaves it as it was', () => {
+  for (const opacity of [0.455, 0.07, 0.004, 1, 0]) {
+    const form = initialForm(parseBattlemap({ ...answer, grid: { ...answer.grid, opacity } })!);
+    assert.equal(payload(form).opacity, opacity);
+  }
 });
 
 test('only shapes the map may draw are kept, with plain attributes', () => {
   const map = parseBattlemap(answer);
   assert.deepEqual(map?.terrain.map((s) => s.tag), ['rect', 'path']);
-  // Never an event handler from data: `onload` is dropped, the plain attributes stay.
+  // Nothing that runs or fetches comes from data: `onload` is dropped, the geometry stays.
   assert.equal(map?.terrain[1]?.attrs.onload, undefined);
+  const styled = parseBattlemap({ ...answer, terrain: [{ tag: 'rect', style: 'fill:url(//x)', href: '//x', fill: 'url(//x)', x: 1 }] });
+  assert.deepEqual(styled?.terrain[0]?.attrs, { x: '1' });
   assert.equal(map?.terrain[1]?.attrs.d, 'M0 0');
   assert.equal(map?.terrain[0]?.attrs.class, 'hm-land');
   assert.equal(map?.terrain[0]?.attrs.width, '960');

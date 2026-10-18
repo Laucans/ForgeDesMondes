@@ -70,7 +70,7 @@ export function fields(form: Form): string {
     slider({ id: 'grid-size', name: 'size', label: 'Taille d’un hex', value: form.size, min: 16, max: 60, unit: 'px', step: 'any' }) +
     slider({ id: 'grid-ox', name: 'ox', label: 'Décalage horizontal', value: form.ox, min: -30, max: 60, unit: 'px', step: 'any' }) +
     slider({ id: 'grid-oy', name: 'oy', label: 'Décalage vertical', value: form.oy, min: -30, max: 60, unit: 'px', step: 'any' }) +
-    slider({ id: 'grid-opacity', name: 'opacity', label: 'Opacité', value: form.opacity, min: 5, max: 100, unit: '%' }) +
+    slider({ id: 'grid-opacity', name: 'opacity', label: 'Opacité', value: form.opacity, min: 5, max: 100, unit: '%', step: 'any' }) +
     '</div>' +
     `<div class="kit-radio"><fieldset id="grid-orient"><legend>Orientation</legend>${radio('pointy', 'Pointe en haut')}${radio('flat', 'Côté plat en haut')}</fieldset></div>` +
     '<div class="kit-select is-wide"><span id="grid-color-label">Couleur de la grille</span>' +

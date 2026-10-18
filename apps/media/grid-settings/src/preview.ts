@@ -166,6 +166,12 @@ export function mountPreview(host: HTMLElement, map: Battlemap, grid: Grid): Pre
     const w = world(e);
     showTip(label(drawPath(start, toHex(current, w.x, w.y))), w.lx, w.ly);
   });
+  /** A pan cut short (a gesture the browser takes over) ends it. */
+  const release = (): void => {
+    down = null;
+    view.classList.remove('hm-drag');
+  };
+  view.addEventListener('pointercancel', release);
   view.addEventListener('pointerup', (e) => {
     const click = down !== null && !down.moved;
     down = null;
@@ -210,10 +216,13 @@ export function mountPreview(host: HTMLElement, map: Battlemap, grid: Grid): Pre
   const draw = (next: Grid): void => {
     // Only a grid HexGrid@1 holds is drawn: while the DM types a value out of range, the last valid grid stays.
     if (problems(next).length > 0) return;
+    const d = gridPath(next, map.width, map.height);
+    // A grid too fine to draw is not drawn either: the last one stays.
+    if (d === '' && path.getAttribute('d')) return;
     current = next;
     root.style.setProperty('--hm-grid', cssColor(next.color));
     path.style.opacity = String(next.opacity);
-    path.setAttribute('d', gridPath(next, map.width, map.height));
+    path.setAttribute('d', d);
     forget();
   };
   draw(grid);

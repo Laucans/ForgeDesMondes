@@ -98,10 +98,15 @@ const pair = (p: [number, number]): string => `${p[0].toFixed(1)} ${p[1].toFixed
 /** The corners of a hex as an SVG `points` attribute. */
 export const points = (grid: Grid, hex: Hex): string => corners(grid, center(grid, hex)).map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
 
-/** The `d` of the grid over an image of `width` x `height` pixels: every hex that touches it. Empty for a grid that cannot be drawn. */
+/** More hexes than this over one image is a grid too fine to draw: it would freeze the screen, and no table plays on it. */
+export const MAX_HEXES = 40000;
+
+/** The `d` of the grid over an image of `width` x `height` pixels: every hex that touches it. Empty for a grid that cannot be drawn, or is too fine to. */
 export function gridPath(grid: Grid, width: number, height: number): string {
   if (!finite(grid.size) || grid.size <= 0 || !finite(grid.ox) || !finite(grid.oy)) return '';
   const s = grid.size;
+  // A hex covers about 2.6 s² of the image.
+  if ((width * height) / (2.598 * s * s) > MAX_HEXES) return '';
   // Axial coordinates are linear in x and y: the image's four corners bound every hex it can hold.
   const edges = [axial(grid, -s, -s), axial(grid, width + s, -s), axial(grid, -s, height + s), axial(grid, width + s, height + s)];
   const qs = edges.map((e) => e.q);

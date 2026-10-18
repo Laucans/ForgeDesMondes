@@ -124,24 +124,31 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     if (why) return say({ kind: 'error', text: why });
     const id = map.id;
     const sent = form;
+    const mine = asked;
     busy = true;
     lock(true);
     say({ kind: 'busy', text: 'Enregistrement…' });
     try {
       const state = await send(id, sent);
+      // The screen handed the panel another battlemap meanwhile: what happened to this one is not this panel's to say.
+      if (mine !== asked) return;
       if (state.status === 'rejected') return say({ kind: 'error', text: `Enregistrement refusé : ${reasons(state.violations)}.` });
+      // Queued behind another command, or waiting: the server still holds it and will apply it.
+      if (state.status !== 'applied' && !isFinal(state.status) && state.status !== '') return say({ kind: 'busy', text: `Enregistrement en attente (état : ${state.status}) : il s’appliquera dès que la file le permettra.` });
       if (state.status !== 'applied') return say({ kind: 'error', text: `L’enregistrement n’a pas abouti (état : ${state.status || 'inconnu'}).` });
       // What is kept is what the Capability answers now: the panel's baseline, for « Annuler les changements ».
       try {
         const saved = await read(id);
-        if (saved !== null && map !== null && map.id === id) map = saved;
+        if (mine !== asked) return;
+        if (saved !== null && map !== null) map = saved;
       } catch {
-        map = { ...map, grid: gridOf(sent) };
+        if (mine !== asked) return;
+        if (map !== null) map = { ...map, grid: gridOf(sent) };
         return say({ kind: 'ok', text: 'Réglage enregistré, mais il n’a pas pu être relu.' });
       }
       say({ kind: 'ok', text: 'Réglage enregistré.' });
     } catch {
-      say({ kind: 'error', text: 'L’enregistrement a échoué.' });
+      if (mine === asked) say({ kind: 'error', text: 'L’enregistrement a échoué.' });
     } finally {
       busy = false;
       lock(false);
@@ -186,7 +193,8 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     else if (button.id === 'grid-reset' && map !== null && !busy) {
       form = initialForm(map);
       say({ kind: 'none' });
-      paintMap();
+      paintForm();
+      preview?.setGrid(gridOf(form));
     }
   });
 
