@@ -463,6 +463,17 @@ async fn brief_no_auto_creation_lists_an_unknown_element_a_creer_with_its_type_a
 }
 
 #[tokio::test]
+async fn brief_no_auto_creation_leaves_an_entry_written_again_to_its_creation() {
+    // Grimbald listed, then written again whole once the DM created him: an
+    // upsert of an entry the engine holds is no analysis creating an element.
+    let engine = engine().await;
+    applied(&written(&engine, "test.addToCreate", grimbald()).await);
+    let mut created = with(grimbald(), "entityToCreateStatus", json!("creee"));
+    created["createdEntityId"] = json!(CREATED);
+    applied(&written(&engine, "test.upsertToCreate", created).await);
+}
+
+#[tokio::test]
 async fn to_create_leaves_once_created_if_and_only_if_its_element_is_named() {
     let engine = engine().await;
     applied(&written(&engine, "test.addToCreate", grimbald()).await);
