@@ -11,7 +11,7 @@ const ID: &str = "HealthBand@1";
 fn band(input: Value) -> Value {
     let band = match (input["hp_current"].as_i64(), input["hp_max"].as_i64()) {
         (Some(current), Some(max)) => {
-            let current = current.clamp(0, max.max(0));
+            let current = current.clamp(0, max);
             Some(if current == 0 {
                 "mort"
             } else if current == max {

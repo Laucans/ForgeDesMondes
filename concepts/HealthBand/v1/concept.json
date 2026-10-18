@@ -8,7 +8,7 @@
       "type": "string",
       "enum": ["indemne", "blessé", "en sang", "mort"],
       "nullable": true,
-      "rule": "null exactly when hp_current or hp_max is absent or null; `mort` exactly when hp_current is 0 or less; otherwise `indemne` at hp_max or more, `blessé` when 2 × hp_current > hp_max, `en sang` when 2 × hp_current ≤ hp_max"
+      "rule": "null when hp_current or hp_max is absent or null; otherwise, with hp_current read within 0 and hp_max: `mort` at 0, `indemne` at hp_max, `blessé` when 2 × hp_current > hp_max, `en sang` when 2 × hp_current ≤ hp_max"
     }
   },
   "inputs": ["token.hp_current", "token.hp_max"],

@@ -140,7 +140,7 @@
       }
     },
     {
-      "name": "dead-derived: 0 is a value, not an absence, even with the maximum null",
+      "name": "one figure alone derives nothing: 0 hit points without a maximum give no band",
       "input": {
         "hp_current": 0,
         "hp_max": null
