@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f9f10bfb8db39481"
+      "builtFrom": "dd71ea26524182a6"
     },
     {
       "name": "CampaignOverview",
@@ -167,7 +167,7 @@
         "campaign": "string — id de la campagne dont on liste les séances"
       },
       "source": "apps/session/session-list",
-      "builtFrom": "f28458b7be57288e"
+      "builtFrom": "d244cfdb107734c3"
     },
     {
       "name": "CampaignElements",
@@ -393,7 +393,12 @@
         "media.setMediaPlace",
         "session.addPlaceToSession"
       ],
-      "props": {}
+      "props": {
+        "session": "string — id de la séance en préparation, vide quand aucune n'est choisie : sans elle, aucune fiche n'est rattachée à une séance",
+        "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
+      },
+      "source": "apps/media/media-library",
+      "builtFrom": "1f2171744f117745"
     },
     {
       "name": "GridSettings",

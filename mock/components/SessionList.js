@@ -509,6 +509,41 @@
       const latency = message.match(/répond en ([\d,]+ s)/)?.[1] || "0,01 s";
       settings.lastTest = { ok: true, at, provider, latency, message };
       return void 0;
+    },
+    // media.setMediaPlace (milestone #19): a medium's place set, or cleared with `place: null` — a medium
+    // with no place stays valid. The place must be a lieu of the campaign (`media-place-is-lieu`).
+    "media.setMediaPlace": async (server, { payload: payload2 }) => {
+      const library = await server.load("media.listMedia");
+      const medium = library.battlemaps.concat(library.illustrations).find((m) => m.id === payload2.media);
+      if (!medium) return ["not-found"];
+      const place = payload2.place || null;
+      if (place !== null && !(await server.load("campaign.listPlaces")).some((p) => p.id === place)) return ["media-place-is-lieu"];
+      medium.place = place;
+      return void 0;
+    },
+    // media.uploadMedia (milestone #19): a medium recorded, its place optional; a battlemap arrives with its
+    // default grid (`grid-only-for-battlemap`, `hex-is-five-feet`).
+    "media.uploadMedia": async (server, { payload: payload2 }) => {
+      const library = await server.load("media.listMedia");
+      const place = payload2.place || null;
+      if (place !== null && !(await server.load("campaign.listPlaces")).some((p) => p.id === place)) return ["media-place-is-lieu"];
+      const base = { id: `media-${server.uuid()}`, title: payload2.title, file: payload2.filePath, size: "2,2 Mo", uploadedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), place };
+      if (payload2.kind === "battlemap") {
+        library.battlemaps.push({ ...base, art: "night", glyph: "\u2B21", width: payload2.widthPx || 900, height: payload2.heightPx || 600, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 }, terrain: [] });
+      } else library.illustrations.push({ ...base, art: "dusk", glyph: String(payload2.title).charAt(0).toUpperCase(), ratio: 1.5 });
+      return void 0;
+    },
+    // session.addPlaceToSession (task #162): the place joins a scene — the one the payload names, else the
+    // first — once, and its media follow: session-media-by-place, derived, never stored.
+    "session.addPlaceToSession": async (server, { payload: payload2 }) => {
+      if (!(await server.load("campaign.listPlaces")).some((p) => p.id === payload2.place)) return ["scene-links-same-campaign"];
+      const scenes = await server.load("session.listScenes");
+      const scene = scenes.find((sc) => sc.id === payload2.scene) || scenes[0];
+      if (!scene) return ["scene-links-same-campaign"];
+      if (!scene.places.includes(payload2.place)) scene.places.push(payload2.place);
+      const library = await server.load("media.listMedia");
+      for (const m of library.battlemaps.concat(library.illustrations)) if (m.place === payload2.place && !scene.media.includes(m.id)) scene.media.push(m.id);
+      return void 0;
     }
   };
 

@@ -101,4 +101,39 @@ export const COMMANDS = {
     settings.lastTest = { ok: true, at, provider, latency, message };
     return undefined;
   },
+  // media.setMediaPlace (milestone #19): a medium's place set, or cleared with `place: null` — a medium
+  // with no place stays valid. The place must be a lieu of the campaign (`media-place-is-lieu`).
+  'media.setMediaPlace': async (server, { payload }) => {
+    const library = await server.load('media.listMedia');
+    const medium = library.battlemaps.concat(library.illustrations).find((m) => m.id === payload.media);
+    if (!medium) return ['not-found'];
+    const place = payload.place || null;
+    if (place !== null && !(await server.load('campaign.listPlaces')).some((p) => p.id === place)) return ['media-place-is-lieu'];
+    medium.place = place;
+    return undefined;
+  },
+  // media.uploadMedia (milestone #19): a medium recorded, its place optional; a battlemap arrives with its
+  // default grid (`grid-only-for-battlemap`, `hex-is-five-feet`).
+  'media.uploadMedia': async (server, { payload }) => {
+    const library = await server.load('media.listMedia');
+    const place = payload.place || null;
+    if (place !== null && !(await server.load('campaign.listPlaces')).some((p) => p.id === place)) return ['media-place-is-lieu'];
+    const base = { id: `media-${server.uuid()}`, title: payload.title, file: payload.filePath, size: '2,2 Mo', uploadedAt: new Date().toISOString().slice(0, 10), place };
+    if (payload.kind === 'battlemap') {
+      library.battlemaps.push({ ...base, art: 'night', glyph: '⬡', width: payload.widthPx || 900, height: payload.heightPx || 600, grid: { size: 32, ox: 0, oy: 0, orient: 'pointy', color: 'text', opacity: 45 }, terrain: [] });
+    } else library.illustrations.push({ ...base, art: 'dusk', glyph: String(payload.title).charAt(0).toUpperCase(), ratio: 1.5 });
+    return undefined;
+  },
+  // session.addPlaceToSession (task #162): the place joins a scene — the one the payload names, else the
+  // first — once, and its media follow: session-media-by-place, derived, never stored.
+  'session.addPlaceToSession': async (server, { payload }) => {
+    if (!(await server.load('campaign.listPlaces')).some((p) => p.id === payload.place)) return ['scene-links-same-campaign'];
+    const scenes = await server.load('session.listScenes');
+    const scene = scenes.find((sc) => sc.id === payload.scene) || scenes[0];
+    if (!scene) return ['scene-links-same-campaign'];
+    if (!scene.places.includes(payload.place)) scene.places.push(payload.place);
+    const library = await server.load('media.listMedia');
+    for (const m of library.battlemaps.concat(library.illustrations)) if (m.place === payload.place && !scene.media.includes(m.id)) scene.media.push(m.id);
+    return undefined;
+  },
 };

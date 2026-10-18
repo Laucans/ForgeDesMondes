@@ -1,0 +1,29 @@
+// MediaLibrary on the mock-up's page: the Micro-UI's real code, over the
+// page's shell client and the mock server (mock/src/server.js), which answers
+// the wire protocol from the fixtures. mock/build.sh bundles this file into
+// mock/components/MediaLibrary.js, which the fragment loads.
+
+import { createShell } from '../../apps/shell/src/client/shell.ts';
+import { mount } from '../../apps/media/media-library/src/index.ts';
+import { compose, mountPoint, setContext } from './screen.js';
+import { shellOnce } from './server.js';
+
+const { host, props } = mountPoint();
+// The shell's client calls its own origin by path; the mock server wants an absolute URL.
+const shell = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
+// « Régler la grille » sets the screen's `battlemap`; the page's GridSettings micro-frontend, a drawing,
+// listens to `fdm:grid-edit` and wants the battlemap itself, which only the library's fixture knows.
+const onPage = {
+  ...shell,
+  context: {
+    set(name, value) {
+      setContext(name, value);
+      if (name !== 'battlemap') return;
+      void window.__mockServer.load('media.listMedia').then((library) => {
+        const map = library.battlemaps.find((m) => m.id === value);
+        if (map) document.dispatchEvent(new CustomEvent('fdm:grid-edit', { detail: { id: value, map } }));
+      });
+    },
+  },
+};
+compose(props, (resolved) => mount(host, resolved, onPage));
