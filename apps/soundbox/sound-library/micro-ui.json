@@ -1,0 +1,10 @@
+{
+  "microUi": "SoundLibrary",
+  "system": "soundbox",
+  "description": "La bibliothèque des effets sonores de la campagne : recherche par nom, filtre par tag, téléversement d’un son, modification du nom, des tags et du volume, suppression",
+  "needs": ["soundbox.listSounds"],
+  "actions": ["soundbox.addSound", "soundbox.updateSound", "soundbox.removeSound"],
+  "props": {
+    "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
+  }
+}
