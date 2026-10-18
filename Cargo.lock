@@ -1517,6 +1517,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "table-read"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "test-connection"
 version = "0.1.0"
 dependencies = [
