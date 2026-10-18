@@ -7,4 +7,11 @@
 //   'campagne.listerPjs': async (server, { campagneId }) =>
 //     (await server.load('pjs')).filter((p) => p.campagneId === campagneId),
 
-export const READS = {};
+export const READS = {
+  // table.getBattlemapInstance: the fixture's instance, or one a command made.
+  'table.getBattlemapInstance': async (server, { instance }) => {
+    const fixture = await server.load('table.getBattlemapInstance');
+    if (!instance || instance === fixture.id) return fixture;
+    return server.instances && server.instances.get(instance);
+  },
+};

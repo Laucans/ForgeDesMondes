@@ -492,6 +492,54 @@
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
   var COMMANDS = {
+    // session.addPresentCharacter / session.removePresentCharacter (the Session
+    // aggregate): a PC of the session's campaign ticked present or unticked.
+    // `present-only-pj`: a character that is not a PC of the campaign is refused.
+    "session.addPresentCharacter": async (server, { payload: payload2 }) => {
+      const session = await server.load("session.getSession");
+      const character = (await server.load("campaign.listCharacters")).find((c) => c.id === payload2.character);
+      if (!character || character.kind !== "pj") return ["present-only-pj"];
+      if (!session.present.includes(character.id)) session.present.push(character.id);
+      return void 0;
+    },
+    "session.removePresentCharacter": async (server, { payload: payload2 }) => {
+      const session = await server.load("session.getSession");
+      session.present = session.present.filter((id) => id !== payload2.character);
+      return void 0;
+    },
+    // session.addScene: a scene at the end, its rank the next one.
+    "session.addScene": async (server, { payload: payload2 }) => {
+      const scenes = await server.load("session.listScenes");
+      const next = scenes.length + 1;
+      scenes.push({ id: `sc${Date.now().toString(36)}`, order: next, title: String(payload2.title || "Nouvelle sc\xE8ne"), places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: "" });
+      return void 0;
+    },
+    // session.reorderScenes: every rank rewritten at once. `scene-order-contiguous`:
+    // the ranks must be 1 to n, each scene once.
+    "session.reorderScenes": async (server, { payload: payload2 }) => {
+      const scenes = await server.load("session.listScenes");
+      const order = Array.isArray(payload2.order) ? payload2.order : [];
+      const ranks = order.map((o) => o.rank).sort((a, b) => a - b);
+      const known = new Set(scenes.map((sc) => sc.id));
+      if (order.length !== scenes.length || ranks.some((rank, i) => rank !== i + 1) || order.some((o) => !known.has(o.scene)) || new Set(order.map((o) => o.scene)).size !== scenes.length) return ["scene-order-contiguous"];
+      for (const o of order) scenes.find((sc) => sc.id === o.scene).order = o.rank;
+      scenes.sort((a, b) => a.order - b.order);
+      return void 0;
+    },
+    // table.createBattlemapInstance: the scene's own copy of a battlemap of the
+    // campaign, empty. `one-instance-per-scene`: a scene that has one is refused.
+    "table.createBattlemapInstance": async (server, { payload: payload2 }) => {
+      const scene = (await server.load("session.listScenes")).find((sc) => sc.id === payload2.scene);
+      const map = (await server.load("media.listMedia")).battlemaps.find((m) => m.id === payload2.battlemap);
+      if (!scene || !map) return ["not-found"];
+      if (scene.battlemap) return ["one-instance-per-scene"];
+      const id = `bmi-${map.id}-${scene.id}`;
+      server.instances = server.instances || /* @__PURE__ */ new Map();
+      server.instances.set(id, { id, battlemap: map.id, session: payload2.session, scene: scene.id, label: scene.title, roster: [], pjInitiative: {}, state: { tokens: [], combat: null } });
+      scene.battlemap = id;
+      if (!scene.media.includes(map.id)) scene.media.push(map.id);
+      return void 0;
+    },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
     // never taken from the payload: the cloud host by itself, the home server
@@ -540,7 +588,14 @@
   };
 
   // mock/src/reads.js
-  var READS = {};
+  var READS = {
+    // table.getBattlemapInstance: the fixture's instance, or one a command made.
+    "table.getBattlemapInstance": async (server, { instance }) => {
+      const fixture = await server.load("table.getBattlemapInstance");
+      if (!instance || instance === fixture.id) return fixture;
+      return server.instances && server.instances.get(instance);
+    }
+  };
 
   // mock/src/server.js
   var LATENCY_MS = 120;
