@@ -64,7 +64,30 @@ async fn the_vocabulary_reaches_the_journal_unchanged<P: SpeechToText>(
     port: &P,
     scenario: &Scenario,
 ) {
-    for vocabulary in [&scenario.vocabulary, &Vocabulary::default()] {
+    let Vocabulary {
+        campaign_names,
+        aliases,
+        sound_names,
+    } = scenario.vocabulary.clone();
+    // Whole, empty, and each list alone: a port that sorts, dedups or drops a
+    // list only when the others are empty is caught too.
+    let vocabularies = [
+        scenario.vocabulary.clone(),
+        Vocabulary::default(),
+        Vocabulary {
+            campaign_names,
+            ..Vocabulary::default()
+        },
+        Vocabulary {
+            aliases,
+            ..Vocabulary::default()
+        },
+        Vocabulary {
+            sound_names,
+            ..Vocabulary::default()
+        },
+    ];
+    for vocabulary in &vocabularies {
         let before = port.journal().list().len();
         port.transcribe(&scenario.dictation, vocabulary)
             .await

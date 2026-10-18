@@ -35,10 +35,10 @@ pub mod fake;
 /// The language every adapter transcribes, as a BCP 47 tag.
 pub const LANGUAGE: &str = "fr";
 
-/// What the DM dictated: raw audio, as the capture hands it over.
-///
-/// The bytes are mono 16-bit little-endian PCM at 16 kHz. A dictation has no
-/// field that could say where to send it; these do not compile:
+/// What the DM dictated: raw audio, as the capture hands it over. Its encoding
+/// is for the capture and the adapter to agree on; the port does not decode it.
+/// A dictation has no field that could say where to send it; these do not
+/// compile:
 ///
 /// ```compile_fail,E0560
 /// use ports_speech_to_text::Dictation;

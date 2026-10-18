@@ -4,7 +4,7 @@
 
 use crate::{Dictation, RequestJournal, SpeechToText, SpeechToTextError, Transcript, Vocabulary};
 
-/// The recording fake.
+/// The recording fake. A clone shares the journal, as every handle of it does.
 #[derive(Clone, Debug)]
 pub struct FakeSpeechToText {
     transcript: Transcript,

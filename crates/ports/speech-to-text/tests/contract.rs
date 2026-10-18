@@ -12,7 +12,7 @@ const HEARD: &str = "Élowen entre dans la Tour d'Argent, le tonnerre gronde.";
 fn vocabulary() -> Vocabulary {
     Vocabulary {
         campaign_names: vec!["Élowen".into(), "Tour d'Argent".into()],
-        aliases: vec!["la Louve".into(), "Élo".into()],
+        aliases: vec!["Élo".into(), "la Louve".into()],
         sound_names: vec!["tonnerre lointain".into()],
     }
 }
@@ -69,6 +69,8 @@ enum Fault {
     AcceptsSilence,
     /// Journals every request twice.
     JournalsTwice,
+    /// Sorts the aliases, but only when they are the sole terms.
+    SortsLoneAliases,
 }
 
 struct Faulty {
@@ -104,6 +106,11 @@ impl SpeechToText for Faulty {
             Fault::ReordersNames => journalled.campaign_names.reverse(),
             Fault::InventsTerms if *vocabulary == Vocabulary::default() => {
                 journalled.sound_names.push("tonnerre".into());
+            }
+            Fault::SortsLoneAliases
+                if journalled.campaign_names.is_empty() && journalled.sound_names.is_empty() =>
+            {
+                journalled.aliases.sort();
             }
             _ => {}
         }
@@ -147,4 +154,10 @@ async fn the_contract_fails_a_port_that_accepts_silence() {
 #[should_panic(expected = "the request journalled once")]
 async fn the_contract_fails_a_port_that_journals_twice() {
     run(&Faulty::new(Fault::JournalsTwice), &scenario()).await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "the vocabulary journalled")]
+async fn the_contract_fails_a_port_that_sorts_a_list_given_alone() {
+    run(&Faulty::new(Fault::SortsLoneAliases), &scenario()).await;
 }
