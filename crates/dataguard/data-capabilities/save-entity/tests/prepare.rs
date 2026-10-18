@@ -1,8 +1,10 @@
 //! `prepare`: the editor's payload made the command written on
 //! `Entity/<id>` — or refused before it is queued.
 
-use save_entity::{DEFAULT_TOKEN_COLOR, Fresh, Prepared, Refusal, Row, names, prepare};
-use serde_json::{Value, json};
+use save_entity::{
+    DEFAULT_TOKEN_COLOR, Fresh, Prepared, Refusal, Row, diff, element_id, names, prepare,
+};
+use serde_json::{Map, Value, json};
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BRUME: &str = "c1000000-0000-4000-8000-000000000002";
@@ -226,6 +228,11 @@ fn a_save_the_tables_could_never_hold_is_refused() {
             json!({ "campaign": VALOMBRE, "entity": { "kind": "pj", "name": "Elowen", "portrait": "portrait.png" } }),
             "portraitMediaId",
         ),
+        // Hex digits alone are not a uuid: a uuid has 36 characters.
+        (
+            json!({ "campaign": VALOMBRE, "entity": { "kind": "pj", "name": "Elowen", "player": "b1000000" } }),
+            "playerId",
+        ),
     ] {
         assert_eq!(refused(wire, &none), Refusal::NotAnId(field), "{field}");
     }
@@ -256,4 +263,125 @@ fn names_is_this_data_capability_with_or_without_its_version() {
     assert!(names("campaign.saveEntity@1"));
     assert!(!names("campaign.saveEntityNow"));
     assert!(!names("campaign.restoreEntityVersion@1"));
+}
+
+#[test]
+fn a_refusal_says_what_the_tables_could_never_hold() {
+    let told: Vec<String> = [
+        Refusal::NoCampaign,
+        Refusal::NoType,
+        Refusal::NoName,
+        Refusal::OtherCampaign,
+        Refusal::NotAnId("playerId"),
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    assert_eq!(
+        told,
+        [
+            "un nouvel élément nomme sa campagne",
+            "un élément est un pj, un pnj, un lieu ou un evenement",
+            "un nouvel élément a un nom",
+            "un élément ne change pas de campagne",
+            "playerId n'est pas un identifiant",
+        ]
+    );
+}
+
+#[test]
+fn the_element_a_save_names_is_its_entity_s_id_or_the_payload_s() {
+    let named = |wire: Value| element_id(&row(wire));
+    assert_eq!(
+        named(json!({ "entity": { "id": MORLOX } })),
+        Some(MORLOX.to_owned())
+    );
+    // Under `entity`, the payload's own id is not read.
+    assert_eq!(
+        named(json!({ "id": CLAIRE, "entity": { "name": "Morlox" } })),
+        None
+    );
+    assert_eq!(named(json!({ "id": MORLOX })), Some(MORLOX.to_owned()));
+    for blank in [json!({ "entity": { "id": "  " } }), json!({ "id": "" })] {
+        assert_eq!(named(blank), None);
+    }
+    assert_eq!(named(json!({ "entity": { "id": 7 } })), None);
+}
+
+/// The fields the diff from `previous` to `snapshot` reports.
+fn changed(previous: Value, snapshot: Value) -> Vec<Value> {
+    let object = |value: Value| -> Map<String, Value> {
+        let Value::Object(map) = value else {
+            panic!("a snapshot is an object");
+        };
+        map
+    };
+    diff(&object(previous), &object(snapshot))
+        .into_iter()
+        .map(|change| change["field"].clone())
+        .collect()
+}
+
+#[test]
+fn a_diff_compares_numbers_by_value_inside_lists_and_objects_too() {
+    assert!(
+        changed(
+            json!({ "spells": [15, { "level": 1 }], "tokenCrop": { "x": 1, "y": [2] } }),
+            json!({ "spells": [15.0, { "level": 1.0 }], "tokenCrop": { "x": 1.0, "y": [2.0] } }),
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        changed(
+            json!({ "spells": [15], "tokenCrop": { "x": 1 }, "actions": [] }),
+            json!({ "spells": [15, 16], "tokenCrop": { "x": 1, "y": 2 }, "actions": [] }),
+        ),
+        [json!("spells"), json!("tokenCrop")]
+    );
+    assert_eq!(
+        changed(
+            json!({ "tokenCrop": { "x": 1 } }),
+            json!({ "tokenCrop": { "y": 1 } })
+        ),
+        [json!("tokenCrop")]
+    );
+}
+
+#[test]
+fn every_field_a_save_writes_is_one_its_manifest_touches() {
+    let manifest: Value =
+        serde_json::from_str(include_str!("../data-capability.json")).expect("contract F");
+    let touches: Vec<&str> = manifest["touches"]
+        .as_array()
+        .expect("touches")
+        .iter()
+        .map(|touch| touch.as_str().expect("a touch"))
+        .collect();
+    let mut entity = morlox();
+    entity["player"] = Value::Null;
+    entity["portrait"] = Value::Null;
+    entity["token"] = Value::Null;
+    entity["crop"] = Value::Null;
+    entity["color"] = json!("danger");
+    entity["description"] = json!("Un gobelin.");
+    entity["notes"] = json!("Doit 40 po.");
+    entity["background"] = json!("Né au marché.");
+    entity["behavior"] = json!("Fuyant.");
+    entity["spells"] = json!([]);
+    let mut base = Row::new();
+    let created = new(entity).expect("saved");
+    base.extend(created.payload.clone());
+    // dndbeyondId and dndbeyondSyncedAt are nulled with the sheet.
+    base.insert("dndbeyondId".into(), json!("db-1"));
+    base.insert("dndbeyondSyncedAt".into(), json!(NOW));
+    let wire = row(json!({ "entity": { "id": MORLOX, "kind": "lieu" } }));
+    let placed = prepare(&wire, &base, fresh("f2", LATER)).expect("saved");
+    for payload in [created.payload, placed.payload] {
+        for field in payload.keys() {
+            assert!(
+                touches.contains(&format!("Entity.{field}").as_str()),
+                "{field} is written but not touched"
+            );
+        }
+    }
 }

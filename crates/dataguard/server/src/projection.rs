@@ -379,6 +379,12 @@ fn projects(write: &Write) -> bool {
     !write.tombstone && write.partition == AI_SETTINGS
 }
 
+/// Whether `write` reaches the element's tables: a live write of an
+/// `Entity/<id>` partition.
+fn element(write: &Write) -> bool {
+    !write.tombstone && element_of(write).is_some()
+}
+
 /// The provider whose last test `write` records: a live write of a
 /// provider's partition, `AiSettings/<uuid>`.
 fn tested(write: &Write) -> Option<&str> {
@@ -436,7 +442,7 @@ impl Store for ProjectingStore {
             self.repair().await;
         } else if let Some(provider) = tested(write) {
             self.record_test(&write.partition, provider, false).await;
-        } else if !write.tombstone && element_of(write).is_some() {
+        } else if element(write) {
             self.record_element(write).await;
         }
         Ok(version)
@@ -512,6 +518,20 @@ mod tests {
         assert!(projects(&write(AI_SETTINGS, false)));
         assert!(!projects(&write(AI_SETTINGS, true)));
         assert!(!projects(&write(&format!("AiSettings/{CLOUD}"), false)));
+    }
+
+    #[test]
+    fn only_a_live_write_of_an_element_s_partition_reaches_its_tables() {
+        let write = |partition: &str, tombstone| Write {
+            partition: partition.to_string(),
+            values: BTreeMap::new(),
+            tombstone,
+        };
+        let morlox = "Entity/e1000000-0000-4000-8000-000000000003";
+        assert!(element(&write(morlox, false)));
+        assert!(!element(&write(morlox, true)));
+        assert!(!element(&write(AI_SETTINGS, false)));
+        assert!(!element(&write(AI_SETTINGS, true)));
     }
 
     async fn connect(url: &str) -> Client {

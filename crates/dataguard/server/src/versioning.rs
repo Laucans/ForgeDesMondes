@@ -157,6 +157,7 @@ impl Rows {
 mod tests {
     use harness_dataguard::command::State;
     use harness_dataguard::memory::MemoryStore;
+    use harness_dataguard::store::Collision;
     use serde_json::json;
 
     use super::*;
@@ -265,5 +266,92 @@ mod tests {
             .expect("removed");
         let other = write(saved("Bandit", "v9", 1), false).values;
         assert_eq!(aliases.taken("bandit", &other), None);
+    }
+
+    /// A command pending on `partition`, at `position`, writing `payload`.
+    fn pending(command: &str, partition: &str, position: u64, payload: Value) -> Entry {
+        serde_json::from_value(json!({
+            "command": command,
+            "data_capability": "campaign.saveEntity@1",
+            "by": "dm",
+            "partition": partition,
+            "position": position,
+            "based_on": { "version": 0 },
+            "payload": payload,
+            "effect": "upsert",
+            "touches": ["Entity.name"],
+            "mode": "confirm_on_stale",
+            "projection": { "confirmed": {}, "pending_ahead": [] },
+            "state": "queued",
+        }))
+        .expect("an entry")
+    }
+
+    #[tokio::test]
+    async fn every_call_but_an_applied_write_is_the_inner_store_s() {
+        let collision = Collision {
+            unique_key: Some("entity_alias_unique".to_owned()),
+            trigger: None,
+            dangling: Vec::new(),
+        };
+        let incoming = vec![("Campaign/c1".to_owned(), 4)];
+        let inner = Arc::new(
+            MemoryStore::default()
+                .colliding("campaign.saveEntity", collision.clone())
+                .pointed_at(MORLOX, incoming.clone()),
+        );
+        let store = Versioning::new(inner.clone(), Arc::default());
+        let entry = pending("c_1", MORLOX, 1, json!({ "name": "Morlox" }));
+        store.save(&entry).await.expect("saved");
+        assert_eq!(store.pending().await.expect("pending"), vec![entry.clone()]);
+        let hold: Hold = serde_json::from_value(json!({
+            "id": "h_1",
+            "partition": MORLOX,
+            "by": "dm",
+            "position": 1,
+            "expires": 60,
+            "ttl_seconds": 60,
+        }))
+        .expect("a hold");
+        store.save_hold(&hold, true).await.expect("held");
+        assert_eq!(store.holds().await.expect("holds"), vec![hold]);
+        assert_eq!(store.collision(&entry).await.expect("collision"), collision);
+        assert_eq!(store.incoming(MORLOX).await.expect("incoming"), incoming);
+        store
+            .apply(&write(json!({ "name": "Morlox" }), false), &result())
+            .await
+            .expect("applied");
+        assert_eq!(store.data_version().await.expect("version"), 1);
+        let journalled = CommandResult {
+            command_id: "c_2".to_owned(),
+            status: State::Rejected,
+            ..result()
+        };
+        store.journal(&journalled).await.expect("journalled");
+        assert_eq!(store.result("c_2").await.expect("result"), Some(journalled));
+    }
+
+    #[tokio::test]
+    async fn a_row_projected_is_the_applied_one_and_its_own_partition_s_commands_in_order() {
+        let inner = Arc::new(MemoryStore::default());
+        let store: Arc<dyn Store> = inner.clone();
+        store
+            .apply(
+                &write(json!({ "name": "Morlox", "notes": "applied" }), false),
+                &result(),
+            )
+            .await
+            .expect("applied");
+        for entry in [
+            pending("c_3", MORLOX, 3, json!({ "notes": "last" })),
+            pending("c_2", MORLOX, 2, json!({ "notes": "first", "hpMax": 21 })),
+            pending("c_9", "Entity/another", 1, json!({ "name": "Bandit" })),
+        ] {
+            store.save(&entry).await.expect("saved");
+        }
+        let row = Rows::new(store).projected(MORLOX).await.expect("projected");
+        assert_eq!(row["name"], "Morlox");
+        assert_eq!(row["notes"], "last");
+        assert_eq!(row["hpMax"], 21);
     }
 }

@@ -367,8 +367,9 @@ async fn submit<L: Llm>(
 fn fresh_uuid() -> Result<String, getrandom::Error> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes)?;
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    // The version (4) and the variant (10), on the bits cleared for them.
+    bytes[6] = 0x40 + (bytes[6] & 0x0f);
+    bytes[8] = 0x80 + (bytes[8] & 0x3f);
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     Ok(format!(
         "{}-{}-{}-{}-{}",
@@ -998,6 +999,29 @@ mod tests {
             .body(Body::from(body.to_string()))
             .unwrap();
         answer(request).await
+    }
+
+    #[test]
+    fn a_fresh_uuid_is_a_random_version_4_uuid() {
+        let drawn: Vec<String> = (0..256)
+            .map(|_| fresh_uuid().expect("randomness"))
+            .collect();
+        for id in &drawn {
+            let chars: Vec<char> = id.chars().collect();
+            assert_eq!(chars.len(), 36, "{id}");
+            for (i, c) in chars.iter().enumerate() {
+                match i {
+                    8 | 13 | 18 | 23 => assert_eq!(*c, '-', "{id}"),
+                    14 => assert_eq!(*c, '4', "{id}"),
+                    19 => assert!("89ab".contains(*c), "{id}"),
+                    _ => assert!(c.is_ascii_hexdigit() && !c.is_ascii_uppercase(), "{id}"),
+                }
+            }
+        }
+        let mut distinct = drawn.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), drawn.len());
     }
 
     #[test]

@@ -35,6 +35,8 @@
     "Entity.tokenMediaId",
     "Entity.tokenCrop",
     "Entity.tokenColor",
+    "Entity.dndbeyondId",
+    "Entity.dndbeyondSyncedAt",
     "Entity.entityAliasId",
     "Entity.entityAliasEntityId",
     "Entity.alias",
@@ -44,6 +46,7 @@
     "Entity.source",
     "Entity.snapshot",
     "Entity.diff",
+    "Entity.restoredFromVersionId",
     "Entity.entityVersionCreatedAt"
   ],
   "payload": {
