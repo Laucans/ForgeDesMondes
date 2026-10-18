@@ -1,0 +1,90 @@
+{
+  "aggregate": "NoteImport",
+  "fields": {
+    "analyzedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "campaignId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "checked": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "createdAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "createdEntityId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "excerpt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "existingEntityId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "importedNoteId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "name": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "noteId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "noteProposalId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "rawText": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "type": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "no-creation-before-validation",
+      "onViolation": "reject",
+      "rule": "L'analyse des notes ne crée aucun élément. Seule la validation crée des éléments, et seulement pour les propositions cochées qui n'ont pas encore de created_entity_id."
+    }
+  ],
+  "relations": [
+    {
+      "from": "NoteImport.campaignId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "NoteImport.noteId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "NoteImport.existingEntityId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "NoteImport.createdEntityId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    }
+  ]
+}
