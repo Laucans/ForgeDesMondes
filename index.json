@@ -2,7 +2,7 @@
   "version": 1,
   "heads": {
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
-    "main_agent": "6ab8d7b6c1b2e95126fbeb59b2da3f1ad6edc694",
+    "main_agent": "fcc2e5a3fd34b853eb128b38252eb6c7d229c09e",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
     "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8231e1957a1c7f5f44be11679c0f3bf1380ff473",
     "milestone/18-campaigns-players-and-characters-with-versioned-history": "dff51aa8df9a46b6179c5e8861de892d8046fee2",
