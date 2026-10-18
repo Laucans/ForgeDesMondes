@@ -56,27 +56,49 @@ async fn run() -> Result<(), Error> {
             "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"
         );
     }
-    let reads = Arc::new(reads(&config).await?);
-
-    match &config.fixtures {
-        None => eprintln!("server: no FIXTURES_DIR — starting without fixtures"),
+    let (reads, names) = match &config.fixtures {
+        None => {
+            eprintln!("server: no FIXTURES_DIR — starting without fixtures");
+            (reads(&config).await?, Vec::new())
+        }
         Some(dir) => match fixtures(dir) {
-            Err(e) => eprintln!(
-                "server: cannot read the fixtures in {}: {e} — starting without them",
-                dir.display()
-            ),
-            Ok(skipped) => {
+            Err(e) => {
                 eprintln!(
-                    "server: fixtures in {}: 0 loaded, {} skipped",
-                    dir.display(),
-                    skipped.len()
+                    "server: cannot read the fixtures in {}: {e} — starting without them",
+                    dir.display()
                 );
-                for (name, why) in &skipped {
+                (reads(&config).await?, Vec::new())
+            }
+            Ok(plan) => {
+                if config.database_url == MEMORY {
+                    eprintln!("server: the in-memory store holds no table — no fixture loaded");
+                } else {
+                    // One transaction: the fixtures are all there, or none is.
+                    let loaded = match data::read_write().await {
+                        Ok(mut client) => data::insert_missing(&mut client, &plan.tables).await,
+                        Err(e) => Err(e),
+                    };
+                    match loaded {
+                        Ok(rows) => eprintln!(
+                            "server: fixtures in {}: {} loaded ({rows} row(s) inserted), {} skipped",
+                            dir.display(),
+                            plan.loaded.len(),
+                            plan.skipped.len()
+                        ),
+                        Err(e) => eprintln!(
+                            "server: cannot load the fixtures in {}: {e} — starting without them",
+                            dir.display()
+                        ),
+                    }
+                }
+                for (name, why) in &plan.skipped {
                     eprintln!("server: fixture {name} skipped — {why}");
                 }
+                (reads(&config).await?, plan.names)
             }
         },
-    }
+    };
+    let reads = Arc::new(reads.named(names));
 
     let addr = config.addr;
     let listener = tokio::net::TcpListener::bind(addr)
