@@ -77,8 +77,7 @@ mod tests {
         let refused = reader
             .query_json("CREATE TEMP TABLE soundbox_read_probe (a int)", &[])
             .await
-            .err()
-            .expect("a write is refused");
+            .expect_err("a write is refused");
         assert!(matches!(refused, Error::Refused(_)), "{refused}");
     }
 }
