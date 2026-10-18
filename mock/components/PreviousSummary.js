@@ -293,6 +293,26 @@
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
   var COMMANDS = {
+    // live.showCover: the players'
+    // view goes back to the campaign cover, whatever its base was.
+    "live.showCover": async (server) => {
+      const diffusion = await server.load("live.getDiffusion");
+      Object.assign(diffusion, { base: { kind: "cover", id: "ill-cover" }, view: null });
+      return void 0;
+    },
+    // live.closeWindow: the floating
+    // illustration over the players' view is closed; their base stays.
+    "live.closeWindow": async (server) => {
+      (await server.load("live.getDiffusion")).window = null;
+      return void 0;
+    },
+    // session.closeSession: the
+    // microphone is paused (`stop-all`); the journal and the summary are the
+    // fixtures' own, which the recap reads.
+    "session.closeSession": async (server) => {
+      (await server.load("session.getLiveSession")).microphone = { on: false };
+      return void 0;
+    },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
     // never taken from the payload: the cloud host by itself, the home server
@@ -341,7 +361,36 @@
   };
 
   // mock/src/reads.js
-  var READS = {};
+  async function closedBySession(server, variables) {
+    const bar = await server.load("LiveSessionBar");
+    return bar && variables.session === bar.session.id ? bar : null;
+  }
+  var READS = {
+    // session.getLiveSession: the running session, and the scenes of its screen
+    // (fixtures/LiveSessionBar.json) the bar offers and marks the current one of.
+    "session.getLiveSession": async (server) => {
+      const live = await server.load("session.getLiveSession");
+      const bar = await server.load("LiveSessionBar");
+      return live && bar ? { ...live, scenes: bar.scenes, currentScene: bar.currentScene } : live;
+    },
+    "session.getSessionJournal": async (server, variables) => {
+      const bar = await closedBySession(server, variables);
+      if (!bar) return server.load("session.getSessionJournal");
+      return { journal: Array.from({ length: bar.closing.journalLines }, (_, i) => ({ t: bar.session.startedAt, text: `Ligne ${i + 1} du journal transcrit` })) };
+    },
+    "session.getPreviousSessionSummary": async (server, variables) => {
+      const bar = await closedBySession(server, variables);
+      if (!bar) return server.load("session.getPreviousSessionSummary");
+      const { id, order, title, date } = bar.session;
+      return {
+        session: { id, order, title, date },
+        summary: bar.closing.summary,
+        summaryMeta: `G\xE9n\xE9r\xE9 \xE0 la cl\xF4ture par ${bar.closing.summaryModel}`,
+        mentions: bar.closing.mentions.map((name) => ({ id: name, type: "pnj", name })),
+        threads: bar.closing.threads
+      };
+    }
+  };
 
   // mock/src/server.js
   var LATENCY_MS = 120;

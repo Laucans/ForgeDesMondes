@@ -27,6 +27,26 @@ function apiType(settings, url) {
 }
 
 export const COMMANDS = {
+  // live.showCover: the players'
+  // view goes back to the campaign cover, whatever its base was.
+  'live.showCover': async (server) => {
+    const diffusion = await server.load('live.getDiffusion');
+    Object.assign(diffusion, { base: { kind: 'cover', id: 'ill-cover' }, view: null });
+    return undefined;
+  },
+  // live.closeWindow: the floating
+  // illustration over the players' view is closed; their base stays.
+  'live.closeWindow': async (server) => {
+    (await server.load('live.getDiffusion')).window = null;
+    return undefined;
+  },
+  // session.closeSession: the
+  // microphone is paused (`stop-all`); the journal and the summary are the
+  // fixtures' own, which the recap reads.
+  'session.closeSession': async (server) => {
+    (await server.load('session.getLiveSession')).microphone = { on: false };
+    return undefined;
+  },
   // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
   // provider saved and made active. The API type is derived from the URL,
   // never taken from the payload: the cloud host by itself, the home server

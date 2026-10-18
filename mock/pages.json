@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f40bef5a97044598"
+      "builtFrom": "e554f0ef3b8464aa"
     },
     {
       "name": "CampaignOverview",
@@ -286,7 +286,7 @@
       "actions": [],
       "props": {},
       "source": "apps/session/previous-summary",
-      "builtFrom": "1abee4d434ee6598"
+      "builtFrom": "7240681265d4c4aa"
     },
     {
       "name": "OralBrief",
@@ -432,22 +432,28 @@
     {
       "name": "LiveSessionBar",
       "system": "session",
-      "description": "La séance en direct : ses scènes, ce que voient les joueurs, l’ouverture de la player view et la clôture avec le résumé à retoucher",
+      "description": "La séance en direct : ses scènes, ce que voient les joueurs, l’ouverture de la player view et la clôture avec son bilan (lignes de journal, durée, modèle et résumé)",
       "fragment": "components/LiveSessionBar.html",
       "fixtures": [
         "fixtures/session.getLiveSession.json",
-        "fixtures/live.getDiffusion.json"
+        "fixtures/live.getDiffusion.json",
+        "fixtures/session.getSessionJournal.json",
+        "fixtures/session.getPreviousSessionSummary.json"
       ],
       "needs": [
         "session.getLiveSession",
-        "live.getDiffusion"
+        "live.getDiffusion",
+        "session.getSessionJournal",
+        "session.getPreviousSessionSummary"
       ],
       "actions": [
         "live.showCover",
         "live.closeWindow",
         "session.closeSession"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/session/live-session-bar",
+      "builtFrom": "ba758d020bc3f25e"
     },
     {
       "name": "ElementsPanel",
