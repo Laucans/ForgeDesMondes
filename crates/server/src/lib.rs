@@ -18,7 +18,11 @@
 //!
 //! The server adds no read and no write path of its own: a read is served
 //! only when the engine's registry holds its persisted query, a write only
-//! through a DataCapability the engine registers.
+//! through a DataCapability the engine registers. Both are by identifier, so
+//! the live system is served the way the ai system is: `live.*` reads
+//! through `POST /capabilities/<id>` once a live Capability's query is
+//! registered, live writes through `POST /commands` once a live
+//! DataCapability is — each slice by its folder, no route to add here.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -532,5 +536,60 @@ mod tests {
                 .is_some_and(|e| e.contains("no DataCapability named campaign.createCampaign")),
             "{body}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_live_read_no_capability_registers_is_404_as_the_other_systems_say() {
+        let unregistered = json!({ "sha256": "0".repeat(64), "variables": {} });
+        let (status, live) = answer(
+            Method::POST,
+            "/capabilities/live.getDiffusion",
+            Some(unregistered.clone()),
+        )
+        .await;
+        let (other_status, other) = answer(
+            Method::POST,
+            "/capabilities/ai.noSuchCapability",
+            Some(unregistered),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{live}");
+        assert_eq!(status, other_status);
+        let said = |body: &Value| body["error"].as_str().unwrap_or_default().to_string();
+        assert!(said(&live).contains("live.getDiffusion"), "{live}");
+        assert!(
+            said(&live).contains("not a registered persisted query"),
+            "{live}"
+        );
+        assert!(said(&other).contains("not a registered persisted query"));
+    }
+
+    #[tokio::test]
+    async fn a_live_data_capability_reaches_the_engine_like_an_ai_one() {
+        // Neither is registered in the in-memory engine of this test: both are
+        // answered by the engine's queue (`POST /commands`), the same way.
+        for data_capability in ["live.showCover", "ai.noSuchCapability"] {
+            let (status, body) = answer(
+                Method::POST,
+                "/commands",
+                Some(json!({ "dataCapability": data_capability, "payload": {} })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+            let error = body["error"].as_str().unwrap_or_default();
+            assert_eq!(error, format!("no DataCapability named {data_capability}"));
+        }
+    }
+
+    #[test]
+    fn the_mock_ups_live_fixtures_are_in_the_folder_the_server_loads() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let listed = fixtures(&dir).unwrap_or_else(|e| panic!("the server lists {dir:?}: {e}"));
+        for live in ["live.getDiffusion.json", "PlayerStage.json"] {
+            assert!(dir.join(live).is_file(), "{live} in {dir:?}");
+            let why = listed.iter().find(|(name, _)| name == live);
+            let (_, why) = why.unwrap_or_else(|| panic!("{live} is listed: {listed:?}"));
+            assert_eq!(why, "no aggregate holds it", "{live} is read as JSON");
+        }
     }
 }
