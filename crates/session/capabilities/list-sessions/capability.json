@@ -1,0 +1,10 @@
+{
+  "capability": "session.listSessions",
+  "system": "session",
+  "version": "1.0.0",
+  "description": "A campaign's sessions in order of their position, for the campaign page: each with its id, its order (the session number), its title, its date, its status (prep, live or closed) with the label SessionLifecycle@1 gives it, the ids of the PCs present and its summary — shown for a closed session, null while none is written. A session's scenes, journal and detail are other reads.",
+  "implements": "SessionLifecycle@1",
+  "input": { "campaign": "string" },
+  "output": "{ id: string, order: number, title: string, date: string | null, status: 'prep' | 'live' | 'closed', label: string | null, present: string[], summary: string | null }[]",
+  "reads": ["queries/list-sessions.graphql"]
+}

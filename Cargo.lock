@@ -763,6 +763,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-sessions"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
