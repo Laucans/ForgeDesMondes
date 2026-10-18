@@ -53,17 +53,11 @@
         "campaign.exportCampaign",
         "campaign.getCampaign",
         "campaign.listEntityVersions",
-        "campaign.listImportedNotes",
         "campaign.restoreEntityVersion",
         "campaign.saveEntity"
       ],
-      "consumes": [
-        "ai.extractFromNotes",
-        "campaign.createEntitiesFromNote"
-      ],
-      "depends_on": [
-        23
-      ]
+      "consumes": [],
+      "depends_on": []
     },
     {
       "number": 19,
@@ -206,12 +200,12 @@
       ],
       "produces": [
         "ai.extractFromNotes",
-        "campaign.createEntitiesFromNote"
+        "campaign.createEntitiesFromNote",
+        "campaign.listImportedNotes"
       ],
       "consumes": [
         "Entity",
-        "NoteImport",
-        "campaign.listImportedNotes"
+        "NoteImport"
       ],
       "depends_on": [
         18
@@ -825,7 +819,7 @@
     },
     "campaign.listImportedNotes": {
       "kind": "capability",
-      "producer": 18,
+      "producer": 23,
       "state": "mocked",
       "version": 1
     },
