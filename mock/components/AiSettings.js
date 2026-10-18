@@ -491,7 +491,45 @@
     const home = settings.providers.opencode.url;
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
+  function soundTags(tags) {
+    const list = Array.isArray(tags) ? tags : [];
+    return [...new Set(list.map((t) => String(t).trim().toLowerCase()).filter(Boolean))];
+  }
   var COMMANDS = {
+    // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
+    // added to the library. Its tags are normalised as SoundTag@1 does (lower
+    // case, no duplicate), its volume is a percentage that stays in [0, 100]
+    // (`sound-volume-range`).
+    "soundbox.addSound": async (server, { payload: payload2 }) => {
+      const volume = Number(payload2.volume);
+      if (!(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
+      const library = await server.load("soundbox.listSounds");
+      library.sounds.unshift({ id: server.uuid(), name: String(payload2.name || ""), tags: soundTags(payload2.tags), duration: 2, volume, file: String(payload2.file || ""), playing: false });
+      return void 0;
+    },
+    // soundbox.updateSound (crates/soundbox/data-capabilities/update-sound): the
+    // name, tags and volume of one sound, tags normalised and volume ranged as
+    // for an addition; a sound that is not there is `not-found`.
+    "soundbox.updateSound": async (server, { payload: payload2, targetId }) => {
+      const sound = (await server.load("soundbox.listSounds")).sounds.find((s) => s.id === targetId);
+      if (!sound) return ["not-found"];
+      if ("volume" in payload2 && !(Number(payload2.volume) >= 0 && Number(payload2.volume) <= 100)) return ["sound-volume-range"];
+      if ("name" in payload2) sound.name = String(payload2.name);
+      if ("tags" in payload2) sound.tags = soundTags(payload2.tags);
+      if ("volume" in payload2) sound.volume = Number(payload2.volume);
+      if ("file" in payload2) sound.file = String(payload2.file);
+      return void 0;
+    },
+    // soundbox.removeSound (crates/soundbox/data-capabilities/remove-sound): the
+    // sound leaves the library's readers (a soft delete, its tombstone is the
+    // server's).
+    "soundbox.removeSound": async (server, { targetId }) => {
+      const library = await server.load("soundbox.listSounds");
+      const at = library.sounds.findIndex((s) => s.id === targetId);
+      if (at < 0) return ["not-found"];
+      library.sounds.splice(at, 1);
+      return void 0;
+    },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
     // never taken from the payload: the cloud host by itself, the home server

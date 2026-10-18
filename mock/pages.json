@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "a4c1bf93c0a2dbfc"
+      "builtFrom": "c70d3fd00effafe5"
     },
     {
       "name": "CampaignOverview",
@@ -412,7 +412,7 @@
     {
       "name": "SoundLibrary",
       "system": "soundbox",
-      "description": "La bibliothèque des effets sonores : téléversement, nom, tags et volume propre",
+      "description": "La bibliothèque des effets sonores de la campagne : recherche par nom, filtre par tag, téléversement d’un son, modification du nom, des tags et du volume, suppression",
       "fragment": "components/SoundLibrary.html",
       "fixtures": [
         "fixtures/soundbox.listSounds.json"
@@ -425,7 +425,11 @@
         "soundbox.updateSound",
         "soundbox.removeSound"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
+      },
+      "source": "apps/soundbox/sound-library",
+      "builtFrom": "4a0dfb743ea12cc6"
     },
     {
       "name": "LiveSessionBar",
@@ -513,7 +517,7 @@
       ],
       "props": {},
       "source": "apps/soundbox/live-soundbox",
-      "builtFrom": "bb5f324965d70483"
+      "builtFrom": "b9f7949ed3bc7332"
     },
     {
       "name": "SuggestionPill",
