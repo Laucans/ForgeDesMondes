@@ -8,16 +8,27 @@
 //! connection test (`ai.testConnection`) writes a provider's partition,
 //! `AiSettings/<its id>`, with its outcome alone: [`ProjectingStore`] writes
 //! the four `last_test_*` columns of that row — of the active provider's when
-//! the partition is the nil uuid, a test that reached no provider. Every
-//! other method is the inner store's.
+//! the partition is the nil uuid, a test that reached no provider. A save of
+//! an element (`campaign.saveEntity`) writes its partition, `Entity/<its
+//! id>`, whole: [`ProjectingStore`] upserts its `entity` row and its sheet —
+//! or drops the sheet of an element made a place or an event — makes its
+//! `entity_alias` rows its aliases, and adds the version it carries
+//! to `entity_version`, in one transaction — whose triggers judge the
+//! element's campaign again. Every other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
 //! alone — never a value, which may hold the API key. [`ProjectingStore::repair`]
-//! projects the row again at the next start. The tables' CHECKs and their
-//! foreign key judge it a second time.
+//! projects the row again at the next start: the settings row, and every
+//! element whose version the tables do not hold yet — those again after each
+//! apply of an element, so one the tables refused (a player they do not hold
+//! yet) reaches them once they can. The tables' CHECKs, their foreign keys
+//! and their triggers judge it a second time. An element's terms reach
+//! [`Aliases`] once its projection is committed, and only then: the
+//! tables' aliases are the ones `alias-unique-in-campaign` judges against.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use harness_dataguard::Result;
@@ -29,6 +40,8 @@ use serde_json::Value;
 use test_connection::NO_PROVIDER;
 
 use crate::ai_settings::uuid;
+use crate::aliases::Aliases;
+use crate::versioning::{ENTITY, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
 pub const AI_SETTINGS: &str = "AiSettings/1";
@@ -67,21 +80,136 @@ const LAST_TEST: &str = "UPDATE ai_provider
             OR last_test_at < ($3::text)::timestamptz
             OR (NOT $6 AND last_test_at = ($3::text)::timestamptz))";
 
-/// A [`PgStore`] whose applied `AiSettings/1` writes reach the tables.
+/// An element's row, `$1` the engine's row as JSON text: its `entity` row
+/// upserted by its id.
+const UPSERT_ENTITY: &str = "INSERT INTO entity
+        (id, campaign_id, type, name, description, notes, created_at, updated_at)
+    SELECT (v ->> 'entityId')::uuid, (v ->> 'entityCampaignId')::uuid, v ->> 'type',
+        v ->> 'name', v ->> 'description', v ->> 'notes',
+        coalesce((v ->> 'entityCreatedAt')::timestamptz, now()),
+        coalesce((v ->> 'updatedAt')::timestamptz, now())
+    FROM (SELECT $1::text::jsonb AS v) saved
+    ON CONFLICT (id) DO UPDATE SET
+        campaign_id = EXCLUDED.campaign_id,
+        type = EXCLUDED.type,
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        notes = EXCLUDED.notes,
+        updated_at = EXCLUDED.updated_at";
+
+/// Its sheet, when the row holds one, upserted by the element's id.
+const UPSERT_CHARACTER: &str = "INSERT INTO character
+        (entity_id, player_id, initial_prompt, background, behavior,
+         strength, dexterity, constitution, intelligence, wisdom, charisma,
+         armor_class, hp_max, spells, actions, portrait_media_id, token_media_id,
+         token_crop, token_color, dndbeyond_id, dndbeyond_synced_at)
+    SELECT (v ->> 'characterEntityId')::uuid, (v ->> 'playerId')::uuid,
+        v ->> 'initialPrompt', v ->> 'background', v ->> 'behavior',
+        (v ->> 'strength')::numeric::smallint, (v ->> 'dexterity')::numeric::smallint,
+        (v ->> 'constitution')::numeric::smallint, (v ->> 'intelligence')::numeric::smallint,
+        (v ->> 'wisdom')::numeric::smallint, (v ->> 'charisma')::numeric::smallint,
+        (v ->> 'armorClass')::numeric::smallint, (v ->> 'hpMax')::numeric::smallint,
+        coalesce(nullif(v -> 'spells', 'null'), '[]'), coalesce(nullif(v -> 'actions', 'null'), '[]'),
+        (v ->> 'portraitMediaId')::uuid, (v ->> 'tokenMediaId')::uuid,
+        nullif(v -> 'tokenCrop', 'null'), v ->> 'tokenColor',
+        v ->> 'dndbeyondId', (v ->> 'dndbeyondSyncedAt')::timestamptz
+    FROM (SELECT $1::text::jsonb AS v) saved
+    WHERE v ->> 'characterEntityId' IS NOT NULL
+    ON CONFLICT (entity_id) DO UPDATE SET
+        player_id = EXCLUDED.player_id,
+        initial_prompt = EXCLUDED.initial_prompt,
+        background = EXCLUDED.background,
+        behavior = EXCLUDED.behavior,
+        strength = EXCLUDED.strength,
+        dexterity = EXCLUDED.dexterity,
+        constitution = EXCLUDED.constitution,
+        intelligence = EXCLUDED.intelligence,
+        wisdom = EXCLUDED.wisdom,
+        charisma = EXCLUDED.charisma,
+        armor_class = EXCLUDED.armor_class,
+        hp_max = EXCLUDED.hp_max,
+        spells = EXCLUDED.spells,
+        actions = EXCLUDED.actions,
+        portrait_media_id = EXCLUDED.portrait_media_id,
+        token_media_id = EXCLUDED.token_media_id,
+        token_crop = EXCLUDED.token_crop,
+        token_color = EXCLUDED.token_color,
+        dndbeyond_id = EXCLUDED.dndbeyond_id,
+        dndbeyond_synced_at = EXCLUDED.dndbeyond_synced_at";
+
+/// Its sheet, when it holds none: a place or an event has no sheet.
+const DROP_CHARACTER: &str = "DELETE FROM character
+    WHERE entity_id = ($1::text::jsonb ->> 'entityId')::uuid
+        AND $1::text::jsonb ->> 'characterEntityId' IS NULL";
+
+/// The aliases it no longer has, gone.
+const DROP_ALIASES: &str = "DELETE FROM entity_alias
+    WHERE entity_id = ($1::text::jsonb ->> 'entityId')::uuid
+        AND alias <> ALL (ARRAY(SELECT jsonb_array_elements_text(
+            coalesce(nullif($1::text::jsonb -> 'alias', 'null'), '[]'))))";
+
+/// The aliases it did not have yet, added.
+const ADD_ALIASES: &str = "INSERT INTO entity_alias (entity_id, alias)
+    SELECT DISTINCT (v ->> 'entityId')::uuid, given.term
+    FROM (SELECT $1::text::jsonb AS v) saved,
+        jsonb_array_elements_text(coalesce(nullif(v -> 'alias', 'null'), '[]')) AS given (term)
+    WHERE NOT EXISTS (SELECT 1 FROM entity_alias a
+        WHERE a.entity_id = (v ->> 'entityId')::uuid AND a.alias = given.term)";
+
+/// The version the save carries, numbered after the element's last one in
+/// the table — which a projection lost earlier may have left behind the
+/// engine's.
+const ADD_VERSION: &str = "INSERT INTO entity_version
+        (id, entity_id, version_number, source, snapshot, diff, restored_from_version_id, created_at)
+    SELECT (v ->> 'entityVersionId')::uuid, (v ->> 'entityId')::uuid,
+        (SELECT coalesce(max(version_number), 0) + 1 FROM entity_version
+            WHERE entity_id = (v ->> 'entityId')::uuid),
+        v ->> 'source', v -> 'snapshot', v -> 'diff', (v ->> 'restoredFromVersionId')::uuid,
+        coalesce((v ->> 'entityVersionCreatedAt')::timestamptz, now())
+    FROM (SELECT $1::text::jsonb AS v) saved";
+
+/// Every live element the engine holds whose version the tables do not: a
+/// projection that failed after its apply, or was lost since. A row with no
+/// version is none the tables could hold.
+const UNPROJECTED: &str = "SELECT r.partition FROM dataguard_rows r
+    WHERE r.partition LIKE 'Entity/%' AND NOT r.tombstoned
+        AND r.fields ->> 'entityVersionId' IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM entity_version v
+            WHERE v.id::text = lower(r.fields ->> 'entityVersionId'))
+    ORDER BY r.partition";
+
+/// Every element of the tables with its campaign, name and aliases, as the
+/// engine's row holds them: what [`Aliases`] starts from.
+const ELEMENTS: &str = "SELECT jsonb_build_object(
+        'entityId', e.id, 'entityCampaignId', e.campaign_id, 'name', e.name,
+        'alias', coalesce((SELECT jsonb_agg(a.alias) FROM entity_alias a WHERE a.entity_id = e.id), '[]')
+    )::text
+    FROM entity e";
+
+/// A [`PgStore`] whose applied `AiSettings/1` and `Entity/<id>` writes reach
+/// the tables, keeping the elements' terms as the tables hold them.
 pub struct ProjectingStore {
     inner: PgStore,
+    aliases: Arc<Aliases>,
 }
 
 impl ProjectingStore {
-    /// The store over `inner`.
-    pub const fn new(inner: PgStore) -> Self {
-        Self { inner }
+    /// The store over `inner`, keeping `aliases`.
+    pub const fn new(inner: PgStore, aliases: Arc<Aliases>) -> Self {
+        Self { inner, aliases }
+    }
+
+    /// Projects what the engine holds and the tables do not, logging a
+    /// failure: at a start, so a projection that failed after its apply is
+    /// made again.
+    pub async fn repair(&self) {
+        self.repair_settings().await;
+        self.repair_elements().await;
     }
 
     /// Projects `AiSettings/1` as the engine holds it, when it carries a
-    /// provider, logging a failure: after each apply, and at a start, so a
-    /// projection that failed after its apply is made again.
-    pub async fn repair(&self) {
+    /// provider, logging a failure: after each apply of it, and at a start.
+    async fn repair_settings(&self) {
         let row = match self.inner.row(AI_SETTINGS).await {
             Ok(row) => row,
             Err(e) => {
@@ -170,6 +298,102 @@ impl ProjectingStore {
         }
     }
 
+    /// Projects every element the engine holds whose version the tables do
+    /// not hold, recording its terms once they do, logging a failure: after
+    /// each apply of an element, and at a start. Tables not migrated yet
+    /// hold none.
+    async fn repair_elements(&self) {
+        let partitions = {
+            let client = self.inner.client().lock().await;
+            client.query(UNPROJECTED, &[]).await
+        };
+        let partitions = match partitions {
+            Ok(rows) => rows,
+            Err(e) => {
+                eprintln!(
+                    "projection: entity_version not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                );
+                return;
+            }
+        };
+        for partition in partitions {
+            let partition: String = partition.get(0);
+            let row = match self.inner.row(&partition).await {
+                Ok(row) => row,
+                Err(e) => {
+                    eprintln!("projection: {partition} not read: {e}");
+                    continue;
+                }
+            };
+            match self.project_element(&row).await {
+                Ok(()) => {
+                    if let Some(element) = partition.strip_prefix(ENTITY) {
+                        self.aliases.record(element, &row);
+                    }
+                }
+                Err(e) => {
+                    let db = e.as_db_error();
+                    eprintln!(
+                        "projection: {partition} not projected: {} {}",
+                        db.map_or("-", |db| db.code().code()),
+                        db.and_then(|db| db.constraint()).unwrap_or_default()
+                    );
+                }
+            }
+        }
+    }
+
+    /// Records every element the tables hold in the terms it keeps: at a
+    /// start, so the elements saved before are judged against. Tables not
+    /// migrated yet hold none.
+    pub async fn elements(&self) {
+        let rows = {
+            let client = self.inner.client().lock().await;
+            client.query(ELEMENTS, &[]).await
+        };
+        match rows {
+            Ok(rows) => {
+                for row in rows {
+                    let json: String = row.get(0);
+                    let Ok(Value::Object(element)) = serde_json::from_str(&json) else {
+                        continue;
+                    };
+                    let element: BTreeMap<String, Value> = element.into_iter().collect();
+                    if let Some(id) = text(&element, "entityId") {
+                        self.aliases.record(id, &element);
+                    }
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: entity not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
+    }
+
+    /// Writes `row`'s element, sheet, aliases and version, in one
+    /// transaction.
+    async fn project_element(
+        &self,
+        row: &BTreeMap<String, Value>,
+    ) -> std::result::Result<(), tokio_postgres::Error> {
+        let json = Value::Object(row.clone().into_iter().collect()).to_string();
+        let mut client = self.inner.client().lock().await;
+        let tx = client.transaction().await?;
+        for sql in [
+            UPSERT_ENTITY,
+            UPSERT_CHARACTER,
+            DROP_CHARACTER,
+            DROP_ALIASES,
+            ADD_ALIASES,
+            ADD_VERSION,
+        ] {
+            tx.execute(sql, &[&json]).await?;
+        }
+        tx.commit().await
+    }
+
     /// Writes `row`'s provider and makes it active, in one transaction.
     async fn project(
         &self,
@@ -210,6 +434,12 @@ impl ProjectingStore {
 /// Whether `write` reaches the tables: a live write of the settings row.
 fn projects(write: &Write) -> bool {
     !write.tombstone && write.partition == AI_SETTINGS
+}
+
+/// Whether `write` reaches the element's tables: a live write of an
+/// `Entity/<id>` partition.
+fn element(write: &Write) -> bool {
+    !write.tombstone && element_of(write).is_some()
 }
 
 /// The provider whose last test `write` records: a live write of a
@@ -266,9 +496,14 @@ impl Store for ProjectingStore {
     async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let version = self.inner.apply(write, result).await?;
         if projects(write) {
-            self.repair().await;
+            self.repair_settings().await;
         } else if let Some(provider) = tested(write) {
             self.record_test(&write.partition, provider, false).await;
+        } else if element(write) {
+            self.repair_elements().await;
+        } else if let Some(element) = element_of(write) {
+            // A removal: tombstones are not projected, its terms go.
+            self.aliases.forget(element);
         }
         Ok(version)
     }
@@ -290,8 +525,6 @@ impl Store for ProjectingStore {
 mod tests {
     //! Against the harness's PostgreSQL (`DATABASE_URL`), in a scratch
     //! database of its own.
-
-    use std::sync::Arc;
 
     use harness_dataguard::api::Submission;
     use harness_dataguard::command::State;
@@ -343,6 +576,20 @@ mod tests {
         assert!(projects(&write(AI_SETTINGS, false)));
         assert!(!projects(&write(AI_SETTINGS, true)));
         assert!(!projects(&write(&format!("AiSettings/{CLOUD}"), false)));
+    }
+
+    #[test]
+    fn only_a_live_write_of_an_element_s_partition_reaches_its_tables() {
+        let write = |partition: &str, tombstone| Write {
+            partition: partition.to_string(),
+            values: BTreeMap::new(),
+            tombstone,
+        };
+        let morlox = "Entity/e1000000-0000-4000-8000-000000000003";
+        assert!(element(&write(morlox, false)));
+        assert!(!element(&write(morlox, true)));
+        assert!(!element(&write(AI_SETTINGS, false)));
+        assert!(!element(&write(AI_SETTINGS, true)));
     }
 
     async fn connect(url: &str) -> Client {
@@ -458,12 +705,16 @@ mod tests {
             PgStore::open(connect(&scratch).await)
                 .await
                 .expect("the store"),
+            Arc::default(),
         ));
-        let engine = bound(Engine::new(
-            store.clone(),
-            Arc::new(MemoryNotifier::default()),
-            Arc::new(SystemClock),
-        ))
+        let engine = bound(
+            Engine::new(
+                store.clone(),
+                Arc::new(MemoryNotifier::default()),
+                Arc::new(SystemClock),
+            ),
+            Arc::default(),
+        )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
         let before = snapshot(&tables, false).await;
@@ -602,16 +853,20 @@ mod tests {
             PgStore::open(connect(&scratch).await)
                 .await
                 .expect("the store"),
+            Arc::default(),
         ));
         // The same tables, read without the wrapper.
         let plain = PgStore::open(connect(&scratch).await)
             .await
             .expect("the store");
-        let engine = bound(Engine::new(
-            projecting.clone(),
-            Arc::new(MemoryNotifier::default()),
-            Arc::new(SystemClock),
-        ))
+        let engine = bound(
+            Engine::new(
+                projecting.clone(),
+                Arc::new(MemoryNotifier::default()),
+                Arc::new(SystemClock),
+            ),
+            Arc::default(),
+        )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
 

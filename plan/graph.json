@@ -36,11 +36,19 @@
       "produces": [
         "AbilityModifier@1",
         "AliasMatch@1",
+        "BattlemapInstance",
         "Campaign",
         "CampaignOverview",
+        "Diffusion",
         "Entity",
         "EntityVersion@1",
+        "Media",
+        "NoteImport",
         "Player",
+        "Session",
+        "Sound",
+        "SoundPlayback",
+        "Suggestion",
         "VersionHistory",
         "campaign.exportCampaign",
         "campaign.getCampaign",
@@ -60,20 +68,20 @@
       "produces": [
         "GridSettings",
         "HexGrid@1",
-        "Media",
         "MediaLibrary",
+        "campaign.listPlaces",
         "media.getBattlemap",
         "media.listMedia",
         "media.saveGridSettings",
         "media.setMediaPlace",
-        "media.uploadMedia"
+        "media.uploadMedia",
+        "session.listScenes"
       ],
       "consumes": [
         "Campaign",
         "Entity",
-        "campaign.listPlaces",
-        "session.addPlaceToSession",
-        "session.listScenes"
+        "Media",
+        "session.addPlaceToSession"
       ],
       "depends_on": [
         18,
@@ -90,29 +98,29 @@
       ],
       "produces": [
         "SceneBoard",
-        "Session",
         "SessionLifecycle@1",
         "SessionList",
         "campaign.createCampaign",
         "campaign.listCharacters",
-        "campaign.listPlaces",
         "session.addPlaceToSession",
         "session.addPresentCharacter",
         "session.addScene",
         "session.createSession",
         "session.getSession",
-        "session.listScenes",
         "session.listSessions",
         "session.removePresentCharacter",
-        "session.reorderScenes"
+        "session.reorderScenes",
+        "table.getBattlemapInstance"
       ],
       "consumes": [
         "Campaign",
+        "Session",
+        "campaign.listPlaces",
         "media.listMedia",
         "media.setMediaPlace",
         "media.uploadMedia",
-        "table.createBattlemapInstance",
-        "table.getBattlemapInstance"
+        "session.listScenes",
+        "table.createBattlemapInstance"
       ],
       "depends_on": [
         18,
@@ -129,9 +137,7 @@
       "produces": [
         "EffectiveVolume@1",
         "LiveSoundbox",
-        "Sound",
         "SoundLibrary",
-        "SoundPlayback",
         "SoundTag@1",
         "soundbox.addSound",
         "soundbox.listSounds",
@@ -143,7 +149,9 @@
         "soundbox.updateSound"
       ],
       "consumes": [
-        "Campaign"
+        "Campaign",
+        "Sound",
+        "SoundPlayback"
       ],
       "depends_on": [
         18
@@ -191,13 +199,13 @@
         "campaign"
       ],
       "produces": [
-        "NoteImport",
         "ai.extractFromNotes",
         "campaign.createEntitiesFromNote",
         "campaign.listImportedNotes"
       ],
       "consumes": [
-        "Entity"
+        "Entity",
+        "NoteImport"
       ],
       "depends_on": [
         18
@@ -224,8 +232,7 @@
         "Session"
       ],
       "depends_on": [
-        18,
-        20
+        18
       ]
     },
     {
@@ -236,14 +243,12 @@
         "session"
       ],
       "produces": [
-        "BattlemapInstance",
         "HealthBand@1",
         "Initiative@1",
         "table.addParticipant",
         "table.changeHitPoints",
         "table.createBattlemapInstance",
         "table.endCombat",
-        "table.getBattlemapInstance",
         "table.moveToken",
         "table.nextTurn",
         "table.placeTokens",
@@ -257,6 +262,7 @@
         "table.startCombat"
       ],
       "consumes": [
+        "BattlemapInstance",
         "Session",
         "campaign.listCharacters",
         "media.listMedia",
@@ -265,9 +271,11 @@
         "session.getSession",
         "session.listScenes",
         "session.removePresentCharacter",
-        "session.reorderScenes"
+        "session.reorderScenes",
+        "table.getBattlemapInstance"
       ],
       "depends_on": [
+        18,
         19,
         20
       ]
@@ -281,7 +289,6 @@
       ],
       "produces": [
         "Battlemap",
-        "Diffusion",
         "PlayerStage",
         "live.closeWindow",
         "live.getDiffusion",
@@ -293,6 +300,7 @@
       ],
       "consumes": [
         "BattlemapInstance",
+        "Diffusion",
         "campaign.getCampaign",
         "campaign.listCharacters",
         "media.getBattlemap",
@@ -328,7 +336,6 @@
       ],
       "produces": [
         "DetectionVocabulary@1",
-        "Suggestion",
         "SuggestionPill",
         "live.listSuggestions",
         "live.setMicrophone"
@@ -336,10 +343,11 @@
       "consumes": [
         "Session",
         "Sound",
+        "Suggestion",
         "soundbox.playSound"
       ],
       "depends_on": [
-        20,
+        18,
         21
       ]
     },
@@ -365,8 +373,7 @@
         "live.showCover"
       ],
       "depends_on": [
-        20,
-        21,
+        18,
         26
       ]
     },
@@ -421,9 +428,7 @@
       ],
       "depends_on": [
         18,
-        19,
-        20,
-        21
+        20
       ]
     }
   ],
@@ -437,7 +442,7 @@
     "AiSettings": {
       "kind": "aggregate",
       "producer": 17,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "AliasMatch@1": {
@@ -449,12 +454,12 @@
     "Battlemap": {
       "kind": "micro-ui",
       "producer": 26,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "BattlemapInstance": {
       "kind": "aggregate",
-      "producer": 25,
+      "producer": 18,
       "state": "planned",
       "version": 1
     },
@@ -479,13 +484,13 @@
     "CampaignList": {
       "kind": "micro-ui",
       "producer": 30,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "CampaignOverview": {
       "kind": "micro-ui",
       "producer": 18,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "DetectionVocabulary@1": {
@@ -496,7 +501,7 @@
     },
     "Diffusion": {
       "kind": "aggregate",
-      "producer": 26,
+      "producer": 18,
       "state": "planned",
       "version": 1
     },
@@ -521,7 +526,7 @@
     "EntityEditor": {
       "kind": "micro-ui",
       "producer": 22,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "EntityVersion@1": {
@@ -557,7 +562,7 @@
     "LiveSessionBar": {
       "kind": "micro-ui",
       "producer": 28,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "LiveSoundbox": {
@@ -568,7 +573,7 @@
     },
     "Media": {
       "kind": "aggregate",
-      "producer": 19,
+      "producer": 18,
       "state": "planned",
       "version": 1
     },
@@ -580,14 +585,14 @@
     },
     "NoteImport": {
       "kind": "aggregate",
-      "producer": 23,
-      "state": "planned",
+      "producer": 18,
+      "state": "mocked",
       "version": 1
     },
     "OralBrief": {
       "kind": "micro-ui",
       "producer": 24,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "Player": {
@@ -599,30 +604,30 @@
     "PlayerStage": {
       "kind": "micro-ui",
       "producer": 26,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "PreviousSummary": {
       "kind": "micro-ui",
       "producer": 28,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "ProviderApiType@1": {
       "kind": "concept",
       "producer": 17,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "SceneBoard": {
       "kind": "micro-ui",
       "producer": 20,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "Session": {
       "kind": "aggregate",
-      "producer": 20,
+      "producer": 18,
       "state": "planned",
       "version": 1
     },
@@ -635,12 +640,12 @@
     "SessionList": {
       "kind": "micro-ui",
       "producer": 20,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "Sound": {
       "kind": "aggregate",
-      "producer": 21,
+      "producer": 18,
       "state": "planned",
       "version": 1
     },
@@ -652,7 +657,7 @@
     },
     "SoundPlayback": {
       "kind": "aggregate",
-      "producer": 21,
+      "producer": 18,
       "state": "planned",
       "version": 1
     },
@@ -670,14 +675,14 @@
     },
     "Suggestion": {
       "kind": "aggregate",
-      "producer": 27,
+      "producer": 18,
       "state": "planned",
       "version": 1
     },
     "SuggestionPill": {
       "kind": "micro-ui",
       "producer": 27,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "TableSheet": {
@@ -689,7 +694,7 @@
     "ToCreateList": {
       "kind": "micro-ui",
       "producer": 24,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "TokenAppearance@1": {
@@ -701,7 +706,7 @@
     "VersionHistory": {
       "kind": "micro-ui",
       "producer": 18,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "ai.analyzeBrief": {
@@ -725,7 +730,7 @@
     "ai.getSettings": {
       "kind": "capability",
       "producer": 17,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "ai.proposeCharacter": {
@@ -737,13 +742,13 @@
     "ai.saveSettings": {
       "kind": "data-capability",
       "producer": 17,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "ai.testConnection": {
       "kind": "data-capability",
       "producer": 17,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "campaign.createCampaign": {
@@ -767,13 +772,13 @@
     "campaign.getCampaign": {
       "kind": "capability",
       "producer": 18,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.getEntity": {
       "kind": "capability",
       "producer": 22,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.importCampaign": {
@@ -785,49 +790,49 @@
     "campaign.listCampaigns": {
       "kind": "capability",
       "producer": 30,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.listCharacters": {
       "kind": "capability",
       "producer": 20,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.listEntitiesToCreate": {
       "kind": "capability",
       "producer": 24,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.listEntityVersions": {
       "kind": "capability",
       "producer": 18,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.listEvents": {
       "kind": "capability",
       "producer": 22,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.listImportedNotes": {
       "kind": "capability",
       "producer": 23,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.listPlaces": {
       "kind": "capability",
-      "producer": 20,
-      "state": "planned",
+      "producer": 19,
+      "state": "mocked",
       "version": 1
     },
     "campaign.listPlayers": {
       "kind": "capability",
       "producer": 22,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "campaign.restoreEntityVersion": {
@@ -863,13 +868,13 @@
     "live.getDiffusion": {
       "kind": "capability",
       "producer": 26,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "live.listSuggestions": {
       "kind": "capability",
       "producer": 27,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "live.moveWindow": {
@@ -911,13 +916,13 @@
     "media.getBattlemap": {
       "kind": "capability",
       "producer": 19,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "media.listMedia": {
       "kind": "capability",
       "producer": 19,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "media.saveGridSettings": {
@@ -971,43 +976,43 @@
     "session.getLastBrief": {
       "kind": "capability",
       "producer": 24,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "session.getLiveSession": {
       "kind": "capability",
       "producer": 28,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "session.getPreviousSessionSummary": {
       "kind": "capability",
       "producer": 28,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "session.getSession": {
       "kind": "capability",
       "producer": 20,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "session.getSessionJournal": {
       "kind": "capability",
       "producer": 28,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "session.listScenes": {
       "kind": "capability",
-      "producer": 20,
-      "state": "planned",
+      "producer": 19,
+      "state": "mocked",
       "version": 1
     },
     "session.listSessions": {
       "kind": "capability",
       "producer": 20,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "session.removePresentCharacter": {
@@ -1031,7 +1036,7 @@
     "soundbox.listSounds": {
       "kind": "capability",
       "producer": 21,
-      "state": "planned",
+      "state": "mocked",
       "version": 1
     },
     "soundbox.playSound": {
@@ -1096,8 +1101,8 @@
     },
     "table.getBattlemapInstance": {
       "kind": "capability",
-      "producer": 25,
-      "state": "planned",
+      "producer": 20,
+      "state": "mocked",
       "version": 1
     },
     "table.moveToken": {
