@@ -39,6 +39,33 @@
       ]
     },
     {
+      "query": "ListScenes",
+      "capability": "session.listScenes",
+      "file": "crates/session/queries/list-scenes.graphql",
+      "sha256": "1585c6134b8ad2b55067ada4a78363fd55eb36750ae0c008d911ac3bbcc965b1",
+      "fields": [
+        "scene.id",
+        "scene.sessionId",
+        "scene.position",
+        "scene.title",
+        "scene.notes",
+        "sceneEntity.sceneId",
+        "sceneEntity.entityId",
+        "sceneEntity.position",
+        "entity.id",
+        "entity.type",
+        "sceneMedia.sceneId",
+        "sceneMedia.mediaId",
+        "media.id",
+        "media.placeId",
+        "media.uploadedAt",
+        "entityToCreate.id",
+        "entityToCreate.sceneId",
+        "entityToCreate.status",
+        "entityToCreate.createdAt"
+      ]
+    },
+    {
       "query": "ListSessions",
       "capability": "session.listSessions",
       "file": "crates/session/queries/list-sessions.graphql",

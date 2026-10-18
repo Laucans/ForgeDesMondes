@@ -548,7 +548,10 @@
       if (!session) return void 0;
       const { summary: _summary, ...header } = session;
       return { ...header, statusLabel: STATUS_LABELS[session.status] ?? null };
-    }
+    },
+    // A session's scenes by rank: the fixture is the scenes of session 4, the one
+    // in preparation; another session has none yet.
+    "session.listScenes": async (server, { session }) => session === "s4" ? await server.load("session.listScenes") : []
   };
 
   // mock/src/server.js
