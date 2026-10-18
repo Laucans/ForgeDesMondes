@@ -27,7 +27,10 @@
 //! the element's row as the queue will leave it, which [`Rows`] reads, and
 //! its version is settled when it is applied ([`versioning::Versioning`]). A
 //! restoration of an element (`campaign.restoreEntityVersion`) is prepared
-//! so too, against the versions the element has, which [`Rows`] keeps.
+//! so too, against the versions the element has, which [`Rows`] keeps. An
+//! export of a campaign (`campaign.exportCampaign`) is prepared against what
+//! the tables hold of it, which [`Rows`] reads: its archive is answered with
+//! the command's result once its stamp is applied.
 
 use std::sync::Arc;
 
@@ -51,6 +54,7 @@ mod ai_settings;
 mod aliases;
 mod campaign;
 mod entity;
+mod exports;
 mod history;
 mod player;
 mod projection;
@@ -78,6 +82,7 @@ struct Served<L> {
     rows: Rows,
     llm: Arc<L>,
     reads: Arc<Reads>,
+    exports: Arc<exports::Exports>,
 }
 
 impl<L> Clone for Served<L> {
@@ -87,7 +92,14 @@ impl<L> Clone for Served<L> {
             rows: self.rows.clone(),
             llm: self.llm.clone(),
             reads: self.reads.clone(),
+            exports: self.exports.clone(),
         }
+    }
+}
+
+impl<L> FromRef<Served<L>> for Arc<exports::Exports> {
+    fn from_ref(served: &Served<L>) -> Self {
+        served.exports.clone()
     }
 }
 
@@ -144,6 +156,7 @@ pub struct Planted {
 pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     let aliases = Arc::new(aliases::Aliases::default());
     let history = Arc::new(history::History::default());
+    let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
     } else {
@@ -159,7 +172,9 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
         store.repair_tests().await;
         store.elements().await;
         store.versions(None).await;
-        Arc::new(store)
+        let store = Arc::new(store);
+        tables = Some(store.clone());
+        store
     };
     // Over memory, the engine's rows are the tables: they keep the terms and
     // the versions.
@@ -178,7 +193,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     engine.load().await?;
     Ok(Planted {
         engine,
-        rows: Rows::keeping(store, history),
+        rows: Rows::keeping(store, history).reading(tables),
     })
 }
 
@@ -258,6 +273,7 @@ pub fn router_reading<L: Llm + 'static>(
             rows,
             llm,
             reads,
+            exports: Arc::default(),
         })
 }
 
@@ -311,7 +327,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// (`restore_entity_version::prepare`), against the element's row and its
 /// versions: one naming a version the element does not have — or any of an
 /// element the engine does not hold — is refused, 404, and one naming no
-/// element, no version or a change there is not, 422.
+/// element, no version or a change there is not, 422. An export
+/// (`export_campaign::prepare`) is made the stamp it writes on its campaign's
+/// partition, and its archive is built from what the tables hold of the
+/// campaign now and kept until the command is applied ([`status`]): one of a
+/// campaign the tables do not hold is refused, 404, and one they cannot make
+/// an archive of, 422 — neither is queued, so nothing changes.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -337,6 +358,7 @@ async fn submit<L: Llm>(
         body.target_id = target;
     }
     let mut refusal = None;
+    let mut archive = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
     let now = || {
@@ -433,9 +455,43 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if export_campaign::names(&body.data_capability) {
+        let id = body
+            .target_id
+            .clone()
+            .or_else(|| export_campaign::campaign_id(&body.payload))
+            .unwrap_or_default();
+        let tables = match served.rows.archived(&id).await {
+            Ok(Some(tables)) => tables,
+            Ok(None) => {
+                return Err((
+                    axum::http::StatusCode::NOT_FOUND,
+                    Json(
+                        serde_json::json!({ "error": export_campaign::Refusal::NoCampaign.to_string() }),
+                    ),
+                ));
+            }
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        match export_campaign::prepare(&tables, &now()) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+                archive = Some(prepared.archive);
+            }
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
+        if let Some(archive) = archive {
+            served.exports.keep(&submitted.command_id, archive);
+        }
         submitted
     });
     reply(axum::http::StatusCode::ACCEPTED, submitted)
@@ -459,13 +515,26 @@ fn fresh_uuid() -> Result<String, getrandom::Error> {
     ))
 }
 
-async fn status(State(engine): State<Shared>, Path(id): Path<String>) -> Reply<serde_json::Value> {
+/// A command's result; an export's, once applied, with its archive —
+/// `result.archive.file`, the file's name, and `result.archive.content`, the
+/// document —
+/// which the shell hands to the DM as a download.
+async fn status(
+    State(engine): State<Shared>,
+    State(exports): State<Arc<exports::Exports>>,
+    Path(id): Path<String>,
+) -> Reply<serde_json::Value> {
     reply(
         axum::http::StatusCode::OK,
-        engine
-            .status(&id)
-            .await
-            .map(|r| serde_json::json!({ "result": r })),
+        engine.status(&id).await.map(|r| {
+            let mut answer = serde_json::json!({ "result": r });
+            let applied = answer["result"]["status"] == "applied";
+            if let Some(archive) = exports.of(&id).filter(|_| applied) {
+                answer["result"]["archive"] =
+                    serde_json::json!({ "file": archive.file, "content": archive.content });
+            }
+            answer
+        }),
     )
 }
 
