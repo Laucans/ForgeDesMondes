@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f40bef5a97044598"
+      "builtFrom": "119dd73041e37de1"
     },
     {
       "name": "CampaignOverview",
@@ -333,7 +333,7 @@
     {
       "name": "Battlemap",
       "system": "table",
-      "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », instances × N, fiche d’instance, combat et carrousel d’initiative",
+      "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », personnages déposés × N, menu du token (renommer, cacher, état, retirer) et envoi aux joueurs ; en player view, seulement ce que les joueurs peuvent voir",
       "fragment": "components/Battlemap.html",
       "fixtures": [
         "fixtures/table.getBattlemapInstance.json",
@@ -341,9 +341,7 @@
         "fixtures/campaign.listCharacters.json"
       ],
       "needs": [
-        "table.getBattlemapInstance",
-        "media.getBattlemap",
-        "campaign.listCharacters"
+        "table.getBattlemapInstance"
       ],
       "actions": [
         "table.moveToken",
@@ -352,22 +350,17 @@
         "table.renameToken",
         "table.setTokenVisibility",
         "table.setTokenCondition",
-        "table.changeHitPoints",
-        "table.startCombat",
-        "table.nextTurn",
-        "table.reorderInitiative",
-        "table.addParticipant",
-        "table.removeParticipant",
-        "table.endCombat",
-        "table.resetBattlemap",
         "live.showOnPlayerView"
       ],
       "props": {
         "instance": "string — id de l’instance de battlemap",
         "view": "\"dm\" | \"prep\" | \"player\"",
         "pilot": "boolean — onglet player view piloté par le DM",
-        "fill": "boolean — occupe tout l’écran"
-      }
+        "fill": "boolean — occupe tout l’écran",
+        "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
+      },
+      "source": "apps/table/battlemap",
+      "builtFrom": "309666036d90d1e7"
     },
     {
       "name": "MediaLibrary",
