@@ -1,0 +1,17 @@
+{
+  "concept": "HealthBand",
+  "version": 1,
+  "kind": "derived",
+  "definition": "The approximate state of a hurt creature, told from its current and maximum hit points and from nothing else, so that every place that shows how hurt a creature is agrees. Hit points are whole numbers and the maximum is at least 1; a current figure outside 0 to the maximum is read as the nearest bound. The band is `mort` when the current hit points are 0: death is this band, never a separate flag to keep in step. Above 0, it is `indemne` when they equal the maximum, `blessé` when they are above half of the maximum (twice the current is more than the maximum), and `en sang` when they are at half of the maximum or less (twice the current is at most the maximum). 0 is a value, not an absence: a creature at 0 hit points is `mort`. A creature whose hit points are not tracked, such as a player character's token that carries neither `hp_current` nor `hp_max`, has no band: `band` is null, a key that is absent and a key that is null being the same input. A band is derived only when both figures are present; one without the other gives null. The output is the band alone and never carries a hit point figure, so whoever shows it shows how hurt a creature is without telling how many hit points it has.",
+  "output": {
+    "band": {
+      "type": "string",
+      "enum": ["indemne", "blessé", "en sang", "mort"],
+      "nullable": true,
+      "rule": "null exactly when hp_current or hp_max is absent or null; `mort` exactly when hp_current is 0 or less; otherwise `indemne` at hp_max or more, `blessé` when 2 × hp_current > hp_max, `en sang` when 2 × hp_current ≤ hp_max"
+    }
+  },
+  "inputs": ["token.hp_current", "token.hp_max"],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}
