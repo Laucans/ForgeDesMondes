@@ -290,10 +290,15 @@ async fn the_migration_replays_as_a_no_op_over_the_campaign_and_player_tables() 
     };
     assert!(at("0003_player.sql") < at("0004_entity.sql"), "{applied:?}");
     assert_eq!(s.snapshot().await, first);
-    // A trigger dropped and created again is there once, as it was.
+    // A trigger dropped and created again is there once, as it was. Counted
+    // on the tables this migration puts its triggers on: a later migration's
+    // own are not this one's.
     assert_eq!(
-        s.count("SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal")
-            .await,
+        s.count(
+            "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = ANY (ARRAY[\
+             'entity', 'character', 'entity_alias', 'entity_version', 'player']::regclass[])"
+        )
+        .await,
         10
     );
     s.drop().await;

@@ -45,6 +45,7 @@ use ports_llm::Llm;
 mod ai_settings;
 mod campaign;
 mod entity;
+mod note_import;
 mod player;
 mod projection;
 mod reads;
@@ -160,11 +161,12 @@ impl Invariants for Product {
         state: &std::collections::BTreeMap<String, serde_json::Value>,
         entry: &Entry,
     ) -> Vec<String> {
-        let judges: [&dyn Invariants; 4] = [
+        let judges: [&dyn Invariants; 5] = [
             &ai_settings::AiSettings,
             &campaign::Campaign,
             &player::Player,
             &entity::Entity,
+            &note_import::NoteImport,
         ];
         judges
             .iter()

@@ -997,6 +997,167 @@
       ],
       "name": "campaign_overview_view",
       "purpose": "Vue calculée, non stockée : le modèle de lecture du Campaign aggregate, les compteurs de chaque campagne pour l'accueil et l'aperçu. Le nombre de séances, leurs dates et les comptes de médias et de sons la rejoignent avec les tables de leurs jalons."
+    },
+    {
+      "business": [
+        "R5"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la note.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0008_note_import.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne visée.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation NoteImport.campaignId : onDelete cascade, onUpdate propagate) : supprimer une campagne supprime ses notes et leurs propositions.",
+            "Indexée (imported_note_campaign_id) : les notes d'une campagne sont lues par elle."
+          ]
+        },
+        {
+          "business": [
+            "R5",
+            "R77"
+          ],
+          "name": "raw_text",
+          "nullable": false,
+          "purpose": "Texte collé, envoyé comme texte au fournisseur.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date du collage.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        },
+        {
+          "business": [],
+          "name": "analyzed_at",
+          "nullable": true,
+          "purpose": "Date de la dernière analyse par l'IA.",
+          "type": "timestamptz",
+          "technical": [
+            "Vide tant que la note n'a pas été analysée."
+          ]
+        }
+      ],
+      "name": "imported_note",
+      "purpose": "Notes en texte libre collées par le DM pour reprendre une campagne."
+    },
+    {
+      "business": [
+        "R5",
+        "no-creation-before-validation : l'analyse des notes ne crée aucun élément ; seule la validation en crée, et seulement pour les propositions cochées qui n'ont pas encore de created_entity_id"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la proposition.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut."
+          ]
+        },
+        {
+          "business": [],
+          "name": "note_id",
+          "nullable": false,
+          "purpose": "Note analysée.",
+          "references": "imported_note.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation NoteImport.noteId : onDelete cascade, onUpdate propagate) : supprimer une note supprime ses propositions.",
+            "Indexée (note_proposal_note_id)."
+          ]
+        },
+        {
+          "business": [
+            "R5"
+          ],
+          "name": "type",
+          "nullable": false,
+          "purpose": "« pj », « pnj », « lieu » ou « evenement ».",
+          "type": "text",
+          "technical": [
+            "CHECK note_proposal_type : pj, pnj, lieu ou evenement, les types d'un élément (entity.type)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom proposé.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "excerpt",
+          "nullable": false,
+          "purpose": "Extrait des notes qui justifie la proposition.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R5"
+          ],
+          "name": "existing_entity_id",
+          "nullable": true,
+          "purpose": "Élément existant reconnu. Dans ce cas, la proposition est décochée par défaut.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation NoteImport.existingEntityId : onDelete nullify, onUpdate propagate).",
+            "Indexée (note_proposal_existing_entity_id)."
+          ]
+        },
+        {
+          "business": [
+            "R5"
+          ],
+          "name": "checked",
+          "nullable": false,
+          "purpose": "Coché par le DM dans la liste à valider.",
+          "type": "boolean",
+          "technical": [
+            "Sans valeur par défaut : l'analyse le fixe, décoché quand un élément existant est reconnu.",
+            "CHECK no_creation_before_validation : une proposition décochée n'a pas de created_entity_id."
+          ]
+        },
+        {
+          "business": [
+            "R5"
+          ],
+          "name": "created_entity_id",
+          "nullable": true,
+          "purpose": "Élément créé à la validation.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation NoteImport.createdEntityId : onDelete nullify, onUpdate propagate).",
+            "Indexée (note_proposal_created_entity_id).",
+            "Trigger no_creation_before_validation : vide à l'insertion (l'analyse ne crée rien), écrit une seule fois, par la validation ; seules les relations le changent ensuite, quand l'élément créé est supprimé ou change d'id."
+          ]
+        }
+      ],
+      "name": "note_proposal",
+      "purpose": "Entité proposée par l'IA à partir de notes, en attente de validation par le DM."
     }
   ],
   "links": []
