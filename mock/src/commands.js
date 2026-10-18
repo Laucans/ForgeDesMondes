@@ -39,6 +39,42 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
 export const COMMANDS = {
+  // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
+  // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
+  // version after it are undone, each field back to what it was. Either way the restoration is a new version
+  // on top of the history — source restauration, restoredFrom the version — whose changes are what moved since
+  // the version it replaces; versions 1..n stay as they were. A version the element does not have is refused.
+  'campaign.restoreEntityVersion': async (server, { payload, targetId }) => {
+    const history = (await server.load('campaign.listEntityVersions'))[targetId];
+    const target = history && history.versions.find((v) => v.v === payload.version);
+    if (!target) return ['not-found'];
+    // The sheet as each version left it: fields by name, from the oldest version up.
+    const sheet = (upTo) => history.versions.slice().sort((a, b) => a.v - b.v).filter((v) => v.v <= upTo)
+      .reduce((fields, v) => { for (const c of v.changes) fields[c.field] = c.new; return fields; }, {});
+    const before = sheet(history.versions[0].v);
+    let after = sheet(target.v);
+    if (Array.isArray(payload.changes)) {
+      const undone = (history.versions.find((v) => v.v === payload.version + 1) || { changes: [] }).changes;
+      after = { ...before };
+      for (const i of payload.changes) if (undone[i]) after[undone[i].field] = undone[i].old;
+    }
+    const changes = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()
+      .filter((field) => (before[field] ?? '') !== (after[field] ?? ''))
+      .map((field) => ({ field, old: before[field] ?? '', new: after[field] ?? '' }));
+    history.versions.unshift({ v: history.versions[0].v + 1, date: new Date().toISOString(), origin: 'manuelle', source: 'restauration', restoredFrom: target.v, changes });
+    return undefined;
+  },
+  // campaign.exportCampaign (crates/dataguard/data-capabilities/export-campaign):
+  // stamps the campaign's last export with today's date and changes nothing
+  // else (`export-stamps-date`). An unknown campaign is `not-found`.
+  'campaign.exportCampaign': async (server, { payload }) => {
+    const campaign = await server.load('campaign.getCampaign');
+    if (!campaign || campaign.id !== payload.id) return ['not-found'];
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    return undefined;
+  },
   // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
   // provider saved and made active. The API type is derived from the URL,
   // never taken from the payload: the cloud host by itself, the home server

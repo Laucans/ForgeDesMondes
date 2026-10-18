@@ -1,0 +1,11 @@
+{
+  "microUi": "VersionHistory",
+  "system": "campaign",
+  "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour à une version antérieure",
+  "needs": ["campaign.listEntityVersions"],
+  "actions": ["campaign.restoreEntityVersion"],
+  "props": {
+    "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse",
+    "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
+  }
+}

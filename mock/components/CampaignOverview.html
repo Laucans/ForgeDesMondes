@@ -1,12 +1,12 @@
 <section class="mf-overview" id="campaign-overview" aria-labelledby="overview-title" data-reads="campaign.getCampaign">
-  <div class="mf-overview__cover" id="overview-cover"></div>
+  <div class="mf-overview__cover" id="overview-cover" data-reads="campaign.getCampaign"></div>
   <div class="mf-overview__body">
-    <div class="row" id="overview-type"></div>
-    <h1 id="overview-title"></h1>
-    <p class="muted" id="overview-pitch"></p>
-    <ul class="mf-overview__counts" id="overview-counts"></ul>
+    <div class="row" id="overview-type" data-reads="campaign.getCampaign"></div>
+    <h1 id="overview-title" data-reads="campaign.getCampaign"></h1>
+    <p class="muted" id="overview-pitch" data-reads="campaign.getCampaign"></p>
+    <ul class="mf-overview__counts" id="overview-counts" data-reads="campaign.getCampaign"></ul>
     <div id="overview-actions"></div>
-    <p class="small muted" id="overview-export-status"></p>
+    <p class="small muted" id="overview-export-status" data-reads="campaign.getCampaign" aria-live="polite"></p>
   </div>
 </section>
 <style>
@@ -18,31 +18,11 @@
   @media (max-width: 760px) { .mf-overview { grid-template-columns: minmax(0, 1fr); } }
 </style>
 <script>
+// The Micro-UI's real code (apps/campaign/campaign-overview), bundled by mock/build.sh: it fills this panel on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  Mock.fixture('fixtures/CampaignOverview.json').then(({ campaign: c, archive }) => {
-    const date = d => new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    $('#overview-cover').innerHTML = Mock.art({ art: c.art, glyph: c.glyph, title: 'Couverture : ' + c.name, caption: 'Couverture · affichée sur la player view' });
-    $('#overview-type').innerHTML = Mock.kitHTML('Badge', { items: [{ label: c.type === 'oneshot' ? 'Oneshot' : 'Campagne', tone: 'primary' }, { label: 'Prochaine : ' + date(c.nextSession.date), tone: 'accent' }] });
-    $('#overview-title').textContent = c.name;
-    $('#overview-pitch').textContent = c.pitch;
-    const n = c.counts;
-    $('#overview-counts').innerHTML = [[n.sessions, 'séances'], [n.players, 'joueurs'], [n.characters, 'personnages'], [n.places, 'lieux'], [n.events, 'événements'], [n.media, 'médias'], [n.sounds, 'sons']]
-      .map(([v, l]) => `<li><b>${v}</b>${l}</li>`).join('');
-    $('#overview-actions').innerHTML = Mock.kitHTML('Button', { items: [
-      { id: 'overview-launch', label: 'Lancer la séance ' + c.nextSession.order + ' en direct', href: 'dm-view.html', variant: 'primary' },
-      { id: 'overview-prepare', label: 'Préparer la séance ' + c.nextSession.order, href: 'preparation-seance.html', variant: 'secondary' },
-      { id: 'overview-export', label: 'Exporter l’archive', variant: 'ghost', 'data-writes': 'campaign.exportCampaign' }] });
-    $('#overview-export-status').textContent = 'Dernier export : ' + new Date(c.lastExport + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-    Mock.mount(root);
-    root.addEventListener('click', e => {
-      if (!e.target.closest('#overview-export')) return;
-      Mock.command('campaign.exportCampaign', { id: c.id }, { label: 'Exporter la campagne en archive' }).then(() => {
-        $('#overview-export-status').innerHTML = `Archive prête : <b>${esc(archive.file)}</b> (${esc(archive.size)}) — elle contient les éléments, séances, journaux, médias et sons.`;
-      });
-    });
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/CampaignOverview.js';
+  root.appendChild(bundle);
 })();
 </script>
