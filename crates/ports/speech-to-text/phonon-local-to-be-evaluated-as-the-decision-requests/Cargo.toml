@@ -1,0 +1,15 @@
+[package]
+name = "ports-speech-to-text-phonon"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The adapter of the `speech-to-text` port that ports.json names: the local Phonon sidecar, run on the DM's machine with the vocabulary and the audio on its standard input, its text read from its standard output. It passes `ports_speech_to_text::contract`."
+publish = false
+
+[dependencies]
+ports-speech-to-text = { path = ".." }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "process", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread"] }
