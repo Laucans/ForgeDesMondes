@@ -5,7 +5,7 @@
     "main_agent": "eb1fd21d63a85df2fc03d11edbc85928b271699a",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
     "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8231e1957a1c7f5f44be11679c0f3bf1380ff473",
-    "milestone/18-campaigns-players-and-characters-with-versioned-history": "d04909639f62cf4714bbfb79d7de9e49a810ab50",
+    "milestone/18-campaigns-players-and-characters-with-versioned-history": "bc58027b3b28caaf63ff524530c9748a4422ee58",
     "milestone/19-media-library-data-and-hex-grid-settings": "7210433ca6af90819f314008a71e160adbb89d79",
     "milestone/20-sessions-present-pcs-scenes-and-media-attached-by-place": "ba51d031137ab70af6002f9c71f01c27f4807443",
     "milestone/21-soundbox-tagged-sound-library-and-live-playback": "6bfeaf0e2ad4a594844b5dacb9d8718a92c87156",
@@ -166,6 +166,14 @@
       "sha": "f6bfd93a5777276dc60504784701c487e8c8a902",
       "at": "2026-10-18T09:45:26Z",
       "dir": "milestone/28-closing-a-session-journal-summary-and-preparation-screen/20261018T094526Z-f6bfd93",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/18-campaigns-players-and-characters-with-versioned-history",
+      "sha": "bc58027b3b28caaf63ff524530c9748a4422ee58",
+      "at": "2026-10-18T20:26:47Z",
+      "dir": "milestone/18-campaigns-players-and-characters-with-versioned-history/20261018T202647Z-bc58027",
       "schema": true,
       "model": true
     }
