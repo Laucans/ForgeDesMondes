@@ -288,6 +288,27 @@ mod tests {
     }
 
     #[test]
+    fn the_largest_whole_numbers_are_the_edge_of_what_is_read_as_whole() {
+        // Below 1e15 a whole float is an integer; from 1e15 it is kept as it is.
+        assert_eq!(
+            tidy(&json!(999_999_999_999_999.0)),
+            json!(999_999_999_999_999_i64)
+        );
+        assert_eq!(
+            tidy(&json!(-999_999_999_999_999.0)),
+            json!(-999_999_999_999_999_i64)
+        );
+        assert_eq!(tidy(&json!(1e15)), json!(1e15));
+        assert_eq!(tidy(&json!(-1e15)), json!(-1e15));
+        let hexes = |n: Value| hex_grid(json!({ "hexes": n }))["feet"].clone();
+        assert_eq!(
+            hexes(json!(999_999_999_999_999.0)),
+            json!(4_999_999_999_999_995_i64)
+        );
+        assert_eq!(hexes(json!(1e15)), Value::Null);
+    }
+
+    #[test]
     fn the_stored_french_orientations_read_pointy_and_flat() {
         assert_eq!(orient(&json!("pointe")), json!("pointy"));
         assert_eq!(orient(&json!("plat")), json!("flat"));
