@@ -409,4 +409,14 @@ async fn a_diffusion_deleted_is_a_tombstone_no_invariant_judges() {
         )
         .await,
     );
+    // Nor one the engine never held, whose row is its session alone: no
+    // kind for base-coherent to judge, and none needed to delete it.
+    applied(
+        &written(
+            &engine,
+            "test.deleteDiffusion",
+            json!({ "sessionId": SEANCE_2 }),
+        )
+        .await,
+    );
 }
