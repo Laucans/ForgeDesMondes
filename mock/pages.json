@@ -85,6 +85,7 @@
     },
     {
       "path": "pages/player-view.html",
+      "screen": "player-view",
       "title": "Player view",
       "objective": "Les joueurs voient la couverture, la battlemap ou l’illustration envoyée par le DM ; dans l’onglet piloté, le DM y déplace tokens et fenêtre et cadre la carte",
       "components": [
