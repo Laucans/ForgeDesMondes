@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f4aaefb11b8d7f19"
+      "builtFrom": "f776bd111c59edfb"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "2a18d5a90b12333f"
+      "builtFrom": "453a6c473282ba41"
     },
     {
       "name": "SessionList",
@@ -258,7 +258,7 @@
     {
       "name": "VersionHistory",
       "system": "campaign",
-      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour en arrière",
+      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour à une version antérieure",
       "fragment": "components/VersionHistory.html",
       "fixtures": [
         "fixtures/campaign.listEntityVersions.json"
@@ -272,7 +272,9 @@
       "props": {
         "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse",
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
-      }
+      },
+      "source": "apps/campaign/version-history",
+      "builtFrom": "1c008228ec6b8ce5"
     },
     {
       "name": "PreviousSummary",

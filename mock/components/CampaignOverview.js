@@ -367,6 +367,30 @@
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
   var COMMANDS = {
+    // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
+    // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
+    // version after it are undone, each field back to what it was. Either way the restoration is a new version
+    // on top of the history — source restauration, restoredFrom the version — whose changes are what moved since
+    // the version it replaces; versions 1..n stay as they were. A version the element does not have is refused.
+    "campaign.restoreEntityVersion": async (server, { payload, targetId }) => {
+      const history = (await server.load("campaign.listEntityVersions"))[targetId];
+      const target = history && history.versions.find((v) => v.v === payload.version);
+      if (!target) return ["not-found"];
+      const sheet = (upTo) => history.versions.slice().sort((a, b) => a.v - b.v).filter((v) => v.v <= upTo).reduce((fields, v) => {
+        for (const c of v.changes) fields[c.field] = c.new;
+        return fields;
+      }, {});
+      const before = sheet(history.versions[0].v);
+      let after = sheet(target.v);
+      if (Array.isArray(payload.changes)) {
+        const undone = (history.versions.find((v) => v.v === payload.version + 1) || { changes: [] }).changes;
+        after = { ...before };
+        for (const i of payload.changes) if (undone[i]) after[undone[i].field] = undone[i].old;
+      }
+      const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].sort().filter((field) => (before[field] ?? "") !== (after[field] ?? "")).map((field) => ({ field, old: before[field] ?? "", new: after[field] ?? "" }));
+      history.versions.unshift({ v: history.versions[0].v + 1, date: (/* @__PURE__ */ new Date()).toISOString(), origin: "manuelle", source: "restauration", restoredFrom: target.v, changes });
+      return void 0;
+    },
     // campaign.exportCampaign (crates/dataguard/data-capabilities/export-campaign):
     // stamps the campaign's last export with today's date and changes nothing
     // else (`export-stamps-date`). An unknown campaign is `not-found`.
@@ -427,6 +451,15 @@
 
   // mock/src/reads.js
   var READS = {
+    // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
+    // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
+    "campaign.listEntityVersions": async (server, { entity }) => {
+      const history = (await server.load("campaign.listEntityVersions"))[entity];
+      if (history) return history;
+      const entities = await server.load("entities");
+      const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === entity);
+      return known ? { name: known.name, versions: [] } : null;
+    },
     // One element's sheet: a character, a place or an event of `entities`.
     "campaign.getEntity": async (server, { id }) => {
       const entities = await server.load("entities");
