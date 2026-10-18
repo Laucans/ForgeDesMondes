@@ -1,0 +1,67 @@
+{
+  "aggregate": "Suggestion",
+  "fields": {
+    "detectedAt": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "entityId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "id": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "matchedText": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "sessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "soundId": {
+      "criticality": "low",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "suggestion-target",
+      "onViolation": "reject",
+      "rule": "Une suggestion vise exactement un élément ou un son de la campagne de la séance. La détection ne lit que le vocabulaire de la campagne."
+    },
+    {
+      "id": "pile-and-history-derived",
+      "onViolation": "reject",
+      "rule": "La pile de la pastille est formée des 5 suggestions les plus récentes, et l'historique les liste toutes par detected_at décroissant. Rien n'est stocké en plus des suggestions."
+    },
+    {
+      "id": "live-only-local-audio",
+      "onViolation": "reject",
+      "rule": "Une suggestion n'est produite que pendant une séance « live » avec le micro allumé. Elle vient d'une transcription locale, et aucun audio ne quitte la machine."
+    }
+  ],
+  "relations": [
+    {
+      "from": "Suggestion.sessionId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Suggestion.entityId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Suggestion.soundId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    }
+  ]
+}
