@@ -1452,6 +1452,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "soundbox-read"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
