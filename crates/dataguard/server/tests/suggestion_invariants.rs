@@ -192,15 +192,17 @@ async fn suggestion_target_rejects_a_suggestion_of_no_session() {
 #[tokio::test]
 async fn suggestion_target_rejects_a_move_to_a_sound_that_keeps_the_element() {
     let engine = with_heard().await;
-    rejected_by(
-        &written(
-            &engine,
-            "test.updateSuggestion",
-            json!({"id": HEARD, "soundId": PLUIE}),
-        )
-        .await,
-        &["suggestion-target"],
-    );
+    for element in [json!(MORLOX), json!("Morlox")] {
+        rejected_by(
+            &written(
+                &engine,
+                "test.updateSuggestion",
+                json!({"id": HEARD, "entityId": element, "soundId": PLUIE}),
+            )
+            .await,
+            &["suggestion-target"],
+        );
+    }
     // Moved whole — the element left, the sound taken — it applies.
     applied(
         &written(
@@ -283,6 +285,7 @@ async fn pile_and_history_derived_rejects_a_suggestion_of_no_instant() {
         json!(1_729_283_467),
         json!("hier soir"),
         json!("18/10/2026 20:31"),
+        json!("2026-10-18 à 20h31"),
     ] {
         rejected_by(
             &written(
