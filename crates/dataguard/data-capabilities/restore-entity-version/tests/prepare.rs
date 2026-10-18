@@ -209,7 +209,7 @@ fn a_snapshot_holding_no_aliases_restores_none() {
     )
     .expect("restored")
     .payload;
-    assert_eq!(payload["alias"], json!([]));
+    assert_eq!(payload["alias"], Value::Null);
 }
 
 #[test]

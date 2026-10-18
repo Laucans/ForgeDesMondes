@@ -328,3 +328,58 @@ async fn after_a_restart_the_versions_restored_are_the_tables_by_number_or_by_id
     assert_eq!(notes, [json!({ "notes": "Cherche son frère." })]);
     s.drop().await;
 }
+
+#[tokio::test]
+async fn restoring_a_version_saved_with_no_aliases_leaves_the_element_none() {
+    let s = Scratch::new("no_aliases").await;
+    let (engine, app) = s.serve().await;
+    // Version 1 saved without `aliases`: its snapshot holds none.
+    let (answer, result) = command(
+        &engine,
+        &app,
+        json!({
+            "dataCapability": "campaign.saveEntity@1",
+            "payload": { "campaign": VALOMBRE, "entity": { "kind": "lieu", "name": "Le Moulin" } },
+        }),
+    )
+    .await;
+    assert_eq!(result.status, State::Applied, "{result:?}");
+    let id = answer["partition"]
+        .as_str()
+        .and_then(|p| p.strip_prefix("Entity/"))
+        .expect("an Entity partition")
+        .to_owned();
+    let (_, result) = command(
+        &engine,
+        &app,
+        json!({
+            "dataCapability": "campaign.saveEntity@1",
+            "payload": { "campaign": VALOMBRE, "entity": {
+                "id": id, "kind": "lieu", "name": "Le Moulin", "aliases": ["le moulin brûlé"],
+            } },
+        }),
+    )
+    .await;
+    assert_eq!(result.status, State::Applied, "{result:?}");
+
+    // restore-exact: version 1's aliases, none — the trigger agrees.
+    let result = restore(&engine, &app, &id, json!(1)).await;
+    assert_eq!(result.status, State::Applied, "{result:?}");
+    let aliases = s
+        .rows(&format!(
+            "SELECT alias FROM entity_alias WHERE entity_id = '{id}'"
+        ))
+        .await;
+    assert_eq!(aliases, Vec::<Value>::new());
+    let last = s
+        .rows(&format!(
+            "SELECT version_number, source FROM entity_version \
+             WHERE entity_id = '{id}' ORDER BY version_number DESC LIMIT 1"
+        ))
+        .await;
+    assert_eq!(
+        last,
+        [json!({ "version_number": 3, "source": "restauration" })]
+    );
+    s.drop().await;
+}

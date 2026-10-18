@@ -269,11 +269,13 @@ pub fn prepare(
             ((*field).to_owned(), value)
         })
         .collect();
+    // A snapshot holding no aliases restores none as `null`, never `[]`:
+    // `restore_exact` judges the diff's `aliases` against the snapshot's.
     let aliases = snapshot
         .get(ALIASES)
         .filter(|aliases| aliases.is_array())
         .cloned()
-        .unwrap_or_else(|| Value::Array(Vec::new()));
+        .unwrap_or(Value::Null);
     payload.insert(ALIAS.into(), aliases);
     let character = snapshot
         .get("type")
