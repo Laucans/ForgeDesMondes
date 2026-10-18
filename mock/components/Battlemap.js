@@ -1248,7 +1248,37 @@
       return c ? { ...t, initials: c.initials, color: c.color, portrait: c.portrait } : t;
     });
   }
+  var diffusionBridged = false;
+  async function diffusionRow(server) {
+    const fixture = await server.load("live.getDiffusion");
+    const store = window.Mock && window.Mock.store;
+    if (store && !diffusionBridged) {
+      diffusionBridged = true;
+      store.on("diffusion", () => server.bump());
+    }
+    return store ? store.get("diffusion", fixture) : structuredClone(fixture);
+  }
+  async function ratioOfIllustration(server, id) {
+    const media = await server.load("media.listMedia");
+    const found = media && media.illustrations.find((i) => i.id === id);
+    return found && found.ratio > 0 ? found.ratio : 1;
+  }
   var READS = {
+    // live.getDiffusion (crates/live/capabilities/get-diffusion): the one row both
+    // player views read, so view 'dm' and view 'player' answer the same values —
+    // position, size, zoom and pan. The window's x and w are fractions of the stage's
+    // width, y of its height; h, derived from the image's ratio, is in the width's unit
+    // and never stored. Nothing else leaves the row: no token, no HP figure, no note.
+    "live.getDiffusion": async (server) => {
+      const row = await diffusionRow(server);
+      const win = row.window;
+      const ratio = win ? await ratioOfIllustration(server, win.id || win.media) : 1;
+      return {
+        base: { kind: row.base.kind, id: row.base.id || "" },
+        window: win ? { media: win.id || win.media, x: win.x, y: win.y, w: win.w, h: win.w / ratio } : null,
+        view: row.view ? { zoom: row.view.z ?? row.view.zoom, panX: row.view.px ?? row.view.panX, panY: row.view.py ?? row.view.panY } : null
+      };
+    },
     // table.getBattlemapInstance (crates/table/capabilities/get-battlemap-instance):
     // the DM sees everything; the players no hidden token, no hit point figure, no
     // note — each visible NPC gives its HealthBand@1 band instead.
@@ -1336,7 +1366,28 @@
     shareInstance(data);
     return void 0;
   }
+  async function onWindow(server, change) {
+    const row = await diffusionRow(server);
+    if (!row.window) return ["window-fields-together"];
+    const violations = await change(row.window);
+    if (violations) return violations;
+    if (window.Mock) window.Mock.store.set("diffusion", row);
+    return void 0;
+  }
   var COMMANDS = {
+    // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone;
+    // the size and the content stay.
+    "live.moveWindow": (server, { payload }) => onWindow(server, (w) => {
+      w.x = payload.x;
+      w.y = payload.y;
+    }),
+    // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
+    // is stored, the largest that fits the box asked for at the image's ratio
+    // (window-proportional); the position stays.
+    "live.resizeWindow": (server, { payload }) => onWindow(server, async (w) => {
+      const ratio = await ratioOfIllustration(server, w.id || w.media);
+      w.w = Math.max(0.1, Math.min(payload.w, payload.h * ratio, 1 - w.x));
+    }),
     // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
     // one position both views read.
     "table.moveToken": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {

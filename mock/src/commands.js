@@ -14,7 +14,7 @@
 //     (await server.load('campagnes')).push({ id: server.uuid(), name: payload.name });
 //   },
 
-import { instanceOf, pristineState, shareInstance } from './reads.js';
+import { diffusionRow, instanceOf, pristineState, ratioOfIllustration, shareInstance } from './reads.js';
 
 // ProviderApiType@1 as the fixtures know it: the cloud host by itself, the
 // home server at the URL whose model list the fixtures know; null otherwise.
@@ -91,7 +91,28 @@ async function onCombat(server, id, change) {
   return undefined;
 }
 
+// The floating window of the diffusion, changed by `change`; the other tabs are told.
+async function onWindow(server, change) {
+  const row = await diffusionRow(server);
+  // window-fields-together: x, y and the width are all set while the window is open, none otherwise.
+  if (!row.window) return ['window-fields-together'];
+  const violations = await change(row.window);
+  if (violations) return violations;
+  if (window.Mock) window.Mock.store.set('diffusion', row);
+  return undefined;
+}
+
 export const COMMANDS = {
+  // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone;
+  // the size and the content stay.
+  'live.moveWindow': (server, { payload }) => onWindow(server, (w) => { w.x = payload.x; w.y = payload.y; }),
+  // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
+  // is stored, the largest that fits the box asked for at the image's ratio
+  // (window-proportional); the position stays.
+  'live.resizeWindow': (server, { payload }) => onWindow(server, async (w) => {
+    const ratio = await ratioOfIllustration(server, w.id || w.media);
+    w.w = Math.max(0.1, Math.min(payload.w, payload.h * ratio, 1 - w.x));
+  }),
   // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
   // one position both views read.
   'table.moveToken': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => { t.q = payload.q; t.r = payload.r; }),
