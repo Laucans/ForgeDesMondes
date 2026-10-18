@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "4f09be3369ed9c2f"
+      "builtFrom": "dd71ea26524182a6"
     },
     {
       "name": "CampaignOverview",
@@ -163,7 +163,11 @@
       "actions": [
         "session.createSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on liste les séances"
+      },
+      "source": "apps/session/session-list",
+      "builtFrom": "d244cfdb107734c3"
     },
     {
       "name": "CampaignElements",
@@ -394,7 +398,7 @@
         "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
       },
       "source": "apps/media/media-library",
-      "builtFrom": "4c994aea1fe2829c"
+      "builtFrom": "1f2171744f117745"
     },
     {
       "name": "GridSettings",

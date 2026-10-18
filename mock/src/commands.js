@@ -27,6 +27,27 @@ function apiType(settings, url) {
 }
 
 export const COMMANDS = {
+  // session.createSession (planned, #157): the next session of the campaign, at
+  // the position after the last, in preparation, with the PCs ticked present.
+  // `present-only-pj` refuses a character that is not a PC of the fixtures.
+  'session.createSession': async (server, { payload }) => {
+    const sessions = await server.load('session.listSessions');
+    const characters = await server.load('campaign.listCharacters');
+    const present = Array.isArray(payload.present) ? payload.present : [];
+    const pcs = new Set(characters.filter((c) => c.kind === 'pj').map((c) => c.id));
+    if (present.some((id) => !pcs.has(id))) return ['present-only-pj'];
+    sessions.push({
+      id: server.uuid(),
+      order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
+      title: String(payload.title || ''),
+      date: payload.plannedOn || null,
+      status: 'prep',
+      label: 'En préparation',
+      present,
+      summary: null,
+    });
+    return undefined;
+  },
   // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
   // provider saved and made active. The API type is derived from the URL,
   // never taken from the payload: the cloud host by itself, the home server

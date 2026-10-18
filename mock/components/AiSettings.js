@@ -492,6 +492,27 @@
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
   var COMMANDS = {
+    // session.createSession (planned, #157): the next session of the campaign, at
+    // the position after the last, in preparation, with the PCs ticked present.
+    // `present-only-pj` refuses a character that is not a PC of the fixtures.
+    "session.createSession": async (server, { payload: payload2 }) => {
+      const sessions = await server.load("session.listSessions");
+      const characters = await server.load("campaign.listCharacters");
+      const present = Array.isArray(payload2.present) ? payload2.present : [];
+      const pcs = new Set(characters.filter((c) => c.kind === "pj").map((c) => c.id));
+      if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
+      sessions.push({
+        id: server.uuid(),
+        order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
+        title: String(payload2.title || ""),
+        date: payload2.plannedOn || null,
+        status: "prep",
+        label: "En pr\xE9paration",
+        present,
+        summary: null
+      });
+      return void 0;
+    },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
     // never taken from the payload: the cloud host by itself, the home server
