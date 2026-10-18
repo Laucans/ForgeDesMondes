@@ -130,7 +130,58 @@ fn grid_values_range(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{GRID, GRID_LINKS};
+    use std::collections::BTreeMap;
+
+    use harness_dataguard::command::Entry;
+    use harness_dataguard::guard::Invariants;
+    use serde_json::{Value, json};
+
+    use super::{GRID, GRID_LINKS, Media};
+
+    /// A command of `effect` on `aggregate`'s row.
+    fn entry(aggregate: &str, effect: &str) -> Entry {
+        serde_json::from_value(json!({
+            "command": "c1",
+            "data_capability": "test.write@1",
+            "by": "dm",
+            "partition": format!("{aggregate}/a1"),
+            "position": 1,
+            "based_on": { "version": 0 },
+            "payload": {},
+            "effect": effect,
+            "touches": [],
+            "mode": "overwrite",
+            "projection": { "confirmed": {}, "pending_ahead": [] },
+            "state": "queued",
+        }))
+        .expect("an entry")
+    }
+
+    #[test]
+    fn the_judge_leaves_another_aggregate_s_row_and_a_tombstone_alone() {
+        // A battlemap with no grid, at an opacity out of range: what a media
+        // may not be, and what another aggregate's row may well hold.
+        let state: BTreeMap<String, Value> = [
+            ("kind".to_string(), json!("battlemap")),
+            ("opacity".to_string(), json!(2)),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            Media.violated("Media", &state, &entry("Media", "update")),
+            ["grid-only-for-battlemap", "grid-values-range"]
+        );
+        assert!(
+            Media
+                .violated("Diffusion", &state, &entry("Diffusion", "update"))
+                .is_empty()
+        );
+        assert!(
+            Media
+                .violated("Media", &state, &entry("Media", "delete"))
+                .is_empty()
+        );
+    }
 
     #[test]
     fn grid_only_for_battlemap_knows_the_grid_fields_the_aggregate_declares() {
