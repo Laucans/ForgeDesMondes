@@ -1000,6 +1000,97 @@
     },
     {
       "business": [
+        "R16",
+        "R110",
+        "R111",
+        "sound-volume-range : le volume propre reste entre 0 et 1 ; le volume effectif vaut volume × volume global, ce qui garde le rapport entre deux sons",
+        "tags-normalized : les tags sont en minuscules, sans doublon ; le filtre par tag et la recherche sur le nom ne lisent que ces champs"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du son.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0007_sound.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne du son.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Sound.campaignId : onDelete cascade, onUpdate propagate) : supprimer une campagne supprime ses sons.",
+            "Indexée (sound_campaign_id) : les sons d'une campagne sont lus par elle."
+          ]
+        },
+        {
+          "business": [
+            "R110",
+            "R6"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom cherché (« porte qui grince ») et détectable au micro.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "file_path",
+          "nullable": false,
+          "purpose": "Chemin local du fichier audio.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R16",
+            "R110"
+          ],
+          "name": "tags",
+          "nullable": false,
+          "purpose": "Tags de filtrage (porte, taverne).",
+          "type": "text[]",
+          "technical": [
+            "'{}' par défaut.",
+            "CHECK tags_normalized (sound_tags_normalized(tags)) : une dimension, chaque tag en minuscules, aucun NULL, aucun doublon."
+          ]
+        },
+        {
+          "business": [
+            "R16",
+            "R111"
+          ],
+          "name": "volume",
+          "nullable": false,
+          "purpose": "Volume propre, entre 0 et 1.",
+          "type": "numeric(3,2)",
+          "technical": [
+            "1 par défaut : plein volume tant que le DM ne le bouge pas.",
+            "CHECK sound_volume_range (volume BETWEEN 0 AND 1).",
+            "Le volume effectif (volume × campaign.sound_master_volume, EffectiveVolume@1) n'est stocké nulle part : il est calculé à la lecture."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date d'ajout.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "sound",
+      "purpose": "Effet sonore tagué de la soundbox, avec son volume propre."
+    },
+    {
+      "business": [
         "R5"
       ],
       "fields": [

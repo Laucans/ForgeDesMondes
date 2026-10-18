@@ -26,6 +26,8 @@
 //! and their triggers judge it a second time. An element's terms reach
 //! [`Aliases`] once its projection is committed, and only then: the
 //! tables' aliases are the ones `alias-unique-in-campaign` judges against.
+//! So do its versions reach [`History`], as `entity_version` numbers them:
+//! the ones a restoration names.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -36,11 +38,13 @@ use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::postgres::PgStore;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
+use restore_entity_version::Kept;
 use serde_json::Value;
 use test_connection::NO_PROVIDER;
 
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
+use crate::history::History;
 use crate::versioning::{ENTITY, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
@@ -186,17 +190,37 @@ const ELEMENTS: &str = "SELECT jsonb_build_object(
     )::text
     FROM entity e";
 
+/// The versions the tables hold — the one `$1` names, or every one when it
+/// is null — oldest first.
+const VERSIONS: &str =
+    "SELECT entity_id::text, id::text, version_number, snapshot::text, diff::text
+    FROM entity_version
+    WHERE $1::text IS NULL OR id = ($1::text)::uuid
+    ORDER BY entity_id, version_number";
+
 /// A [`PgStore`] whose applied `AiSettings/1` and `Entity/<id>` writes reach
-/// the tables, keeping the elements' terms as the tables hold them.
+/// the tables, keeping the elements' terms and versions as the tables hold
+/// them.
 pub struct ProjectingStore {
     inner: PgStore,
     aliases: Arc<Aliases>,
+    history: Arc<History>,
 }
 
 impl ProjectingStore {
     /// The store over `inner`, keeping `aliases`.
-    pub const fn new(inner: PgStore, aliases: Arc<Aliases>) -> Self {
-        Self { inner, aliases }
+    pub fn new(inner: PgStore, aliases: Arc<Aliases>) -> Self {
+        Self {
+            inner,
+            aliases,
+            history: Arc::default(),
+        }
+    }
+
+    /// The same, keeping the elements' versions in `history`.
+    #[must_use]
+    pub fn keeping(self, history: Arc<History>) -> Self {
+        Self { history, ..self }
     }
 
     /// Projects what the engine holds and the tables do not, logging a
@@ -330,6 +354,9 @@ impl ProjectingStore {
                 Ok(()) => {
                     if let Some(element) = partition.strip_prefix(ENTITY) {
                         self.aliases.record(element, &row);
+                        let version = text(&row, "entityVersionId");
+                        self.versions(version.map(|version| (element, version)))
+                            .await;
                     }
                 }
                 Err(e) => {
@@ -369,6 +396,51 @@ impl ProjectingStore {
                 "projection: entity not read: {}",
                 e.as_db_error().map_or("-", |db| db.code().code())
             ),
+        }
+    }
+
+    /// Keeps the versions the tables hold as they number them: of an element,
+    /// the one just projected — `Some((element, version))` — and of every
+    /// element at a start, `None`. Tables not migrated yet hold none.
+    pub async fn versions(&self, projected: Option<(&str, &str)>) {
+        let version = projected.map(|(_, version)| version);
+        let rows = {
+            let client = self.inner.client().lock().await;
+            client.query(VERSIONS, &[&version]).await
+        };
+        let rows = match rows {
+            Ok(rows) => rows,
+            Err(e) => {
+                eprintln!(
+                    "projection: entity_version not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                );
+                return;
+            }
+        };
+        let mut elements: BTreeMap<String, Vec<Kept>> = BTreeMap::new();
+        for row in rows {
+            let json = |i: usize| serde_json::from_str::<Value>(row.get::<_, &str>(i)).ok();
+            let (Some(Value::Object(snapshot)), Some(Value::Array(diff))) = (json(3), json(4))
+            else {
+                continue;
+            };
+            let Ok(number) = u64::try_from(row.get::<_, i32>(2)) else {
+                continue;
+            };
+            let kept = Kept {
+                id: row.get(1),
+                number,
+                snapshot,
+                diff,
+            };
+            match projected {
+                Some((element, _)) => self.history.record(element, kept),
+                None => elements.entry(row.get(0)).or_default().push(kept),
+            }
+        }
+        for (element, versions) in elements {
+            self.history.replace(&element, versions);
         }
     }
 
@@ -502,8 +574,10 @@ impl Store for ProjectingStore {
         } else if element(write) {
             self.repair_elements().await;
         } else if let Some(element) = element_of(write) {
-            // A removal: tombstones are not projected, its terms go.
+            // A removal: tombstones are not projected, its terms and its
+            // versions go.
             self.aliases.forget(element);
+            self.history.forget(element);
         }
         Ok(version)
     }

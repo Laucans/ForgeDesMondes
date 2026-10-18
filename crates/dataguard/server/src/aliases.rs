@@ -62,7 +62,7 @@ impl Terms {
 
 /// An id, parsed: the 128 bits a uuid written 8-4-4-4-12 in hex
 /// digits, in either case, names.
-fn parsed(id: &str) -> Option<u128> {
+pub fn parsed(id: &str) -> Option<u128> {
     uuid(id)
         .then(|| u128::from_str_radix(&id.replace('-', ""), 16).ok())
         .flatten()
