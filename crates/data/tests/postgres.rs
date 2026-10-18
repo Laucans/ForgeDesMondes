@@ -503,3 +503,40 @@ async fn of_rows_sharing_a_key_the_first_is_inserted() {
     assert_eq!(labels, ["first"]);
     s.drop().await;
 }
+
+#[tokio::test]
+async fn an_identifier_may_hold_digits_and_underscores_and_nothing_else() {
+    let mut s = Scratch::new("names").await;
+    s.file(
+        "01_names.sql",
+        "CREATE TABLE seen_2 (id_1 int PRIMARY KEY, label_a text NOT NULL);",
+    );
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    let table = data::Table {
+        name: "seen_2",
+        key: "id_1",
+        columns: &["id_1", "label_a"],
+        rows: vec![json!({ "id_1": 1, "label_a": "one" })],
+    };
+    let added = data::insert_missing(&mut s.client, &[table])
+        .await
+        .expect("digits and underscores are plain");
+    assert_eq!(added, 1);
+
+    for refused in ["", "Seen", "seen-2", "seen 2", "sé"] {
+        let table = data::Table {
+            name: refused,
+            key: "id_1",
+            columns: &["id_1"],
+            rows: Vec::new(),
+        };
+        let error = data::insert_missing(&mut s.client, &[table])
+            .await
+            .expect_err("not a plain identifier");
+        assert!(
+            matches!(error, Error::Identifier(_)),
+            "{refused:?}: {error:?}"
+        );
+    }
+    s.drop().await;
+}

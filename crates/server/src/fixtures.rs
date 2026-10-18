@@ -895,4 +895,52 @@ mod tests {
         let version = rows(&plan, "entity_version");
         assert_eq!(version[0]["snapshot"]["aliases"], json!(["la nuit"]));
     }
+
+    #[test]
+    fn the_campaign_a_fixture_describes_keeps_its_dates_and_cover_fields() {
+        let plan = mock();
+        let cendres = rows(&plan, "campaign")
+            .into_iter()
+            .find(|c| c["id"] == id("campaign", "cendres-valombre"))
+            .expect("a campaign");
+        assert_eq!(cendres["kind"], "campagne");
+        assert_eq!(cendres["art"], "ember");
+        assert_eq!(cendres["glyph"], "V");
+        assert_eq!(cendres["created_at"], "2026-08-20T00:00:00Z");
+        assert_eq!(cendres["last_exported_at"], "2026-10-04T00:00:00Z");
+        // The campaigns no fixture dates take the table's default.
+        let oneshot = rows(&plan, "campaign")
+            .into_iter()
+            .find(|c| c["id"] == id("campaign", "nuit-carnaval"))
+            .expect("a campaign");
+        assert_eq!(oneshot["kind"], "oneshot");
+        assert!(oneshot["created_at"].is_null(), "{oneshot}");
+        let undated = plan
+            .tables
+            .iter()
+            .find(|t| t.name == "campaign" && t.rows.contains(oneshot))
+            .expect("a table");
+        assert!(
+            !undated.columns.contains(&"created_at"),
+            "the column is left to its default"
+        );
+    }
+
+    #[test]
+    fn a_day_that_is_not_a_day_does_not_map() {
+        let details = json!({ "id": "c", "name": "C", "type": "campagne",
+            "createdAt": "20 août 2026", "lastExport": null });
+        let dir = folder(
+            "day",
+            &[("campaign.getCampaign.json", &details.to_string())],
+        );
+        let plan = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(plan.loaded.is_empty(), "{:?}", plan.loaded);
+        assert!(
+            plan.skipped[0].1.contains("is not a day"),
+            "{:?}",
+            plan.skipped
+        );
+    }
 }
