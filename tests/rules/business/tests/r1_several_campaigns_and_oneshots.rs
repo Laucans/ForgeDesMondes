@@ -8,10 +8,17 @@ use common::*;
 // then: les trois apparaissent avec leur couverture, le oneshot n'a qu'une séance, et aucun compte n'est demandé.
 #[test]
 fn r1_several_campaigns_and_oneshots() {
-    // The oneshot's single session is counted from the Session aggregate.
+    // The oneshot's single session is counted from the Session aggregate, so
+    // the rule waits for the units that create and list sessions, not only
+    // for the aggregate's table.
     rule(
         "R1",
-        &["capability:campaign.listCampaigns", "aggregate:Session"],
+        &[
+            "capability:campaign.listCampaigns",
+            "aggregate:Session",
+            "capability:session.listSessions",
+            "data-capability:session.createSession",
+        ],
         |s| {
             // No credential is sent: a read that is answered asks for no account.
             let data = s.read("campaign.listCampaigns", json!({}))?;
