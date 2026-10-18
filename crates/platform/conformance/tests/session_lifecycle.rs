@@ -87,17 +87,15 @@ fn every_pair_of_statuses_has_a_case() {
 
 #[test]
 fn a_closed_session_takes_no_journal_line_and_the_others_do() {
-    let outputs: Vec<(String, Value)> = fixtures_of(ID)
-        .cases
-        .into_iter()
-        .map(|case| (case.input["status"].to_string(), case.output))
-        .collect();
-    assert!(!outputs.is_empty());
-    for (status, output) in outputs {
+    let cases = fixtures_of(ID).cases;
+    assert!(!cases.is_empty());
+    for case in cases {
+        let status = case.input["status"].as_str().expect("a status");
         assert_eq!(
-            output["acceptsJournalLine"],
-            status != "\"closed\"",
-            "status {status}"
+            case.output["acceptsJournalLine"],
+            status != "closed",
+            "{}",
+            case.name
         );
     }
 }
