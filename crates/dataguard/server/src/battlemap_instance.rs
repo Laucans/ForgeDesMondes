@@ -206,6 +206,12 @@ fn clears(entry: &Entry, field: &str) -> bool {
     entry.effect != Effect::Insert && entry.payload.get(field).is_some_and(Value::is_null)
 }
 
+/// Whether `field` is, when the command applies, what its author saw: the
+/// queue matched it against what was ahead, and nothing was.
+fn unmoved_since_seen(entry: &Entry, field: &str) -> bool {
+    entry.projection.pending_ahead.is_empty() && entry.fields().iter().any(|own| own == field)
+}
+
 /// Whether the command writes `field`, by its payload or by a touch.
 fn writes(entry: &Entry, field: &str) -> bool {
     entry.payload.contains_key(field)
@@ -377,8 +383,8 @@ fn hidden_keeps_rank(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
 }
 
 /// A combat starts at round 1. « Suivant » takes it one round further at
-/// most, when it lands on a participant, and never back below the round its
-/// author saw; an ended combat turns no more. Which participant is next
+/// most, when it lands on a participant, and never back; an ended combat
+/// turns no more. Which participant is next
 /// reads the combat's entries.
 fn next_turn(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     if !holds_any(state, &COMBAT) {
@@ -387,18 +393,22 @@ fn next_turn(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let Some(round) = integer(value(state, "round")).filter(|round| *round >= 1) else {
         return false;
     };
-    let seen = integer(value(&entry.projection.confirmed, "round"));
     // A command that writes no round leaves the one commands ahead moved
-    // to. A relative one steps by its own number; an absolute one is judged
-    // against the round its author saw; a round written on a combat its
-    // author never saw starts it.
-    let step = match (entry.payload.contains_key("round"), seen) {
-        (false, _) => 0,
-        (true, None) => return round == 1,
-        (true, Some(_)) if entry.mode == Mode::Relative => {
-            integer(value(&entry.payload, "round")).unwrap_or(0)
-        }
-        (true, Some(seen)) => round - seen,
+    // to. A relative one steps by its own number, on the round as it is,
+    // whatever its author saw. An absolute one replaces the round the judge
+    // no longer sees: it is judged against the round its author saw, only
+    // when nothing queued ahead of it could have moved it since; a round
+    // written on a combat its author never saw starts it.
+    let step = if !entry.payload.contains_key("round") {
+        0
+    } else if entry.mode == Mode::Relative {
+        integer(value(&entry.payload, "round")).unwrap_or(0)
+    } else if !unmoved_since_seen(entry, "round") {
+        return false;
+    } else if let Some(seen) = integer(value(&entry.projection.confirmed, "round")) {
+        round - seen
+    } else {
+        return round == 1;
     };
     // The row as it is: an end queued ahead of this command, or written by
     // it, is in it.

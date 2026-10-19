@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 /// The test-only DataCapabilities: their name, their effect, the payload
 /// field naming the row, the fields they touch, their mode.
-const MANIFESTS: [(&str, &str, &str, &[&str], &str); 16] = [
+const MANIFESTS: [(&str, &str, &str, &[&str], &str); 17] = [
     (
         "test.openInstance",
         "insert",
@@ -91,6 +91,15 @@ const MANIFESTS: [(&str, &str, &str, &[&str], &str); 16] = [
     // « Suivant »: a step of the round, relative.
     ("test.nextTurn", "update", "combatId", &[], "relative"),
     ("test.upsertCombat", "upsert", "combatId", &[], "overwrite"),
+    // A turn that says it moves the current participant alone, and writes
+    // the round too.
+    (
+        "test.moveCurrent",
+        "update",
+        "combatId",
+        &["BattlemapInstance.currentEntryId"],
+        "overwrite",
+    ),
 ];
 
 /// A campaign's fields changed: another aggregate, with fields of the same
@@ -972,6 +981,68 @@ async fn next_turn_written_whole_steps_one_round_at_most_and_a_new_combat_starts
     applied(&results[0]);
     rejected_by(&results[1], &["next-turn"]);
     assert_eq!(held(&rows, other, "round").await, 1);
+}
+
+#[tokio::test]
+async fn next_turn_written_whole_behind_a_step_never_moves_the_round_back() {
+    let (engine, rows) = tavern().await;
+    // Two « Suivant » take the round to 3; a round written whole, queued
+    // behind them on the 1 its author saw, would take it back to 2.
+    for current in [ENTREE_MORLOX_1, ENTREE_ELOWEN] {
+        queued(
+            &engine,
+            "test.nextTurn",
+            json!({ "combatId": COMBAT, "round": 1, "currentEntryId": current }),
+        )
+        .await;
+    }
+    queued(
+        &engine,
+        "test.updateCombat",
+        json!({ "combatId": COMBAT, "round": 2, "currentEntryId": ENTREE_MORLOX_1 }),
+    )
+    .await;
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 3, "{results:?}");
+    applied(&results[0]);
+    applied(&results[1]);
+    rejected_by(&results[2], &["next-turn"]);
+    assert_eq!(held(&rows, COMBAT, "round").await, 3);
+    // A round its touches do not name was matched against nothing ahead.
+    rejected_by(
+        &written(
+            &engine,
+            "test.moveCurrent",
+            json!({ "combatId": COMBAT, "round": 4, "currentEntryId": ENTREE_MORLOX_1 }),
+        )
+        .await,
+        &["next-turn"],
+    );
+    assert_eq!(held(&rows, COMBAT, "round").await, 3);
+}
+
+#[tokio::test]
+async fn next_turn_steps_a_combat_whose_start_was_queued_ahead() {
+    let (engine, rows) = tavern().await;
+    // « Suivant » clicked while the launch still waits: it steps the round
+    // the launch starts.
+    let other = "c0000000-0000-4000-8000-000000000002";
+    queued(
+        &engine,
+        "test.startCombat",
+        with(combat(), "combatId", json!(other)),
+    )
+    .await;
+    queued(
+        &engine,
+        "test.nextTurn",
+        json!({ "combatId": other, "round": 1, "currentEntryId": ENTREE_MORLOX_1 }),
+    )
+    .await;
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 2, "{results:?}");
+    results.iter().for_each(applied);
+    assert_eq!(held(&rows, other, "round").await, 2);
 }
 
 #[tokio::test]
