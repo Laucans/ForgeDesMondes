@@ -53,6 +53,7 @@ use ports_llm::Llm;
 mod ai_settings;
 mod aliases;
 mod campaign;
+mod diffusion;
 mod entity;
 mod exports;
 mod history;
@@ -242,6 +243,7 @@ impl Invariants for Product {
             &note_import::NoteImport,
             &session::Session,
             &sound::Sound,
+            &diffusion::Diffusion,
             &sound_playback::SoundPlayback,
             &suggestion::Suggestion,
         ];
