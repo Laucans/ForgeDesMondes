@@ -45,6 +45,6 @@ list-players = { path = "../../campaign/capabilities/list-players" }
 # --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
-save-entity = { path = "../data-capabilities/save-entity" }
-restore-entity-version = { path = "../data-capabilities/restore-entity-version" }
-export-campaign = { path = "../data-capabilities/export-campaign" }
+save-entity = { path = "../../campaign/data-capabilities/save-entity" }
+restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
+export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
