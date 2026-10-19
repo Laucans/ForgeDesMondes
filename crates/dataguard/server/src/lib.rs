@@ -54,6 +54,7 @@ mod ai_settings;
 mod aliases;
 mod battlemap_instance;
 mod campaign;
+mod diffusion;
 mod entity;
 mod exports;
 mod history;
@@ -62,7 +63,10 @@ mod note_import;
 mod player;
 mod projection;
 mod reads;
+mod session;
 mod sound;
+mod sound_playback;
+mod suggestion;
 mod versioning;
 
 pub use reads::Reads;
@@ -231,15 +235,19 @@ impl Invariants for Product {
         state: &std::collections::BTreeMap<String, serde_json::Value>,
         entry: &Entry,
     ) -> Vec<String> {
-        let judges: [&dyn Invariants; 8] = [
+        let judges: [&dyn Invariants; 12] = [
             &ai_settings::AiSettings,
             &campaign::Campaign,
             &player::Player,
             &self.entity,
             &media::Media,
             &note_import::NoteImport,
+            &session::Session,
             &sound::Sound,
             &battlemap_instance::BattlemapInstance,
+            &diffusion::Diffusion,
+            &sound_playback::SoundPlayback,
+            &suggestion::Suggestion,
         ];
         judges
             .iter()
