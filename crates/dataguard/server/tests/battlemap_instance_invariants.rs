@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 /// The test-only DataCapabilities: their name, their effect, the payload
 /// field naming the row, the fields they touch, their mode.
-const MANIFESTS: [(&str, &str, &str, &[&str], &str); 13] = [
+const MANIFESTS: [(&str, &str, &str, &[&str], &str); 16] = [
     (
         "test.openInstance",
         "insert",
@@ -64,6 +64,14 @@ const MANIFESTS: [(&str, &str, &str, &[&str], &str); 13] = [
         &["BattlemapInstance.visible", "BattlemapInstance.rank"],
         "overwrite",
     ),
+    // A reorder of an entry that says it hides its token too.
+    (
+        "test.rerankAndHide",
+        "update",
+        "initiativeEntryId",
+        &["BattlemapInstance.rank", "BattlemapInstance.visible"],
+        "overwrite",
+    ),
     // A reset that says it redraws the battlemap's grid.
     (
         "test.resetGrid",
@@ -72,8 +80,17 @@ const MANIFESTS: [(&str, &str, &str, &[&str], &str); 13] = [
         &["BattlemapInstance.resetAt", "Media.hexSizePx"],
         "overwrite",
     ),
+    // A rename that says it renames the battlemap too.
+    (
+        "test.renameWithMedia",
+        "update",
+        "tokenId",
+        &["BattlemapInstance.name", "Media.name"],
+        "overwrite",
+    ),
     // « Suivant »: a step of the round, relative.
     ("test.nextTurn", "update", "combatId", &[], "relative"),
+    ("test.upsertCombat", "upsert", "combatId", &[], "overwrite"),
 ];
 
 /// A campaign's fields changed: another aggregate, with fields of the same
@@ -319,6 +336,16 @@ async fn instance_isolated_never_writes_the_battlemap_nor_its_grid() {
         .await,
         &["instance-isolated"],
     );
+    // Nor another aggregate's field of the same name as one of its own.
+    rejected_by(
+        &written(
+            &engine,
+            "test.renameWithMedia",
+            json!({ "tokenId": MORLOX_1, "name": "Morlox l'Ancien" }),
+        )
+        .await,
+        &["instance-isolated"],
+    );
     // Its own fields, it writes.
     applied(
         &written(
@@ -383,6 +410,7 @@ async fn instance_isolated_keeps_tokens_combat_and_initiative_on_their_own_insta
     );
 }
 
+// Judged on one row: at most one instance per scene is `UNIQUE (scene_id)` (#266).
 #[tokio::test]
 async fn one_instance_per_scene_names_its_battlemap_session_and_scene_and_keeps_them() {
     let (engine, _) = engine().await;
@@ -414,6 +442,7 @@ async fn one_instance_per_scene_names_its_battlemap_session_and_scene_and_keeps_
     );
 }
 
+// Judged on one row: the roster across tokens is migration 0013's (#266).
 #[tokio::test]
 async fn token_roster_drops_a_token_for_one_character_on_one_instance() {
     let (engine, rows) = tavern().await;
@@ -441,6 +470,7 @@ async fn token_roster_drops_a_token_for_one_character_on_one_instance() {
     assert_eq!(held(&rows, JETON_ELOWEN, "characterId").await, ELOWEN);
 }
 
+// Judged on one row: a number unique per character is `UNIQUE (instance_id, character_id, number)` (#266).
 #[tokio::test]
 async fn multi_drop_numbering_counts_from_1_and_a_rename_keeps_the_number() {
     let (engine, rows) = tavern().await;
@@ -505,6 +535,7 @@ async fn multi_drop_numbering_counts_from_1_and_a_rename_keeps_the_number() {
     }
 }
 
+// Judged on one row: telling a PC from an NPC on the token is migration 0013's (#266).
 #[tokio::test]
 async fn pj_hp_not_tracked_leaves_a_pc_without_hp_and_an_npc_within_its_maximum() {
     let (engine, _) = tavern().await;
@@ -558,16 +589,20 @@ async fn hp_change_one_token_touches_the_targeted_token_alone() {
     // The other Morlox keeps its HP.
     assert_eq!(held(&rows, MORLOX_1, "hpCurrent").await, 2);
     assert_eq!(held(&rows, MORLOX_2, "hpCurrent").await, 7);
-    // HP are a token's: not the instance's, nor the combat's.
-    rejected_among(
-        &written(
-            &engine,
-            "test.updateInstance",
-            json!({ "battlemapInstanceId": INSTANCE, "hpCurrent": 2, "hpMax": 7 }),
-        )
-        .await,
-        "hp-change-one-token",
-    );
+    // HP are a token's: not the instance's, nor the combat's — either of
+    // the two, or both.
+    for hp in [
+        json!({ "hpCurrent": 2 }),
+        json!({ "hpMax": 7 }),
+        json!({ "hpCurrent": 2, "hpMax": 7 }),
+    ] {
+        let mut row = hp;
+        row["battlemapInstanceId"] = json!(INSTANCE);
+        rejected_among(
+            &written(&engine, "test.updateInstance", row).await,
+            "hp-change-one-token",
+        );
+    }
 }
 
 #[tokio::test]
@@ -768,16 +803,18 @@ async fn hidden_keeps_rank_moves_no_rank_when_a_token_is_hidden_or_shown() {
         );
     }
     assert_eq!(held(&rows, ENTREE_MORLOX_1, "rank").await, 2);
-    // A reveal that reorders, by its payload or by its touches.
-    rejected_among(
+    // A reorder of the entry that hides its token too, from the entry's
+    // row or from the token's.
+    rejected_by(
         &written(
             &engine,
-            "test.updateToken",
-            json!({ "tokenId": MORLOX_1, "visible": false, "rank": 1 }),
+            "test.rerankAndHide",
+            json!({ "initiativeEntryId": ENTREE_MORLOX_1, "rank": 1 }),
         )
         .await,
-        "hidden-keeps-rank",
+        &["hidden-keeps-rank"],
     );
+    assert_eq!(held(&rows, ENTREE_MORLOX_1, "rank").await, 2);
     rejected_by(
         &written(
             &engine,
@@ -814,6 +851,7 @@ async fn hidden_keeps_rank_moves_no_rank_when_a_token_is_hidden_or_shown() {
     }
 }
 
+// Judged on one row: skipping the dead reads other rows, migration 0013's (#266).
 #[tokio::test]
 async fn next_turn_starts_at_round_1_and_steps_one_round_at_most() {
     let (engine, rows) = tavern().await;
@@ -883,6 +921,60 @@ async fn next_turn_starts_at_round_1_and_steps_one_round_at_most() {
 }
 
 #[tokio::test]
+async fn next_turn_written_whole_steps_one_round_at_most_and_a_new_combat_starts_at_1() {
+    let (engine, rows) = tavern().await;
+    // Written whole, one round further from the one seen.
+    applied(
+        &written(
+            &engine,
+            "test.updateCombat",
+            json!({ "combatId": COMBAT, "round": 2, "currentEntryId": ENTREE_MORLOX_1 }),
+        )
+        .await,
+    );
+    // Never fifty.
+    rejected_by(
+        &written(
+            &engine,
+            "test.updateCombat",
+            json!({ "combatId": COMBAT, "round": 52, "currentEntryId": ENTREE_ELOWEN }),
+        )
+        .await,
+        &["next-turn"],
+    );
+    assert_eq!(held(&rows, COMBAT, "round").await, 2);
+    // A round written on a combat its author never saw starts it at 1: an
+    // upsert that creates it, or a command queued before it started.
+    let other = "c0000000-0000-4000-8000-000000000002";
+    rejected_by(
+        &written(
+            &engine,
+            "test.upsertCombat",
+            with(with(combat(), "combatId", json!(other)), "round", json!(7)),
+        )
+        .await,
+        &["next-turn"],
+    );
+    queued(
+        &engine,
+        "test.startCombat",
+        with(combat(), "combatId", json!(other)),
+    )
+    .await;
+    queued(
+        &engine,
+        "test.updateCombat",
+        json!({ "combatId": other, "round": 7, "currentEntryId": ENTREE_ELOWEN }),
+    )
+    .await;
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 2, "{results:?}");
+    applied(&results[0]);
+    rejected_by(&results[1], &["next-turn"]);
+    assert_eq!(held(&rows, other, "round").await, 1);
+}
+
+#[tokio::test]
 async fn next_turn_queued_twice_steps_twice_and_never_past_an_end_queued_ahead() {
     let (engine, rows) = tavern().await;
     // The DM clicks « Suivant » twice at the wrap: both wait, both land.
@@ -915,10 +1007,17 @@ async fn next_turn_queued_twice_steps_twice_and_never_past_an_end_queued_ahead()
     assert_eq!(results.len(), 2, "{results:?}");
     applied(&results[0]);
     rejected_by(&results[1], &["next-turn"]);
-    // Ended, the combat turns no more.
+    // Ended, the combat turns no more, even by a command that writes its
+    // end again.
     for row in [
         json!({ "combatId": COMBAT, "round": 4, "currentEntryId": ENTREE_MORLOX_1 }),
         json!({ "combatId": COMBAT, "currentEntryId": ENTREE_MORLOX_1 }),
+        json!({
+            "combatId": COMBAT,
+            "endedAt": "2026-10-18T20:45:00Z",
+            "round": 4,
+            "currentEntryId": ENTREE_MORLOX_1,
+        }),
     ] {
         rejected_by(
             &written(&engine, "test.updateCombat", row).await,
@@ -928,6 +1027,7 @@ async fn next_turn_queued_twice_steps_twice_and_never_past_an_end_queued_ahead()
     assert_eq!(held(&rows, COMBAT, "currentEntryId").await, ENTREE_ELOWEN);
 }
 
+// Judged on one row: one combat running per instance is a partial unique index (#266).
 #[tokio::test]
 async fn one_active_combat_starts_on_an_instance_and_stays_ended() {
     let (engine, _) = tavern().await;
@@ -970,6 +1070,20 @@ async fn one_active_combat_starts_on_an_instance_and_stays_ended() {
             &["one-active-combat"],
         );
     }
+    // A command queued while it ran, landing after its end, reopens it
+    // no more.
+    let (engine, rows) = tavern().await;
+    for row in [
+        json!({ "combatId": COMBAT, "endedAt": "2026-10-18T20:45:00Z" }),
+        json!({ "combatId": COMBAT, "endedAt": null }),
+    ] {
+        queued(&engine, "test.updateCombat", row).await;
+    }
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 2, "{results:?}");
+    applied(&results[0]);
+    rejected_by(&results[1], &["one-active-combat"]);
+    assert_eq!(held(&rows, COMBAT, "endedAt").await, "2026-10-18T20:45:00Z");
     // The next one is a combat of its own.
     applied(
         &written(
@@ -992,6 +1106,22 @@ async fn one_active_combat_starts_on_an_instance_and_stays_ended() {
 #[tokio::test]
 async fn state_persisted_reset_keeps_the_last_reset_and_removes_what_it_clears() {
     let (engine, rows) = tavern().await;
+    // A command queued before the first reset, landing after it, clears it
+    // no more.
+    for row in [
+        json!({ "battlemapInstanceId": INSTANCE, "resetAt": "2026-10-18T21:30:00Z" }),
+        json!({ "battlemapInstanceId": INSTANCE, "resetAt": null }),
+    ] {
+        queued(&engine, "test.updateInstance", row).await;
+    }
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 2, "{results:?}");
+    applied(&results[0]);
+    rejected_by(&results[1], &["state-persisted-reset"]);
+    assert_eq!(
+        held(&rows, INSTANCE, "resetAt").await,
+        "2026-10-18T21:30:00Z"
+    );
     applied(
         &written(
             &engine,

@@ -17,8 +17,10 @@
 //! What the row held before is the one the command saw when it was queued
 //! (`projection.confirmed`): commands queued ahead of it may have changed
 //! the row since. A field the judge keeps never changes once set, so that
-//! view can only miss a value a command ahead set first; a round, which
-//! moves, is judged by the command's own step and against the row as it is.
+//! view can only miss a value a command ahead set first — and a command
+//! that writes such a field back to null is refused whatever it saw; a
+//! round, which moves, is judged by the command's own step and against the
+//! row as it is.
 
 use std::collections::BTreeMap;
 
@@ -196,6 +198,12 @@ fn same(a: &Value, b: &Value) -> bool {
 fn kept(state: &BTreeMap<String, Value>, entry: &Entry, field: &str) -> bool {
     let before = value(&entry.projection.confirmed, field);
     before.is_null() || same(before, value(state, field))
+}
+
+/// Whether the command writes `field` back to null on a row it does not
+/// create: the row it lands on may hold a value its author never saw.
+fn clears(entry: &Entry, field: &str) -> bool {
+    entry.effect != Effect::Insert && entry.payload.get(field).is_some_and(Value::is_null)
 }
 
 /// Whether the command writes `field`, by its payload or by a touch.
@@ -379,26 +387,30 @@ fn next_turn(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let Some(round) = integer(value(state, "round")).filter(|round| *round >= 1) else {
         return false;
     };
-    if entry.effect == Effect::Insert {
-        return round == 1;
-    }
-    let turns = writes(entry, "round") || writes(entry, "currentEntryId");
-    // The row as it is: an end queued ahead of this command is in it.
-    let ended = !value(state, "endedAt").is_null() && !writes(entry, "endedAt");
     let seen = integer(value(&entry.projection.confirmed, "round"));
-    // A relative command steps by its own number; an absolute one is judged
-    // against the round its author saw, which commands ahead may have moved
-    // on since.
-    let step = if entry.mode == Mode::Relative {
-        integer(value(&entry.payload, "round")).unwrap_or(0)
-    } else {
-        seen.map_or(0, |seen| round - seen)
+    // A command that writes no round leaves the one commands ahead moved
+    // to. A relative one steps by its own number; an absolute one is judged
+    // against the round its author saw; a round written on a combat its
+    // author never saw starts it.
+    let step = match (entry.payload.contains_key("round"), seen) {
+        (false, _) => 0,
+        (true, None) => return round == 1,
+        (true, Some(_)) if entry.mode == Mode::Relative => {
+            integer(value(&entry.payload, "round")).unwrap_or(0)
+        }
+        (true, Some(seen)) => round - seen,
     };
-    let stepped = match entry.mode {
-        Mode::Relative => (0..=1).contains(&step),
-        _ => step >= 0,
-    };
-    stepped && (step == 0 || !value(state, "currentEntryId").is_null()) && !(ended && turns)
+    // The row as it is: an end queued ahead of this command, or written by
+    // it, is in it.
+    let ended = !value(state, "endedAt").is_null();
+    let turns = entry.payload.contains_key("round")
+        || entry
+            .payload
+            .get("currentEntryId")
+            .is_some_and(|current| !current.is_null());
+    (0..=1).contains(&step)
+        && (step == 0 || !value(state, "currentEntryId").is_null())
+        && !(ended && turns)
 }
 
 /// A combat starts on one instance and, once ended, stays ended: reopening
@@ -409,15 +421,14 @@ fn one_active_combat(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
         || (!value(state, "combatInstanceId").is_null()
             && !value(state, "startedAt").is_null()
             && kept(state, entry, "startedAt")
-            && kept(state, entry, "endedAt"))
+            && kept(state, entry, "endedAt")
+            && !clears(entry, "endedAt"))
 }
 
 /// What a command persists is what the row reads after: the instance keeps
 /// its creation and its last reset, which a new one replaces but never
 /// clears; a token's conditions are a list of names, empty when it has none.
 fn state_persisted_reset(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-    let reset_kept = value(&entry.projection.confirmed, "resetAt").is_null()
-        || !value(state, "resetAt").is_null();
     let conditions = match value(state, "conditions") {
         Value::Null => !holds_any(state, &TOKEN),
         Value::Array(names) => names
@@ -425,7 +436,7 @@ fn state_persisted_reset(state: &BTreeMap<String, Value>, entry: &Entry) -> bool
             .all(|name| name.as_str().is_some_and(|name| !name.trim().is_empty())),
         _ => false,
     };
-    reset_kept && kept(state, entry, "createdAt") && conditions
+    !clears(entry, "resetAt") && kept(state, entry, "createdAt") && conditions
 }
 
 /// A token stands on one hex, its axial (q, r), which both views read: a
