@@ -64,6 +64,7 @@ mod reads;
 mod session;
 mod sound;
 mod sound_playback;
+mod suggestion;
 mod versioning;
 
 pub use reads::Reads;
@@ -242,6 +243,7 @@ impl Invariants for Product {
             &session::Session,
             &sound::Sound,
             &sound_playback::SoundPlayback,
+            &suggestion::Suggestion,
         ];
         judges
             .iter()
