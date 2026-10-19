@@ -54,7 +54,13 @@
         "campaign.getCampaign",
         "campaign.listEntityVersions",
         "campaign.restoreEntityVersion",
-        "campaign.saveEntity"
+        "campaign.saveEntity",
+        "campaign.getEntity",
+        "campaign.listCampaigns",
+        "campaign.listCharacters",
+        "campaign.listEvents",
+        "campaign.listPlaces",
+        "campaign.listPlayers"
       ],
       "consumes": [],
       "depends_on": []
@@ -69,7 +75,6 @@
         "GridSettings",
         "HexGrid@1",
         "MediaLibrary",
-        "campaign.listPlaces",
         "media.getBattlemap",
         "media.listMedia",
         "media.saveGridSettings",
@@ -81,7 +86,8 @@
         "Campaign",
         "Entity",
         "Media",
-        "session.addPlaceToSession"
+        "session.addPlaceToSession",
+        "campaign.listPlaces"
       ],
       "depends_on": [
         18,
@@ -101,7 +107,6 @@
         "SessionLifecycle@1",
         "SessionList",
         "campaign.createCampaign",
-        "campaign.listCharacters",
         "session.addPlaceToSession",
         "session.addPresentCharacter",
         "session.addScene",
@@ -120,7 +125,8 @@
         "media.setMediaPlace",
         "media.uploadMedia",
         "session.listScenes",
-        "table.createBattlemapInstance"
+        "table.createBattlemapInstance",
+        "campaign.listCharacters"
       ],
       "depends_on": [
         18,
@@ -170,9 +176,6 @@
         "StatBlock@1",
         "TokenAppearance@1",
         "ai.proposeCharacter",
-        "campaign.getEntity",
-        "campaign.listEvents",
-        "campaign.listPlayers",
         "dndbeyond.importCharacter",
         "dndbeyond.resyncCharacter"
       ],
@@ -182,7 +185,10 @@
         "campaign.listPlaces",
         "campaign.saveEntity",
         "media.listMedia",
-        "soundbox.listSounds"
+        "soundbox.listSounds",
+        "campaign.getEntity",
+        "campaign.listEvents",
+        "campaign.listPlayers"
       ],
       "depends_on": [
         18,
@@ -413,8 +419,7 @@
       "produces": [
         "CampaignArchive@1",
         "CampaignList",
-        "campaign.importCampaign",
-        "campaign.listCampaigns"
+        "campaign.importCampaign"
       ],
       "consumes": [
         "Campaign",
@@ -424,7 +429,8 @@
         "Session",
         "Sound",
         "campaign.createCampaign",
-        "campaign.exportCampaign"
+        "campaign.exportCampaign",
+        "campaign.listCampaigns"
       ],
       "depends_on": [
         18,
@@ -777,7 +783,7 @@
     },
     "campaign.getEntity": {
       "kind": "capability",
-      "producer": 22,
+      "producer": 18,
       "state": "mocked",
       "version": 1
     },
@@ -789,13 +795,13 @@
     },
     "campaign.listCampaigns": {
       "kind": "capability",
-      "producer": 30,
+      "producer": 18,
       "state": "mocked",
       "version": 1
     },
     "campaign.listCharacters": {
       "kind": "capability",
-      "producer": 20,
+      "producer": 18,
       "state": "mocked",
       "version": 1
     },
@@ -813,7 +819,7 @@
     },
     "campaign.listEvents": {
       "kind": "capability",
-      "producer": 22,
+      "producer": 18,
       "state": "mocked",
       "version": 1
     },
@@ -825,13 +831,13 @@
     },
     "campaign.listPlaces": {
       "kind": "capability",
-      "producer": 19,
+      "producer": 18,
       "state": "mocked",
       "version": 1
     },
     "campaign.listPlayers": {
       "kind": "capability",
-      "producer": 22,
+      "producer": 18,
       "state": "mocked",
       "version": 1
     },
