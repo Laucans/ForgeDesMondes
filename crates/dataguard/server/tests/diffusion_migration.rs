@@ -4,19 +4,29 @@
 //! column of `diffusion`, every relation it declares is a foreign key that
 //! deletes and updates as it says, the table holds one row per session
 //! (single-diffusion-source), stores no window height (window-proportional)
-//! and no background outside the three kinds (base-coherent). What the rest
-//! of base-coherent and window-fields-together say of a row, the engine
-//! judges (`tests/diffusion_invariants.rs`): the table does not judge them
+//! and no background outside the three kinds (base-coherent). What else
+//! base-coherent, window-fields-together and window-proportional say of a
+//! row, the DataGuard judges: rows the table holds, read back, are judged
+//! here by the engine as `plant()` binds it — the table does not judge them
 //! again. Each test works in a scratch database of its own, migrated by the
 //! Data layer, dropped when it ends.
 
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use dataguard_server::{MEMORY, plant};
+use harness_dataguard::api::Submission;
+use harness_dataguard::command::State;
+use harness_dataguard::guard::Caller;
+use harness_dataguard::manifest::DataCapability;
+use serde_json::{Value, json};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
 const AGGREGATE: &str = include_str!("../../aggregates/Diffusion/aggregate.json");
+
+/// A session's player view written whole, under the session its payload
+/// names: test-only, no DataCapability of the product writes a diffusion yet.
+const SHOW: &str = r#"{"dataCapability":"test.showOnPlayerView","owner":"dataguard","version":1,"effect":"upsert","target":{"aggregate":"Diffusion","id":"$sessionId"},"mode":"overwrite","callableBy":["*"]}"#;
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 /// Valombre's battlemap.
@@ -64,6 +74,59 @@ fn column(field: &str) -> String {
         out.push(c.to_ascii_lowercase());
         out
     })
+}
+
+/// A column's field: `base_media_id` is `baseMediaId`.
+fn field(column: &str) -> String {
+    let mut words = column.split('_');
+    let first = words.next().unwrap_or_default().to_string();
+    words.fold(first, |mut out, word| {
+        let mut chars = word.chars();
+        if let Some(c) = chars.next() {
+            out.push(c.to_ascii_uppercase());
+            out.extend(chars);
+        }
+        out
+    })
+}
+
+/// The invariants the DataGuard, as `plant()` binds it, finds `row` breaks
+/// when a fresh engine is asked to write it whole: none when it applies.
+async fn judged(row: Value) -> Vec<String> {
+    let engine = plant(MEMORY)
+        .await
+        .expect("the in-memory engine")
+        .with_data_capability(DataCapability::parse(SHOW).expect("contract F"));
+    let Value::Object(payload) = row else {
+        panic!("a row is an object");
+    };
+    engine
+        .submit(Submission {
+            data_capability: "test.showOnPlayerView".to_string(),
+            payload: payload.into_iter().collect(),
+            target_id: None,
+            based_on: None,
+            idempotency_key: None,
+            caller: Caller {
+                by: "dm".to_string(),
+                from: "live.player-stage".to_string(),
+                permissions: Vec::new(),
+                // The critical fields' review is not what these tests judge.
+                roles: vec!["role:approver".to_string()],
+            },
+        })
+        .await
+        .expect("queued");
+    let mut applied = engine.run_once().await.expect("the applier ran");
+    assert_eq!(applied.len(), 1, "{applied:?}");
+    let result = applied.remove(0);
+    let expected = if result.violations.is_empty() {
+        State::Applied
+    } else {
+        State::Rejected
+    };
+    assert_eq!(result.status, expected, "{result:?}");
+    result.violations
 }
 
 /// A database of its own, migrated by the Data layer: Valombre, its two
@@ -147,6 +210,33 @@ impl Scratch {
              VALUES ('{session}', {base}, {window}, 1, 0, 0)"
         ))
         .await;
+    }
+
+    /// The session's row as the table holds it, each column under its
+    /// field.
+    async fn row(&self, session: &str) -> Value {
+        let text = self
+            .texts(&format!(
+                "SELECT row_to_json(d)::text FROM diffusion d WHERE session_id = '{session}'"
+            ))
+            .await;
+        let [text] = text.as_slice() else {
+            panic!("one row for {session}: {text:?}");
+        };
+        let Value::Object(columns) = serde_json::from_str(text).expect("a JSON row") else {
+            panic!("a row is an object");
+        };
+        Value::Object(
+            columns
+                .into_iter()
+                .map(|(column, value)| (field(&column), value))
+                .collect(),
+        )
+    }
+
+    /// What the DataGuard finds the session's row, read back, breaks.
+    async fn judged(&self, session: &str) -> Vec<String> {
+        judged(self.row(session).await).await
     }
 
     /// What the diffusion rows point to, a row a line, sorted by session.
@@ -371,7 +461,7 @@ async fn single_diffusion_source_the_table_holds_one_row_per_session() {
 }
 
 #[tokio::test]
-async fn window_proportional_the_height_is_not_stored_but_follows_from_the_media() {
+async fn window_proportional_the_table_stores_no_height_and_the_guard_judges_the_width() {
     let s = Scratch::new("proportional").await;
     assert_eq!(
         s.texts(
@@ -387,17 +477,20 @@ async fn window_proportional_the_height_is_not_stored_but_follows_from_the_media
         &format!("'{PORTRAIT}', 0.1, 0.2, 0.3"),
     )
     .await;
-    // window_width × height_px / width_px: 0.3 × 1200 / 800, a width of 2/3
-    // of the height.
-    assert_eq!(
-        s.texts(
-            "SELECT round(d.window_width * m.height_px / m.width_px, 4)::text \
-             || ' ' || round(d.window_width / (d.window_width * m.height_px / m.width_px), 4) \
-             FROM diffusion d JOIN media m ON m.id = d.window_media_id",
-        )
-        .await,
-        ["0.4500 0.6667"]
-    );
+    let row = s.row(SEANCE).await;
+    assert_eq!(judged(row.clone()).await, Vec::<String>::new());
+    // A height beside the row's width is a second truth of its proportions.
+    let mut with_height = row;
+    with_height["windowHeight"] = json!(0.45);
+    assert_eq!(judged(with_height).await, ["window-proportional"]);
+    // The table holds a width no height can follow; the guard refuses it.
+    for width in ["0", "-0.2"] {
+        s.accepted(&format!(
+            "UPDATE diffusion SET window_width = {width} WHERE session_id = '{SEANCE}'"
+        ))
+        .await;
+        assert_eq!(s.judged(SEANCE).await, ["window-proportional"], "{width}");
+    }
     s.drop().await;
 }
 
@@ -419,5 +512,107 @@ async fn base_coherent_the_table_refuses_a_background_outside_the_three_kinds() 
         .await;
     assert_eq!(code, SqlState::CHECK_VIOLATION);
     assert_eq!(constraint.as_deref(), Some("diffusion_base_kind"));
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn base_coherent_judges_the_rows_the_table_holds() {
+    let s = Scratch::new("base_coherent").await;
+    for (base, violations) in [
+        // A cover has neither a media nor an instance, an illustration its
+        // media alone, a battlemap its instance alone.
+        ("'cover', NULL, NULL".to_string(), &[][..]),
+        (format!("'illustration', '{PORTRAIT}', NULL"), &[]),
+        (format!("'battlemap', NULL, '{INSTANCE}'"), &[]),
+        // What the table holds and is no background.
+        (format!("'cover', '{PORTRAIT}', NULL"), &["base-coherent"]),
+        (format!("'cover', NULL, '{INSTANCE}'"), &["base-coherent"]),
+        ("'illustration', NULL, NULL".to_string(), &["base-coherent"]),
+        (
+            format!("'illustration', '{PORTRAIT}', '{INSTANCE}'"),
+            &["base-coherent"],
+        ),
+        ("'battlemap', NULL, NULL".to_string(), &["base-coherent"]),
+        (format!("'battlemap', '{CARTE}', NULL"), &["base-coherent"]),
+    ] {
+        s.shows(SEANCE, &base, "NULL, NULL, NULL, NULL").await;
+        assert_eq!(s.judged(SEANCE).await, violations, "{base}");
+        s.accepted("DELETE FROM diffusion").await;
+    }
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn base_coherent_flags_the_row_a_deleted_media_or_instance_leaves() {
+    let s = Scratch::new("base_nullified").await;
+    s.shows(
+        SEANCE,
+        &format!("'illustration', '{PORTRAIT}', NULL"),
+        "NULL, NULL, NULL, NULL",
+    )
+    .await;
+    s.shows(
+        SEANCE_2,
+        &format!("'battlemap', NULL, '{INSTANCE}'"),
+        "NULL, NULL, NULL, NULL",
+    )
+    .await;
+    assert_eq!(s.judged(SEANCE).await, Vec::<String>::new());
+    assert_eq!(s.judged(SEANCE_2).await, Vec::<String>::new());
+    // Relations Diffusion.baseMediaId and Diffusion.baseInstanceId: onDelete
+    // nullify, which leaves a background that is not its kind's.
+    s.accepted(&format!(
+        "DELETE FROM media WHERE id = '{PORTRAIT}'; \
+         DELETE FROM battlemap_instance WHERE id = '{INSTANCE}'"
+    ))
+    .await;
+    assert_eq!(s.judged(SEANCE).await, ["base-coherent"]);
+    assert_eq!(s.judged(SEANCE_2).await, ["base-coherent"]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn window_fields_together_judges_the_rows_the_table_holds() {
+    let s = Scratch::new("window_together").await;
+    for (window, violations) in [
+        // An open window has its position and width; a closed one none.
+        (format!("'{BLASON}', 0.1, 0.2, 0.3"), &[][..]),
+        ("NULL, NULL, NULL, NULL".to_string(), &[]),
+        // What the table holds and is half a window.
+        (
+            format!("'{BLASON}', 0.1, NULL, 0.3"),
+            &["window-fields-together"],
+        ),
+        (
+            format!("'{BLASON}', NULL, NULL, NULL"),
+            &["window-fields-together"],
+        ),
+        (
+            "NULL, 0.1, 0.2, 0.3".to_string(),
+            &["window-fields-together"],
+        ),
+    ] {
+        s.shows(SEANCE, "'cover', NULL, NULL", &window).await;
+        assert_eq!(s.judged(SEANCE).await, violations, "{window}");
+        s.accepted("DELETE FROM diffusion").await;
+    }
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn window_fields_together_flags_the_row_a_deleted_window_media_leaves() {
+    let s = Scratch::new("window_nullified").await;
+    s.shows(
+        SEANCE,
+        "'cover', NULL, NULL",
+        &format!("'{PORTRAIT}', 0.1, 0.2, 0.3"),
+    )
+    .await;
+    assert_eq!(s.judged(SEANCE).await, Vec::<String>::new());
+    // Relation Diffusion.windowMediaId: onDelete nullify, which leaves the
+    // window's position and width without its media.
+    s.accepted(&format!("DELETE FROM media WHERE id = '{PORTRAIT}'"))
+        .await;
+    assert_eq!(s.judged(SEANCE).await, ["window-fields-together"]);
     s.drop().await;
 }
