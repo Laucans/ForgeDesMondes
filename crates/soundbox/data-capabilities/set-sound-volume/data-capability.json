@@ -1,0 +1,19 @@
+{
+  "dataCapability": "soundbox.setSoundVolume",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Sound",
+    "id": "$id"
+  },
+  "touches": ["Sound.volume"],
+  "payload": {
+    "volume": "number — the sound's own volume in percent, 0 to 100, from its live slider (EffectiveVolume@1); stored divided by 100 as Sound.volume, refused out of range by sound-volume-range, never clamped"
+  },
+  "mode": "overwrite",
+  "invariants": ["sound-volume-range"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
