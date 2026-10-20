@@ -197,7 +197,7 @@ impl Rows {
         })
     }
 
-    /// The live session of the campaign `campaign` names, a return to its
+    /// The live session of the campaign the uuid `campaign` names, a return to its
     /// cover writes the diffusion row of (`live.showCover`): `None` when it
     /// has none — and over the engine's memory, which has no table.
     ///

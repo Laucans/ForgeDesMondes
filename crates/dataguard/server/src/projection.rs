@@ -256,10 +256,10 @@ const CAMPAIGN: &str = "Campaign/";
 /// The partitions of the Diffusion aggregate: `Diffusion/<session id>`.
 const DIFFUSION: &str = "Diffusion/";
 
-/// The live session of the campaign `$1` names, in whatever case: of two,
-/// the last one planned.
+/// The live session of the campaign the uuid `$1` names: of two, the last
+/// one planned.
 const LIVE_SESSION: &str = "SELECT s.id::text FROM session s
-    WHERE s.status = 'live' AND s.campaign_id::text = lower($1)
+    WHERE s.status = 'live' AND s.campaign_id = ($1::text)::uuid
     ORDER BY s.position DESC, s.id
     LIMIT 1";
 
@@ -379,7 +379,8 @@ impl ProjectingStore {
         }
     }
 
-    /// The live session of the campaign `campaign` names, when it has one.
+    /// The live session of the campaign the uuid `campaign` names, when it
+    /// has one.
     pub async fn live_session(
         &self,
         campaign: &str,
