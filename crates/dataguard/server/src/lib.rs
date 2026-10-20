@@ -30,11 +30,13 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied. A new scene
-//! (`session.addScene`) is prepared at the rank after its session's last,
-//! against what the engine holds of the session and — over a database — what
-//! its tables hold ([`Rows::refresh_session`]): the places it links are
-//! judged against the same.
+//! the command's result once its stamp is applied. A creation of a campaign
+//! (`campaign.createCampaign`) is prepared with the ids the server gives it
+//! and its oneshot's session. A new scene (`session.addScene`) is prepared
+//! at the rank after its session's last, against what the engine holds of
+//! the session and — over a database — what its tables hold
+//! ([`Rows::refresh_session`]): the places it links are judged against the
+//! same.
 
 use std::sync::Arc;
 
@@ -366,7 +368,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes. A new scene
+/// an archive of, 422 — neither is queued, so nothing changes. A creation
+/// of a campaign (`create_campaign::prepare`) is given its id — and a
+/// oneshot's session its own — and written whole on its new partition, the
+/// command's target whatever the request named: one with no name, or of a
+/// kind there is not, is refused, 422, and not queued. A new scene
 /// (`add_scene::prepare`) is given its id and the rank after its session's
 /// last, what the tables hold of the session and its places read first: one
 /// of a session neither the engine nor the tables hold is refused, 404, and
@@ -518,6 +524,30 @@ async fn submit<L: Llm>(
                 body.payload = prepared.payload;
                 body.target_id = Some(prepared.target_id);
                 archive = Some(prepared.archive);
+            }
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
+    } else if create_campaign::names(&body.data_capability) {
+        let ids = fresh_uuid().and_then(|campaign| fresh_uuid().map(|session| (campaign, session)));
+        let Ok((campaign, session)) = ids else {
+            let e = Error::Store("no randomness for an id".to_string());
+            return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+        };
+        let now = now();
+        let fresh = create_campaign::Fresh {
+            campaign: &campaign,
+            session: &session,
+            now: &now,
+        };
+        match create_campaign::prepare(&body.payload, fresh) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
             }
             Err(refusal) => {
                 return Err((

@@ -1,0 +1,10 @@
+[package]
+name = "create-campaign"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability campaign.createCampaign: a new campaign or oneshot, its master volume at full, on its own Campaign partition — a oneshot with its single session, at position 1, in prep, the microphone off (oneshot-single-session)."
+publish = false
+
+[dependencies]
+serde_json = "1"

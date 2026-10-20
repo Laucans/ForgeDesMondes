@@ -426,6 +426,30 @@
       campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
       return void 0;
     },
+    // campaign.createCampaign (crates/campaign/data-capabilities/create-campaign):
+    // a new campaign at the top of the home page, its master volume at full
+    // (`master-volume-range`); a oneshot comes with its single session, in
+    // preparation (`oneshot-single-session`), a campagne with none. A campaign
+    // with no name is refused, as one of a kind there is not
+    // (`oneshot-single-session`).
+    "campaign.createCampaign": async (server, { payload }) => {
+      const name = String(payload.name ?? "").trim();
+      if (!name) return ["campaign-name-required"];
+      if (!["campagne", "oneshot"].includes(payload.type)) return ["oneshot-single-session"];
+      const text2 = (field) => typeof payload[field] === "string" ? payload[field] : null;
+      (await server.load("campaign.listCampaigns")).unshift({
+        id: server.uuid(),
+        name,
+        type: payload.type,
+        art: text2("art"),
+        glyph: text2("glyph"),
+        pitch: text2("pitch"),
+        sessions: payload.type === "oneshot" ? 1 : 0,
+        lastPlayed: null,
+        next: null
+      });
+      return void 0;
+    },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
     // never taken from the payload: the cloud host by itself, the home server
