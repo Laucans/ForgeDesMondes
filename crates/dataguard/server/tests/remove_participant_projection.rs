@@ -179,7 +179,8 @@ impl Scratch {
         let engine = Arc::new(
             engine
                 .with_data_capability(stand_in("test.endCombat", "update", "$combatId"))
-                .with_data_capability(stand_in("test.resetCombat", "delete", "$combatId")),
+                .with_data_capability(stand_in("test.resetCombat", "delete", "$combatId"))
+                .with_data_capability(stand_in("test.seedToken", "upsert", "$tokenId")),
         );
         let app = router(
             engine.clone(),
@@ -402,6 +403,55 @@ async fn the_participant_that_holds_the_turn_is_refused_and_nothing_queued() {
     assert_eq!(s.turn().await.1.as_deref(), Some(T_ELOWEN));
     assert_eq!(s.tombstoned(&elowen).await, Some(false));
     assert_eq!(s.carousel().await.len(), 4);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn the_turn_passed_by_next_turn_first_the_participant_that_held_it_is_removed() {
+    let s = Scratch::new("passed").await;
+    let (engine, app) = s.serve().await;
+    started(&engine, &app).await;
+    // table.nextTurn judges a participant's life on the engine's token rows,
+    // which this file's tokens, seeded in the tables, have not.
+    for (at, (token, character, name, hp)) in [
+        (T_ELOWEN, ELOWEN, "Elowen", Value::Null),
+        (T_KAEL, KAEL, "Kael", Value::Null),
+        (T_BANDIT, BANDIT, "Bandit 1", json!(11)),
+        (T_VESNA, VESNA, "Vesna", json!(30)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let payload = json!({
+            "tokenId": token, "tokenInstanceId": INSTANCE, "characterId": character,
+            "number": null, "name": name, "q": at, "r": 0, "visible": true,
+            "hpCurrent": hp, "hpMax": hp, "conditions": [],
+        });
+        let (status, body) = send(&app, "test.seedToken", token, payload, None).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    }
+    assert_eq!(applied(&engine).await, 4);
+    let elowen = s.entry(T_ELOWEN).await;
+    let (status, body) = send(&app, "table.nextTurn@1", INSTANCE, json!({}), None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 1);
+    assert_eq!(s.turn().await.1.as_deref(), Some(T_KAEL));
+    // Elowen no longer holds the turn: her removal is accepted, the turn stays
+    // on Kael, the places close up and her token stays on the map.
+    let (status, body) = remove(&app, &elowen, None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 1);
+    assert_eq!(s.turn().await.1.as_deref(), Some(T_KAEL));
+    assert_eq!(
+        s.carousel().await,
+        [
+            place(T_KAEL, 2, 1),
+            place(T_VESNA, 3, 2),
+            place(T_BANDIT, 4, 3),
+        ]
+    );
+    assert!(s.has_token(T_ELOWEN).await);
+    assert_eq!(s.tombstoned(&elowen).await, Some(true));
     s.drop().await;
 }
 
