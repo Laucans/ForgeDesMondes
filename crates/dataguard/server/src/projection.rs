@@ -333,7 +333,8 @@ const WINDOWING: &str = "WITH live AS (
 /// what the table holds: a send writes the base and the framing, never the
 /// window; a return to the cover writes the base, never the window nor the
 /// framing; an opened window writes the window, never the base nor the
-/// framing; a new row takes the framing as the engine's or 1, 0, 0. A media
+/// framing, and a closed one its fields emptied, each `null` written as
+/// none; a new row takes the framing as the engine's or 1, 0, 0. A media
 /// or an instance the tables no longer hold is none, as their deletion leaves
 /// it (onDelete nullify). A row of a session the tables do not hold, or
 /// holding a value its column cannot, is left aside, so it keeps no other

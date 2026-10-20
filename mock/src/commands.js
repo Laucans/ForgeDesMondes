@@ -130,6 +130,15 @@ export const COMMANDS = {
   // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone,
   // brought back onto the screen (0 to 1); the size and the content stay.
   'live.moveWindow': (server, { payload }) => onWindow(server, (w) => { w.x = onScreen(payload.x, w.x); w.y = onScreen(payload.y, w.y); }),
+  // live.closeWindow (crates/live/data-capabilities/close-window): the window's
+  // media, position and width are emptied together (window-fields-together);
+  // the base and the framing stay. A window already closed is closed again.
+  'live.closeWindow': async (server) => {
+    const row = await diffusionRow(server);
+    row.window = null;
+    if (window.Mock) window.Mock.store.set('diffusion', row);
+    return undefined;
+  },
   // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
   // is stored, the largest that fits the box asked for at the image's ratio — w
   // alone with no h — from 0.1 to the screen's width, to 4 decimals
