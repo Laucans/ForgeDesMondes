@@ -1,0 +1,21 @@
+{
+  "dataCapability": "table.setTokenCondition",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$token"
+  },
+  "touches": ["BattlemapInstance.conditions"],
+  "payload": {
+    "token": "uuid — the token whose badge is set; when absent, the command's target is the token",
+    "state": "string — the condition, « Empoisonné », « À terre »…, kept without the blanks around it; empty or blank is refused",
+    "on": "boolean — true puts the badge on the token, false takes it off"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["instance-isolated", "state-persisted-reset"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

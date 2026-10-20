@@ -387,6 +387,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// change that is no whole number, 422; one of a token not on the instance,
 /// 404 — neither is queued. A PC's token, which tracks no HP, is queued with
 /// the change as sent, which the DataGuard rejects (`pj-hp-not-tracked`).
+/// A condition badge put on or taken off a token
+/// (`set_token_condition::prepare`) is made the conditions it writes on the
+/// token's partition, the same way — the fixtures' slugs it names read as
+/// the ids the tables hold them by, one at a time until it is queued
+/// ([`MARKING`]): one naming no uuid, no condition, or no `on`, 422; one of a
+/// token not on the instance, 404.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -413,7 +419,8 @@ async fn submit<L: Llm>(
     }
     let mut refusal = None;
     let mut archive = None;
-    // Held until the creation of an instance, or a change of HP, is queued.
+    // Held until the creation of an instance, a change of HP, or a token's
+    // new conditions, is queued.
     let mut holding = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
@@ -628,6 +635,34 @@ async fn submit<L: Llm>(
         let prepared = rename_token::prepare(&request, &base).map_err(unprocessable)?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
+    } else if set_token_condition::names(&body.data_capability) {
+        let unprocessable = |refusal: set_token_condition::Refusal| {
+            let status = if refusal == set_token_condition::Refusal::UnknownToken {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            refused(status, &refusal)
+        };
+        let wire = served.reads.stored(&body.payload);
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(id));
+        let request =
+            set_token_condition::request(&wire, target.as_deref()).map_err(unprocessable)?;
+        holding = Some(MARKING.lock().await);
+        let base = match served
+            .rows
+            .projected(&set_token_condition::partition(&request.token))
+            .await
+        {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = set_token_condition::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
@@ -654,6 +689,10 @@ static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// a blow it applies meanwhile is counted once: neither takes a token below 0
 /// nor above its HP max, and no damage heals.
 static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One badge set at a time, from the read of the token's conditions until
+/// its new list is queued: two badges set at once on a token never both
+/// start from the same list, and none is lost.
+static MARKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A refusal before a command is queued: its status, and why in words.
 type Refused = (axum::http::StatusCode, Json<serde_json::Value>);
@@ -1326,6 +1365,33 @@ mod tests {
             body,
             serde_json::json!({ "error": "cette instance de battlemap n'existe pas" })
         );
+    }
+
+    #[tokio::test]
+    async fn a_badge_set_waits_for_the_one_before_it_to_be_queued() {
+        let badge = || {
+            let body = serde_json::json!({
+                "dataCapability": "table.setTokenCondition@1",
+                "target": { "id": INSTANCE },
+                "payload": {
+                    "token": "70000000-0000-4000-8000-000000000001",
+                    "state": "Empoisonné",
+                    "on": true,
+                },
+            });
+            Request::post("/commands")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let held = MARKING.lock().await;
+        let waited =
+            tokio::time::timeout(std::time::Duration::from_millis(50), answer(badge())).await;
+        assert!(waited.is_err(), "judged while another badge set is held");
+        drop(held);
+        // Released: judged — over the engine's memory no token is held.
+        let (status, body) = answer(badge()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     }
 
     #[tokio::test]

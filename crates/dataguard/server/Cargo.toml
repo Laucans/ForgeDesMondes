@@ -53,3 +53,4 @@ place-tokens = { path = "../../table/data-capabilities/place-tokens" }
 set-token-visibility = { path = "../../table/data-capabilities/set-token-visibility" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
 change-hit-points = { path = "../../table/data-capabilities/change-hit-points" }
+set-token-condition = { path = "../../table/data-capabilities/set-token-condition" }
