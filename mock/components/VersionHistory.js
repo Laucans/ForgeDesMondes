@@ -715,6 +715,20 @@
       const ratio = await ratioOfIllustration(server2, w.id || w.media);
       w.w = Math.max(0.1, Math.min(payload.w, payload.h * ratio, 1 - w.x));
     }),
+    // live.showWindowOnPlayerView (crates/live/data-capabilities/show-window-on-player-view):
+    // the illustration opens in the floating window at its default position and
+    // width, all three set together; its height follows the image's ratio and is
+    // never stored (window-proportional). The base stays.
+    "live.showWindowOnPlayerView": async (server2, { payload }) => {
+      const id = payload.media ?? payload.id;
+      if (!id) return payload.kind && payload.kind !== "illustration" ? ["window-proportional"] : void 0;
+      const media = await server2.load("media.listMedia");
+      if (!(media && media.illustrations.some((i) => i.id === id))) return ["window-proportional"];
+      const row = await diffusionRow(server2);
+      row.window = { id, x: 0.6, y: 0.12, w: 0.3 };
+      if (window.Mock) window.Mock.store.set("diffusion", row);
+      return void 0;
+    },
     // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
     // one position both views read.
     "table.moveToken": (server2, { payload, targetId }) => onToken(server2, { id: targetId }, payload.token, (t) => {
