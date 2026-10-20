@@ -20,7 +20,10 @@
 //! column. A change of the master volume (`soundbox.setMasterVolume`) writes
 //! that partition with the volume alone: [`ProjectingStore`] writes
 //! `campaign.sound_master_volume` as the engine holds it, and no other
-//! column. A campaign's row is its table's over the engine's, and
+//! column. An addition of a sound (`soundbox.addSound`) writes its
+//! partition, `Sound/<its id>`, whole: [`ProjectingStore`] adds its `sound`
+//! row, and leaves one the table already holds as it is. A campaign's row is
+//! its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -270,6 +273,32 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
+/// The partitions of the Sound aggregate: `Sound/<sound id>`.
+const SOUND: &str = "Sound/";
+
+/// Every live sound the engine holds and the `sound` table does not: a
+/// projection that failed after its apply, or was lost since.
+const UNPROJECTED_SOUNDS: &str = "SELECT r.partition FROM dataguard_rows r
+    WHERE r.partition LIKE 'Sound/%' AND NOT r.tombstoned
+        AND NOT EXISTS (SELECT 1 FROM sound s WHERE s.id = CASE
+            WHEN pg_input_is_valid(r.fields ->> 'id', 'uuid') THEN (r.fields ->> 'id')::uuid END)
+    ORDER BY r.partition";
+
+/// The sound the live partition `$1` holds, added to the `sound` table; one
+/// the table already holds is left as it is. Its tags and its volume are the
+/// DataGuard's to judge (`tags-normalized`, `sound-volume-range`) before it
+/// is applied; the table's CHECKs and its foreign key judge them again.
+const ADD_SOUND: &str =
+    "INSERT INTO sound (id, campaign_id, name, file_path, tags, volume, created_at)
+    SELECT (r.fields ->> 'id')::uuid, (r.fields ->> 'campaignId')::uuid,
+        r.fields ->> 'name', r.fields ->> 'filePath',
+        ARRAY(SELECT jsonb_array_elements_text(coalesce(nullif(r.fields -> 'tags', 'null'), '[]'))),
+        coalesce((r.fields ->> 'volume')::numeric, 1),
+        coalesce((r.fields ->> 'createdAt')::timestamptz, now())
+    FROM dataguard_rows r
+    WHERE r.partition = $1::text AND NOT r.tombstoned
+    ON CONFLICT (id) DO NOTHING";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -311,6 +340,45 @@ impl ProjectingStore {
         self.repair_elements().await;
         self.repair_exports(None).await;
         self.repair_master_volumes(None).await;
+        self.repair_sounds().await;
+    }
+
+    /// Adds every sound the engine holds and the `sound` table does not,
+    /// each on its own, so one the table refuses keeps none of the others
+    /// out: at a start. Tables not migrated yet hold none.
+    async fn repair_sounds(&self) {
+        let partitions = {
+            let client = self.inner.client().lock().await;
+            client.query(UNPROJECTED_SOUNDS, &[]).await
+        };
+        match partitions {
+            Ok(partitions) => {
+                for partition in partitions {
+                    self.add_sound(partition.get(0)).await;
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: sound not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
+    }
+
+    /// Adds the sound `partition` holds to the `sound` table, logging a
+    /// failure: after its apply, and at a start.
+    async fn add_sound(&self, partition: &str) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(ADD_SOUND, &[&partition]).await
+        };
+        if let Err(e) = written {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: {partition} not added: {} {}",
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -658,6 +726,12 @@ fn element(write: &Write) -> bool {
     !write.tombstone && element_of(write).is_some()
 }
 
+/// Whether `write` reaches the `sound` table: a live write of a
+/// `Sound/<id>` partition.
+fn sound(write: &Write) -> bool {
+    !write.tombstone && write.partition.starts_with(SOUND)
+}
+
 /// The provider whose last test `write` records: a live write of a
 /// provider's partition, `AiSettings/<uuid>`.
 fn tested(write: &Write) -> Option<&str> {
@@ -742,6 +816,8 @@ impl Store for ProjectingStore {
             // STAMP_EXPORTS and MASTER_VOLUMES skip it.
             self.repair_exports(Some(&write.partition)).await;
             self.repair_master_volumes(Some(&write.partition)).await;
+        } else if sound(write) {
+            self.add_sound(&write.partition).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.
@@ -833,6 +909,20 @@ mod tests {
         assert!(!element(&write(morlox, true)));
         assert!(!element(&write(AI_SETTINGS, false)));
         assert!(!element(&write(AI_SETTINGS, true)));
+    }
+
+    #[test]
+    fn only_a_live_write_of_a_sound_s_partition_reaches_its_table() {
+        let write = |partition: &str, tombstone| Write {
+            partition: partition.to_string(),
+            values: BTreeMap::new(),
+            tombstone,
+        };
+        let crowd = "Sound/50000000-0000-4000-8000-000000000001";
+        assert!(sound(&write(crowd, false)));
+        assert!(!sound(&write(crowd, true)));
+        assert!(!sound(&write(AI_SETTINGS, false)));
+        assert!(!sound(&write(AI_SETTINGS, true)));
     }
 
     async fn connect(url: &str) -> Client {
