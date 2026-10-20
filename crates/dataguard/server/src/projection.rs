@@ -17,12 +17,13 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A return to the cover (`live.showCover`), a window opened on the
-//! player view (`live.showWindowOnPlayerView`) and a move of it
-//! (`live.moveWindow`) write their session's partition, `Diffusion/<its
-//! id>`: [`ProjectingStore`] upserts the session's `diffusion` row with what
-//! the engine's row carries, the rest as the table holds it. A campaign's
-//! row is its table's over the engine's, and
+//! column. A send to the player view (`live.showOnPlayerView`), a return to
+//! the cover (`live.showCover`), a window opened on the player view
+//! (`live.showWindowOnPlayerView`) and a move of it (`live.moveWindow`) write
+//! their session's partition, `Diffusion/<its id>`: [`ProjectingStore`]
+//! upserts the session's `diffusion` row with what the engine's row carries,
+//! the rest as the table holds it. A campaign's row is its table's over the
+//! engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -51,7 +52,7 @@ use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
 use restore_entity_version::Kept;
 use serde_json::Value;
-use show_window_on_player_view::{Base, Found, Named};
+use show_window_on_player_view::Base;
 use test_connection::NO_PROVIDER;
 
 use crate::ai_settings::uuid;
@@ -259,6 +260,32 @@ const CAMPAIGN: &str = "Campaign/";
 /// The partitions of the Diffusion aggregate: `Diffusion/<session id>`.
 const DIFFUSION: &str = "Diffusion/";
 
+/// What the tables say of the rows a send to the player view names
+/// (`live.showOnPlayerView`), `$1` the campaign, `$2` the instance, `$3` the
+/// media, each a uuid or null: the live session of the campaign — of the
+/// instance's or the media's campaign when none is named —, the session the
+/// instance belongs to, whether the media is an illustration of the live
+/// session's campaign, and whether the tables hold the instance or the media
+/// sent. Of two live sessions, the last one planned.
+const SHOWING: &str = "WITH sent AS (
+        SELECT i.session_id, s.campaign_id
+        FROM battlemap_instance i JOIN session s ON s.id = i.session_id
+        WHERE i.id = ($2::text)::uuid
+    ), shown AS (
+        SELECT m.campaign_id, m.kind FROM media m WHERE m.id = ($3::text)::uuid
+    ), live AS (
+        SELECT s.id, s.campaign_id FROM session s
+        WHERE s.status = 'live'
+            AND s.campaign_id = coalesce(($1::text)::uuid,
+                (SELECT campaign_id FROM sent), (SELECT campaign_id FROM shown))
+        ORDER BY s.position DESC, s.id
+        LIMIT 1
+    )
+    SELECT (SELECT id::text FROM live), (SELECT session_id::text FROM sent),
+        EXISTS (SELECT 1 FROM shown JOIN live ON shown.campaign_id = live.campaign_id
+            WHERE shown.kind = 'illustration'),
+        EXISTS (SELECT 1 FROM sent) OR EXISTS (SELECT 1 FROM shown)";
+
 /// The live session of the campaign the uuid `$1` names: of two, the last
 /// one planned.
 const LIVE_SESSION: &str = "SELECT s.id::text FROM session s
@@ -293,12 +320,13 @@ const WINDOWING: &str = "WITH live AS (
 /// The diffusion rows the engine holds — the partition `$1` names, or every
 /// one when it is null — written on `diffusion`, one row per session
 /// (single-diffusion-source). A field the engine's row does not carry keeps
-/// what the table holds: a return to the cover writes the base, never the
-/// window nor the framing; an opened window writes the window, never the
-/// base nor the framing; a new row takes the framing as 1, 0, 0. A
-/// media or an instance the tables no longer hold is none, as their deletion
-/// leaves it (onDelete nullify). A row of a session the tables do not hold,
-/// or holding a value its column cannot, is left aside, so it keeps no other
+/// what the table holds: a send writes the base and the framing, never the
+/// window; a return to the cover writes the base, never the window nor the
+/// framing; an opened window writes the window, never the base nor the
+/// framing; a new row takes the framing as the engine's or 1, 0, 0. A media
+/// or an instance the tables no longer hold is none, as their deletion leaves
+/// it (onDelete nullify). A row of a session the tables do not hold, or
+/// holding a value its column cannot, is left aside, so it keeps no other
 /// session's from the table; one the table holds a later write of is never
 /// moved back.
 const PROJECT_DIFFUSIONS: &str = "INSERT INTO diffusion (session_id, base_kind, base_media_id,
@@ -407,6 +435,23 @@ impl ProjectingStore {
         }
     }
 
+    /// What the tables say of the rows a send to the player view names.
+    pub async fn showing(
+        &self,
+        named: &show_on_player_view::Named,
+    ) -> std::result::Result<show_on_player_view::Found, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let row = client
+            .query_one(SHOWING, &[&named.campaign, &named.instance, &named.media])
+            .await?;
+        Ok(show_on_player_view::Found {
+            session: row.get(0),
+            instance_session: row.get(1),
+            illustration: row.get(2),
+            held: row.get(3),
+        })
+    }
+
     /// The live session of the campaign the uuid `campaign` names, when it
     /// has one.
     pub async fn live_session(
@@ -421,13 +466,13 @@ impl ProjectingStore {
     /// What the tables say of what a window opened on the player view names.
     pub async fn windowing(
         &self,
-        named: &Named,
-    ) -> std::result::Result<Found, tokio_postgres::Error> {
+        named: &show_window_on_player_view::Named,
+    ) -> std::result::Result<show_window_on_player_view::Found, tokio_postgres::Error> {
         let client = self.inner.client().lock().await;
         let row = client
             .query_one(WINDOWING, &[&named.campaign, &named.media])
             .await?;
-        Ok(Found {
+        Ok(show_window_on_player_view::Found {
             session: row.get(0),
             held: row.get(1),
             illustration: row.get(2),
