@@ -197,6 +197,25 @@ impl Rows {
         })
     }
 
+    /// The live session of the campaign `campaign` names, a return to its
+    /// cover writes the diffusion row of (`live.showCover`): `None` when it
+    /// has none — and over the engine's memory, which has no table.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn live_session(&self, campaign: &str) -> Result<Option<String>> {
+        let Some(tables) = &self.tables else {
+            return Ok(None);
+        };
+        tables.live_session(campaign).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "session not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
     /// The versions of `element` a restoration can name, oldest first.
     pub fn versions(&self, element: &str) -> Vec<Kept> {
         self.history.of(element)

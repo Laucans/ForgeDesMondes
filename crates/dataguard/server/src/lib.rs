@@ -30,7 +30,9 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. A return to the cover
+//! (`live.showCover`) is prepared against the campaign's live session, which
+//! [`Rows`] reads.
 
 use std::sync::Arc;
 
@@ -346,7 +348,10 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. A return to
+/// the cover (`show_cover::prepare`) is made the state it writes on its
+/// campaign's live session's diffusion row: one naming no campaign, or one
+/// with no live session, is refused, 422, before it is queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -500,6 +505,21 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if show_cover::names(&body.data_capability) {
+        let refused = |refusal: show_cover::Refusal| {
+            (
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            )
+        };
+        let campaign = show_cover::campaign(&body.payload).map_err(refused)?;
+        let session = match served.rows.live_session(&campaign).await {
+            Ok(session) => session,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = show_cover::prepare(session, &now()).map_err(refused)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));

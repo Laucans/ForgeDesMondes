@@ -524,7 +524,7 @@ mod tests {
     async fn a_live_data_capability_reaches_the_engine_like_an_ai_one() {
         // Neither is registered in the in-memory engine of this test: both are
         // answered by the engine's queue (`POST /commands`), the same way.
-        for data_capability in ["live.showCover", "ai.noSuchCapability"] {
+        for data_capability in ["live.noSuchCapability", "ai.noSuchCapability"] {
             let (status, body) = answer(
                 Method::POST,
                 "/commands",

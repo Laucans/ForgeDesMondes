@@ -1,0 +1,28 @@
+{
+  "dataCapability": "live.showCover",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "upsert",
+  "target": {
+    "aggregate": "Diffusion",
+    "id": "$sessionId"
+  },
+  "touches": [
+    "Diffusion.sessionId",
+    "Diffusion.baseKind",
+    "Diffusion.baseMediaId",
+    "Diffusion.baseInstanceId",
+    "Diffusion.updatedAt"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign whose live session's player view goes back to its cover; the base is then neither a media nor an instance (base-coherent), the floating window and the framing stay as they are"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "base-coherent",
+    "single-diffusion-source"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
