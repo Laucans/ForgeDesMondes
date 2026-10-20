@@ -185,6 +185,23 @@ fn a_session_the_engine_holds_no_row_of_keeps_the_base_its_table_shows() {
 }
 
 #[test]
+fn a_table_base_whose_illustration_is_gone_gives_way_to_the_cover() {
+    // The base illustration was deleted: its id nullified, the kind kept.
+    let found = Found {
+        base: Some(Base {
+            kind: "illustration".to_string(),
+            media: None,
+            instance: None,
+        }),
+        ..illustration()
+    };
+    let prepared = prepare(&portrait(), &found, &Row::new(), NOW).expect("prepared");
+    assert_eq!(prepared.payload["baseKind"], "cover");
+    assert_eq!(prepared.payload["baseMediaId"], Value::Null);
+    assert_eq!(prepared.payload["baseInstanceId"], Value::Null);
+}
+
+#[test]
 fn a_media_that_is_no_illustration_of_the_campaign_gets_no_width_and_a_warning() {
     let battlemap = Found {
         illustration: false,

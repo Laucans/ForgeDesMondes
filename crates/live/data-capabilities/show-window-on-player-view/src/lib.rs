@@ -81,6 +81,19 @@ pub struct Base {
     pub instance: Option<String>,
 }
 
+impl Base {
+    /// Whether the base shows something — the cover, an illustration with
+    /// its media, a battlemap with its instance — as base-coherent asks.
+    fn shows(&self) -> bool {
+        match self.kind.as_str() {
+            COVER => self.media.is_none() && self.instance.is_none(),
+            "illustration" => self.media.is_some() && self.instance.is_none(),
+            "battlemap" => self.instance.is_some() && self.media.is_none(),
+            _ => false,
+        }
+    }
+}
+
 /// What the tables say of what a window names.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Found {
@@ -176,15 +189,20 @@ pub fn prepare(named: &Named, found: &Found, row: &Row, now: &str) -> Result<Pre
         ("updatedAt".to_string(), Value::from(now)),
     ]);
     // A row the engine does not hold yet is made: the session's, showing the
-    // base its table row shows, else the cover.
+    // base its table row shows — the cover when it has none, or one whose
+    // media or instance is gone (onDelete nullify), which shows nothing.
     if !set(row, "sessionId") {
         payload.insert("sessionId".to_string(), Value::from(session.as_str()));
     }
     if !set(row, "baseKind") {
-        let base = found.base.clone().unwrap_or_else(|| Base {
-            kind: COVER.to_string(),
-            ..Base::default()
-        });
+        let base = found
+            .base
+            .clone()
+            .filter(Base::shows)
+            .unwrap_or_else(|| Base {
+                kind: COVER.to_string(),
+                ..Base::default()
+            });
         payload.insert("baseKind".to_string(), Value::from(base.kind));
         payload.insert("baseMediaId".to_string(), Value::from(base.media));
         payload.insert("baseInstanceId".to_string(), Value::from(base.instance));
