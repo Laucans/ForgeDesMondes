@@ -7,8 +7,8 @@
 use std::collections::VecDeque;
 
 use add_participant::{
-    Character, DEFAULT_DEX, Dice, Refusal, Request, Row, Seated, Seating, Token, names, prepare,
-    request, token,
+    Character, DEFAULT_DEX, Dice, Refusal, Request, Row, Seated, Seating, Token, names, partition,
+    prepare, request, token,
 };
 use serde_json::{Value, json};
 
@@ -96,6 +96,48 @@ fn the_id_is_named_with_or_without_its_version() {
 }
 
 #[test]
+fn a_token_and_an_entry_are_partitions_of_the_battlemap_instance() {
+    assert_eq!(partition(RENFORT), format!("BattlemapInstance/{RENFORT}"));
+    assert_eq!(partition(ENTREE), format!("BattlemapInstance/{ENTREE}"));
+}
+
+#[test]
+fn each_refusal_says_what_was_refused() {
+    let said = [
+        (Refusal::NotAnId("token"), "token n'est pas un identifiant"),
+        (
+            Refusal::NotAnInitiative,
+            "l'initiative est un nombre entier",
+        ),
+        (
+            Refusal::UnknownToken,
+            "ce token n'est pas sur cette instance",
+        ),
+        (
+            Refusal::NoOpenCombat,
+            "aucun combat n'est en cours sur cette instance",
+        ),
+        (Refusal::AlreadyInCombat, "ce token est déjà dans le combat"),
+        (
+            Refusal::UnknownCharacter,
+            "ce token n'est ni un PJ ni un PNJ",
+        ),
+        (
+            Refusal::PcInitiative,
+            "l'initiative d'un PJ est celle que saisit le DM",
+        ),
+        (
+            Refusal::NpcRolls,
+            "un PNJ tire son initiative, le DM n'en saisit pas",
+        ),
+        (Refusal::NoRandomness, "le dé n'a pas pu être lancé"),
+    ];
+    for (refusal, text) in said {
+        assert_eq!(refusal.to_string(), text);
+    }
+}
+
+#[test]
 fn a_token_is_named_on_the_instance_targeted_or_as_the_target_itself() {
     let upper = RENFORT.to_uppercase();
     let on = request(&wire(json!({ "token": upper })), Some(INSTANCE)).expect("a request");
@@ -121,6 +163,18 @@ fn what_is_no_uuid_or_no_whole_number_is_refused() {
     assert_eq!(
         refused(json!({ "token": RENFORT }), Some("instance")),
         Refusal::NotAnId("instance")
+    );
+    // Hex digits alone, or the length alone, are no uuid.
+    assert_eq!(
+        refused(json!({ "token": "abcdef" }), Some(INSTANCE)),
+        Refusal::NotAnId("token")
+    );
+    assert_eq!(
+        refused(
+            json!({ "token": RENFORT.replace('-', "0") }),
+            Some(INSTANCE)
+        ),
+        Refusal::NotAnId("token")
     );
     for initiative in [json!(12.5), json!("12"), json!(40_000)] {
         assert_eq!(

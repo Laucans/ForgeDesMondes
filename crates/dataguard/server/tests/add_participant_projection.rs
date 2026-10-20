@@ -894,3 +894,97 @@ async fn a_rank_step_on_a_removed_entry_is_refused_and_lifts_no_tombstone() {
     drop(engine);
     scratch.drop().await;
 }
+
+#[tokio::test]
+async fn of_two_combats_the_seating_reads_the_one_still_open() {
+    let scratch = Scratch::new("two_combats").await;
+    let (engine, app) = scratch.serve().await;
+    ambush(&scratch, &engine, &app).await;
+    // The first combat's end queued, a second combat of the instance queued
+    // after it: the join lands in the second.
+    let next = "c0000000-0000-4000-8000-000000000002";
+    queue(
+        &engine,
+        "test.setCombat",
+        json!({
+            "combatId": COMBAT,
+            "combatInstanceId": INSTANCE,
+            "round": 1,
+            "startedAt": "2026-10-20T20:05:00Z",
+            "endedAt": "2026-10-20T21:00:00Z",
+        }),
+    )
+    .await;
+    queue(
+        &engine,
+        "test.setCombat",
+        json!({
+            "combatId": next,
+            "combatInstanceId": INSTANCE,
+            "round": 1,
+            "startedAt": "2026-10-20T21:05:00Z",
+        }),
+    )
+    .await;
+    let chef = scratch.token("Chef bandit 1").await;
+    let (status, body) = join(&app, &chef, None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 3);
+    let combat: String = scratch
+        .client
+        .query_one(
+            "SELECT combat_id::text FROM initiative_entry WHERE token_id = $1::text::uuid",
+            &[&chef],
+        )
+        .await
+        .expect("the chief's entry")
+        .get(0);
+    assert_eq!(combat, next);
+    drop(engine);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn an_entry_queued_for_another_combat_seats_no_one_in_this_one() {
+    let scratch = Scratch::new("other_combat").await;
+    let (engine, app) = scratch.serve().await;
+    ambush(&scratch, &engine, &app).await;
+    // The chief's entry in a combat that is not the instance's, queued.
+    let chef = scratch.token("Chef bandit 1").await;
+    queue(
+        &engine,
+        "test.setEntry",
+        json!({
+            "initiativeEntryId": "1e000000-0000-4000-8000-000000000009",
+            "initiativeEntryCombatId": "c0000000-0000-4000-8000-000000000009",
+            "initiativeEntryTokenId": chef,
+            "initiative": 30,
+            "dexScore": 16,
+            "tiebreak": 50,
+            "rank": 1,
+        }),
+    )
+    .await;
+    let (status, body) = join(&app, &chef, None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    drop(engine);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn with_no_combat_open_the_seating_still_reads_the_token_s_character() {
+    let scratch = Scratch::new("no_combat").await;
+    let (engine, app) = scratch.serve().await;
+    place(&app, BANDIT, 1).await;
+    applied(&engine).await;
+    let Planted { rows, .. } = planted(&scratch.url)
+        .await
+        .expect("the engine over PostgreSQL");
+    let seating = rows.seating(INSTANCE, BANDIT).await.expect("the seating");
+    assert_eq!(seating.combat, None);
+    assert!(seating.entries.is_empty());
+    let character = seating.character.expect("the bandit's character");
+    assert_eq!((character.kind.as_str(), character.dex), ("pnj", Some(12)));
+    drop(engine);
+    scratch.drop().await;
+}

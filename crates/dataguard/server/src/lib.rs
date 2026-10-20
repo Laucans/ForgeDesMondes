@@ -1084,16 +1084,20 @@ impl add_participant::Dice for Fair {
         if sides == 0 {
             return None;
         }
-        let fair = u32::MAX - u32::MAX % sides;
         loop {
             let mut bytes = [0_u8; 4];
             getrandom::fill(&mut bytes).ok()?;
-            let drawn = u32::from_le_bytes(bytes);
-            if drawn < fair {
-                return Some(i64::from(drawn % sides) + 1);
+            if let Some(face) = fair_face(u32::from_le_bytes(bytes), sides) {
+                return Some(face);
             }
         }
     }
+}
+
+/// The face, 1 to `sides`, a random `drawn` reads as; `None` past the last
+/// whole run of `sides` faces, which would favour the low faces.
+fn fair_face(drawn: u32, sides: u32) -> Option<i64> {
+    (drawn < u32::MAX - u32::MAX % sides).then(|| i64::from(drawn % sides) + 1)
 }
 
 /// `body`, a start of an instance's combat (`table.startCombat`), made the
@@ -1660,6 +1664,36 @@ mod tests {
         assert!(draws.len() > 190, "{draws:?}");
         assert!(draws.iter().all(|d| (0..=i64::from(i32::MAX)).contains(d)));
         assert!(draws.iter().any(|d| d % 2 == 1), "{draws:?}");
+    }
+
+    #[test]
+    fn a_draw_reads_as_a_face_from_1_to_its_sides_each_as_likely() {
+        assert_eq!(fair_face(0, 20), Some(1));
+        assert_eq!(fair_face(19, 20), Some(20));
+        assert_eq!(fair_face(20, 20), Some(1));
+        let last = u32::MAX - u32::MAX % 20;
+        assert_eq!(fair_face(last - 1, 20), Some(20));
+        assert_eq!(fair_face(last, 20), None);
+        assert_eq!(fair_face(u32::MAX, 20), None);
+        let sides = 1 << 31;
+        assert_eq!(fair_face(0, sides), Some(1));
+        assert_eq!(fair_face(sides - 1, sides), Some(i64::from(sides)));
+        assert_eq!(fair_face(sides, sides), None);
+    }
+
+    #[test]
+    fn the_fair_dice_are_random_and_in_range() {
+        use add_participant::Dice;
+        assert_eq!(Fair.roll(0), None);
+        let d20s = (0..2000)
+            .map(|_| Fair.roll(20).expect("randomness"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(d20s, (1..=20).collect::<BTreeSet<_>>());
+        let draws = (0..200)
+            .map(|_| Fair.roll(1 << 31).expect("randomness"))
+            .collect::<BTreeSet<_>>();
+        assert!(draws.len() > 190, "{draws:?}");
+        assert!(draws.iter().all(|d| (1..=1_i64 << 31).contains(d)));
     }
 
     #[test]
