@@ -853,7 +853,7 @@ impl Store for ProjectingStore {
             {
                 let client = self.inner.client().lock().await;
                 instances::project(&client, &write.partition).await;
-                let placed = tokens::project(&client, &write.partition).await;
+                tokens::project(&client, &write.partition).await;
                 tokens::show(&client, Some(&write.partition)).await;
                 tokens::hit_points(&client, Some(&write.partition)).await;
                 // The engine applies a run's partitions by name: an entry is
@@ -864,7 +864,7 @@ impl Store for ProjectingStore {
                     combats::project(&client, &write.partition).await;
                     combats::current(&client, combat).await;
                 }
-                let token = id("tokenId").filter(|_| placed);
+                let token = id("tokenId");
                 if combat.is_some() || token.is_some() || id("initiativeEntryId").is_some() {
                     combats::enter(&client, &write.partition, combat, token).await;
                 }

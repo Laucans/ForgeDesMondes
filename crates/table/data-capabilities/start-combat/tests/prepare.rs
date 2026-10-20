@@ -425,6 +425,18 @@ fn what_the_tables_could_never_hold_is_refused() {
         request(&row(json!({})), None),
         Err(Refusal::NotAnId("instance"))
     );
+    // Hex digits alone are no uuid, nor 36 characters of anything.
+    for instance in [
+        "b1000000",
+        INSTANCE.replace('-', "0").as_str(),
+        &INSTANCE[..35],
+    ] {
+        assert_eq!(
+            request(&row(json!({})), Some(instance)),
+            Err(Refusal::NotAnId("instance")),
+            "{instance}"
+        );
+    }
     assert_eq!(
         refused(json!({ "initiative": { "elowen": 18 } })),
         Some(Refusal::NotAnId("initiative"))
@@ -462,5 +474,30 @@ fn what_the_tables_could_never_hold_is_refused() {
     assert_eq!(
         refused(json!({ "initiative": { ELOWEN: -2 }, "rolls": null })),
         None
+    );
+}
+
+#[test]
+fn every_refusal_tells_the_dm_why_in_words_of_its_own() {
+    let refusals = [
+        Refusal::NotAnId("instance"),
+        Refusal::NotAnInitiative,
+        Refusal::NotARoll,
+        Refusal::UnknownInstance,
+        Refusal::CombatOpen,
+        Refusal::NoParticipant,
+        Refusal::UnknownCharacter,
+        Refusal::MissingInitiative(ELOWEN.to_string()),
+        Refusal::RollOfNoNpc,
+    ];
+    let said: std::collections::BTreeSet<String> =
+        refusals.iter().map(ToString::to_string).collect();
+    assert_eq!(said.len(), refusals.len(), "{said:?}");
+    assert!(said.iter().all(|why| why.len() > 20), "{said:?}");
+    assert!(Refusal::NotAnId("rolls").to_string().starts_with("rolls "));
+    assert!(
+        Refusal::MissingInitiative(ELOWEN.to_string())
+            .to_string()
+            .contains(ELOWEN)
     );
 }

@@ -183,7 +183,12 @@ pub async fn lineup(
 /// since, which the table's foreign keys refuse.
 pub async fn project(client: &Client, partition: &str) {
     if let Err(e) = client.execute(PROJECT, &[&partition]).await {
-        failed(partition, &e);
+        let db = e.as_db_error();
+        eprintln!(
+            "projection: {partition} not projected: {} {}",
+            db.map_or("-", |db| db.code().code()),
+            db.and_then(|db| db.constraint()).unwrap_or_default()
+        );
     }
 }
 
@@ -201,17 +206,15 @@ pub async fn enter(client: &Client, partition: &str, combat: Option<&str>, token
                 current(client, Some(combat)).await;
             }
         }
-        Err(e) => failed(partition, &e),
+        Err(e) => {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: {partition} not projected: {} {}",
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
     }
-}
-
-fn failed(partition: &str, e: &tokio_postgres::Error) {
-    let db = e.as_db_error();
-    eprintln!(
-        "projection: {partition} not projected: {} {}",
-        db.map_or("-", |db| db.code().code()),
-        db.and_then(|db| db.constraint()).unwrap_or_default()
-    );
 }
 
 /// Points the combat `combat` — every combat, `None` — at the current entry

@@ -1043,16 +1043,22 @@ impl start_combat::Dice for Thrown {
     }
 }
 
-/// A d20, each face as likely: a random byte, thrown again above the last
-/// multiple of 20 a byte holds.
+/// A d20, each face as likely: a random byte, thrown again until it reads
+/// as a face ([`face`]).
 fn d20() -> Result<i64, getrandom::Error> {
     loop {
         let mut byte = [0_u8; 1];
         getrandom::fill(&mut byte)?;
-        if byte[0] < 240 {
-            return Ok(i64::from(byte[0] % 20) + 1);
+        if let Some(face) = face(byte[0]) {
+            return Ok(face);
         }
     }
+}
+
+/// The d20's face a random byte reads as, 1 to 20; `None` above the last
+/// multiple of 20 a byte holds, which would favour the low faces.
+fn face(byte: u8) -> Option<i64> {
+    (byte < 240).then(|| i64::from(byte % 20) + 1)
 }
 
 /// A draw a tie is settled by: a random whole number from 0 to 2³¹ - 1, which
@@ -1251,12 +1257,56 @@ async fn version(State(engine): State<Shared>) -> Reply<serde_json::Value> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use harness_dataguard::command::State;
     use tower::ServiceExt;
 
     use super::*;
+
+    #[test]
+    fn a_byte_reads_as_a_face_from_1_to_20_each_as_likely() {
+        assert_eq!(face(0), Some(1));
+        assert_eq!(face(19), Some(20));
+        assert_eq!(face(20), Some(1));
+        assert_eq!(face(239), Some(20));
+        assert_eq!(face(240), None);
+        assert_eq!(face(u8::MAX), None);
+        let faces = (0..=u8::MAX).filter_map(face).collect::<Vec<_>>();
+        for n in 1..=20 {
+            assert_eq!(faces.iter().filter(|&&f| f == n).count(), 12, "face {n}");
+        }
+    }
+
+    #[test]
+    fn the_dice_thrown_are_random_and_in_range() {
+        let d20s = (0..2000)
+            .map(|_| d20().expect("randomness"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(d20s, (1..=20).collect::<BTreeSet<_>>());
+        let draws = (0..200)
+            .map(|_| draw().expect("randomness"))
+            .collect::<BTreeSet<_>>();
+        assert!(draws.len() > 190, "{draws:?}");
+        assert!(draws.iter().all(|d| (0..=i64::from(i32::MAX)).contains(d)));
+        assert!(draws.iter().any(|d| d % 2 == 1), "{draws:?}");
+    }
+
+    #[test]
+    fn a_start_takes_the_dice_thrown_for_it_then_falls_back() {
+        use start_combat::Dice;
+        let mut thrown = Thrown {
+            d20s: vec![7, 13],
+            draws: vec![5, 9],
+        };
+        assert_eq!((thrown.d20(), thrown.d20(), thrown.d20()), (13, 7, 1));
+        assert_eq!((thrown.draw(), thrown.draw(), thrown.draw()), (9, 5, 0));
+        let mut fresh = Thrown::new(3).expect("randomness");
+        assert_eq!((fresh.d20s.len(), fresh.draws.len()), (3, 3));
+        assert!((1..=20).contains(&fresh.d20()));
+    }
 
     /// What `router` answers to one request, over the in-memory engine.
     async fn answer(request: Request<Body>) -> (StatusCode, serde_json::Value) {
