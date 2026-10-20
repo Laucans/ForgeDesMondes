@@ -12,7 +12,7 @@
 //! - the opacity is a fraction of 1, as `HexGrid@1` states it;
 //! - each number is kept to the hundredth, as the table keeps it;
 //! - the battlemap is the command's target or, with none, the payload's
-//!   `id`, lowercase as the table writes it;
+//!   `id`, trimmed and lowercase as the table writes it;
 //! - the feet a hex is worth are never written: one hex is always 5 feet
 //!   (`hex-is-five-feet`), and a payload carrying them — or any field but
 //!   the six and the `id` — is refused ([`Refusal::Unknown`]).
@@ -117,6 +117,7 @@ pub fn prepare(wire: &Row, target: Option<&str>) -> Result<Prepared, Refusal> {
         .or_else(|| wire.get(ID).and_then(Value::as_str))
         .filter(|id| !id.trim().is_empty())
         .ok_or(Refusal::NoBattlemap)?
+        .trim()
         .to_ascii_lowercase();
     let mut payload = Row::new();
     for (word, field) in SETTINGS {
@@ -155,11 +156,12 @@ fn orientation(given: &Value) -> Option<Value> {
 /// A number, as JSON writes it — never a text, which the table would read —
 /// to the hundredth `battlemap_grid` keeps: the engine judges what the
 /// table will hold, so a size of 0.004 is the 0 `grid-values-range` rejects.
-/// A number already there is kept as it was given.
+/// A number already there, or one too large to round, is kept as it was
+/// given: JSON has no infinity, it would be written `null`.
 fn hundredth(given: &Value) -> Option<Value> {
     let n = given.as_f64()?;
     let rounded = (n * 100.0).round() / 100.0;
-    Some(if rounded == n {
+    Some(if rounded == n || !rounded.is_finite() {
         given.clone()
     } else {
         rounded.into()

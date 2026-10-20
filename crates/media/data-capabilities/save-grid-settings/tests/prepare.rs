@@ -136,6 +136,17 @@ fn an_opacity_is_judged_by_grid_values_range_not_by_the_table_s_largest_number()
 }
 
 #[test]
+fn an_opacity_too_large_to_round_is_submitted_as_given_never_null() {
+    // Its hundredth overflows; grid-values-range still rejects it by name.
+    for given in [json!(1e308), json!(-1e308)] {
+        let mut save = adjusted();
+        save["opacity"] = given.clone();
+        let payload = saved(save).expect("submitted");
+        assert_eq!(payload["opacity"], given);
+    }
+}
+
+#[test]
 fn negative_offsets_and_the_largest_the_table_holds_are_kept() {
     let mut save = adjusted();
     save["ox"] = json!(-12.5);
@@ -159,6 +170,17 @@ fn the_battlemap_is_the_target_or_the_payload_s_id_lowercase_and_the_id_is_never
     let Prepared { target_id, payload } = prepare(&wire(save), Some(other)).expect("a save");
     assert_eq!(target_id, other);
     assert!(!payload.contains_key("id"));
+}
+
+#[test]
+fn the_battlemap_s_id_is_trimmed() {
+    let padded = format!(" {} ", CARTE.to_uppercase());
+    let by_target = prepare(&wire(adjusted()), Some(&padded)).expect("a save");
+    assert_eq!(by_target.target_id, CARTE);
+    let mut save = adjusted();
+    save["id"] = json!(padded);
+    let by_id = prepare(&wire(save), None).expect("a save");
+    assert_eq!(by_id.target_id, CARTE);
 }
 
 #[test]

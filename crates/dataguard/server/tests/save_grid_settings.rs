@@ -385,3 +385,31 @@ async fn a_saved_grid_the_table_lost_is_written_again_at_the_next_start() {
     assert_eq!(grid["orientation"], "plat");
     scratch.drop().await;
 }
+
+#[tokio::test]
+async fn a_grid_the_table_refuses_is_skipped_at_the_next_start_and_the_others_are_written_again() {
+    let scratch = Scratch::new("skipped").await;
+    {
+        let (engine, app) = scratch.serve().await;
+        for media in [CARTE, ECUEIL] {
+            let result = save(&engine, &app, media, adjusted()).await;
+            assert_eq!(result.status, State::Applied, "{result:?}");
+        }
+    }
+    let ecueil = scratch.grid(ECUEIL).await.expect("the grid");
+    scratch
+        .client
+        .batch_execute(&format!(
+            "UPDATE dataguard_rows SET fields = fields || '{{\"opacity\": 1.5}}' WHERE partition = 'Media/{ECUEIL}';
+             UPDATE battlemap_grid SET hex_size_px = 64, orientation = 'pointe' WHERE media_id = '{CARTE}'"
+        ))
+        .await
+        .expect("one grid the table refuses, one the table lost");
+
+    let _restarted = scratch.serve().await;
+    let grid = scratch.grid(CARTE).await.expect("the grid");
+    assert_eq!(grid["hexSizePx"], 48.0);
+    assert_eq!(grid["orientation"], "plat");
+    assert_eq!(scratch.grid(ECUEIL).await, Some(ecueil));
+    scratch.drop().await;
+}

@@ -276,11 +276,10 @@ const MEDIA_ROW: &str = "SELECT jsonb_strip_nulls(jsonb_build_object(
 /// one when it is null — written on its battlemap's `battlemap_grid` row:
 /// the six settings, never `feet_per_hex`. After each apply of a media, and
 /// at a start, so a save whose projection failed after its apply is written
-/// again. A row that is no battlemap's, or misses a setting, is left aside,
-/// so it keeps no other battlemap's from its grid. What is left is what the
-/// invariants let through, to the hundredth the table keeps
-/// (`save_grid_settings::prepare`): its CHECKs judge it again, and one row
-/// they refused would keep every other from this one statement.
+/// again. A row that is no battlemap's, misses a setting, or holds one the
+/// table's CHECKs or precision would refuse once rounded to its hundredth,
+/// is left aside: one such row would fail this one statement and keep every
+/// other battlemap from its grid.
 const SAVE_GRIDS: &str = "INSERT INTO battlemap_grid
         (media_id, hex_size_px, offset_x, offset_y, orientation, color, opacity)
     SELECT m.id, (v ->> 'hexSizePx')::numeric, (v ->> 'offsetX')::numeric,
@@ -298,6 +297,11 @@ const SAVE_GRIDS: &str = "INSERT INTO battlemap_grid
         AND jsonb_typeof(v -> 'orientation') = 'string'
         AND jsonb_typeof(v -> 'color') = 'string'
         AND jsonb_typeof(v -> 'opacity') = 'number'
+        AND round((v ->> 'hexSizePx')::numeric, 2) BETWEEN 0.01 AND 99999.99
+        AND abs(round((v ->> 'offsetX')::numeric, 2)) <= 99999.99
+        AND abs(round((v ->> 'offsetY')::numeric, 2)) <= 99999.99
+        AND v ->> 'orientation' IN ('pointe', 'plat')
+        AND round((v ->> 'opacity')::numeric, 2) BETWEEN 0 AND 1
     ON CONFLICT (media_id) DO UPDATE SET
         hex_size_px = EXCLUDED.hex_size_px,
         offset_x = EXCLUDED.offset_x,
