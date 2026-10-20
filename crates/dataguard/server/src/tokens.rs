@@ -150,15 +150,20 @@ pub fn of_aggregate(partition: &str) -> bool {
 }
 
 /// Projects the token of `partition`, logging a failure — an instance reset
-/// or a character deleted since, which the table's foreign keys refuse.
-pub async fn project(client: &Client, partition: &str) {
-    if let Err(e) = client.execute(PROJECT, &[&partition]).await {
-        let db = e.as_db_error();
-        eprintln!(
-            "projection: {partition} not projected: {} {}",
-            db.map_or("-", |db| db.code().code()),
-            db.and_then(|db| db.constraint()).unwrap_or_default()
-        );
+/// or a character deleted since, which the table's foreign keys refuse:
+/// whether the table holds it now and did not before.
+pub async fn project(client: &Client, partition: &str) -> bool {
+    match client.execute(PROJECT, &[&partition]).await {
+        Ok(inserted) => inserted > 0,
+        Err(e) => {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: {partition} not projected: {} {}",
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+            false
+        }
     }
 }
 

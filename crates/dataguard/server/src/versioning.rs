@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use harness_dataguard::Result;
-use harness_dataguard::command::{CommandResult, Entry};
+use harness_dataguard::command::{CommandResult, Effect, Entry};
 use harness_dataguard::guard;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
@@ -275,7 +275,8 @@ impl Rows {
 
     /// What the tables hold of the instance a start of its combat names
     /// (`table.startCombat`), with the tokens queued on it and not applied
-    /// yet: they join too. A combat of the instance — in the tables, in the
+    /// yet: they join too, and a token whose removal is queued does not. A
+    /// combat of the instance — in the tables, in the
     /// engine's rows, or queued — is open while its row, as the commands
     /// queued on it will leave it, has no end. Over the engine's memory,
     /// which has no table, no instance.
@@ -317,6 +318,17 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })?;
+        // A removal is the tombstone of the token's partition.
+        let removed: Vec<&str> = pending
+            .iter()
+            .filter(|entry| entry.effect == Effect::Delete)
+            .filter_map(|entry| entry.partition.strip_prefix("BattlemapInstance/"))
+            .collect();
+        lineup.tokens.retain(|p| {
+            !removed
+                .iter()
+                .any(|gone| gone.eq_ignore_ascii_case(&p.token))
+        });
         combats.extend(held);
         combats.sort_unstable();
         combats.dedup();

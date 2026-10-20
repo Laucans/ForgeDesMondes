@@ -444,7 +444,8 @@ async fn a_token_still_queued_joins_the_combat() {
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
-    // The token, the combat and four entries, applied in that order.
+    // The token, four entries and the combat, applied in the order of their
+    // partitions' names: whichever lands last, the table holds them all.
     assert_eq!(applied(&engine).await, 6);
     let entries = s.entries().await;
     assert_eq!(entries.len(), 4);

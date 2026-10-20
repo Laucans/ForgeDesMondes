@@ -848,17 +848,20 @@ impl Store for ProjectingStore {
             {
                 let client = self.inner.client().lock().await;
                 instances::project(&client, &write.partition).await;
-                tokens::project(&client, &write.partition).await;
+                let placed = tokens::project(&client, &write.partition).await;
                 tokens::show(&client, Some(&write.partition)).await;
                 tokens::hit_points(&client, Some(&write.partition)).await;
-                combats::project(&client, &write.partition).await;
-                combats::enter(&client, &write.partition).await;
-                // A combat's current entry is written once the table holds it.
-                let combat = ["combatId", "initiativeEntryCombatId"]
-                    .iter()
-                    .find_map(|field| write.values.get(*field).and_then(Value::as_str));
-                if let Some(combat) = combat {
-                    combats::current(&client, Some(combat)).await;
+                // The engine applies a run's partitions by name: an entry is
+                // entered with the last of itself, its combat and its token.
+                let id = |field: &str| write.values.get(field).and_then(Value::as_str);
+                let combat = id("combatId");
+                if combat.is_some() {
+                    combats::project(&client, &write.partition).await;
+                    combats::current(&client, combat).await;
+                }
+                let token = id("tokenId").filter(|_| placed);
+                if combat.is_some() || token.is_some() || id("initiativeEntryId").is_some() {
+                    combats::enter(&client, &write.partition, combat, token).await;
                 }
             }
             // A rename, a badge set, or any later write, makes the token's name

@@ -11,13 +11,16 @@
 //! [`crate::Rows::lineup`] reads again as the queue will leave them. A token
 //! or a combat the engine tombstoned is none.
 //!
-//! Once the engine applied a combat on `BattlemapInstance/<its id>`,
-//! [`project`] inserts its row, and once it applied an entry on
-//! `BattlemapInstance/<its id>`, [`enter`] inserts its: a row the table
-//! holds already is left as it is. The combat's current entry is an entry's
-//! key, which the combat's row is written before: [`current`] points it at
-//! the entry the engine names once the table holds that entry — after each
-//! apply of a combat or an entry, and at a start.
+//! The engine applies the partitions of a run in the order of their names,
+//! not of their commands: an entry may land before its combat, or before a
+//! token still queued when the combat started. Once the engine applied a
+//! combat on `BattlemapInstance/<its id>`, [`project`] inserts its row; an
+//! entry is inserted once the table holds its combat and its token
+//! ([`enter`]) — at its own apply, its combat's or its token's, whichever
+//! comes last. A row the table holds already is left as it is. The combat's
+//! current entry is an entry's key: [`current`] points it at the entry the
+//! engine names once the table holds that entry — after each entry
+//! inserted, after each apply of a combat, and at a start.
 
 use start_combat::{Lineup, Participant};
 use tokio_postgres::Client;
@@ -51,9 +54,10 @@ const TOKENS: &str = "WITH placed AS (
         WHERE r.partition = 'BattlemapInstance/' || p.token AND r.tombstoned)
     ORDER BY p.token";
 
-/// The combats of the instance `$1` the table holds with no end, and every
-/// one the engine holds of it: which are still open is the engine's row's
-/// to tell, as the queue will leave it.
+/// The combats of the instance `$1` the table holds with no end, and the
+/// ones the engine holds of it with none: which are still open is the
+/// engine's row's to tell, as the queue will leave it. An end, once written,
+/// is kept (`one-active-combat`).
 const COMBATS: &str = "SELECT c.id::text FROM combat c
     WHERE c.instance_id = $1::text::uuid AND c.ended_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
@@ -62,7 +66,8 @@ const COMBATS: &str = "SELECT c.id::text FROM combat c
     SELECT lower(r.fields ->> 'combatId') FROM dataguard_rows r
     WHERE r.partition LIKE 'BattlemapInstance/%' AND NOT r.tombstoned
         AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'combatId')
-        AND lower(r.fields ->> 'combatInstanceId') = $1::text";
+        AND lower(r.fields ->> 'combatInstanceId') = $1::text
+        AND r.fields ->> 'endedAt' IS NULL";
 
 /// The combat the engine holds on partition `$1`, inserted when the table
 /// holds it not, its current entry once the table holds that entry. Its row
@@ -79,8 +84,9 @@ const PROJECT: &str = "INSERT INTO combat
         AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'combatId')
         AND NOT EXISTS (SELECT 1 FROM combat c WHERE c.id = (r.fields ->> 'combatId')::uuid)";
 
-/// The entry the engine holds on partition `$1`, inserted when the table
-/// holds it not.
+/// The entries the engine holds on partition `$1`, of the combat `$2` or of
+/// the token `$3`, inserted when the table holds them not and holds their
+/// combat and their token: the combats they are of.
 const ENTER: &str = "INSERT INTO initiative_entry
         (id, combat_id, token_id, roll, initiative, dex_score, tiebreak, rank)
     SELECT (r.fields ->> 'initiativeEntryId')::uuid,
@@ -90,10 +96,18 @@ const ENTER: &str = "INSERT INTO initiative_entry
         (r.fields ->> 'dexScore')::numeric::smallint,
         (r.fields ->> 'tiebreak')::double precision, (r.fields ->> 'rank')::numeric::integer
     FROM dataguard_rows r
-    WHERE r.partition = $1::text AND NOT r.tombstoned
+    WHERE r.partition LIKE 'BattlemapInstance/%' AND NOT r.tombstoned
         AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'initiativeEntryId')
+        AND (r.partition = $1::text
+            OR lower(r.fields ->> 'initiativeEntryCombatId') = lower($2::text)
+            OR lower(r.fields ->> 'initiativeEntryTokenId') = lower($3::text))
         AND NOT EXISTS (SELECT 1 FROM initiative_entry e
-            WHERE e.id = (r.fields ->> 'initiativeEntryId')::uuid)";
+            WHERE e.id::text = lower(r.fields ->> 'initiativeEntryId'))
+        AND EXISTS (SELECT 1 FROM combat c
+            WHERE c.id::text = lower(r.fields ->> 'initiativeEntryCombatId'))
+        AND EXISTS (SELECT 1 FROM token t
+            WHERE t.id::text = lower(r.fields ->> 'initiativeEntryTokenId'))
+    RETURNING combat_id::text";
 
 /// The current entry the engine holds of the combat `$1` — of every combat
 /// when it is null — written on its row once the table holds that entry, or
@@ -168,24 +182,36 @@ pub async fn lineup(
 /// Projects the combat of `partition`, logging a failure — an instance reset
 /// since, which the table's foreign keys refuse.
 pub async fn project(client: &Client, partition: &str) {
-    run(client, PROJECT, partition).await;
-}
-
-/// Projects the entry of `partition`, logging a failure — a combat or a
-/// token removed since.
-pub async fn enter(client: &Client, partition: &str) {
-    run(client, ENTER, partition).await;
-}
-
-async fn run(client: &Client, sql: &str, partition: &str) {
-    if let Err(e) = client.execute(sql, &[&partition]).await {
-        let db = e.as_db_error();
-        eprintln!(
-            "projection: {partition} not projected: {} {}",
-            db.map_or("-", |db| db.code().code()),
-            db.and_then(|db| db.constraint()).unwrap_or_default()
-        );
+    if let Err(e) = client.execute(PROJECT, &[&partition]).await {
+        failed(partition, &e);
     }
+}
+
+/// Projects the entry of `partition`, and every entry of the combat
+/// `combat` or of the token `token`, whose combat and token the table holds
+/// — then points each combat one was entered in at its current entry —,
+/// logging a failure.
+pub async fn enter(client: &Client, partition: &str, combat: Option<&str>, token: Option<&str>) {
+    match client.query(ENTER, &[&partition, &combat, &token]).await {
+        Ok(rows) => {
+            let mut combats: Vec<&str> = rows.iter().map(|row| row.get(0)).collect();
+            combats.sort_unstable();
+            combats.dedup();
+            for combat in combats {
+                current(client, Some(combat)).await;
+            }
+        }
+        Err(e) => failed(partition, &e),
+    }
+}
+
+fn failed(partition: &str, e: &tokio_postgres::Error) {
+    let db = e.as_db_error();
+    eprintln!(
+        "projection: {partition} not projected: {} {}",
+        db.map_or("-", |db| db.code().code()),
+        db.and_then(|db| db.constraint()).unwrap_or_default()
+    );
 }
 
 /// Points the combat `combat` — every combat, `None` — at the current entry
@@ -205,11 +231,16 @@ pub async fn current(client: &Client, combat: Option<&str>) {
 /// out, then points each combat at its current entry: at a start. Tables not
 /// migrated yet hold none.
 pub async fn repair(client: &Client) {
-    for (sql, each) in [(UNPROJECTED, PROJECT), (UNENTERED, ENTER)] {
+    for sql in [UNPROJECTED, UNENTERED] {
         match client.query(sql, &[]).await {
             Ok(rows) => {
                 for row in rows {
-                    run(client, each, row.get::<_, &str>(0)).await;
+                    let partition = row.get::<_, &str>(0);
+                    if sql == UNPROJECTED {
+                        project(client, partition).await;
+                    } else {
+                        enter(client, partition, None, None).await;
+                    }
                 }
             }
             Err(e) => eprintln!(

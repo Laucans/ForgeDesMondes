@@ -187,7 +187,8 @@ export const COMMANDS = {
     const characters = await server.load('campaign.listCharacters');
     const seated = [];
     for (const t of tokens) {
-      const score = characters.find((c) => c.id === t.char)?.stats?.DEX;
+      if (t.kind !== 'pj' && t.kind !== 'pnj') return ['not-found'];
+      const score = characters.find((c) => same(c.id, t.char))?.stats?.DEX;
       const pc = t.kind === 'pj';
       const dexScore = pc ? score ?? null : score ?? 10;
       const roll = pc ? null : figure(payload.rolls, t.id) ?? 1 + Math.floor(Math.random() * 20);

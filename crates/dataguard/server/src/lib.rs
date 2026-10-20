@@ -863,13 +863,13 @@ async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted
 /// combat's row and its entries' (`start_combat::prepare`) — the fixtures'
 /// slugs it names, as values and as the keys of its initiatives and its
 /// rolls, read as the ids the tables hold them by — and queued, one command
-/// per row on its own partition, `BattlemapInstance/<its id>`: the combat
-/// first, then its entries by rank, which the table's keys read in that
-/// order. The NPCs' d20s and every participant's draw are thrown here
-/// ([`Thrown`]). The answer is the last entry's command, queued after the
-/// others; with an idempotency key, the last command is queued under it and
-/// each other under it followed by `#<its place>`, so the start sent again
-/// under its key is the engine's to replay, as it was. Refused, and nothing
+/// per row on its own partition, `BattlemapInstance/<its id>`: its entries by
+/// rank, then the combat — a start that fails half queued leaves no open
+/// combat, and may be sent again. The NPCs' d20s and every participant's
+/// draw are thrown here ([`Thrown`]). The answer is the combat's command,
+/// queued after the others; with an idempotency key, it is queued under it
+/// and each entry under it followed by `#<its rank>`, so the start sent
+/// again under its key is the engine's to replay, as it was. Refused, and nothing
 /// queued: ids that are none, initiatives or rolls the tables cannot hold, a
 /// roll of no NPC of the instance, a PC with no initiative, no token or a
 /// token of no PC nor NPC, 422; an instance the tables do not hold, 404 —
@@ -937,8 +937,10 @@ async fn starting<L>(served: &Served<L>, mut body: Submission, now: &str) -> Rep
         refused(status, &why)
     })?;
     let key = body.idempotency_key.take();
-    let rows: Vec<(String, start_combat::Row)> = std::iter::once(prepared.combat)
-        .chain(prepared.entries)
+    let rows: Vec<(String, start_combat::Row)> = prepared
+        .entries
+        .into_iter()
+        .chain(std::iter::once(prepared.combat))
         .collect();
     let last = rows.len();
     let mut submitted: Option<Submitted> = None;
