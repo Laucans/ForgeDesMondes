@@ -1,0 +1,19 @@
+{
+  "dataCapability": "table.endCombat",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": ["BattlemapInstance.endedAt", "BattlemapInstance.currentEntryId"],
+  "payload": {
+    "instance": "uuid — the battlemap instance whose open combat ends, when the command names no target; its combat is stamped ended and no turn is current, its tokens, their HP and their conditions stay as they are"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["instance-isolated", "next-turn", "one-active-combat"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
