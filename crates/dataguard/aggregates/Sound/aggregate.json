@@ -1,0 +1,56 @@
+{
+  "aggregate": "Sound",
+  "fields": {
+    "campaignId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "createdAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "filePath": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "id": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "name": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "tags": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "volume": {
+      "criticality": "low",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "sound-volume-range",
+      "onViolation": "reject",
+      "rule": "Le volume propre reste entre 0 et 1. Le volume effectif vaut volume × volume global, ce qui garde le rapport entre deux sons."
+    },
+    {
+      "id": "tags-normalized",
+      "onViolation": "reject",
+      "rule": "Les tags sont en minuscules, sans doublon. Le filtre par tag et la recherche sur le nom ne lisent que ces champs."
+    }
+  ],
+  "relations": [
+    {
+      "from": "Sound.campaignId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    }
+  ]
+}

@@ -566,6 +566,20 @@
       const map = await server.load("media.getBattlemap");
       if (!map || id && map.id !== id) return void 0;
       return { ...map, grid: { ...map.grid, opacity: map.grid.opacity > 1 ? map.grid.opacity / 100 : map.grid.opacity, feetPerHex: 5 } };
+    },
+    // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
+    // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
+    "campaign.listEntityVersions": async (server, { entity }) => {
+      const history = (await server.load("campaign.listEntityVersions"))[entity];
+      if (history) return history;
+      const entities = await server.load("entities");
+      const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === entity);
+      return known ? { name: known.name, versions: [] } : null;
+    },
+    // One element's sheet: a character, a place or an event of `entities`.
+    "campaign.getEntity": async (server, { id }) => {
+      const entities = await server.load("entities");
+      return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
     }
   };
 
@@ -642,6 +656,9 @@
     if (window.Mock) window.Mock.store.set("diffusion", row);
     return void 0;
   }
+  var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
+  var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
+  var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
     // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone;
     // the size and the content stay.
@@ -822,6 +839,41 @@
       }
       return void 0;
     },
+    // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
+    // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
+    // version after it are undone, each field back to what it was. Either way the restoration is a new version
+    // on top of the history — source restauration, restoredFrom the version — whose changes are what moved since
+    // the version it replaces; versions 1..n stay as they were. A version the element does not have is refused.
+    "campaign.restoreEntityVersion": async (server, { payload: payload2, targetId }) => {
+      const history = (await server.load("campaign.listEntityVersions"))[targetId];
+      const target = history && history.versions.find((v) => v.v === payload2.version);
+      if (!target) return ["not-found"];
+      const sheet = (upTo) => history.versions.slice().sort((a, b) => a.v - b.v).filter((v) => v.v <= upTo).reduce((fields2, v) => {
+        for (const c of v.changes) fields2[c.field] = c.new;
+        return fields2;
+      }, {});
+      const before = sheet(history.versions[0].v);
+      let after = sheet(target.v);
+      if (Array.isArray(payload2.changes)) {
+        const undone = (history.versions.find((v) => v.v === payload2.version + 1) || { changes: [] }).changes;
+        after = { ...before };
+        for (const i of payload2.changes) if (undone[i]) after[undone[i].field] = undone[i].old;
+      }
+      const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].sort().filter((field) => (before[field] ?? "") !== (after[field] ?? "")).map((field) => ({ field, old: before[field] ?? "", new: after[field] ?? "" }));
+      history.versions.unshift({ v: history.versions[0].v + 1, date: (/* @__PURE__ */ new Date()).toISOString(), origin: "manuelle", source: "restauration", restoredFrom: target.v, changes });
+      return void 0;
+    },
+    // campaign.exportCampaign (crates/dataguard/data-capabilities/export-campaign):
+    // stamps the campaign's last export with today's date and changes nothing
+    // else (`export-stamps-date`). An unknown campaign is `not-found`.
+    "campaign.exportCampaign": async (server, { payload: payload2 }) => {
+      const campaign = await server.load("campaign.getCampaign");
+      if (!campaign || campaign.id !== payload2.id) return ["not-found"];
+      const now = /* @__PURE__ */ new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      return void 0;
+    },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
     // never taken from the payload: the cloud host by itself, the home server
@@ -865,6 +917,51 @@
       const message = payload2.mode === "api" && settings.testResults?.[provider]?.message || `Connexion r\xE9ussie (binaire ${provider})`;
       const latency = message.match(/répond en ([\d,]+ s)/)?.[1] || "0,01 s";
       settings.lastTest = { ok: true, at, provider, latency, message };
+      return void 0;
+    },
+    // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
+    // DM's explicit save of an element, its sheet and its aliases, which adds a
+    // version (EntityVersion@1, source `dm`) whose changes are the fields that
+    // moved. An alias naming another element, by its name or an alias
+    // (AliasMatch@1), is refused by `alias-unique-in-campaign`; a player on
+    // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
+    // are kept: a DEX modifier given is never written.
+    "campaign.saveEntity": async (server, { payload: payload2 }) => {
+      const given = payload2.entity || payload2;
+      const lists = await Promise.all(Object.values(LISTS).filter((v2, i, all2) => all2.indexOf(v2) === i).map(async (name) => [name, await server.load(name) || []]));
+      const all = lists.flatMap(([name, list2]) => list2.map((element) => ({ name, element })));
+      const found = all.find(({ element }) => given.id && element.id === given.id);
+      const before = found ? found.element : {};
+      const kind = given.kind || before.kind || (found && found.name === "campaign.listPlaces" ? "lieu" : found && found.name === "campaign.listEvents" ? "evenement" : void 0);
+      if (!LISTS[kind]) return ["character-is-pj-or-pnj"];
+      const after = { ...before };
+      for (const field of SAVED) if (field in given) after[field] = given[field];
+      after.kind = kind;
+      if (Array.isArray(after.aliases)) {
+        const seen = /* @__PURE__ */ new Set();
+        after.aliases = after.aliases.filter((a) => typeof a === "string" && normalized(a) && !seen.has(normalized(a)) && seen.add(normalized(a)));
+      }
+      if (after.player && kind !== "pj") return ["character-is-pj-or-pnj"];
+      const own = [[normalized(after.name), false], ...(after.aliases || []).map((a) => [normalized(a), true])].filter(([t]) => t);
+      const others = all.filter(({ element }) => element !== before).flatMap(({ element }) => [[normalized(element.name), false], ...(element.aliases || []).map((a) => [normalized(a), true])]);
+      if (own.some(([t, alias]) => others.some(([o, otherAlias]) => o === t && (alias || otherAlias)))) return ["alias-unique-in-campaign"];
+      if ((kind === "pj" || kind === "pnj") && !after.color) after.color = "accent";
+      const id = before.id || given.id || server.uuid();
+      after.id = id;
+      const list = await server.load(LISTS[kind]) || [];
+      if (found && found.name !== LISTS[kind]) {
+        const old = lists.find(([name]) => name === found.name)[1];
+        old.splice(old.indexOf(before), 1);
+      }
+      const at = list.indexOf(before);
+      if (at >= 0) list[at] = after;
+      else list.push(after);
+      const history = await server.load("campaign.listEntityVersions") || {};
+      const entry = history[id] || (history[id] = { name: after.name, versions: [] });
+      entry.name = after.name;
+      const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
+      const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Fiche enregistr\xE9e par le DM", seen: true, changes });
       return void 0;
     }
   };

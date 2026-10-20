@@ -130,7 +130,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "10e51d60029cc7fb"
+      "builtFrom": "8708c3ead6224a73"
     },
     {
       "name": "CampaignOverview",
@@ -146,7 +146,11 @@
       "actions": [
         "campaign.exportCampaign"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
+      },
+      "source": "apps/campaign/campaign-overview",
+      "builtFrom": "e59296a0e94520d5"
     },
     {
       "name": "SessionList",
@@ -255,7 +259,7 @@
     {
       "name": "VersionHistory",
       "system": "campaign",
-      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour en arrière",
+      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour à une version antérieure",
       "fragment": "components/VersionHistory.html",
       "fixtures": [
         "fixtures/campaign.listEntityVersions.json"
@@ -269,7 +273,9 @@
       "props": {
         "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse",
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
-      }
+      },
+      "source": "apps/campaign/version-history",
+      "builtFrom": "a96c01eaf4afd651"
     },
     {
       "name": "PreviousSummary",
@@ -369,7 +375,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "3ac358ccbf924a2e"
+      "builtFrom": "5a2362785bb0a9e0"
     },
     {
       "name": "MediaLibrary",
@@ -555,7 +561,7 @@
         "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "836f42b0cde0cc05"
+      "builtFrom": "f8c9f5bcad636269"
     }
   ]
 }

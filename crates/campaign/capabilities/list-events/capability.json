@@ -1,0 +1,9 @@
+{
+  "capability": "campaign.listEvents",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "The events of a campaign, for their own tab: each element of type evenement with its id, its name, its aliases and its description, in the order they were created. No character (pj, pnj) and no place (lieu) is listed here, and no session or scene.",
+  "input": { "campaign": "string" },
+  "output": "{ id: string, name: string, aliases: string[], description: string | null }[]",
+  "reads": ["queries/list-events.graphql"]
+}

@@ -1,0 +1,62 @@
+{
+  "aggregate": "SoundPlayback",
+  "fields": {
+    "id": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "origin": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "sessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "soundId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "startedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "stoppedAt": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "simultaneous-playback",
+      "onViolation": "reject",
+      "rule": "Plusieurs lectures sans stopped_at peuvent coexister. Un son déclenché depuis la pastille ajoute une lecture sans arrêter les autres."
+    },
+    {
+      "id": "stop-all",
+      "onViolation": "reject",
+      "rule": "« Tout arrêter » renseigne stopped_at sur toutes les lectures en cours de la séance."
+    },
+    {
+      "id": "dm-side-only",
+      "onViolation": "reject",
+      "rule": "Une lecture n'est jouée que par la DM view. La player view ne reçoit aucune lecture."
+    }
+  ],
+  "relations": [
+    {
+      "from": "SoundPlayback.sessionId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "SoundPlayback.soundId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    }
+  ]
+}

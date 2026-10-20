@@ -1,0 +1,9 @@
+{
+  "capability": "campaign.listPlayers",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "The players of a campaign, for their own tab beside the characters: each with its id, its name and its notes, sorted by name. A player is a person at the table, not a campaign element: no sheet, no token, and the characters they play are another read.",
+  "input": { "campaign": "string" },
+  "output": "{ id: string, name: string, notes: string | null }[]",
+  "reads": ["queries/list-players.graphql"]
+}

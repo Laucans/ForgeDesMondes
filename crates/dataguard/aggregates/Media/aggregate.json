@@ -1,0 +1,116 @@
+{
+  "aggregate": "Media",
+  "fields": {
+    "campaignId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "color": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "feetPerHex": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "filePath": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "heightPx": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "hexSizePx": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "id": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "kind": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "mediaId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "offsetX": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "offsetY": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "opacity": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "orientation": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "placeId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "title": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "uploadedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "widthPx": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "grid-only-for-battlemap",
+      "onViolation": "reject",
+      "rule": "Seule une battlemap a un réglage de grille, et elle en a toujours un dès son téléversement."
+    },
+    {
+      "id": "hex-is-five-feet",
+      "onViolation": "reject",
+      "rule": "Un hex vaut toujours 5 pieds, quels que soient sa taille, son décalage ou son orientation."
+    },
+    {
+      "id": "grid-values-range",
+      "onViolation": "reject",
+      "rule": "La taille d'un hex est strictement positive et l'opacité reste entre 0 et 1."
+    },
+    {
+      "id": "media-place-is-lieu",
+      "onViolation": "reject",
+      "rule": "Le lieu d'un média, s'il est renseigné, est un élément de type « lieu » de la même campagne."
+    }
+  ],
+  "relations": [
+    {
+      "from": "Media.campaignId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Media.placeId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Media.mediaId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    }
+  ]
+}
