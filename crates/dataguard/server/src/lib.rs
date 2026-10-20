@@ -867,9 +867,12 @@ async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted
 /// rank, then the combat — a start that fails half queued leaves no open
 /// combat, and may be sent again. The NPCs' d20s and every participant's
 /// draw are thrown here ([`Thrown`]). The answer is the combat's command,
-/// queued after the others; with an idempotency key, it is queued under it
-/// and each entry under it followed by `#<its rank>`, so the start sent
-/// again under its key is the engine's to replay, as it was. Refused, and nothing
+/// queued after the others; with an idempotency key, it alone is queued
+/// under it, so the start sent again under its key is the engine's to
+/// replay, as it was. Its entries are queued under none: a start half queued
+/// left entries of a combat never queued, which no table holds, and the same
+/// start sent again under its key makes its own (`a_start_half_queued_…`).
+/// Refused, and nothing
 /// queued: ids that are none, initiatives or rolls the tables cannot hold, a
 /// roll of no NPC of the instance, a PC with no initiative, no token or a
 /// token of no PC nor NPC, 422; an instance the tables do not hold, 404 —
@@ -952,13 +955,7 @@ async fn starting<L>(served: &Served<L>, mut body: Submission, now: &str) -> Rep
             payload: row,
             target_id: Some(id),
             based_on: None,
-            idempotency_key: key.as_ref().map(|key| {
-                if place == last {
-                    key.clone()
-                } else {
-                    format!("{key}#{place}")
-                }
-            }),
+            idempotency_key: key.clone().filter(|_| place == last),
             caller: body.caller.clone(),
         };
         warnings.extend(submitted.take().into_iter().flat_map(|one| one.warnings));

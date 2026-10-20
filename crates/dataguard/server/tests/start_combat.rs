@@ -545,6 +545,68 @@ async fn a_start_sent_again_under_its_key_is_replayed() {
 }
 
 #[tokio::test]
+async fn a_start_half_queued_then_sent_again_under_its_key_opens_one_combat_with_its_entries() {
+    use harness_dataguard::api::Submission;
+    use harness_dataguard::guard::Caller;
+    let s = Scratch::new("half_queued").await;
+    let (engine, app) = s.serve().await;
+    // The entries of a start under "k" whose combat was never queued, under
+    // the keys an entry was once queued by: its own after "k", then its rank.
+    let phantom = "c0000000-0000-4000-8000-0000000000ff";
+    for (rank, token) in (1_i64..).zip([T_ELOWEN, T_BANDIT, T_VESNA]) {
+        let id = format!("ee000000-0000-4000-8000-{rank:012}");
+        let row = start_combat::Row::from([
+            ("initiativeEntryId".to_string(), json!(id)),
+            ("initiativeEntryCombatId".to_string(), json!(phantom)),
+            ("initiativeEntryTokenId".to_string(), json!(token)),
+            ("roll".to_string(), json!(10)),
+            ("initiative".to_string(), json!(10)),
+            ("dexScore".to_string(), json!(10)),
+            ("tiebreak".to_string(), json!(rank)),
+            ("rank".to_string(), json!(rank)),
+        ]);
+        engine
+            .submit(Submission {
+                data_capability: "table.startCombat@1".to_string(),
+                payload: row,
+                target_id: Some(id),
+                based_on: None,
+                idempotency_key: Some(format!("k#{rank}")),
+                caller: Caller {
+                    by: "dm".to_string(),
+                    from: "table.Battlemap".to_string(),
+                    permissions: Vec::new(),
+                    roles: vec!["role:approver".to_string()],
+                },
+            })
+            .await
+            .expect("queued");
+    }
+    let payload = json!({ "initiative": { ELOWEN: 18 }, "rolls": { T_BANDIT: 13, T_VESNA: 11 } });
+    let (status, body) = send(
+        &app,
+        "table.startCombat@1",
+        INSTANCE,
+        payload.clone(),
+        Some("k"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 3 + 4);
+    let (combats, entries) = (s.combats().await, s.entries().await);
+    assert_eq!(combats.len(), 1, "{combats:?}");
+    assert_eq!(tokens_of(&entries), [T_ELOWEN, T_VESNA, T_BANDIT]);
+    assert!(entries.iter().all(|e| e["combat"] == combats[0]["id"]));
+    assert_eq!(combats[0]["current"], entries[0]["id"]);
+    // Sent again under its key, the start is replayed, not refused.
+    let (status, again) = send(&app, "table.startCombat@1", INSTANCE, payload, Some("k")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["commandId"], body["commandId"]);
+    assert_eq!(applied(&engine).await, 0);
+    s.drop().await;
+}
+
+#[tokio::test]
 async fn state_persisted_reset_a_combat_the_tables_lost_is_projected_again_at_the_next_start() {
     let s = Scratch::new("repair").await;
     {
