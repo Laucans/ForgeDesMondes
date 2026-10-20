@@ -393,6 +393,9 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// the ids the tables hold them by, one at a time until it is queued
 /// ([`MARKING`]): one naming no uuid, no condition, or no `on`, 422; one of a
 /// token not on the instance, 404.
+/// A token taken off the map (`remove_token::prepare`) is made the deletion
+/// of the token's partition, which writes no field, the same way: one naming
+/// no uuid, 422; one of a token not on the instance, 404.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -661,6 +664,32 @@ async fn submit<L: Llm>(
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         };
         let prepared = set_token_condition::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if remove_token::names(&body.data_capability) {
+        let unprocessable = |refusal: remove_token::Refusal| {
+            let status = if refusal == remove_token::Refusal::UnknownToken {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            refused(status, &refusal)
+        };
+        let wire = served.reads.stored(&body.payload);
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(id));
+        let request = remove_token::request(&wire, target.as_deref()).map_err(unprocessable)?;
+        let base = match served
+            .rows
+            .projected(&remove_token::partition(&request.token))
+            .await
+        {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = remove_token::prepare(&request, &base).map_err(unprocessable)?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
     }

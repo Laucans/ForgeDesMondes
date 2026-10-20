@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use harness_dataguard::Result;
-use harness_dataguard::command::{CommandResult, Entry};
+use harness_dataguard::command::{CommandResult, Effect, Entry};
 use harness_dataguard::guard;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
@@ -295,7 +295,10 @@ impl Rows {
     /// `partition`'s row as the commands queued on it will leave it: the row
     /// applied, then each pending command's payload, in queue order — a
     /// relative command's numbers added to the row's, as the engine composes
-    /// them (`guard::projected`, `table.changeHitPoints`). The row and the
+    /// them (`guard::projected`, `table.changeHitPoints`) — and nothing after
+    /// a deletion (`table.removeToken`): a row whose removal is queued is
+    /// none to write, so no command is judged against it to land after its
+    /// tombstone, which a write lifts. The row and the
     /// queue are read while the applier is still ([`APPLYING`]): it writes a
     /// row before it marks its command applied, and a command read in both
     /// would be counted twice.
@@ -315,9 +318,10 @@ impl Rows {
             .collect();
         drop(applying);
         ahead.sort_by_key(|entry| entry.position);
-        Ok(ahead
-            .iter()
-            .fold(row, |row, entry| guard::projected(&row, entry)))
+        Ok(ahead.iter().fold(row, |row, entry| match entry.effect {
+            Effect::Delete => BTreeMap::new(),
+            _ => guard::projected(&row, entry),
+        }))
     }
 }
 

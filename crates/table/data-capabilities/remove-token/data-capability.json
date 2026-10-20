@@ -1,0 +1,19 @@
+{
+  "dataCapability": "table.removeToken",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "delete",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$token"
+  },
+  "touches": ["BattlemapInstance.tokenId"],
+  "payload": {
+    "token": "uuid — the token taken off the map; when absent, the command's target is the token. Its partition is tombstoned (a soft delete): nothing else is written — the order closes up by itself (orderIndex, derived), and when the token holds the turn the caller sends table.nextTurn first, then this command"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["instance-isolated"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
