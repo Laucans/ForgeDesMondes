@@ -1,0 +1,28 @@
+{
+  "dataCapability": "live.resizeWindow",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Diffusion",
+    "id": "$sessionId"
+  },
+  "touches": [
+    "Diffusion.windowWidth",
+    "Diffusion.updatedAt"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign whose live session's player view shows the window",
+    "w": "number — the width of the box the dragged corner draws, a fraction of the screen's width",
+    "h": "number, optional — the height of that box, a fraction of the screen's width too: a hint. The width stored is the largest the box holds at the illustration's ratio (fit): min(w, h × width_px / height_px), brought between 0.1 and 1, the screen's width; with no h, it is w (width-led). The height is never stored: it is window_width × height_px / width_px (window-proportional). The position and the media stay; a window that is not open is rejected under window-fields-together"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "window-proportional",
+    "window-fields-together",
+    "single-diffusion-source"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

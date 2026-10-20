@@ -677,11 +677,16 @@
       w.y = onScreen(payload2.y, w.y);
     }),
     // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
-    // is stored, the largest that fits the box asked for at the image's ratio
-    // (window-proportional); the position stays.
+    // is stored, the largest that fits the box asked for at the image's ratio — w
+    // alone with no h — from 0.1 to the screen's width, to 4 decimals
+    // (window-proportional); the position stays. A w that is no number, which the
+    // server refuses, keeps the width.
     "live.resizeWindow": (server, { payload: payload2 }) => onWindow(server, async (w) => {
+      if (typeof payload2.w !== "number" || !Number.isFinite(payload2.w)) return void 0;
       const ratio = await ratioOfIllustration(server, w.id || w.media);
-      w.w = Math.max(0.1, Math.min(payload2.w, payload2.h * ratio, 1 - w.x));
+      const fit = typeof payload2.h === "number" && Number.isFinite(payload2.h) ? Math.min(payload2.w, payload2.h * ratio) : payload2.w;
+      w.w = Math.round(Math.max(0.1, Math.min(1, fit)) * 1e4) / 1e4;
+      return void 0;
     }),
     // live.showWindowOnPlayerView (crates/live/data-capabilities/show-window-on-player-view):
     // the illustration opens in the floating window at its default position and

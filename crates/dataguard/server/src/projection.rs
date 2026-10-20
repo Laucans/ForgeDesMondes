@@ -19,11 +19,11 @@
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
 //! column. A send to the player view (`live.showOnPlayerView`), a return to
 //! the cover (`live.showCover`), a window opened on the player view
-//! (`live.showWindowOnPlayerView`) and a move of it (`live.moveWindow`) write
-//! their session's partition, `Diffusion/<its id>`: [`ProjectingStore`]
-//! upserts the session's `diffusion` row with what the engine's row carries,
-//! the rest as the table holds it. A campaign's row is its table's over the
-//! engine's, and
+//! (`live.showWindowOnPlayerView`), a move of it (`live.moveWindow`) and a
+//! resize (`live.resizeWindow`) write their session's partition,
+//! `Diffusion/<its id>`: [`ProjectingStore`] upserts the session's
+//! `diffusion` row with what the engine's row carries, the rest as the table
+//! holds it. A campaign's row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -50,6 +50,7 @@ use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::postgres::PgStore;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
+use resize_window::Proportions;
 use restore_entity_version::Kept;
 use serde_json::Value;
 use show_window_on_player_view::Base;
@@ -293,6 +294,15 @@ const LIVE_SESSION: &str = "SELECT s.id::text FROM session s
     ORDER BY s.position DESC, s.id
     LIMIT 1";
 
+/// The size in pixels of the illustration `$2` names, when the tables hold
+/// it as one of the campaign `$1` names with a width and a height above 0:
+/// what a resize of the window showing it (`live.resizeWindow`) keeps the
+/// ratio of. A `$2` that is no uuid names none.
+const PROPORTIONS: &str = "SELECT m.width_px, m.height_px FROM media m
+    WHERE m.id = CASE WHEN pg_input_is_valid($2::text, 'uuid') THEN ($2::text)::uuid END
+        AND m.campaign_id = ($1::text)::uuid AND m.kind = 'illustration'
+        AND m.width_px > 0 AND m.height_px > 0";
+
 /// What the tables say of what a window opened on the player view names
 /// (`live.showWindowOnPlayerView`), `$1` the campaign, `$2` the media, each
 /// a uuid: the campaign's live session — of two, the last one planned —,
@@ -461,6 +471,22 @@ impl ProjectingStore {
         let client = self.inner.client().lock().await;
         let row = client.query_opt(LIVE_SESSION, &[&campaign]).await?;
         Ok(row.map(|row| row.get(0)))
+    }
+
+    /// The size of the illustration `media` names, when the tables hold it
+    /// as one of the campaign the uuid `campaign` names, with a width and a
+    /// height.
+    pub async fn proportions(
+        &self,
+        campaign: &str,
+        media: &str,
+    ) -> std::result::Result<Option<Proportions>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let row = client.query_opt(PROPORTIONS, &[&campaign, &media]).await?;
+        Ok(row.map(|row| Proportions {
+            width_px: row.get(0),
+            height_px: row.get(1),
+        }))
     }
 
     /// What the tables say of what a window opened on the player view names.

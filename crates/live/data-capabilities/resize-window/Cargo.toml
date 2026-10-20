@@ -1,0 +1,10 @@
+[package]
+name = "resize-window"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.resizeWindow: the DM drags the corner of the floating window open over the live session's player view, on the session's Diffusion partition — its width set, the largest the drawn box holds at its illustration's ratio, its height never stored, its position and its media untouched, a window that is not open refused."
+publish = false
+
+[dependencies]
+serde_json = "1"
