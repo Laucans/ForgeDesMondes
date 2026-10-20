@@ -57,3 +57,4 @@ set-token-condition = { path = "../../table/data-capabilities/set-token-conditio
 next-turn = { path = "../../table/data-capabilities/next-turn" }
 start-combat = { path = "../../table/data-capabilities/start-combat" }
 remove-token = { path = "../../table/data-capabilities/remove-token" }
+remove-participant = { path = "../../table/data-capabilities/remove-participant" }
