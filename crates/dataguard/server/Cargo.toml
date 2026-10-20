@@ -49,3 +49,4 @@ save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 show-cover = { path = "../../live/data-capabilities/show-cover" }
+show-window-on-player-view = { path = "../../live/data-capabilities/show-window-on-player-view" }
