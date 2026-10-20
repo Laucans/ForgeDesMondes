@@ -31,6 +31,9 @@
 //! [`ProjectingStore`] writes `token.name`, and no other column; a condition
 //! badge put on or taken off (`table.setTokenCondition`), with its conditions
 //! alone: [`ProjectingStore`] writes `token.conditions`, and no other column.
+//! A « Suivant » (`table.nextTurn`) writes a combat's partition with its
+//! current entry and its round alone: [`ProjectingStore`] writes
+//! `combat.current_entry_id` and `combat.round` ([`turns`]).
 //! A campaign's row is its table's over the engine's, and an archive is read
 //! from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
@@ -67,6 +70,7 @@ use crate::aliases::Aliases;
 use crate::history::History;
 use crate::instances;
 use crate::tokens;
+use crate::turns;
 use crate::versioning::{ENTITY, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
@@ -354,6 +358,7 @@ impl ProjectingStore {
             tokens::repair(&client).await;
             tokens::show(&client, None).await;
             tokens::hit_points(&client, None).await;
+            turns::turn(&client, None).await;
         }
         self.repair_names(None).await;
         self.repair_conditions(None).await;
@@ -412,6 +417,26 @@ impl ProjectingStore {
     ) -> std::result::Result<place_tokens::Roster, tokio_postgres::Error> {
         let client = self.inner.client().lock().await;
         tokens::roster(&client, instance, character).await
+    }
+
+    /// The combats the engine holds of the instance a « Suivant » names
+    /// (`table.nextTurn`), open or ended.
+    pub async fn combats(
+        &self,
+        instance: &str,
+    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        turns::combats(&client, instance).await
+    }
+
+    /// The entries the engine holds of the combat a « Suivant » turns
+    /// (`table.nextTurn`).
+    pub async fn entries(
+        &self,
+        combat: &str,
+    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        turns::entries(&client, combat).await
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -831,6 +856,7 @@ impl Store for ProjectingStore {
                 tokens::project(&client, &write.partition).await;
                 tokens::show(&client, Some(&write.partition)).await;
                 tokens::hit_points(&client, Some(&write.partition)).await;
+                turns::turn(&client, Some(&write.partition)).await;
             }
             // A rename, a badge set, or any later write, makes the token's name
             // and conditions follow the engine's.

@@ -1,0 +1,19 @@
+{
+  "dataCapability": "table.nextTurn",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": ["BattlemapInstance.currentEntryId", "BattlemapInstance.round"],
+  "payload": {
+    "instance": "uuid — the battlemap instance whose open combat moves on, when the command names no target. Nothing else: « Suivant » passes the turn to the next living participant in rank order, a hidden one like any other, and adds a round when it wraps past the last rank (Initiative@1). An instance with no open combat, or whose participants are all dead, is refused"
+  },
+  "mode": "relative",
+  "invariants": ["instance-isolated", "next-turn", "dead-derived", "hidden-keeps-rank"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

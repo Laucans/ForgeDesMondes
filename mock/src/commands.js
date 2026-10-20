@@ -186,6 +186,28 @@ export const COMMANDS = {
     token.states = payload.on ? (states.includes(state) ? states : states.concat(state)) : states.filter((s) => s !== state);
     return undefined;
   },
+  // table.nextTurn (Initiative@1, « Suivant »): the open combat of the instance `targetId` — or `payload.instance`
+  // — passes the turn to the next living participant after the current one in its order, a hidden one like any
+  // other (`hidden-keeps-rank`), a dead one skipped (`dead-derived`); the round goes up when the search wraps
+  // past the last (`next-turn`). An instance with no open combat, or none of whose participants is alive, is
+  // refused. Ids are compared in any case, as the server does.
+  'table.nextTurn': async (server, { payload, targetId }) => {
+    const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+    const id = targetId || payload.instance;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const inst = instances.find((i) => same(i.id, id));
+    const combat = inst?.state.combat;
+    if (!combat) return ['next-turn'];
+    const alive = combat.order.map((p) => inst.state.tokens.some((t) => same(t.id, p.id) && !t.dead));
+    const at = combat.order.findIndex((p) => same(p.id, combat.current));
+    const after = alive.findIndex((living, i) => living && i > at);
+    const wrapped = after === -1 ? alive.findIndex((living, i) => living && i <= at) : -1;
+    if (after === -1 && wrapped === -1) return ['next-turn'];
+    combat.current = combat.order[after === -1 ? wrapped : after].id;
+    if (after === -1) combat.round += 1;
+    return undefined;
+  },
   // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
   // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
   // version after it are undone, each field back to what it was. Either way the restoration is a new version
