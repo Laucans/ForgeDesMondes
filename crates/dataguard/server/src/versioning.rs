@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use harness_dataguard::Result;
-use harness_dataguard::command::{CommandResult, Entry};
+use harness_dataguard::command::{CommandResult, Effect, Entry};
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
 use restore_entity_version::Kept;
@@ -311,6 +311,21 @@ impl Rows {
         }
         Ok(row)
     }
+
+    /// Whether a deletion of `partition` is queued: the engine will hold its
+    /// tombstone, whatever [`Rows::projected`] says of the row.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn removal_queued(&self, partition: &str) -> Result<bool> {
+        Ok(self
+            .store
+            .pending()
+            .await?
+            .iter()
+            .any(|entry| entry.partition == partition && entry.effect == Effect::Delete))
+    }
 }
 
 #[cfg(test)]
@@ -513,5 +528,35 @@ mod tests {
         assert_eq!(row["name"], "Morlox");
         assert_eq!(row["notes"], "last");
         assert_eq!(row["hpMax"], 21);
+    }
+
+    #[tokio::test]
+    async fn a_deletion_queued_is_seen_apart_from_the_row_projected() {
+        let inner = Arc::new(MemoryStore::default());
+        let store: Arc<dyn Store> = inner.clone();
+        store
+            .apply(&write(json!({ "name": "Morlox" }), false), &result())
+            .await
+            .expect("applied");
+        let rows = Rows::new(store.clone());
+        assert!(!rows.removal_queued(MORLOX).await.expect("read"));
+        let mut removal = pending("c_3", MORLOX, 3, json!({ "notes": "gone" }));
+        removal.effect = Effect::Delete;
+        let mut elsewhere = pending("c_4", "Entity/other", 4, json!({}));
+        elsewhere.effect = Effect::Delete;
+        for entry in [
+            removal,
+            elsewhere,
+            pending("c_2", MORLOX, 2, json!({ "notes": "first" })),
+        ] {
+            store.save(&entry).await.expect("saved");
+        }
+        assert!(rows.removal_queued(MORLOX).await.expect("read"));
+        assert!(!rows.removal_queued("Entity/none").await.expect("read"));
+        // The row is the queue's payloads over the applied row, a deletion
+        // included: the tombstone is the engine's to hold.
+        let row = rows.projected(MORLOX).await.expect("projected");
+        assert_eq!(row["name"], "Morlox");
+        assert_eq!(row["notes"], "gone");
     }
 }

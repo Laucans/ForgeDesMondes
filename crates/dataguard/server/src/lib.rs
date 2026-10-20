@@ -380,7 +380,10 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// changes, its tags normalised and its volume a fraction of 1: one naming
 /// no sound the engine holds — a sound queued for addition is one — is
 /// refused, 404, and one with a blank name or file, or nothing to change,
-/// 422. A change of a sound's own volume (`set_sound_volume::prepare`) is
+/// 422. A removal of a sound (`remove_sound::target`) names the sound alone,
+/// whose tombstone the engine keeps as it was: one naming no sound the
+/// engine holds — one removed already is none — is refused, 404.
+/// A change of a sound's own volume (`set_sound_volume::prepare`) is
 /// made the fraction it writes on the sound's partition, the percent divided
 /// by 100, which `sound-volume-range` judges once it is processed: one naming
 /// no sound the engine holds — by its id or the soundbox's slug for it — is
@@ -635,18 +638,32 @@ async fn submit<L: Llm>(
             Err(refusal) => return unprepared(refusal),
         };
         // The sound as the commands queued ahead leave it: an addition still
-        // queued is one.
-        match served
-            .rows
-            .projected(&format!("Sound/{}", prepared.target_id))
-            .await
-        {
-            Ok(row) if row.is_empty() => return unprepared(update_sound::Refusal::NoSound),
-            Ok(_) => {}
+        // queued is one, a removal still queued leaves none.
+        match sound_standing(&served.rows, &prepared.target_id).await {
+            Ok(false) => return unprepared(update_sound::Refusal::NoSound),
+            Ok(true) => {}
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         }
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
+    } else if remove_sound::names(&body.data_capability) {
+        let no_sound = || {
+            Err(refused(
+                axum::http::StatusCode::NOT_FOUND,
+                &remove_sound::Refusal::NoSound,
+            ))
+        };
+        let Ok(sound) = remove_sound::target(body.target_id.as_deref()) else {
+            return no_sound();
+        };
+        // The sound as the commands queued ahead leave it: an addition still
+        // queued is one, a sound removed already is none.
+        match sound_standing(&served.rows, &sound).await {
+            Ok(false) => return no_sound(),
+            Ok(true) => {}
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        }
+        body.target_id = Some(sound);
     } else if set_sound_volume::names(&body.data_capability) {
         let no_sound = || {
             Err(refused(
@@ -662,13 +679,11 @@ async fn submit<L: Llm>(
         let Ok(prepared) = set_sound_volume::prepare(&body.payload, target.as_deref()) else {
             return no_sound();
         };
-        match served
-            .rows
-            .projected(&format!("Sound/{}", prepared.target_id))
-            .await
-        {
-            Ok(row) if row.is_empty() => return no_sound(),
-            Ok(_) => {}
+        // The sound as the commands queued ahead leave it: a removal still
+        // queued leaves none.
+        match sound_standing(&served.rows, &prepared.target_id).await {
+            Ok(false) => return no_sound(),
+            Ok(true) => {}
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         }
         body.payload = prepared.payload;
@@ -769,6 +784,16 @@ fn nothing_to_stop() -> harness_dataguard::api::Submitted {
         },
         warnings: Vec::new(),
     }
+}
+
+/// Whether the sound `id` stands once the commands queued ahead are applied:
+/// an addition still queued makes one, a removal still queued takes it away.
+async fn sound_standing(rows: &Rows, id: &str) -> harness_dataguard::Result<bool> {
+    let partition = format!("Sound/{id}");
+    if rows.removal_queued(&partition).await? {
+        return Ok(false);
+    }
+    Ok(!rows.projected(&partition).await?.is_empty())
 }
 
 /// One trigger under an idempotency key at a time, from its replay check

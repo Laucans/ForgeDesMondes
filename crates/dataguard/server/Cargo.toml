@@ -54,4 +54,5 @@ set-sound-volume = { path = "../../soundbox/data-capabilities/set-sound-volume" 
 add-sound = { path = "../../soundbox/data-capabilities/add-sound" }
 play-sound = { path = "../../soundbox/data-capabilities/play-sound" }
 update-sound = { path = "../../soundbox/data-capabilities/update-sound" }
+remove-sound = { path = "../../soundbox/data-capabilities/remove-sound" }
 stop-all = { path = "../../soundbox/data-capabilities/stop-all" }
