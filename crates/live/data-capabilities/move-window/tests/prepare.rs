@@ -91,6 +91,15 @@ fn a_payload_naming_no_campaign_or_no_position_is_refused() {
             json!({ "campaign": "valombre", "x": 0.1, "y": 0.1 }),
             Refusal::NotAnId,
         ),
+        // A uuid's digits too few, and a uuid's length with a letter no digit.
+        (
+            json!({ "campaign": &VALOMBRE[..8], "x": 0.1, "y": 0.1 }),
+            Refusal::NotAnId,
+        ),
+        (
+            json!({ "campaign": VALOMBRE.replace('c', "z"), "x": 0.1, "y": 0.1 }),
+            Refusal::NotAnId,
+        ),
         (
             json!({ "campaign": 7, "x": 0.1, "y": 0.1 }),
             Refusal::NotAnId,
