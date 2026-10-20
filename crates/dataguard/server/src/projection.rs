@@ -18,8 +18,15 @@
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
 //! column. A campaign's row is its table's over the engine's, and
-//! an archive is read from the tables ([`ProjectingStore::archived`]). Every
-//! other method is the inner store's.
+//! an archive is read from the tables ([`ProjectingStore::archived`]). A new
+//! scene (`session.addScene`) writes its partition, `Session/<its id>`,
+//! whole: [`ProjectingStore`] adds its `scene` row and a `scene_entity` row
+//! for each element it links, ranked in their order, in one transaction —
+//! the media of a place follow through `session_media_view`, never written.
+//! What the tables hold of the sessions — each one's campaign, its scenes and
+//! their ranks, its campaign's elements — is read for the scenes' invariants
+//! ([`ProjectingStore::scene_facts`]). Every other method is the inner
+//! store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -33,7 +40,8 @@
 //! tables' aliases are the ones `alias-unique-in-campaign` judges against.
 //! So do its versions reach [`History`], as `entity_version` numbers them:
 //! the ones a restoration names. A stamp the table lost is written again at
-//! the next start, never over a later one.
+//! the next start, never over a later one, and a scene the tables do not hold
+//! yet is added then.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -51,7 +59,8 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
-use crate::versioning::{ENTITY, element_of};
+use crate::scenes::Scenes;
+use crate::versioning::{ENTITY, SESSION, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
 pub const AI_SETTINGS: &str = "AiSettings/1";
@@ -250,6 +259,55 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
+/// A new scene as its row (`$1`, JSON) holds it, added when the table does
+/// not hold it yet.
+const ADD_SCENE: &str = "INSERT INTO scene (id, session_id, position, title, notes)
+    SELECT (r ->> 'sceneId')::uuid, (r ->> 'sceneSessionId')::uuid,
+        (r ->> 'scenePosition')::integer, r ->> 'sceneTitle', r ->> 'notes'
+    FROM (SELECT ($1::text)::jsonb AS r) given
+    ON CONFLICT (id) DO NOTHING";
+
+/// The elements the scene's row (`$1`, JSON) links, each ranked by its place
+/// in the list, added when the scene does not link them yet.
+const ADD_LINKS: &str = "INSERT INTO scene_entity (scene_id, entity_id, position)
+    SELECT (r ->> 'sceneId')::uuid, (linked.id)::uuid, linked.rank::integer
+    FROM (SELECT ($1::text)::jsonb AS r) given,
+        jsonb_array_elements_text(CASE WHEN jsonb_typeof(r -> 'entityId') = 'array'
+            THEN r -> 'entityId' ELSE '[]'::jsonb END) WITH ORDINALITY AS linked (id, rank)
+    ON CONFLICT (scene_id, entity_id) DO NOTHING";
+
+/// The scenes the engine holds and the tables do not: a projection that
+/// failed after its apply — its session or an element not in the tables
+/// yet — or was lost since.
+const UNPROJECTED_SCENES: &str = "SELECT r.partition FROM dataguard_rows r
+    WHERE r.partition LIKE 'Session/%' AND NOT r.tombstoned
+        AND r.fields ->> 'sceneId' IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM scene s
+            WHERE s.id::text = lower(r.fields ->> 'sceneId'))
+    ORDER BY r.partition";
+
+/// What the tables hold of the session `$1` (in whatever case) — of every
+/// session when it is null — that the scenes' invariants read, each as
+/// `(aggregate, id, row)`: its campaign, its scenes and their ranks, its
+/// campaign's elements — none the engine removed.
+const SCENE_FACTS: &str =
+    "SELECT 'Session', s.id::text, jsonb_build_object('sessionCampaignId', s.campaign_id)::text
+        FROM session s WHERE ($1::text IS NULL OR s.id::text = lower($1))
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE lower(r.partition) = 'session/' || s.id::text AND r.tombstoned)
+    UNION ALL
+    SELECT 'Session', sc.id::text, jsonb_build_object(
+            'sceneSessionId', sc.session_id, 'scenePosition', sc.position)::text
+        FROM scene sc WHERE ($1::text IS NULL OR sc.session_id::text = lower($1))
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE lower(r.partition) = 'session/' || sc.id::text AND r.tombstoned)
+    UNION ALL
+    SELECT 'Entity', e.id::text, jsonb_build_object('entityCampaignId', e.campaign_id)::text
+        FROM entity e WHERE ($1::text IS NULL OR e.campaign_id =
+                (SELECT s.campaign_id FROM session s WHERE s.id::text = lower($1)))
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE lower(r.partition) = 'entity/' || e.id::text AND r.tombstoned)";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -258,9 +316,9 @@ const VERSIONS: &str =
     WHERE $1::text IS NULL OR id = ($1::text)::uuid
     ORDER BY entity_id, version_number";
 
-/// A [`PgStore`] whose applied `AiSettings/1` and `Entity/<id>` writes reach
-/// the tables, keeping the elements' terms and versions as the tables hold
-/// them.
+/// A [`PgStore`] whose applied `AiSettings/1`, `Entity/<id>` and scenes'
+/// `Session/<id>` writes reach the tables, keeping the elements' terms and
+/// versions as the tables hold them.
 pub struct ProjectingStore {
     inner: PgStore,
     aliases: Arc<Aliases>,
@@ -290,6 +348,103 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_scenes().await;
+    }
+
+    /// What the tables hold of the session `id` names — of every session,
+    /// `None` — that the scenes' invariants read: `(aggregate, id, row)` for
+    /// its campaign, each of its scenes, each element of its campaign.
+    pub async fn scene_facts(
+        &self,
+        id: Option<&str>,
+    ) -> std::result::Result<Vec<(String, String, BTreeMap<String, Value>)>, tokio_postgres::Error>
+    {
+        let client = self.inner.client().lock().await;
+        let rows = client.query(SCENE_FACTS, &[&id]).await?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let Ok(Value::Object(fields)) = serde_json::from_str(row.get::<_, &str>(2)) else {
+                    return None;
+                };
+                Some((row.get(0), row.get(1), fields.into_iter().collect()))
+            })
+            .collect())
+    }
+
+    /// Records every session the tables hold in `scenes` — its campaign, its
+    /// scenes, its campaign's elements — logging a failure: at a start, so
+    /// the commands queued before are judged against them. Tables not
+    /// migrated yet hold none.
+    pub async fn sessions(&self, scenes: &Scenes) {
+        match self.scene_facts(None).await {
+            Ok(facts) => {
+                for (aggregate, id, row) in facts {
+                    scenes.record(&aggregate, &id, &row);
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: session not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
+    }
+
+    /// Projects every scene the engine holds and the tables do not, logging
+    /// a failure: at a start. Tables not migrated yet hold none.
+    async fn repair_scenes(&self) {
+        let partitions = {
+            let client = self.inner.client().lock().await;
+            client.query(UNPROJECTED_SCENES, &[]).await
+        };
+        match partitions {
+            Ok(rows) => {
+                for row in rows {
+                    self.repair_scene(row.get(0)).await;
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: scene not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
+    }
+
+    /// Projects the scene `partition` holds, when it holds one, logging a
+    /// failure: after each apply of a Session partition, and at a start.
+    async fn repair_scene(&self, partition: &str) {
+        let row = match self.inner.row(partition).await {
+            Ok(row) => row,
+            Err(e) => {
+                eprintln!("projection: {partition} not read: {e}");
+                return;
+            }
+        };
+        if !row.contains_key("sceneId") {
+            return;
+        }
+        if let Err(e) = self.project_scene(&row).await {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: {partition} not projected: {} {}",
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
+    }
+
+    /// Writes `row`'s scene and the elements it links, in one transaction.
+    async fn project_scene(
+        &self,
+        row: &BTreeMap<String, Value>,
+    ) -> std::result::Result<(), tokio_postgres::Error> {
+        let json = Value::Object(row.clone().into_iter().collect()).to_string();
+        let mut client = self.inner.client().lock().await;
+        let tx = client.transaction().await?;
+        for sql in [ADD_SCENE, ADD_LINKS] {
+            tx.execute(sql, &[&json]).await?;
+        }
+        tx.commit().await
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -703,6 +858,8 @@ impl Store for ProjectingStore {
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
+        } else if !write.tombstone && write.partition.starts_with(SESSION) {
+            self.repair_scene(&write.partition).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.
@@ -918,6 +1075,7 @@ mod tests {
                 Arc::new(SystemClock),
             ),
             Arc::default(),
+            Arc::default(),
         )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
@@ -1069,6 +1227,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(SystemClock),
             ),
+            Arc::default(),
             Arc::default(),
         )
         .expect("the product's manifests parse");

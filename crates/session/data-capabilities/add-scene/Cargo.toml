@@ -1,0 +1,10 @@
+[package]
+name = "add-scene"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.addScene: a new scene of a session, on its own Session partition — ranked after the session's last, with its title, its notes and the places it links."
+publish = false
+
+[dependencies]
+serde_json = "1"

@@ -9,12 +9,17 @@
 //! diff that never happened. Over the engine's memory it keeps [`Aliases`]
 //! too, which `alias-unique-in-campaign` reads, and the [`History`] of the
 //! versions a restoration is prepared against; over a database the
-//! projection keeps them, once the tables hold the write. Every other method
-//! is the inner store's.
+//! projection keeps them, once the tables hold the write. Over either, it
+//! keeps [`Scenes`] — each session's campaign, its scenes and their ranks,
+//! each element's campaign, as every write applied leaves them — and settles
+//! a new scene's rank there: the one after its session's last, whatever was
+//! queued beside it (`scene-order-contiguous`). Every other method is the
+//! inner store's.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use add_scene::{POSITION as SCENE_POSITION, SESSION as SCENE_SESSION};
 use async_trait::async_trait;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
@@ -27,20 +32,27 @@ use serde_json::Value;
 use crate::aliases::Aliases;
 use crate::history::History;
 use crate::projection::ProjectingStore;
+use crate::scenes::Scenes;
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
+
+/// The partitions of the Session aggregate: `Session/<session id>`, and a
+/// scene's, `Session/<scene id>`.
+pub const SESSION: &str = "Session/";
 
 /// The element a write is of, when it is a write of the Entity aggregate.
 pub fn element_of(write: &Write) -> Option<&str> {
     write.partition.strip_prefix(ENTITY)
 }
 
-/// A store whose applied Entity writes carry their settled version.
+/// A store whose applied Entity writes carry their settled version, and a
+/// new scene its settled rank.
 pub struct Versioning {
     inner: Arc<dyn Store>,
     aliases: Option<Arc<Aliases>>,
     history: Option<Arc<History>>,
+    scenes: Arc<Scenes>,
 }
 
 impl Versioning {
@@ -51,6 +63,7 @@ impl Versioning {
             inner,
             aliases,
             history: None,
+            scenes: Arc::default(),
         }
     }
 
@@ -58,6 +71,46 @@ impl Versioning {
     #[must_use]
     pub fn keeping(self, history: Option<Arc<History>>) -> Self {
         Self { history, ..self }
+    }
+
+    /// The same, keeping the sessions, scenes and elements in `scenes`.
+    #[must_use]
+    pub fn following(self, scenes: Arc<Scenes>) -> Self {
+        Self { scenes, ..self }
+    }
+
+    /// Applies a write of any aggregate but Entity: a new scene ranked after
+    /// its session's last, and what a session's partition holds recorded in
+    /// [`Scenes`] once applied.
+    async fn apply_other(&self, write: &Write, result: &CommandResult) -> Result<u64> {
+        let Some(id) = write.partition.strip_prefix(SESSION) else {
+            return self.inner.apply(write, result).await;
+        };
+        if write.tombstone {
+            let version = self.inner.apply(write, result).await?;
+            self.scenes.forget(id);
+            return Ok(version);
+        }
+        let session = write.values.get(SCENE_SESSION).and_then(Value::as_str);
+        let before = self.inner.row(&write.partition).await?;
+        let mut settled = None;
+        if let Some(session) = session.filter(|_| !before.contains_key(SCENE_SESSION)) {
+            let mut values = write.values.clone();
+            let rank = self.scenes.next_position(session, id);
+            values.insert(SCENE_POSITION.into(), rank.into());
+            settled = Some(Write {
+                partition: write.partition.clone(),
+                values,
+                tombstone: false,
+            });
+        }
+        let version = self
+            .inner
+            .apply(settled.as_ref().unwrap_or(write), result)
+            .await?;
+        let row = self.inner.row(&write.partition).await?;
+        self.scenes.record("Session", id, &row);
+        Ok(version)
     }
 }
 
@@ -97,10 +150,11 @@ impl Store for Versioning {
 
     async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let Some(element) = element_of(write) else {
-            return self.inner.apply(write, result).await;
+            return self.apply_other(write, result).await;
         };
         if write.tombstone {
             let version = self.inner.apply(write, result).await?;
+            self.scenes.forget(element);
             if let Some(aliases) = &self.aliases {
                 aliases.forget(element);
             }
@@ -125,6 +179,7 @@ impl Store for Versioning {
             tombstone: false,
         };
         let version = self.inner.apply(&settled, result).await?;
+        self.scenes.record("Entity", element, &settled.values);
         if let Some(aliases) = &self.aliases {
             aliases.record(element, &settled.values);
         }
@@ -156,6 +211,7 @@ pub struct Rows {
     store: Arc<dyn Store>,
     history: Arc<History>,
     tables: Option<Arc<ProjectingStore>>,
+    scenes: Arc<Scenes>,
 }
 
 impl Rows {
@@ -170,12 +226,52 @@ impl Rows {
             store,
             history,
             tables: None,
+            scenes: Arc::default(),
         }
     }
 
     /// The same, a campaign's archive read from `tables`.
     pub(crate) fn reading(self, tables: Option<Arc<ProjectingStore>>) -> Self {
         Self { tables, ..self }
+    }
+
+    /// The same, the sessions, scenes and elements kept in `scenes`.
+    pub(crate) fn following(self, scenes: Arc<Scenes>) -> Self {
+        Self { scenes, ..self }
+    }
+
+    /// Takes what the tables hold of `session` — its campaign, its scenes,
+    /// its campaign's elements — into what the scenes are judged against:
+    /// the fixtures' rows, which no command wrote. Over the engine's memory,
+    /// which has no table, nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn refresh_session(&self, session: &str) -> Result<()> {
+        let Some(tables) = &self.tables else {
+            return Ok(());
+        };
+        let facts = tables.scene_facts(Some(session)).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "session not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        for (aggregate, id, row) in facts {
+            self.scenes.record(&aggregate, &id, &row);
+        }
+        Ok(())
+    }
+
+    /// Whether `session` is one the engine or the tables hold.
+    pub fn knows_session(&self, session: &str) -> bool {
+        self.scenes.knows(session)
+    }
+
+    /// The rank after the last of `session`'s scenes besides `scene`.
+    pub fn next_scene_position(&self, session: &str, scene: &str) -> u64 {
+        self.scenes.next_position(session, scene)
     }
 
     /// What the tables hold of the campaign `id` names, as an archive holds

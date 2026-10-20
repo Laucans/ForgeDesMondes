@@ -7,22 +7,27 @@
 //!
 //! What a session's own row can say is judged here; the rest waits for the
 //! DataCapabilities that write these tables, which prepare a command against
-//! the rows it needs. `present-only-pj` and `scene-links-same-campaign` read
-//! the character, element or media linked, rows of the Entity and Media
-//! aggregates: here, the roster and the media of a session are never
-//! stored — the views compute them, so they follow every later presence and
-//! every change of place. `scene-order-contiguous` reads the session's other
-//! scenes: here, a scene's rank is one of 1 to n. `previous-summary-visible`
-//! is a read: the tables keep a closed session's summary and journal for the
-//! next one.
+//! the rows it needs. `present-only-pj` reads the character linked, a row of
+//! the Entity aggregate: here, the roster and the media of a session are
+//! never stored — the views compute them, so they follow every later
+//! presence and every change of place. `scene-links-same-campaign` reads the
+//! campaign of a scene's session and of each element it links, which
+//! [`Scenes`] keeps. `scene-order-contiguous` reads the session's other
+//! scenes: here, a scene's rank is one of 1 to n, and a new scene's is
+//! settled after the session's last when it is applied
+//! (`crate::versioning::Versioning`). `previous-summary-visible` is a read:
+//! the tables keep a closed session's summary and journal for the next one.
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
+use add_scene::{LINKED, SESSION as SCENE_SESSION};
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
+
+use crate::scenes::Scenes;
 
 const AGGREGATE: &str = "Session";
 
@@ -92,6 +97,9 @@ static DECLARED: LazyLock<Vec<String>> = LazyLock::new(|| {
 /// leaves.
 type Check = (&'static str, fn(&BTreeMap<String, Value>, &Entry) -> bool);
 
+/// The invariant [`Session`] judges with what [`Scenes`] keeps.
+const SAME_CAMPAIGN: &str = "scene-links-same-campaign";
+
 const CHECKS: [Check; 8] = [
     ("present-only-pj", present_only_pj),
     ("scene-order-contiguous", scene_order_contiguous),
@@ -106,8 +114,35 @@ const CHECKS: [Check; 8] = [
     ("text-only-no-audio", text_only_no_audio),
 ];
 
-/// The invariants `plant()` binds the engine with.
-pub struct Session;
+/// The invariants `plant()` binds the engine with, `scene-links-same-campaign`
+/// reading `scenes`.
+pub struct Session {
+    scenes: Arc<Scenes>,
+}
+
+impl Session {
+    /// The judge of the Session aggregate, reading `scenes`.
+    pub fn new(scenes: Arc<Scenes>) -> Self {
+        Self { scenes }
+    }
+
+    /// The elements a scene links belong to its session's campaign: judged
+    /// when the command writes the links or the session of a scene.
+    fn links_same_campaign(&self, state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+        let Some(session) = value(state, SCENE_SESSION).as_str() else {
+            return true;
+        };
+        if !written(entry).any(|field| field == LINKED || field == SCENE_SESSION) {
+            return true;
+        }
+        let linked: Vec<&str> = match value(state, LINKED) {
+            Value::Array(ids) => ids.iter().filter_map(Value::as_str).collect(),
+            Value::String(id) => vec![id.as_str()],
+            _ => Vec::new(),
+        };
+        self.scenes.same_campaign(session, linked.into_iter())
+    }
+}
 
 impl Invariants for Session {
     fn violated(
@@ -121,11 +156,15 @@ impl Invariants for Session {
         if aggregate != AGGREGATE || entry.effect == Effect::Delete {
             return Vec::new();
         }
-        CHECKS
+        let mut violated: Vec<String> = CHECKS
             .iter()
             .filter(|(_, holds)| !holds(state, entry))
             .map(|(id, _)| (*id).to_string())
-            .collect()
+            .collect();
+        if !self.links_same_campaign(state, entry) {
+            violated.push(SAME_CAMPAIGN.to_string());
+        }
+        violated
     }
 }
 
@@ -229,25 +268,32 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A command writes only fields the aggregate declares, each a text, a
-/// number, a boolean or a null: no field holds audio, nor anything but what
-/// a column types.
+/// number, a boolean or a null — the elements a scene links, a list of their
+/// ids: no field holds audio, nor anything but what a column types.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
-        DECLARED.contains(field) && !matches!(value, Value::Array(_) | Value::Object(_))
+        DECLARED.contains(field)
+            && match value {
+                Value::Array(ids) => field == LINKED && ids.iter().all(Value::is_string),
+                Value::Object(_) => false,
+                _ => true,
+            }
     })
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     use harness_dataguard::command::Entry;
     use harness_dataguard::guard::Invariants;
     use serde_json::{Value, json};
 
     use super::{
-        CHECKS, CLOSED_AT, CREATED, DECLARED, EXCERPT, JOURNAL, MICROPHONE, ROSTER, SCENE_POSITION,
-        SESSION_MEDIA, STATUS, SUMMARY, SUMMARY_MODEL, Session, TO_CREATE, TYPE,
+        CHECKS, CLOSED_AT, CREATED, DECLARED, EXCERPT, JOURNAL, LINKED, MICROPHONE, ROSTER,
+        SAME_CAMPAIGN, SCENE_POSITION, SCENE_SESSION, SESSION_MEDIA, STATUS, SUMMARY,
+        SUMMARY_MODEL, Session, TO_CREATE, TYPE,
     };
 
     /// A command of `effect` on `aggregate`'s row.
@@ -280,17 +326,18 @@ mod tests {
         ]
         .into_iter()
         .collect();
+        let judge = Session::new(Arc::default());
         assert_eq!(
-            Session.violated("Session", &state, &entry("Session", "update")),
+            judge.violated("Session", &state, &entry("Session", "update")),
             ["scene-order-contiguous", "close-session"]
         );
         assert!(
-            Session
+            judge
                 .violated("Campaign", &state, &entry("Campaign", "update"))
                 .is_empty()
         );
         assert!(
-            Session
+            judge
                 .violated("Session", &state, &entry("Session", "delete"))
                 .is_empty()
         );
@@ -309,6 +356,8 @@ mod tests {
             SUMMARY,
             SUMMARY_MODEL,
             SCENE_POSITION,
+            SCENE_SESSION,
+            LINKED,
             CREATED,
             TYPE,
             EXCERPT,
@@ -332,7 +381,7 @@ mod tests {
             .iter()
             .map(|invariant| invariant["id"].as_str().expect("an id"))
             .collect();
-        for (id, _) in CHECKS {
+        for id in CHECKS.iter().map(|(id, _)| *id).chain([SAME_CAMPAIGN]) {
             assert!(declared.contains(&id), "{id} is not declared");
         }
     }

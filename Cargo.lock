@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "add-scene"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -258,6 +265,7 @@ dependencies = [
 name = "dataguard-server"
 version = "0.1.0"
 dependencies = [
+ "add-scene",
  "async-trait",
  "axum",
  "data",

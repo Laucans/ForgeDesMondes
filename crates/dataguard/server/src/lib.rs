@@ -30,7 +30,11 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. A new scene
+//! (`session.addScene`) is prepared at the rank after its session's last,
+//! against what the engine holds of the session and — over a database — what
+//! its tables hold ([`Rows::refresh_session`]): the places it links are
+//! judged against the same.
 
 use std::sync::Arc;
 
@@ -63,6 +67,7 @@ mod note_import;
 mod player;
 mod projection;
 mod reads;
+mod scenes;
 mod session;
 mod sound;
 mod sound_playback;
@@ -163,6 +168,7 @@ pub struct Planted {
 pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     let aliases = Arc::new(aliases::Aliases::default());
     let history = Arc::new(history::History::default());
+    let scenes = Arc::new(scenes::Scenes::default());
     let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
@@ -179,6 +185,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
         store.repair_tests().await;
         store.elements().await;
         store.versions(None).await;
+        store.sessions(&scenes).await;
         let store = Arc::new(store);
         tables = Some(store.clone());
         store
@@ -187,8 +194,11 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     // the versions.
     let kept = (url == MEMORY).then(|| aliases.clone());
     let versions = (url == MEMORY).then(|| history.clone());
-    let store: Arc<dyn Store> =
-        Arc::new(versioning::Versioning::new(store, kept).keeping(versions));
+    let store: Arc<dyn Store> = Arc::new(
+        versioning::Versioning::new(store, kept)
+            .keeping(versions)
+            .following(scenes.clone()),
+    );
     let engine = bound(
         Engine::new(
             store.clone(),
@@ -196,18 +206,26 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
             Arc::new(SystemClock),
         ),
         aliases,
+        scenes.clone(),
     )?;
     engine.load().await?;
     Ok(Planted {
         engine,
-        rows: Rows::keeping(store, history).reading(tables),
+        rows: Rows::keeping(store, history)
+            .reading(tables)
+            .following(scenes),
     })
 }
 
 /// `engine` bound to what the checkout holds: the registry, every
 /// aggregate and DataCapability, and the invariants the product executes —
-/// `alias-unique-in-campaign` reading `aliases`.
-fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, PlantError> {
+/// `alias-unique-in-campaign` reading `aliases`, `scene-links-same-campaign`
+/// reading `scenes`.
+fn bound(
+    engine: Engine,
+    aliases: Arc<aliases::Aliases>,
+    scenes: Arc<scenes::Scenes>,
+) -> Result<Engine, PlantError> {
     let mut engine = engine.with_registry(Registry::parse(registry::REGISTRY)?);
     for text in registry::AGGREGATES {
         engine = engine.with_aggregate(Aggregate::parse(text)?);
@@ -217,6 +235,7 @@ fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, Plant
     }
     engine = engine.with_invariants(Arc::new(Product {
         entity: entity::Entity::new(aliases),
+        session: session::Session::new(scenes),
     }));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
     Ok(engine)
@@ -226,6 +245,7 @@ fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, Plant
 /// one judge, and each aggregate's own judges its rows alone.
 struct Product {
     entity: entity::Entity,
+    session: session::Session,
 }
 
 impl Invariants for Product {
@@ -242,7 +262,7 @@ impl Invariants for Product {
             &self.entity,
             &media::Media,
             &note_import::NoteImport,
-            &session::Session,
+            &self.session,
             &sound::Sound,
             &battlemap_instance::BattlemapInstance,
             &diffusion::Diffusion,
@@ -346,7 +366,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. A new scene
+/// (`add_scene::prepare`) is given its id and the rank after its session's
+/// last, what the tables hold of the session read first: one of a session
+/// neither the engine nor the tables hold is refused, 404, and one the
+/// tables could never hold, 422 — neither is queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -499,6 +523,42 @@ async fn submit<L: Llm>(
                     Json(serde_json::json!({ "error": refusal.to_string() })),
                 ));
             }
+        }
+    } else if add_scene::names(&body.data_capability) {
+        let refused = |status, refusal: add_scene::Refusal| {
+            Err((
+                status,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            ))
+        };
+        let Some(session) = add_scene::session_of(&body.payload) else {
+            let unnamed = add_scene::Refusal::NoSession;
+            return refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, unnamed);
+        };
+        let scene = match fresh_uuid() {
+            Ok(scene) => scene,
+            Err(_) => {
+                let e = Error::Store("no randomness for an id".to_string());
+                return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+            }
+        };
+        if let Err(e) = served.rows.refresh_session(&session).await {
+            return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+        }
+        if !served.rows.knows_session(&session) {
+            let unknown = add_scene::Refusal::UnknownSession;
+            return refused(axum::http::StatusCode::NOT_FOUND, unknown);
+        }
+        let fresh = add_scene::Fresh {
+            scene: &scene,
+            position: served.rows.next_scene_position(&session, &scene),
+        };
+        match add_scene::prepare(&body.payload, fresh) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => return refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, refusal),
         }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
@@ -778,6 +838,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
             ),
+            Arc::default(),
             Arc::default(),
         )
         .expect("the product's manifests parse");
