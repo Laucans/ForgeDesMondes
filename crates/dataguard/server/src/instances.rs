@@ -14,9 +14,6 @@
 use create_battlemap_instance::Placement;
 use tokio_postgres::Client;
 
-/// The partitions of the BattlemapInstance aggregate.
-pub const BATTLEMAP_INSTANCE: &str = "BattlemapInstance/";
-
 /// What the tables hold of the session `$1`, the scene `$2` and the
 /// battlemap `$3`: the session's campaign, the scene's session, the
 /// battlemap's campaign — a media of another kind is no battlemap — and the

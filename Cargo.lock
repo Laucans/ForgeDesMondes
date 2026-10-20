@@ -282,6 +282,7 @@ dependencies = [
  "list-events",
  "list-places",
  "list-players",
+ "place-tokens",
  "platform-conformance",
  "ports-llm",
  "restore-entity-version",
@@ -1004,6 +1005,13 @@ name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
+name = "place-tokens"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "platform-conformance"

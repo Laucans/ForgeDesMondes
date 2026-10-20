@@ -225,6 +225,53 @@ impl Rows {
             })
     }
 
+    /// What the tables hold of the instance and the character a drop of
+    /// tokens names (`table.placeTokens`), with the tokens of that character
+    /// queued on the instance and not applied yet: theirs are taken too.
+    /// Over the engine's memory, which has no table, no instance.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn roster(&self, instance: &str, character: &str) -> Result<place_tokens::Roster> {
+        let Some(tables) = &self.tables else {
+            return Ok(place_tokens::Roster::default());
+        };
+        let named = |entry: &Entry, field: &str, id: &str| {
+            entry
+                .payload
+                .get(field)
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.eq_ignore_ascii_case(id))
+        };
+        // The queue before the tables: a token applied between the two reads
+        // is then counted twice, which takes no number nor PC more, rather
+        // than missed by both.
+        let queued: Vec<Entry> = self
+            .store
+            .pending()
+            .await?
+            .into_iter()
+            .filter(|entry| {
+                named(entry, "tokenInstanceId", instance) && named(entry, "characterId", character)
+            })
+            .collect();
+        let mut roster = tables.roster(instance, character).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "roster not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        roster.placed += queued.len();
+        roster.taken.extend(
+            queued
+                .iter()
+                .filter_map(|entry| entry.payload.get("number").and_then(Value::as_i64)),
+        );
+        Ok(roster)
+    }
+
     /// Whether the engine holds a command of `data_capability` under the
     /// idempotency key `key`: one it replays.
     ///
