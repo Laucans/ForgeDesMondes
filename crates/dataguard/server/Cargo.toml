@@ -7,6 +7,8 @@ build = "build.rs"
 
 # Above [dependencies], which the DataCapabilities' lines close.
 [dev-dependencies]
+# A dictation's audio, as the wire carries it.
+base64 = "0.22"
 # The migrations' applier the server runs, for the AiSettings migration's tests.
 data = { path = "../../data" }
 # The Concepts' fixtures the Entity migration's SQL is held to (AliasMatch@1,
@@ -32,6 +34,8 @@ getrandom = "0.4"
 # The port a save of the AI settings detects its API type through, and a
 # connection test reaches the provider by.
 ports-llm = { path = "../../ports/llm" }
+# The port a dictation of notes is transcribed by, locally.
+ports-speech-to-text = { path = "../../ports/speech-to-text" }
 # The Capability a read is answered by (`reads.rs`): rows in, answer out.
 get-settings = { path = "../../ai/capabilities/get-settings" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
@@ -40,6 +44,7 @@ list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
 list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
 list-events = { path = "../../campaign/capabilities/list-events" }
+list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
 # --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
@@ -48,6 +53,8 @@ test-connection = { path = "../../ai/data-capabilities/test-connection" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
+extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
+create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }

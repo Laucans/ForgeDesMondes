@@ -173,6 +173,31 @@ export const COMMANDS = {
     settings.lastTest = { ok: true, at, provider, latency, message };
     return undefined;
   },
+  // ai.extractFromNotes (crates/ai/data-capabilities/extract-from-notes): the
+  // note analysed into proposals, nothing created (`no-creation-before-
+  // validation`). The mock's AI proposes what the fixture NoteImport lists; a
+  // proposal that names an existing element starts unchecked.
+  'ai.extractFromNotes': async (server, { payload }) => {
+    const text = String(payload.text || '');
+    const { proposals } = await server.load('NoteImport');
+    server.noteText = text;
+    server.noteProposals = proposals.map((p) => ({ id: p.id, type: p.type, name: p.name, excerpt: p.excerpt, existing: p.existing, checked: !p.existing }));
+    return undefined;
+  },
+  // campaign.createEntitiesFromNote (crates/campaign/data-capabilities/create-entities-from-note):
+  // one element per accepted proposal, the raw note kept as an import listed
+  // newest first, the proposals no longer awaiting.
+  'campaign.createEntitiesFromNote': async (server, { payload }) => {
+    const proposals = server.noteProposals || [];
+    const accepted = Array.isArray(payload.accepted) ? payload.accepted : [];
+    const created = proposals.filter((p) => accepted.includes(p.id));
+    const fixture = await server.load('campaign.listImportedNotes');
+    const imports = Array.isArray(fixture) ? fixture : fixture.imports;
+    const note = server.noteText || '';
+    imports.unshift({ id: `imp-${server.uuid()}`, date: new Date().toISOString().slice(0, 10), title: note.split('\n')[0].replace(/[.\s]+$/, '') || 'Notes importées', chars: note.length, proposed: proposals.length, created: created.length });
+    server.noteProposals = [];
+    return undefined;
+  },
   // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
   // DM's explicit save of an element, its sheet and its aliases, which adds a
   // version (EntityVersion@1, source `dm`) whose changes are the fields that

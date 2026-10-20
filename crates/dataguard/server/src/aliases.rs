@@ -15,17 +15,20 @@
 use std::collections::BTreeMap;
 use std::sync::RwLock;
 
+use extract_from_notes::Known;
 use save_entity::{ALIAS, Row, normalized};
 use serde_json::Value;
 
 use crate::ai_settings::uuid;
 
-/// One element's terms: its campaign, its normalised name and aliases.
+/// One element's terms: its campaign, its normalised name and aliases, and
+/// both as written.
 #[derive(Debug)]
 struct Terms {
     campaign: u128,
     name: String,
     aliases: Vec<String>,
+    written: (String, Vec<String>),
 }
 
 impl Terms {
@@ -35,20 +38,21 @@ impl Terms {
         let name = row
             .get("name")
             .and_then(Value::as_str)
-            .map(normalized)
-            .unwrap_or_default();
-        let aliases = row
+            .unwrap_or_default()
+            .to_owned();
+        let aliases: Vec<String> = row
             .get(ALIAS)
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-            .map(normalized)
+            .map(str::to_owned)
             .collect();
         Some(Self {
             campaign,
-            name,
-            aliases,
+            name: normalized(&name),
+            aliases: aliases.iter().map(|alias| normalized(alias)).collect(),
+            written: (name, aliases),
         })
     }
 
@@ -66,6 +70,19 @@ pub fn parsed(id: &str) -> Option<u128> {
     uuid(id)
         .then(|| u128::from_str_radix(&id.replace('-', ""), 16).ok())
         .flatten()
+}
+
+/// `id` written as a uuid, in lowercase: 8-4-4-4-12 hex digits.
+fn written(id: u128) -> String {
+    let hex = format!("{id:032x}");
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    )
 }
 
 /// The applied elements' terms, by element id.
@@ -95,6 +112,25 @@ impl Aliases {
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&element);
         }
+    }
+
+    /// The elements of `campaign`, its id in whatever case, with their names
+    /// and aliases as written: what `ai.extractFromNotes` recognises a
+    /// proposal by, and a dictation listens for. In the order of their ids.
+    pub fn known(&self, campaign: &str) -> Vec<Known> {
+        let Some(campaign) = parsed(campaign) else {
+            return Vec::new();
+        };
+        let elements = self.elements.read().unwrap_or_else(|e| e.into_inner());
+        elements
+            .iter()
+            .filter(|(_, terms)| terms.campaign == campaign)
+            .map(|(id, terms)| Known {
+                id: written(*id),
+                name: terms.written.0.clone(),
+                aliases: terms.written.1.clone(),
+            })
+            .collect()
     }
 
     /// The first term of `row`, element `element`'s, that another element
@@ -263,6 +299,30 @@ mod tests {
             aliases.taken(PHARE, &row(BRUME, "Le Grand Phare", &["le phare"])),
             None
         );
+    }
+
+    #[test]
+    fn a_campaign_s_elements_are_known_by_their_names_and_aliases_as_written() {
+        let aliases = valombre();
+        aliases.record(PHARE, &row(BRUME, "Le Phare", &[]));
+        assert_eq!(
+            aliases.known(&VALOMBRE.to_uppercase()),
+            [
+                Known {
+                    id: ELOWEN.to_owned(),
+                    name: "Elowen".to_owned(),
+                    aliases: vec!["la Rôdeuse".to_owned()],
+                },
+                Known {
+                    id: TAVERNE.to_owned(),
+                    name: "La Taverne du Sanglier".to_owned(),
+                    aliases: vec!["la taverne".to_owned()],
+                },
+            ]
+        );
+        aliases.forget(ELOWEN);
+        assert_eq!(aliases.known(VALOMBRE).len(), 1);
+        assert!(aliases.known("valombre").is_empty());
     }
 
     #[test]

@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use extract_from_notes::Known;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::queue::Hold;
@@ -26,21 +27,36 @@ use serde_json::Value;
 
 use crate::aliases::Aliases;
 use crate::history::History;
+use crate::notes::Notes;
 use crate::projection::{Placing, ProjectingStore};
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
+
+/// The partitions of the NoteImport aggregate: `NoteImport/<note or
+/// proposal id>`.
+pub const NOTE_IMPORT: &str = "NoteImport/";
 
 /// The element a write is of, when it is a write of the Entity aggregate.
 pub fn element_of(write: &Write) -> Option<&str> {
     write.partition.strip_prefix(ENTITY)
 }
 
-/// A store whose applied Entity writes carry their settled version.
+/// The proposal a write is of, and its note, when it is a live write of a
+/// proposal of the NoteImport aggregate.
+fn proposal_of(write: &Write) -> Option<(&str, &str)> {
+    let proposal = write.partition.strip_prefix(NOTE_IMPORT)?;
+    let note = write.values.get("noteId").and_then(Value::as_str)?;
+    Some((proposal, note))
+}
+
+/// A store whose applied Entity writes carry their settled version, and
+/// whose applied proposals are recorded among their note's.
 pub struct Versioning {
     inner: Arc<dyn Store>,
     aliases: Option<Arc<Aliases>>,
     history: Option<Arc<History>>,
+    notes: Arc<Notes>,
 }
 
 impl Versioning {
@@ -51,6 +67,7 @@ impl Versioning {
             inner,
             aliases,
             history: None,
+            notes: Arc::default(),
         }
     }
 
@@ -58,6 +75,12 @@ impl Versioning {
     #[must_use]
     pub fn keeping(self, history: Option<Arc<History>>) -> Self {
         Self { history, ..self }
+    }
+
+    /// The same, recording the proposals of each note in `notes`.
+    #[must_use]
+    pub fn noting(self, notes: Arc<Notes>) -> Self {
+        Self { notes, ..self }
     }
 }
 
@@ -97,7 +120,15 @@ impl Store for Versioning {
 
     async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let Some(element) = element_of(write) else {
-            return self.inner.apply(write, result).await;
+            let version = self.inner.apply(write, result).await?;
+            if write.tombstone {
+                if let Some(proposal) = write.partition.strip_prefix(NOTE_IMPORT) {
+                    self.notes.forget(proposal);
+                }
+            } else if let Some((proposal, note)) = proposal_of(write) {
+                self.notes.record(note, proposal);
+            }
+            return Ok(version);
         };
         if write.tombstone {
             let version = self.inner.apply(write, result).await?;
@@ -157,6 +188,8 @@ pub struct Rows {
     store: Arc<dyn Store>,
     history: Arc<History>,
     tables: Option<Arc<ProjectingStore>>,
+    aliases: Arc<Aliases>,
+    notes: Arc<Notes>,
 }
 
 impl Rows {
@@ -171,7 +204,14 @@ impl Rows {
             store,
             history,
             tables: None,
+            aliases: Arc::default(),
+            notes: Arc::default(),
         }
+    }
+
+    /// The same, the proposals of each note read from `notes`.
+    pub(crate) fn noting(self, notes: Arc<Notes>) -> Self {
+        Self { notes, ..self }
     }
 
     /// The same, a campaign's archive read from `tables`.
@@ -193,6 +233,25 @@ impl Rows {
         tables.archived(id).await.map_err(|e| {
             harness_dataguard::Error::Store(format!(
                 "campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether the engine deleted `partition`'s row — its tombstone — which
+    /// its rows read as empty, as one never written. Over the engine's memory
+    /// none is: its rows keep a deleted row's values.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn deleted(&self, partition: &str) -> Result<bool> {
+        let Some(tables) = &self.tables else {
+            return Ok(false);
+        };
+        tables.tombstoned(partition).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "tombstone not read: {}",
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
@@ -225,6 +284,17 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
+    }
+
+    /// The same, the elements' terms read from `aliases`.
+    pub(crate) fn knowing(self, aliases: Arc<Aliases>) -> Self {
+        Self { aliases, ..self }
+    }
+
+    /// The elements `campaign` holds, with their names and aliases: what
+    /// an analysis of its notes recognises.
+    pub fn known(&self, campaign: &str) -> Vec<Known> {
+        self.aliases.known(campaign)
     }
 
     /// Whether the tables hold the campaign `id` names, live — over the
@@ -306,6 +376,12 @@ impl Rows {
     /// The versions of `element` a restoration can name, oldest first.
     pub fn versions(&self, element: &str) -> Vec<Kept> {
         self.history.of(element)
+    }
+
+    /// The proposals of the imported note `note` names that the engine
+    /// applied, by id: a proposal still queued may never be.
+    pub fn proposals(&self, note: &str) -> Vec<String> {
+        self.notes.of(note).into_iter().collect()
     }
 
     /// `partition`'s row as the commands queued on it will leave it: the row

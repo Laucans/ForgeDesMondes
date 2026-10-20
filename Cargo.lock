@@ -227,6 +227,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-entities-from-note"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,8 +269,11 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64 0.22.1",
+ "create-entities-from-note",
  "data",
  "export-campaign",
+ "extract-from-notes",
  "get-campaign",
  "get-entity",
  "get-settings",
@@ -271,10 +283,12 @@ dependencies = [
  "list-characters",
  "list-entity-versions",
  "list-events",
+ "list-imported-notes",
  "list-places",
  "list-players",
  "platform-conformance",
  "ports-llm",
+ "ports-speech-to-text",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -334,6 +348,19 @@ name = "export-campaign"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "extract-from-notes"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "platform-conformance",
+ "ports-llm",
+ "ports-speech-to-text",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -828,6 +855,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-imported-notes"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "list-media"
 version = "0.1.0"
 dependencies = [
@@ -1050,6 +1084,22 @@ dependencies = [
  "axum",
  "ports-llm",
  "reqwest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "ports-speech-to-text"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
+name = "ports-speech-to-text-phonon"
+version = "0.1.0"
+dependencies = [
+ "ports-speech-to-text",
  "serde_json",
  "tokio",
 ]
@@ -1505,6 +1555,7 @@ dependencies = [
  "data",
  "dataguard-server",
  "ports-llm",
+ "ports-speech-to-text",
  "serde_json",
  "thiserror",
  "tokio",

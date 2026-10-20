@@ -155,6 +155,26 @@
       ]
     },
     {
+      "query": "ListImportedNotes",
+      "capability": "campaign.listImportedNotes",
+      "file": "crates/campaign/queries/list-imported-notes.graphql",
+      "sha256": "ca047e9b0e360f9e2b3a40d99dab59497717c98e284f5afcba50b6b3626b8f3e",
+      "fields": [
+        "imported_note.id",
+        "imported_note.campaignId",
+        "imported_note.rawText",
+        "imported_note.createdAt",
+        "imported_note.analyzedAt",
+        "note_proposal.noteId",
+        "note_proposal.type",
+        "note_proposal.name",
+        "note_proposal.excerpt",
+        "note_proposal.existingEntityId",
+        "note_proposal.checked",
+        "note_proposal.createdEntityId"
+      ]
+    },
+    {
       "query": "ListPlaces",
       "capability": "campaign.listPlaces",
       "file": "crates/campaign/queries/list-places.graphql",

@@ -12,7 +12,8 @@
 //!   `READ ONLY` transaction;
 //! - `PORTS`: how the ports of ports.json are wired — only `fake`, the
 //!   default: every built port on its fake, no secret read, nothing reached
-//!   outside — the `llm` port's fake is [`llm`];
+//!   outside — the `llm` port's fake is [`llm`], the `speech-to-text`
+//!   port's [`speech_to_text`];
 //! - `FIXTURES_DIR`: when set and not empty, the folder of the mock-up's
 //!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]) and
 //!   loaded into the store by the Data layer ([`data::insert_missing`]) —
@@ -40,6 +41,8 @@ use dataguard_server::{Engine, Reads, Rows};
 pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
 use ports_llm::Llm;
 use ports_llm::fake::FakeLlm;
+use ports_speech_to_text::SpeechToText;
+use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Value, json};
 
 /// Where the server listens when `PORT` is unset: the rules' runtime's port.
@@ -173,6 +176,23 @@ pub fn llm(ports: Ports, fixtures: Option<&Path>) -> FakeLlm {
     }
 }
 
+/// The `speech-to-text` port as `ports` wires it: its fake, which hears in
+/// every dictation the draft of notes the fixtures describe
+/// (`NoteImport.json` in `fixtures`), as the DM would have dictated it — so
+/// a dictated import proposes what a pasted one does. Without that fixture,
+/// it hears nothing.
+pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> FakeSpeechToText {
+    match ports {
+        Ports::Fake => {
+            let draft = fixtures
+                .and_then(|dir| std::fs::read_to_string(dir.join("NoteImport.json")).ok())
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                .and_then(|notes| notes["draft"].as_str().map(str::to_owned));
+            FakeSpeechToText::new(draft.unwrap_or_default())
+        }
+    }
+}
+
 /// The connection the Capabilities read through: `DATABASE_URL_READONLY` when
 /// `config` has one, else the database the server writes to — each read then
 /// runs in a `READ ONLY` transaction.
@@ -188,15 +208,16 @@ pub async fn reads(config: &Config) -> Result<Reads, Error> {
     Ok(Reads::open(url).await?)
 }
 
-/// The shell's wire protocol through `engine`, whose rows are `rows`, and
-/// `llm`, its reads through `reads`, and `GET /health`.
-pub fn app<L: Llm + 'static>(
+/// The shell's wire protocol through `engine`, whose rows are `rows`, `llm`
+/// and `speech`, its reads through `reads`, and `GET /health`.
+pub fn app<L: Llm + 'static, S: SpeechToText + 'static>(
     engine: Arc<Engine>,
     rows: Rows,
     llm: Arc<L>,
+    speech: Arc<S>,
     reads: Arc<Reads>,
 ) -> Router {
-    dataguard_server::router_reading(engine, rows, llm, reads).route("/health", get(health))
+    dataguard_server::router_reading(engine, rows, llm, speech, reads).route("/health", get(health))
 }
 
 /// Answers 200 once the server serves: migrations applied, engine planted.
@@ -361,6 +382,32 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn the_fake_speech_to_text_hears_the_fixtures_draft_of_notes() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let notes: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixtures.join("NoteImport.json")).expect("the fixture"),
+        )
+        .expect("JSON");
+        let dictation = ports_speech_to_text::Dictation::new(vec![1_u8; 8]);
+        let vocabulary = ports_speech_to_text::Vocabulary::default();
+        let heard = speech_to_text(Ports::Fake, Some(&fixtures))
+            .transcribe(&dictation, &vocabulary)
+            .await
+            .expect("heard");
+        assert_eq!(Some(heard.text.as_str()), notes["draft"].as_str());
+        let dir = folder("no-note-import", &[("other.json", "{}")]);
+        let without = speech_to_text(Ports::Fake, Some(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+        for fake in [without, speech_to_text(Ports::Fake, None)] {
+            let heard = fake
+                .transcribe(&dictation, &vocabulary)
+                .await
+                .expect("heard");
+            assert_eq!(heard.text, "");
+        }
+    }
+
     /// The app over the in-memory engine, answering one request.
     async fn answer(method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
         let dataguard_server::Planted { engine, rows } =
@@ -382,6 +429,7 @@ mod tests {
             Arc::new(engine),
             rows,
             Arc::new(FakeLlm::new()),
+            Arc::new(FakeSpeechToText::new(String::new())),
             Arc::new(reads),
         )
         .oneshot(request)
