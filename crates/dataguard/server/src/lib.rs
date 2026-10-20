@@ -568,7 +568,7 @@ async fn submit<L: Llm>(
         let _initiative = INITIATIVE.lock().await;
         return adding(&served, body).await;
     } else if reorder_initiative::names(&body.data_capability) {
-        let _reordering = REORDERING.lock().await;
+        let _initiative = INITIATIVE.lock().await;
         return reordering(&served, body).await;
     } else if start_combat::names(&body.data_capability) {
         let _initiative = INITIATIVE.lock().await;
@@ -797,11 +797,13 @@ static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// numbers, nor place a PC twice.
 static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One change of a combat's order at a time — a start, a participant
-/// joining, an end — from the read of the combat and its entries until its
-/// commands are queued: two starts of an instance sent at once never both
-/// pass, nor two ends of its combat (`one-active-combat`), two joining never
-/// take the same rank, and a join never reads a combat a start is still
-/// queueing. `reorderInitiative` must take it too when it lands;
+/// joining, a reorder, an end — from the read of the combat and its entries
+/// until its commands are queued: two starts of an instance sent at once
+/// never both pass, nor two ends of its combat (`one-active-combat`), two
+/// joining never take the same rank, a join never reads a combat a start is
+/// still queueing, and two reorders, or a join and a reorder, never
+/// interleave their ranks — each is judged against the participants the
+/// other leaves.
 /// `removeParticipant` holds [`TURNING`] only.
 static INITIATIVE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One change of HP at a time, from its judgement until it is queued: two
@@ -815,10 +817,6 @@ static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// start from the same list, and none is lost.
 static MARKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// One reorder of the initiative at a time, from its judgement until its
-/// ranks are queued: two reorders sent at once never interleave their ranks,
-/// and each is judged against the participants the other leaves.
-static REORDERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One « Suivant » or one participant's removal at a time, from its judgement
 /// until it is queued: two « Suivant » sent at once each start from the turn
 /// the other leaves, and the round counts each lap once; two removals of one

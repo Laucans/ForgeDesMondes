@@ -777,6 +777,37 @@ async fn a_start_and_a_join_sent_together_seat_no_token_twice_nor_two_at_one_ran
 }
 
 #[tokio::test]
+async fn a_reorder_and_a_join_sent_together_put_no_two_at_one_rank() {
+    let scratch = Scratch::new("reorder_race").await;
+    let (engine, app) = scratch.serve().await;
+    started(&engine, &app).await;
+    let chef = place(&app, VESNA, 1).await;
+    applied(&engine).await;
+    let mut order = Vec::new();
+    for name in ["Bandit 1", "Bandit 2", "Elowen"] {
+        order.push(scratch.token(name).await);
+    }
+    let (reordered, joined) = tokio::join!(
+        command(&app, "table.reorderInitiative@1", json!({ "order": order })),
+        join(&app, &chef, None),
+    );
+    assert_eq!(joined.0, StatusCode::ACCEPTED, "{}", joined.1);
+    // The reorder is judged before the join or after it, never in between:
+    // queued, or refused for omitting the chief the join seated.
+    assert!(
+        [StatusCode::ACCEPTED, StatusCode::UNPROCESSABLE_ENTITY].contains(&reordered.0),
+        "{}",
+        reordered.1
+    );
+    applied(&engine).await;
+    let carousel = scratch.carousel().await;
+    assert_eq!(carousel.len(), 4, "{:?}", names(&carousel));
+    assert!(contiguous(&carousel), "two at one rank: {carousel:?}");
+    drop(engine);
+    scratch.drop().await;
+}
+
+#[tokio::test]
 async fn a_join_after_a_removal_queued_steps_no_tombstone_and_the_next_join_still_passes() {
     let scratch = Scratch::new("removed").await;
     let (engine, app) = scratch.serve().await;
