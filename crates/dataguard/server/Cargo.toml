@@ -42,6 +42,7 @@ list-entity-versions = { path = "../../campaign/capabilities/list-entity-version
 list-events = { path = "../../campaign/capabilities/list-events" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
+list-sounds = { path = "../../soundbox/capabilities/list-sounds" }
 # --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
@@ -49,6 +50,7 @@ save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 set-master-volume = { path = "../../soundbox/data-capabilities/set-master-volume" }
+set-sound-volume = { path = "../../soundbox/data-capabilities/set-sound-volume" }
 add-sound = { path = "../../soundbox/data-capabilities/add-sound" }
 play-sound = { path = "../../soundbox/data-capabilities/play-sound" }
 update-sound = { path = "../../soundbox/data-capabilities/update-sound" }

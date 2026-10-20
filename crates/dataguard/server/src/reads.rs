@@ -202,6 +202,7 @@ impl Reads {
         let answer = match id.split_once('.') {
             Some(("ai", _)) => self.ai(id).await?,
             Some(("campaign", _)) => self.campaign(id, &variables).await?,
+            Some(("soundbox", _)) => self.soundbox(id, &variables).await?,
             _ => Value::Null,
         };
         Ok(self.names.to_wire(answer))
@@ -224,6 +225,24 @@ impl Reads {
         let given = variable.map_or("", |name| variables[name].as_str().unwrap_or_default());
         let params: &[&(dyn ToSql + Sync)] = if variable.is_some() { &[&given] } else { &[] };
         Ok(answer(&self.rows(sql, params).await?, given))
+    }
+
+    /// `soundbox.listSounds`: the sounds of the `campaign` variable, narrowed
+    /// by the optional `search` (a name) and `tag` — the query binds the
+    /// campaign alone, the Capability filters its rows.
+    async fn soundbox(&self, id: &str, variables: &Value) -> Result<Value> {
+        if id != list_sounds::CAPABILITY {
+            return Ok(Value::Null);
+        }
+        let text = |name: &str| variables[name].as_str().unwrap_or_default();
+        let campaign = text("campaign");
+        let rows = self.rows(list_sounds::SQL, &[&campaign]).await?;
+        Ok(list_sounds::answer(
+            &rows,
+            campaign,
+            text("search"),
+            text("tag"),
+        ))
     }
 
     /// The rows `sql` selects with `params` bound to its `$1`, `$2`…, as a

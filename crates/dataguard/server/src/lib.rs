@@ -34,7 +34,8 @@
 //! volume (`soundbox.setMasterVolume`) is made the fraction it writes on its
 //! campaign's partition. An addition of a sound (`soundbox.addSound`) is
 //! prepared against the campaign it names, which [`Rows`] reads, and an edit
-//! of one (`soundbox.updateSound`) against the sound's row. A playback of a
+//! of one (`soundbox.updateSound`) against the sound's row, as is a change of
+//! its own volume (`soundbox.setSoundVolume`). A playback of a
 //! sound (`soundbox.playSound`) is prepared against what the tables hold of
 //! the sound and its campaign's sessions, which [`Rows`] reads: a new row of
 //! its own, beside whatever plays already. A stop-all (`soundbox.stopAll`)
@@ -379,9 +380,13 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// changes, its tags normalised and its volume a fraction of 1: one naming
 /// no sound the engine holds — a sound queued for addition is one — is
 /// refused, 404, and one with a blank name or file, or nothing to change,
-/// 422. A playback of a sound is made the row it inserts, on a partition of
-/// its own ([`playing`]). A stop-all is queued as the commands stopping each
-/// playback still playing ([`stop_all_submitted`]).
+/// 422. A change of a sound's own volume (`set_sound_volume::prepare`) is
+/// made the fraction it writes on the sound's partition, the percent divided
+/// by 100, which `sound-volume-range` judges once it is processed: one naming
+/// no sound the engine holds — by its id or the soundbox's slug for it — is
+/// refused, 404, before it is queued. A playback of a sound is made the row
+/// it inserts, on a partition of its own ([`playing`]). A stop-all is queued
+/// as the commands stopping each playback still playing ([`stop_all_submitted`]).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -637,6 +642,32 @@ async fn submit<L: Llm>(
             .await
         {
             Ok(row) if row.is_empty() => return unprepared(update_sound::Refusal::NoSound),
+            Ok(_) => {}
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        }
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if set_sound_volume::names(&body.data_capability) {
+        let no_sound = || {
+            Err(refused(
+                axum::http::StatusCode::NOT_FOUND,
+                &set_sound_volume::Refusal::NoSound,
+            ))
+        };
+        // The live slider names its sound as the soundbox's reader does.
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(&id.trim().to_lowercase()));
+        let Ok(prepared) = set_sound_volume::prepare(&body.payload, target.as_deref()) else {
+            return no_sound();
+        };
+        match served
+            .rows
+            .projected(&format!("Sound/{}", prepared.target_id))
+            .await
+        {
+            Ok(row) if row.is_empty() => return no_sound(),
             Ok(_) => {}
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         }

@@ -313,6 +313,52 @@ mod tests {
     }
 
     #[test]
+    fn an_object_field_is_a_change_only_when_its_content_differs() {
+        let changes = |before: &Value, after: &Value| {
+            version(&json!({
+                "previous": { "number": 1, "snapshot": { "stats": before } },
+                "snapshot": { "stats": after },
+                "source": "dm",
+            }))["diff"]
+                .clone()
+        };
+        // Same keys and values (a number by value): no change.
+        assert_eq!(
+            changes(
+                &json!({ "hp": 10, "ac": 15 }),
+                &json!({ "ac": 15.0, "hp": 10 })
+            ),
+            json!([])
+        );
+        // Same size, another value or another key: a change.
+        assert_eq!(
+            changes(&json!({ "hp": 10 }), &json!({ "hp": 11 }))
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            changes(&json!({ "hp": 10 }), &json!({ "ac": 10 }))
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+        // One more key on either side: a change.
+        assert_eq!(
+            changes(&json!({ "hp": 10 }), &json!({ "hp": 10, "ac": 15 }))
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            changes(&json!({ "hp": 10, "ac": 15 }), &json!({ "hp": 10 }))
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+    }
+
+    #[test]
     fn the_origin_is_how_the_screen_words_the_source() {
         let origins: Vec<(String, String)> = ["dm", "ia", "dndbeyond", "brief", "restauration"]
             .iter()
