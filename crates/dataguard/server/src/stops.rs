@@ -12,7 +12,7 @@
 //!
 //! The DM follows one command, the first; [`Stops`] keeps the others under
 //! its id, so that its result says the stop-all applied once every one of
-//! them is, and rejected when one is. Stop-alls are prepared and queued one
+//! them is, and rejected when one is — or when one could not be queued. Stop-alls are prepared and queued one
 //! at a time ([`Stops::turn`]): two clicks at once in two tabs never queue
 //! two stops on one playback, the second seeing the first's queued.
 
@@ -54,10 +54,28 @@ pub const PROJECT: &str = "UPDATE sound_playback p
 /// and then some.
 pub const KEPT: usize = 16;
 
-/// The commands of the last stop-alls, under the id of the one each answers.
+/// A command of a stop-all beside the one answered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Linked {
+    /// Queued, under its id.
+    Queued(String),
+    /// Its submit failed: the server holds no id to follow it by.
+    Unqueued,
+}
+
+impl Linked {
+    /// What a stop that could not be queued stands as: not applied, final.
+    #[must_use]
+    pub fn unqueued() -> serde_json::Value {
+        serde_json::json!({ "status": "rejected", "violations": [] })
+    }
+}
+
+/// The commands of the last stop-alls, under the id of the one each answers,
+/// the newest first.
 #[derive(Default)]
 pub struct Stops {
-    kept: Mutex<VecDeque<(String, Vec<String>)>>,
+    kept: Mutex<VecDeque<(String, Vec<Linked>)>>,
     /// Held while a stop-all reads what plays and queues its stops.
     pub turn: tokio::sync::Mutex<()>,
 }
@@ -65,7 +83,7 @@ pub struct Stops {
 impl Stops {
     /// Keeps `others` under `answered`, forgetting the oldest beyond
     /// [`KEPT`]. A stop-all of one command keeps nothing.
-    pub fn keep(&self, answered: &str, others: Vec<String>) {
+    pub fn keep(&self, answered: &str, others: Vec<Linked>) {
         if others.is_empty() {
             return;
         }
@@ -73,14 +91,12 @@ impl Stops {
         if kept.iter().any(|(id, _)| id == answered) {
             return;
         }
-        kept.push_back((answered.to_owned(), others));
-        while kept.len() > KEPT {
-            kept.pop_front();
-        }
+        kept.push_front((answered.to_owned(), others));
+        kept.truncate(KEPT);
     }
 
     /// The other commands of the stop-all `answered` answers, when it is one.
-    pub fn of(&self, answered: &str) -> Vec<String> {
+    pub fn of(&self, answered: &str) -> Vec<Linked> {
         let kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
         kept.iter()
             .find(|(id, _)| id == answered)
@@ -150,18 +166,47 @@ mod tests {
         assert_eq!(result["violations"], json!(["stop-all"]));
     }
 
+    fn queued(id: &str) -> Linked {
+        Linked::Queued(id.to_owned())
+    }
+
     #[test]
     fn the_commands_of_the_last_stop_alls_are_kept_under_the_one_answered() {
         let stops = Stops::default();
         stops.keep("a", Vec::new());
         assert!(stops.of("a").is_empty());
-        stops.keep("a", vec!["b".into(), "c".into()]);
-        stops.keep("a", vec!["d".into()]);
-        assert_eq!(stops.of("a"), ["b", "c"]);
+        stops.keep("a", vec![queued("b"), Linked::Unqueued]);
+        stops.keep("a", vec![queued("d")]);
+        assert_eq!(stops.of("a"), [queued("b"), Linked::Unqueued]);
         for i in 0..KEPT {
-            stops.keep(&format!("x{i}"), vec!["y".into()]);
+            stops.keep(&format!("x{i}"), vec![queued("y")]);
         }
         assert!(stops.of("a").is_empty(), "the oldest is forgotten");
-        assert_eq!(stops.of(&format!("x{}", KEPT - 1)), ["y"]);
+        assert_eq!(stops.of(&format!("x{}", KEPT - 1)), [queued("y")]);
+    }
+
+    #[test]
+    fn exactly_as_many_stop_alls_as_kept_are_all_followed_and_one_more_forgets_the_oldest() {
+        let stops = Stops::default();
+        for i in 0..KEPT {
+            stops.keep(&format!("x{i}"), vec![queued("y")]);
+        }
+        for i in 0..KEPT {
+            assert_eq!(stops.of(&format!("x{i}")), [queued("y")], "x{i} kept");
+        }
+        stops.keep("last", vec![queued("y")]);
+        assert!(stops.of("x0").is_empty(), "the oldest is forgotten");
+        assert_eq!(stops.of("x1"), [queued("y")], "the next one is kept");
+        assert_eq!(stops.of("last"), [queued("y")]);
+    }
+
+    #[test]
+    fn a_stop_that_could_not_be_queued_leaves_the_stop_all_rejected() {
+        let applied = json!({ "status": "applied", "violations": [] });
+        assert_eq!(Linked::unqueued()["status"], "rejected");
+        assert_eq!(
+            settled(applied, &[Linked::unqueued()])["status"],
+            "rejected"
+        );
     }
 }

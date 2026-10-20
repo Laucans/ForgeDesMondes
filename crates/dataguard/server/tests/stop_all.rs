@@ -372,6 +372,77 @@ async fn a_playback_still_queued_when_stop_all_is_clicked_is_stopped_too() {
 }
 
 #[tokio::test]
+async fn a_stop_all_one_stop_of_which_is_cancelled_is_cancelled_though_its_first_applied() {
+    let scratch = Scratch::new("cancelled").await;
+    scratch.play(P_FOULE, SEANCE, FOULE).await;
+    scratch.play(P_PORTE, SEANCE, PORTE).await;
+    let (engine, app) = scratch.serve().await;
+    let (status, answer) = stop_all(&app, json!({ "campaign": VALOMBRE })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    assert_eq!(answer["partition"], format!("SoundPlayback/{P_FOULE}"));
+    // The door's stop, the one the DM is not answered, cancelled.
+    let door: String = scratch
+        .client
+        .query_one(
+            "SELECT command FROM dataguard_queue WHERE partition = $1",
+            &[&format!("SoundPlayback/{P_PORTE}")],
+        )
+        .await
+        .expect("the door's stop queued")
+        .get(0);
+    let (status, cancelled) = call(
+        &app,
+        &format!("/commands/{door}/cancel"),
+        Some(json!({ "by": "dm" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_eq!(engine.run_once().await.expect("the applier ran").len(), 1);
+    assert!(scratch.stop_of(P_FOULE).await.is_some());
+    // Not every playback stopped: not the stop-all.
+    let read = result(&app, &answer).await;
+    assert_eq!(read["status"], "cancelled", "{read}");
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_stop_all_one_stop_of_which_could_not_be_queued_is_not_applied() {
+    let scratch = Scratch::new("unqueued").await;
+    scratch.play(P_FOULE, SEANCE, FOULE).await;
+    scratch.play(P_PORTE, SEANCE, PORTE).await;
+    let (engine, app) = scratch.serve().await;
+    // The store refuses the door's stop as it is queued: a store failing
+    // mid-batch.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "CREATE FUNCTION refuse() RETURNS trigger LANGUAGE plpgsql AS \
+             $$ BEGIN RAISE EXCEPTION 'the queue is down'; END $$; \
+             CREATE TRIGGER refuse BEFORE INSERT ON dataguard_queue FOR EACH ROW \
+             WHEN (NEW.partition = 'SoundPlayback/{P_PORTE}' AND NEW.state = 'queued') \
+             EXECUTE FUNCTION refuse()"
+        ))
+        .await
+        .expect("the door's stop refused");
+
+    let (status, answer) = stop_all(&app, json!({ "campaign": VALOMBRE })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    assert_eq!(answer["partition"], format!("SoundPlayback/{P_FOULE}"));
+    assert_eq!(
+        answer["warnings"].as_array().map(Vec::len),
+        Some(1),
+        "{answer}"
+    );
+    engine.run_once().await.expect("the applier ran");
+    assert!(scratch.stop_of(P_FOULE).await.is_some());
+    // The door's stop has no id the server knows: whatever became of it,
+    // the stop-all is not said applied, and the DM may click again.
+    let read = result(&app, &answer).await;
+    assert_eq!(read["status"], "rejected", "{read}");
+    scratch.drop().await;
+}
+
+#[tokio::test]
 async fn two_clicks_at_once_queue_one_stop_per_playback() {
     let scratch = Scratch::new("at_once").await;
     scratch.play(P_FOULE, SEANCE, FOULE).await;

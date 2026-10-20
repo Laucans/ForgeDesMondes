@@ -737,10 +737,14 @@ async fn stop_all_submitted<L>(
         };
         match (served.engine.submit(submission).await, &mut answered) {
             (Ok(submitted), None) => answered = Some(submitted),
-            (Ok(submitted), Some(_)) => others.push(submitted.command_id),
+            (Ok(submitted), Some(_)) => others.push(stops::Linked::Queued(submitted.command_id)),
             (Err(e), None) => return reply(StatusCode::ACCEPTED, Err(e)),
-            // The playbacks queued keep their stop: the DM is told the others'.
-            (Err(e), Some(first)) => first.warnings.push(e.to_string()),
+            // The playbacks queued keep their stop; the DM is told the others'
+            // failed, and the stop-all is not said applied.
+            (Err(e), Some(first)) => {
+                first.warnings.push(e.to_string());
+                others.push(stops::Linked::Unqueued);
+            }
         }
     }
     let Some(answered) = answered else {
@@ -869,8 +873,13 @@ async fn status(
     // A stop-all's: as its every command stands — those the engine answers.
     let mut others = Vec::new();
     for other in stops.of(&id) {
-        if let Ok(result) = engine.status(&other).await {
-            others.push(serde_json::json!(result));
+        match other {
+            stops::Linked::Queued(other) => {
+                if let Ok(result) = engine.status(&other).await {
+                    others.push(serde_json::json!(result));
+                }
+            }
+            stops::Linked::Unqueued => others.push(stops::Linked::unqueued()),
         }
     }
     reply(
