@@ -24,7 +24,9 @@
 //! `BattlemapInstance/<its id>`: [`ProjectingStore`] inserts its `token` row
 //! ([`tokens`]). A rename of a token (`table.renameToken`) writes the same
 //! partition with its name alone: [`ProjectingStore`] writes `token.name`, and
-//! no other column. A campaign's row is its table's over the engine's, and an
+//! no other column; a condition badge put on or taken off
+//! (`table.setTokenCondition`), with its conditions alone:
+//! [`ProjectingStore`] writes `token.conditions`, and no other column. A campaign's row is its table's over the engine's, and an
 //! archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -253,6 +255,29 @@ const NAME_TOKENS: &str = "UPDATE token t
         AND btrim(r.fields ->> 'name') <> ''
         AND t.name IS DISTINCT FROM r.fields ->> 'name'";
 
+/// The conditions the engine holds of the token partition `$1` names — of
+/// every token when it is null — written on its row: the one column a badge
+/// set changes, and the token's own alone (`instance-isolated`). After each
+/// apply of a token, and at a start, so conditions whose projection failed
+/// after their apply are written again (`state-persisted-reset`). The token
+/// is found by its key, the id its partition names. A row the table does not
+/// hold yet is the drop's to insert; conditions that are no list of names
+/// are left aside, as the DataGuard refuses them.
+const CONDITION_TOKENS: &str = "UPDATE token t
+    SET conditions = ARRAY(SELECT c.name FROM jsonb_array_elements_text(r.fields -> 'conditions')
+        WITH ORDINALITY AS c(name, position) ORDER BY c.position)
+    FROM dataguard_rows r
+    WHERE NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
+        AND t.id = CASE WHEN pg_input_is_valid(r.fields ->> 'tokenId', 'uuid')
+            THEN (r.fields ->> 'tokenId')::uuid END
+        AND jsonb_typeof(r.fields -> 'conditions') = 'array'
+        AND NOT jsonb_path_exists(r.fields -> 'conditions', '$[*] ? (@.type() != \"string\")')
+        AND t.conditions IS DISTINCT FROM
+            ARRAY(SELECT c.name FROM jsonb_array_elements_text(r.fields -> 'conditions')
+                WITH ORDINALITY AS c(name, position) ORDER BY c.position)";
+
 /// What an archive holds of the campaign `$1` names, in whatever case, as
 /// the tables hold it — the campaign, its players, its elements each with
 /// its sheet, its aliases and its versions — in one statement, so one
@@ -321,6 +346,7 @@ impl ProjectingStore {
         instances::repair(&*self.inner.client().lock().await).await;
         tokens::repair(&*self.inner.client().lock().await).await;
         self.repair_names(None).await;
+        self.repair_conditions(None).await;
     }
 
     /// Writes the name the engine holds of the token `partition` names — of
@@ -334,6 +360,22 @@ impl ProjectingStore {
         if let Err(e) = written {
             eprintln!(
                 "projection: token not renamed: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
+    }
+
+    /// Writes the conditions the engine holds of the token `partition` names
+    /// — of every token, `None` — on its row, logging a failure: after each
+    /// apply of a token, and at a start. Tables not migrated yet hold none.
+    async fn repair_conditions(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(CONDITION_TOKENS, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: token conditions not written: {}",
                 e.as_db_error().map_or("-", |db| db.code().code())
             );
         }
@@ -778,9 +820,10 @@ impl Store for ProjectingStore {
                 instances::project(&client, &write.partition).await;
                 tokens::project(&client, &write.partition).await;
             }
-            // A rename, or any later write, makes the token's name follow the
-            // engine's.
+            // A rename, a badge set, or any later write, makes the token's name
+            // and conditions follow the engine's.
             self.repair_names(Some(&write.partition)).await;
+            self.repair_conditions(Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;

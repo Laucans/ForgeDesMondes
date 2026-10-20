@@ -366,7 +366,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// of a token (`rename_token::prepare`) is made the name it writes on the
 /// token's partition, against the token's row: one naming no uuid, or an
 /// empty name, is refused, 422, and one of a token the engine does not hold
-/// on the instance targeted, 404 — neither is queued.
+/// on the instance targeted, 404 — neither is queued. A condition badge put
+/// on or taken off a token (`set_token_condition::prepare`) is made the
+/// conditions it writes on the token's partition, against the token's row:
+/// one naming no uuid, no condition, or no `on`, is refused, 422, and one of
+/// a token the engine does not hold on the instance targeted, 404 — neither
+/// is queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -551,6 +556,28 @@ async fn submit<L: Llm>(
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         };
         let prepared = rename_token::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if set_token_condition::names(&body.data_capability) {
+        let unprocessable = |refusal: set_token_condition::Refusal| {
+            let status = if refusal == set_token_condition::Refusal::UnknownToken {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            refused(status, &refusal)
+        };
+        let request = set_token_condition::request(&body.payload, body.target_id.as_deref())
+            .map_err(unprocessable)?;
+        let base = match served
+            .rows
+            .projected(&set_token_condition::partition(&request.token))
+            .await
+        {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = set_token_condition::prepare(&request, &base).map_err(unprocessable)?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
     }

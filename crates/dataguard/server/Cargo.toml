@@ -51,3 +51,4 @@ export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }
 place-tokens = { path = "../../table/data-capabilities/place-tokens" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
+set-token-condition = { path = "../../table/data-capabilities/set-token-condition" }

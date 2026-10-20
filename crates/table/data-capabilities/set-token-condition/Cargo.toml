@@ -1,0 +1,10 @@
+[package]
+name = "set-token-condition"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.setTokenCondition: one condition badge put on or taken off one token of a battlemap instance, on its own BattlemapInstance partition — its conditions alone, never another token of the same character (instance-isolated)."
+publish = false
+
+[dependencies]
+serde_json = "1"

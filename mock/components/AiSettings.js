@@ -584,6 +584,25 @@
       inst.state.tokens.find((t) => same2(t.id, tokenId)).name = name;
       return void 0;
     },
+    // table.setTokenCondition: the badge `payload.state` put on (`on: true`) or taken off (`on: false`) one token,
+    // `payload.token` on the instance `targetId` — or the token itself as the target, or no target. The other
+    // tokens of its character keep their badges (`instance-isolated`); a badge put on twice is there once, and one
+    // of blanks alone, or an `on` that is no boolean, is refused. Ids are compared in any case, as the server does.
+    "table.setTokenCondition": async (server, { payload: payload2, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const state = typeof payload2.state === "string" ? payload2.state.trim() : "";
+      if (!state || state.includes("\0") || typeof payload2.on !== "boolean") return ["state-persisted-reset"];
+      const tokenId = payload2.token ?? targetId;
+      const instance = payload2.token != null && targetId && !same2(targetId, tokenId) ? targetId : null;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const inst = instances.find((i) => (instance == null || same2(i.id, instance)) && i.state.tokens.some((t) => same2(t.id, tokenId)));
+      if (!inst) return ["not-found"];
+      const token = inst.state.tokens.find((t) => same2(t.id, tokenId));
+      const states = token.states || [];
+      token.states = payload2.on ? states.includes(state) ? states : states.concat(state) : states.filter((s) => s !== state);
+      return void 0;
+    },
     // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
     // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
     // version after it are undone, each field back to what it was. Either way the restoration is a new version
