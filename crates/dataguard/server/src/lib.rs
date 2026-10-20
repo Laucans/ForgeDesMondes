@@ -1087,7 +1087,8 @@ fn draw() -> Result<i64, getrandom::Error> {
 /// (`Rows::standing`), one at a time until it is queued ([`REMOVING`]): one
 /// naming no uuid, 422; an entry the engine
 /// does not hold, or holds in a combat of another instance than the target,
-/// 404; one of a combat that ended, 409 — none is queued. One sent again under
+/// 404; one of a combat that ended, or one that holds the turn, 409 — none is
+/// queued. One sent again under
 /// the key of a removal the engine holds is the engine's to replay, as it was:
 /// its entry reads as none once its removal is queued (`Rows::standing`).
 async fn removal<L>(served: &Served<L>, body: &mut Submission) -> Result<(), Refused> {
@@ -1097,7 +1098,7 @@ async fn removal<L>(served: &Served<L>, body: &mut Submission) -> Result<(), Ref
     let unprocessable = |why: Refusal| {
         let status = match why {
             Refusal::UnknownEntry => StatusCode::NOT_FOUND,
-            Refusal::CombatEnded => StatusCode::CONFLICT,
+            Refusal::CombatEnded | Refusal::HoldsTurn => StatusCode::CONFLICT,
             Refusal::NotAnId(_) => StatusCode::UNPROCESSABLE_ENTITY,
         };
         refused(status, &why)

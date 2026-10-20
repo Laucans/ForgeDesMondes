@@ -9,7 +9,7 @@
   },
   "touches": ["BattlemapInstance.initiativeEntryId"],
   "payload": {
-    "entry": "uuid — the initiative entry of the participant taken out of the open combat, on the instance the command targets; when absent, the command's target is the entry. Its partition is tombstoned (a soft delete): its token stays on the map, and nothing else is written — the order closes up by itself (orderIndex, derived), and when the participant holds the turn the caller sends table.nextTurn first, then this command"
+    "entry": "uuid — the initiative entry of the participant taken out of the open combat, on the instance the command targets; when absent, the command's target is the entry. Its partition is tombstoned (a soft delete): its token stays on the map, and nothing else is written — the order closes up by itself (orderIndex, derived), and a participant that holds the turn is refused (409): the caller sends table.nextTurn first, then this command"
   },
   "mode": "confirm_on_stale",
   "invariants": ["instance-isolated"],

@@ -19,7 +19,10 @@
 //! - a command naming no uuid is refused before it is queued ([`Refusal`]);
 //! - an entry the engine does not hold, or one of a combat of another
 //!   instance than the target, is none to remove (`instance-isolated`);
-//! - an entry of a combat that ended is out of no running order.
+//! - an entry of a combat that ended is out of no running order;
+//! - the entry that holds the turn is not removed: the engine's combat would
+//!   keep naming a tombstone while the table nullifies it, so the caller sends
+//!   `table.nextTurn` first and the turn is another's.
 
 use std::collections::BTreeMap;
 
@@ -65,6 +68,8 @@ pub enum Refusal {
     UnknownEntry,
     /// The entry's combat has ended: there is no running order to leave.
     CombatEnded,
+    /// The entry holds the turn: `table.nextTurn` passes it first.
+    HoldsTurn,
 }
 
 impl std::fmt::Display for Refusal {
@@ -75,6 +80,7 @@ impl std::fmt::Display for Refusal {
                 f.write_str("ce participant n'est pas dans un combat de cette instance")
             }
             Self::CombatEnded => f.write_str("ce combat est terminé"),
+            Self::HoldsTurn => f.write_str("ce participant a la main: passer le tour d'abord"),
         }
     }
 }
@@ -133,7 +139,8 @@ pub fn combat_of(entry: &Row) -> Option<String> {
 ///
 /// [`Refusal::UnknownEntry`] when `entry` holds no such entry, `combat` no
 /// combat of the instance the request names; [`Refusal::CombatEnded`] when
-/// the combat has an end.
+/// the combat has an end; [`Refusal::HoldsTurn`] when the combat's turn is
+/// the entry's.
 pub fn prepare(request: &Request, entry: &Row, combat: &Row) -> Result<Prepared, Refusal> {
     let of = combat_of(entry).ok_or(Refusal::UnknownEntry)?;
     let on = held(combat, "combatInstanceId").ok_or(Refusal::UnknownEntry)?;
@@ -148,6 +155,9 @@ pub fn prepare(request: &Request, entry: &Row, combat: &Row) -> Result<Prepared,
     }
     if !combat.get("endedAt").is_none_or(Value::is_null) {
         return Err(Refusal::CombatEnded);
+    }
+    if held(combat, "currentEntryId").as_deref() == Some(request.entry.as_str()) {
+        return Err(Refusal::HoldsTurn);
     }
     Ok(Prepared {
         target_id: request.entry.clone(),

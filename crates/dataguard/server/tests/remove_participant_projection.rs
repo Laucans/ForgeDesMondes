@@ -2,8 +2,8 @@
 //! taken out of the combat, once applied, is a tombstone the engine keeps on
 //! its entry's partition (a soft delete) and its `initiative_entry` row out of
 //! the table — its token stays on the map, the carousel's places
-//! (`initiative_order_view`, derived) close up with no rank written, and a turn
-//! still on it is nullified as the aggregate's relation declares; a removal
+//! (`initiative_order_view`, derived) close up with no rank written, and the
+//! participant that holds the turn is refused; a removal
 //! the table lost is made again at the next start. The combat is started by
 //! table.startCombat itself. Each test works in a scratch database of its
 //! own, migrated by the Data layer, dropped when it ends.
@@ -389,24 +389,19 @@ async fn a_participant_at_rank_2_of_4_leaves_ranks_1_2_3_in_the_previous_order_i
 }
 
 #[tokio::test]
-async fn a_turn_still_on_the_participant_removed_is_nullified_as_its_relation_declares() {
+async fn the_participant_that_holds_the_turn_is_refused_and_nothing_queued() {
     let s = Scratch::new("turn").await;
     let (engine, app) = s.serve().await;
     started(&engine, &app).await;
     let elowen = s.entry(T_ELOWEN).await;
-    assert_eq!(remove(&app, &elowen, None).await.0, StatusCode::ACCEPTED);
-    assert_eq!(applied(&engine).await, 1);
-    // No table.nextTurn sent first: the turn is no one's (currentEntryId,
-    // onDelete nullify), never left on the participant gone.
-    assert_eq!(s.turn().await.1, None);
-    assert_eq!(
-        s.carousel().await,
-        [
-            place(T_KAEL, 2, 1),
-            place(T_VESNA, 3, 2),
-            place(T_BANDIT, 4, 3),
-        ]
-    );
+    // No table.nextTurn sent first: the engine's combat would keep naming a
+    // tombstone while the table nullified its turn, so the removal is refused.
+    let (status, body) = remove(&app, &elowen, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(applied(&engine).await, 0);
+    assert_eq!(s.turn().await.1.as_deref(), Some(T_ELOWEN));
+    assert_eq!(s.tombstoned(&elowen).await, Some(false));
+    assert_eq!(s.carousel().await.len(), 4);
     s.drop().await;
 }
 

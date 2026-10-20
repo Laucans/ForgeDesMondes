@@ -12,6 +12,7 @@ const AUTRE_INSTANCE: &str = "b1000000-0000-4000-8000-000000000002";
 const COMBAT: &str = "c0000000-0000-4000-8000-000000000001";
 const AUTRE_COMBAT: &str = "c0000000-0000-4000-8000-000000000002";
 const ENTREE: &str = "1e000000-0000-4000-8000-000000000002";
+const AUTRE_ENTREE: &str = "1e000000-0000-4000-8000-000000000001";
 const JETON: &str = "70000000-0000-4000-8000-000000000002";
 
 fn row(value: Value) -> Row {
@@ -37,7 +38,7 @@ fn combat() -> Row {
         "combatId": COMBAT,
         "combatInstanceId": INSTANCE.to_uppercase(),
         "round": 2,
-        "currentEntryId": ENTREE,
+        "currentEntryId": AUTRE_ENTREE,
         "startedAt": "2026-10-20T20:05:00Z",
     }))
 }
@@ -162,11 +163,27 @@ fn an_entry_of_a_combat_that_ended_is_out_of_no_running_order() {
 }
 
 #[test]
+fn the_entry_that_holds_the_turn_is_not_removed_until_the_turn_is_passed() {
+    let mut held = combat();
+    held.insert("currentEntryId".to_string(), json!(ENTREE.to_uppercase()));
+    assert_eq!(
+        prepare(&asked(Some(INSTANCE)), &entry(), &held),
+        Err(Refusal::HoldsTurn)
+    );
+    // The turn is another's, or no one's once nextTurn has passed it.
+    assert!(prepare(&asked(Some(INSTANCE)), &entry(), &combat()).is_ok());
+    let mut passed = combat();
+    passed.insert("currentEntryId".to_string(), Value::Null);
+    assert!(prepare(&asked(Some(INSTANCE)), &entry(), &passed).is_ok());
+}
+
+#[test]
 fn every_refusal_says_why_in_words() {
     for refusal in [
         Refusal::NotAnId("entry"),
         Refusal::UnknownEntry,
         Refusal::CombatEnded,
+        Refusal::HoldsTurn,
     ] {
         assert!(!refusal.to_string().trim().is_empty(), "{refusal:?}");
     }
