@@ -274,9 +274,13 @@ async fn a_media_that_is_no_illustration_of_the_campaign_is_rejected_under_windo
         let (answer, state, violations) = opened(&engine, &app, media).await;
         assert_eq!(state, State::Rejected, "{media}: {answer}");
         assert_eq!(violations, ["window-proportional"], "{media}");
+        // The DataGuard's own warning first, then why.
         assert_eq!(
             answer["warnings"],
-            json!([show_window_on_player_view::NOT_AN_ILLUSTRATION]),
+            json!([
+                "invariant(s) at risk: window-proportional",
+                show_window_on_player_view::NOT_AN_ILLUSTRATION
+            ]),
             "{media}"
         );
         assert_eq!(scratch.diffusion(SEANCE).await, before, "{media}");
