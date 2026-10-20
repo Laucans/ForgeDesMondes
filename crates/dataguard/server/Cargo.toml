@@ -49,3 +49,4 @@ save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 create-campaign = { path = "../../campaign/data-capabilities/create-campaign" }
+add-place-to-session = { path = "../../session/data-capabilities/add-place-to-session" }

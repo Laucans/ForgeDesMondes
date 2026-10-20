@@ -1,0 +1,10 @@
+[package]
+name = "add-place-to-session"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.addPlaceToSession: a place of the session's campaign linked to one of its scenes, once, after the scene's last element — its media follow through session_media_view, never stored (session-media-by-place)."
+publish = false
+
+[dependencies]
+serde_json = "1"
