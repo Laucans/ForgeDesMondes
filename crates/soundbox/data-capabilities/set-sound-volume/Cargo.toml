@@ -1,0 +1,10 @@
+[package]
+name = "set-sound-volume"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.setSoundVolume: one sound's own volume, given in percent by its live slider, written as a fraction from 0 to 1 on its Sound partition (EffectiveVolume@1) — and nothing else of it; out of range, the sound's own invariant refuses it (sound-volume-range)."
+publish = false
+
+[dependencies]
+serde_json = "1"
