@@ -7,21 +7,25 @@
 //!
 //! What a session's own row can say is judged here; the rest waits for the
 //! DataCapabilities that write these tables, which prepare a command against
-//! the rows it needs. `present-only-pj` and `scene-links-same-campaign` read
-//! the character, element or media linked, rows of the Entity and Media
-//! aggregates: here, the roster and the media of a session are never
-//! stored — the views compute them, so they follow every later presence and
-//! every change of place. `scene-order-contiguous` reads the session's other
-//! scenes: here, a scene's rank is one of 1 to n, and a reorder
-//! (`session.reorderScenes`) writes the session's whole order on its own
-//! row — every scene of the session, each once, which [`Scenes`] knows — so
-//! the ranks it rewrites at once run 1 to n. `previous-summary-visible` is a
-//! read: the tables keep a closed session's summary and journal for the next
-//! one.
+//! the rows it needs. `present-only-pj` reads the character linked, a row of
+//! the Entity aggregate: here, the roster and the media of a session are
+//! never stored — the views compute them, so they follow every later
+//! presence and every change of place. `scene-links-same-campaign` reads the
+//! campaign of a scene's session and of each element it links: its judge is
+//! `crate::scene_places`, for a place put in a scene and a new scene alike.
+//! `scene-order-contiguous` reads the session's other scenes: here, a
+//! scene's rank is one of 1 to n — a new scene's is settled after the
+//! session's last when it is applied (`crate::versioning::Versioning`), and
+//! a reorder (`session.reorderScenes`) writes the session's whole order on
+//! its own row — every scene of the session, each once, which [`Scenes`]
+//! knows — so the ranks it rewrites at once run 1 to n.
+//! `previous-summary-visible` is a read: the tables keep a closed session's
+//! summary and journal for the next one.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, LazyLock};
 
+use add_scene::{LINKED, POSITION as SCENE_POSITION};
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
@@ -52,10 +56,6 @@ const MICROPHONE: &str = "microphoneOn";
 const CLOSED_AT: &str = "closedAt";
 const SUMMARY: &str = "summary";
 const SUMMARY_MODEL: &str = "summaryModel";
-
-/// A scene's rank in its session — on a session's own row, its whole order:
-/// the scenes' ids, each at its rank less one.
-const SCENE_POSITION: &str = "scenePosition";
 
 /// The invariant [`Session`] judges an order with, against what [`Scenes`]
 /// keeps.
@@ -277,13 +277,16 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A command writes only fields the aggregate declares, each a text, a
-/// number, a boolean or a null — a session's order of its scenes, a list of
-/// their ids: no field holds audio, nor anything but what a column types.
+/// number, a boolean or a null — the elements a scene links, or a session's
+/// order of its scenes, a list of their ids: no field holds audio, nor
+/// anything but what a column types.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
         DECLARED.contains(field)
             && match value {
-                Value::Array(ids) => field == SCENE_POSITION && ids.iter().all(Value::is_string),
+                Value::Array(ids) => {
+                    (field == LINKED || field == SCENE_POSITION) && ids.iter().all(Value::is_string)
+                }
                 Value::Object(_) => false,
                 _ => true,
             }
@@ -295,13 +298,15 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
+    use add_scene::SESSION as SCENE_SESSION;
     use harness_dataguard::command::Entry;
     use harness_dataguard::guard::Invariants;
     use serde_json::{Value, json};
 
     use super::{
-        CHECKS, CLOSED_AT, CREATED, DECLARED, EXCERPT, JOURNAL, MICROPHONE, ROSTER, SCENE_POSITION,
-        SESSION_MEDIA, STATUS, SUMMARY, SUMMARY_MODEL, Session, TO_CREATE, TYPE,
+        CHECKS, CLOSED_AT, CREATED, DECLARED, EXCERPT, JOURNAL, LINKED, MICROPHONE, ROSTER,
+        SCENE_POSITION, SESSION_MEDIA, STATUS, SUMMARY, SUMMARY_MODEL, Session, TO_CREATE, TYPE,
+        text_only_no_audio,
     };
 
     /// A command of `effect` on `aggregate`'s row.
@@ -396,6 +401,8 @@ mod tests {
             SUMMARY,
             SUMMARY_MODEL,
             SCENE_POSITION,
+            SCENE_SESSION,
+            LINKED,
             CREATED,
             TYPE,
             EXCERPT,
@@ -421,6 +428,41 @@ mod tests {
             .collect();
         for (id, _) in CHECKS {
             assert!(declared.contains(&id), "{id} is not declared");
+        }
+    }
+
+    #[test]
+    fn text_only_no_audio_admits_a_list_of_ids_in_a_scene_s_links_or_a_session_s_order_alone() {
+        let writing = |field: &str, value: Value| {
+            let mut entry = entry("Session", "insert");
+            entry.payload.insert(field.to_string(), value);
+            entry
+        };
+        let state = BTreeMap::new();
+        assert!(text_only_no_audio(
+            &state,
+            &writing(LINKED, json!(["e1000000-0000-4000-8000-000000000003"]))
+        ));
+        assert!(text_only_no_audio(&state, &writing(LINKED, json!([]))));
+        assert!(text_only_no_audio(
+            &state,
+            &writing(
+                SCENE_POSITION,
+                json!(["5c000000-0000-4000-8000-000000000001"])
+            )
+        ));
+        // A list of anything but ids, a list in any other field, an object.
+        for (field, value) in [
+            (LINKED, json!([3])),
+            (SCENE_POSITION, json!([3])),
+            (LINKED, json!(["e1", { "audio": "x" }])),
+            (SUMMARY, json!(["Le gué"])),
+            (LINKED, json!({ "id": "e1" })),
+        ] {
+            assert!(
+                !text_only_no_audio(&state, &writing(field, value.clone())),
+                "{field} {value}"
+            );
         }
     }
 }

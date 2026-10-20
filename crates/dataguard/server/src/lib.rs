@@ -39,7 +39,11 @@
 //! scene (`session.addPlaceToSession`) is prepared against what the tables
 //! and the engine's rows hold of its session, its scene and its place, which
 //! [`Rows`] reads: its verdict on `scene-links-same-campaign` is kept for the
-//! judge.
+//! judge. A new scene (`session.addScene`) is prepared at the rank after its
+//! session's last, against what the engine holds of the session and — over
+//! a database — what its tables hold ([`Rows::refresh_session`]): the places
+//! it links are judged as a place put in a scene is, their verdict kept for
+//! the same judge.
 
 use std::sync::Arc;
 
@@ -392,6 +396,13 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// scene links it already — its verdict on `scene-links-same-campaign` kept
 /// for the judge: one naming no session or no place, of a session with no
 /// scene, or of an element that is no place, is refused, 422, and not queued.
+/// A new scene (`add_scene::prepare`) is given its id and the rank after its
+/// session's last, what the tables hold of the session read first, and the
+/// verdict on its places kept for the same judge: one of a session neither
+/// the engine nor the tables hold is refused, 404, and one the tables could
+/// never hold, 422 — neither is queued. Its replay — its idempotency key
+/// known already — is not prepared again: the engine answers it with the
+/// first.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -568,6 +579,64 @@ async fn submit<L: Llm>(
                     Json(serde_json::json!({ "error": refusal.to_string() })),
                 ));
             }
+        }
+    } else if add_scene::names(&body.data_capability) {
+        // A replay is the engine's to answer, as the first was prepared.
+        match served
+            .rows
+            .replayed(add_scene::DATA_CAPABILITY, body.idempotency_key.as_deref())
+            .await
+        {
+            Ok(false) => {}
+            Ok(true) => {
+                return reply(
+                    axum::http::StatusCode::ACCEPTED,
+                    served.engine.submit(body).await,
+                );
+            }
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        }
+        let refused = |status, refusal: add_scene::Refusal| {
+            Err((
+                status,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            ))
+        };
+        let Some(session) = add_scene::session_of(&body.payload) else {
+            let unnamed = add_scene::Refusal::NoSession;
+            return refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, unnamed);
+        };
+        let scene = match fresh_uuid() {
+            Ok(scene) => scene,
+            Err(_) => {
+                let e = Error::Store("no randomness for an id".to_string());
+                return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+            }
+        };
+        let places = add_scene::places_of(&body.payload).unwrap_or_default();
+        if let Err(e) = served.rows.refresh_session(&session).await {
+            return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+        }
+        if !served.rows.knows_session(&session) {
+            let unknown = add_scene::Refusal::UnknownSession;
+            return refused(axum::http::StatusCode::NOT_FOUND, unknown);
+        }
+        let fresh = add_scene::Fresh {
+            scene: &scene,
+            position: served.rows.next_scene_position(&session, &scene),
+        };
+        match add_scene::prepare(&body.payload, fresh) {
+            Ok(prepared) => {
+                let judged = served
+                    .rows
+                    .judge_scene(&prepared.target_id, &session, &places);
+                if let Err(e) = judged.await {
+                    return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+                }
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => return refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, refusal),
         }
     } else if reorder_scenes::names(&body.data_capability) {
         match reorder_scenes::prepare(&body.payload) {

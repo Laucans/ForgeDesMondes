@@ -643,6 +643,32 @@
       } else library.illustrations.push({ ...base, art: "dusk", glyph: String(payload2.title).charAt(0).toUpperCase(), ratio: 1.5 });
       return void 0;
     },
+    // session.addScene (crates/session/data-capabilities/add-scene): a new scene, ranked after the session's last
+    // (scene-order-contiguous), with its title, its notes and the places it links — each a place of the fixtures'
+    // campaign, else scene-links-same-campaign — whose media follow: session-media-by-place, derived, never stored.
+    "session.addScene": async (server, { payload: payload2 }) => {
+      const title = String(payload2.title || "").trim();
+      if (!title) return ["scene-title-required"];
+      const known = new Set((await server.load("campaign.listPlaces")).map((p) => p.id));
+      const places = [...new Set(Array.isArray(payload2.places) ? payload2.places : [])];
+      if (places.some((id) => !known.has(id))) return ["scene-links-same-campaign"];
+      const library = await server.load("media.listMedia");
+      const media = library.battlemaps.concat(library.illustrations).filter((m) => places.includes(m.place)).map((m) => m.id);
+      const scenes = await server.load("session.listScenes");
+      scenes.push({
+        id: server.uuid(),
+        order: scenes.reduce((last, sc) => Math.max(last, sc.order), 0) + 1,
+        title,
+        places,
+        characters: [],
+        events: [],
+        media,
+        toCreate: [],
+        battlemap: null,
+        notes: String(payload2.notes || "").trim() || null
+      });
+      return void 0;
+    },
     // session.reorderScenes (crates/session/data-capabilities/reorder-scenes):
     // the session's whole order, every rank rewritten at once — 1 to n in the
     // order's order. `scene-order-contiguous` refuses an order that omits a

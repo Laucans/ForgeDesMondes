@@ -10,16 +10,20 @@
 //! too, which `alias-unique-in-campaign` reads, and the [`History`] of the
 //! versions a restoration is prepared against; over a database the
 //! projection keeps them, once the tables hold the write. Over either, it
-//! keeps [`Scenes`] — which session each scene is of, as every write of the
-//! Session aggregate applied leaves it — which `scene-order-contiguous`
-//! judges a reorder against. Every other method is the inner store's.
+//! keeps [`Scenes`] — each session's campaign, its scenes and their ranks,
+//! as every write applied leaves them — and settles a new scene's rank
+//! there: the one after its session's last, whatever was queued beside it
+//! (`scene-order-contiguous`), which a reorder of the session's scenes is
+//! judged against too. Every other method is the inner store's.
 //! [`Rows`] reads what a link of a place to a scene is judged against
-//! (`session.addPlaceToSession`), and keeps its verdict in [`Links`].
+//! (`session.addPlaceToSession`), and the places of a new scene alike, and
+//! keeps their verdict in [`Links`].
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use add_place_to_session::{Asked, PLACE, POSITION, SCENE, Scene, link_id, link_of};
+use add_scene::{LINKED, POSITION as SCENE_POSITION, SESSION as SCENE_SESSION};
 use async_trait::async_trait;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
@@ -38,15 +42,24 @@ use crate::scenes::Scenes;
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
 
-/// The partitions of the Session aggregate: `Session/<id>`.
+/// The partitions of the Session aggregate: `Session/<session id>`, and a
+/// scene's, `Session/<scene id>`.
 pub const SESSION: &str = "Session/";
+
+/// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
+const CAMPAIGN: &str = "Campaign/";
+
+/// A oneshot's creation: the id of the single session it writes on its
+/// campaign's partition.
+const ONESHOT_SESSION: &str = "sessionId";
 
 /// The element a write is of, when it is a write of the Entity aggregate.
 pub fn element_of(write: &Write) -> Option<&str> {
     write.partition.strip_prefix(ENTITY)
 }
 
-/// A store whose applied Entity writes carry their settled version.
+/// A store whose applied Entity writes carry their settled version, and a
+/// new scene its settled rank.
 pub struct Versioning {
     inner: Arc<dyn Store>,
     aliases: Option<Arc<Aliases>>,
@@ -72,24 +85,53 @@ impl Versioning {
         Self { history, ..self }
     }
 
-    /// The same, keeping the scenes' sessions in `scenes`.
+    /// The same, keeping the sessions and scenes in `scenes`.
     #[must_use]
     pub fn following(self, scenes: Arc<Scenes>) -> Self {
         Self { scenes, ..self }
     }
 
-    /// Applies a write of any aggregate but Entity: what a Session partition
-    /// holds — the whole row a write carries — recorded in [`Scenes`] once
-    /// applied, and forgotten once removed.
+    /// Applies a write of any aggregate but Entity: a new scene ranked after
+    /// its session's last, and what a session's partition holds — the whole
+    /// row a write carries — recorded in [`Scenes`] once applied, as is the
+    /// session a oneshot's creation writes on its campaign's partition.
     async fn apply_other(&self, write: &Write, result: &CommandResult) -> Result<u64> {
-        let version = self.inner.apply(write, result).await?;
-        if let Some(id) = write.partition.strip_prefix(SESSION) {
-            if write.tombstone {
-                self.scenes.forget(id);
-            } else {
-                self.scenes.record(&write.values);
+        let Some(id) = write.partition.strip_prefix(SESSION) else {
+            let version = self.inner.apply(write, result).await?;
+            // A oneshot's session is written on its campaign's partition.
+            if write.partition.starts_with(CAMPAIGN)
+                && !write.tombstone
+                && let Some(session) = write.values.get(ONESHOT_SESSION).and_then(Value::as_str)
+            {
+                self.scenes.record("Session", session, &write.values);
             }
+            return Ok(version);
+        };
+        if write.tombstone {
+            let version = self.inner.apply(write, result).await?;
+            self.scenes.forget(id);
+            return Ok(version);
         }
+        let mut settled = None;
+        if let Some(session) = write.values.get(SCENE_SESSION).and_then(Value::as_str)
+            && !self
+                .inner
+                .row(&write.partition)
+                .await?
+                .contains_key(SCENE_SESSION)
+        {
+            let mut values = write.values.clone();
+            let rank = self.scenes.next_position(session, id);
+            values.insert(SCENE_POSITION.into(), rank.into());
+            settled = Some(Write {
+                partition: write.partition.clone(),
+                values,
+                tombstone: false,
+            });
+        }
+        let settled = settled.as_ref().unwrap_or(write);
+        let version = self.inner.apply(settled, result).await?;
+        self.scenes.record("Session", id, &settled.values);
         Ok(version)
     }
 }
@@ -215,9 +257,59 @@ impl Rows {
         Self { tables, ..self }
     }
 
-    /// The same, the scenes' sessions kept in `scenes`.
+    /// The same, the sessions and scenes kept in `scenes`.
     pub(crate) fn following(self, scenes: Arc<Scenes>) -> Self {
         Self { scenes, ..self }
+    }
+
+    /// Takes what the tables hold of `session` — its campaign, its scenes —
+    /// into where a new scene of it goes: the fixtures' rows, which no
+    /// command wrote. Over the engine's memory, which has no table, nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn refresh_session(&self, session: &str) -> Result<()> {
+        let Some(tables) = &self.tables else {
+            return Ok(());
+        };
+        let facts = tables.scene_facts(Some(session)).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "session not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        for (aggregate, id, row) in facts {
+            self.scenes.record(&aggregate, &id, &row);
+        }
+        Ok(())
+    }
+
+    /// Whether a command of `data_capability` under `key` was submitted
+    /// already: one the engine replays. No key, none.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn replayed(&self, data_capability: &str, key: Option<&str>) -> Result<bool> {
+        let Some(key) = key else {
+            return Ok(false);
+        };
+        Ok(self
+            .store
+            .by_idempotency_key(data_capability, key)
+            .await?
+            .is_some())
+    }
+
+    /// Whether `session` is one the engine or the tables hold.
+    pub fn knows_session(&self, session: &str) -> bool {
+        self.scenes.campaign_of(session).is_some()
+    }
+
+    /// The rank after the last of `session`'s scenes besides `scene`.
+    pub fn next_scene_position(&self, session: &str, scene: &str) -> u64 {
+        self.scenes.next_position(session, scene)
     }
 
     /// Takes what the tables and the engine's rows hold of `session`'s
@@ -334,14 +426,62 @@ impl Rows {
         self.links.judged(id, same_campaign);
     }
 
-    /// Judges again every link queued: at a start, before the applier runs,
-    /// so a link queued before is applied as it was judged when submitted.
+    /// Keeps the verdict on the places the new scene `scene` of `session`
+    /// links: whether each is an element of the session's campaign, as a
+    /// place put in a scene is judged ([`Self::place_facts`]) — the session's
+    /// campaign the one [`Scenes`] knows when the session's own row says none
+    /// (a oneshot's, written on its campaign's partition).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::place_facts`].
+    pub(crate) async fn judge_scene(
+        &self,
+        scene: &str,
+        session: &str,
+        places: &[String],
+    ) -> Result<()> {
+        let mut same = true;
+        for place in places {
+            let asked = Asked {
+                session: session.to_owned(),
+                scene: None,
+                place: place.clone(),
+            };
+            let mut facts = self.place_facts(&asked).await?;
+            if facts.session_campaign.is_none() {
+                facts.session_campaign = self.scenes.campaign_of(session);
+            }
+            same &= facts.place_of_campaign();
+        }
+        self.judged(scene, same);
+        Ok(())
+    }
+
+    /// Judges again every link queued, and every new scene's places: at a
+    /// start, before the applier runs, so one queued before is applied as it
+    /// was judged when submitted.
     ///
     /// # Errors
     ///
     /// As [`Self::place_facts`].
     pub(crate) async fn rejudge_links(&self) -> Result<()> {
         for entry in self.store.pending().await? {
+            if add_scene::names(&entry.data_capability) {
+                let scene = entry.partition.strip_prefix(SESSION).unwrap_or_default();
+                let session = entry.payload.get(SCENE_SESSION).and_then(Value::as_str);
+                let places: Vec<String> = match entry.payload.get(LINKED) {
+                    Some(Value::Array(ids)) => ids
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                self.judge_scene(scene, session.unwrap_or_default(), &places)
+                    .await?;
+                continue;
+            }
             if !add_place_to_session::names(&entry.data_capability) {
                 continue;
             }

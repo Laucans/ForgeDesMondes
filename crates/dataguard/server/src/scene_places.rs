@@ -13,11 +13,16 @@
 //! judged — one submitted to the engine directly, or queued before a start
 //! and not judged again since ([`crate::Rows::rejudge_links`]) — is held to
 //! nothing known, and rejected.
+//!
+//! A new scene (`session.addScene`) linking places is judged the same way:
+//! each place an element of its session's campaign, found when the scene is
+//! prepared ([`crate::Rows::judge_scene`]) and kept under the scene's id.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use add_place_to_session::{PLACE, SCENE, Scene, link_of, names};
+use add_scene::LINKED;
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
@@ -49,14 +54,22 @@ impl Facts {
     /// Whether the scene is `session`'s and the place an element of its
     /// campaign: nothing known is neither.
     pub fn same_campaign(&self, session: &str) -> bool {
-        let same = |a: &Option<String>, b: Option<&str>| {
-            a.as_deref()
-                .zip(b)
-                .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
-        };
-        same(&self.scene_session, Some(session))
-            && same(&self.place_campaign, self.session_campaign.as_deref())
+        same(self.scene_session.as_deref(), Some(session)) && self.place_of_campaign()
     }
+
+    /// Whether the place is an element of the session's campaign: nothing
+    /// known is not.
+    pub fn place_of_campaign(&self) -> bool {
+        same(
+            self.place_campaign.as_deref(),
+            self.session_campaign.as_deref(),
+        )
+    }
+}
+
+/// Whether `a` and `b` are both known and name the same id, in whatever case.
+fn same(a: Option<&str>, b: Option<&str>) -> bool {
+    a.zip(b).is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
 }
 
 /// The verdicts of the links prepared, by link id.
@@ -104,19 +117,24 @@ impl Invariants for ScenePlaces {
         state: &BTreeMap<String, Value>,
         entry: &Entry,
     ) -> Vec<String> {
-        if aggregate != AGGREGATE
-            || entry.effect == Effect::Delete
-            || !names(&entry.data_capability)
-        {
+        if aggregate != AGGREGATE || entry.effect == Effect::Delete {
             return Vec::new();
         }
         let id = entry.partition.strip_prefix("Session/").unwrap_or_default();
-        // The row links what its id names, and the preparation found the
-        // scene the session's and the place of its campaign.
-        let holds = link_of(id).is_some_and(|(_, scene, place)| {
-            text(state, SCENE).is_some_and(|s| s.eq_ignore_ascii_case(scene))
-                && text(state, PLACE).is_some_and(|p| p.eq_ignore_ascii_case(place))
-        }) && self.links.verdict(id) == Some(true);
+        let holds = if names(&entry.data_capability) {
+            // The row links what its id names, and the preparation found the
+            // scene the session's and the place of its campaign.
+            link_of(id).is_some_and(|(_, scene, place)| {
+                text(state, SCENE).is_some_and(|s| s.eq_ignore_ascii_case(scene))
+                    && text(state, PLACE).is_some_and(|p| p.eq_ignore_ascii_case(place))
+            }) && self.links.verdict(id) == Some(true)
+        } else if add_scene::names(&entry.data_capability) {
+            // A new scene linking places: the preparation found each of its
+            // session's campaign.
+            !entry.payload.contains_key(LINKED) || self.links.verdict(id) == Some(true)
+        } else {
+            true
+        };
         if holds {
             Vec::new()
         } else {
@@ -227,10 +245,34 @@ mod tests {
         links.judged(&id, false);
         assert_eq!(judge.violated(AGGREGATE, &state, &link), [SAME_CAMPAIGN]);
         // Another command, another aggregate, a tombstone: not this judge's.
-        let other = entry("session.addScene@1", &partition, "insert");
+        let other = entry("session.saveScene@1", &partition, "insert");
         assert!(judge.violated(AGGREGATE, &state, &other).is_empty());
         assert!(judge.violated("Entity", &state, &link).is_empty());
         let removed = entry("session.addPlaceToSession@1", &partition, "delete");
+        assert!(judge.violated(AGGREGATE, &state, &removed).is_empty());
+    }
+
+    #[test]
+    fn scene_links_same_campaign_rejects_a_new_scene_whose_places_no_preparation_found_of_the_campaign()
+     {
+        let links = Arc::new(Links::default());
+        let judge = ScenePlaces::new(links.clone());
+        let partition = format!("Session/{ARRIVEE}");
+        let state = BTreeMap::new();
+        // A scene linking nothing has nothing to judge.
+        let bare = entry("session.addScene@1", &partition, "insert");
+        assert!(judge.violated(AGGREGATE, &state, &bare).is_empty());
+        let mut linking = bare;
+        linking.payload.insert(LINKED.into(), json!([TAVERNE]));
+        // Never prepared: nothing known.
+        assert_eq!(judge.violated(AGGREGATE, &state, &linking), [SAME_CAMPAIGN]);
+        links.judged(&ARRIVEE.to_uppercase(), true);
+        assert!(judge.violated(AGGREGATE, &state, &linking).is_empty());
+        links.judged(ARRIVEE, false);
+        assert_eq!(judge.violated(AGGREGATE, &state, &linking), [SAME_CAMPAIGN]);
+        // Its removal is not judged.
+        let mut removed = entry("session.addScene@1", &partition, "delete");
+        removed.payload.insert(LINKED.into(), json!([TAVERNE]));
         assert!(judge.violated(AGGREGATE, &state, &removed).is_empty());
     }
 }
