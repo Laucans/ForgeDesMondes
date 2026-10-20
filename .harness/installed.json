@@ -1,7 +1,7 @@
 {
   "files": {
     ".cargo/mutants.toml": "b6f9126456581956",
-    ".github/workflows/ci.yml": "c95329773f2131b0",
+    ".github/workflows/ci.yml": "4124844744e7431e",
     ".github/workflows/gates.yml": "2761a1e7e75c8746",
     ".gitignore": "600d6171799bdb07",
     ".sops.yaml": "561c8b897521edab",
