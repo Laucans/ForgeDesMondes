@@ -3,9 +3,10 @@
 //! wrote before — is judged against the media and the place as the tables
 //! hold them, and writes `media.place_id` and no other column of any table;
 //! a place that is no lieu of the media's campaign is refused naming
-//! `media-place-is-lieu`, and changes nothing. Each test works in a scratch
-//! database of its own, migrated as the server migrates it, dropped when it
-//! ends.
+//! `media-place-is-lieu`, and changes nothing. A change of place whose
+//! projection was missed is written at the next start. Each test works in a
+//! scratch database of its own, migrated as the server migrates it, dropped
+//! when it ends.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -359,15 +360,14 @@ async fn another_write_of_the_media_never_writes_its_place_again() {
     let scratch = Scratch::new("other_write").await;
     let (engine, app) = scratch.serve_with(&[RENAME]).await;
     applied(&engine, &app, CARTE, Some(TAVERNE)).await;
-    // The place leaves the media behind the engine's back, as `ON DELETE SET
-    // NULL` does when the place is removed: the engine's row keeps it.
+    // The place is removed behind the engine's back: `ON DELETE SET NULL`
+    // leaves the media without it, and the engine's row keeps it.
     scratch
         .client
-        .batch_execute(&format!(
-            "UPDATE media SET place_id = NULL WHERE id = '{CARTE}'"
-        ))
+        .batch_execute(&format!("DELETE FROM entity WHERE id = '{TAVERNE}'"))
         .await
-        .expect("the place nullified");
+        .expect("the place removed");
+    assert_eq!(scratch.place_of(CARTE).await, None);
     engine
         .submit(Submission {
             data_capability: "test.renameMedia".to_string(),
@@ -387,6 +387,63 @@ async fn another_write_of_the_media_never_writes_its_place_again() {
     let result = engine.run_once().await.expect("the applier ran").remove(0);
     assert_eq!(result.status, State::Applied, "{result:?}");
     assert_eq!(scratch.place_of(CARTE).await, None);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_change_of_place_whose_projection_was_missed_is_written_at_the_next_start() {
+    let scratch = Scratch::new("missed").await;
+    let (engine, app) = scratch.serve().await;
+    let before = scratch.tables().await;
+    applied(&engine, &app, CARTE, Some(TAVERNE)).await;
+    applied(&engine, &app, SALLE, None).await;
+    // Both projections lost after their apply, as a crash between the
+    // engine's transaction and the projection's would lose them.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "UPDATE media SET place_id = NULL WHERE id = '{CARTE}';
+             UPDATE media SET place_id = '{TAVERNE}' WHERE id = '{SALLE}'"
+        ))
+        .await
+        .expect("the projections lost");
+    drop((engine, app));
+
+    let _restarted = scratch.serve().await;
+    assert_eq!(scratch.place_of(CARTE).await.as_deref(), Some(TAVERNE));
+    assert_eq!(scratch.place_of(SALLE).await, None);
+    assert_eq!(
+        sorted(scratch.tables().await),
+        placed(placed(before, CARTE, Some(TAVERNE)), SALLE, None)
+    );
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_place_the_tables_would_refuse_is_left_aside_and_keeps_no_other_media_from_its_place() {
+    let scratch = Scratch::new("refused_aside").await;
+    let (engine, app) = scratch.serve().await;
+    applied(&engine, &app, CARTE, Some(TAVERNE)).await;
+    applied(&engine, &app, SALLE, Some(MOULIN)).await;
+    // Both projections lost, and the Taverne made an NPC since: the
+    // battlemap's place is one `media-place-is-lieu` refuses.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "BEGIN;
+             SELECT set_config(entity_versioned_setting('{TAVERNE}'), 'on', true);
+             UPDATE media SET place_id = NULL WHERE id = '{CARTE}';
+             UPDATE entity SET type = 'pnj' WHERE id = '{TAVERNE}';
+             UPDATE media SET place_id = NULL WHERE id = '{SALLE}';
+             COMMIT"
+        ))
+        .await
+        .expect("the projections lost");
+    drop((engine, app));
+
+    let _restarted = scratch.serve().await;
+    assert_eq!(scratch.place_of(CARTE).await, None);
+    assert_eq!(scratch.place_of(SALLE).await.as_deref(), Some(MOULIN));
     scratch.drop().await;
 }
 

@@ -48,5 +48,6 @@ test-connection = { path = "../../ai/data-capabilities/test-connection" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
+save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }

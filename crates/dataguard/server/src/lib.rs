@@ -33,9 +33,11 @@
 //! the command's result once its stamp is applied. An upload of a media
 //! (`media.uploadMedia`) is prepared against its place, which [`Rows`] reads:
 //! a place that is no lieu of the media's campaign is refused before it is
-//! queued. A change of a media's place (`media.setMediaPlace`) is judged
-//! against the media and the place as [`Rows`] reads them —
-//! `media-place-is-lieu` first — before it is queued.
+//! queued. A save of a battlemap's grid (`media.saveGridSettings`) is judged
+//! against the media's row as its tables hold it — its kind first — and
+//! reaches `battlemap_grid`. A change of a media's place
+//! (`media.setMediaPlace`) is judged against the media and the place as
+//! [`Rows`] reads them — `media-place-is-lieu` first — before it is queued.
 
 use std::sync::Arc;
 
@@ -363,7 +365,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// anything but a uuid — is refused, 404; one naming a place that is no lieu
 /// of the media's campaign (`media-place-is-lieu`), or no media, or a
 /// malformed place, 422 — neither is queued. The replay of either, under an
-/// idempotency key already submitted, is answered as it was queued.
+/// idempotency key already submitted, is answered as it was queued. A save
+/// of a battlemap's grid (`save_grid_settings::prepare`) is made the six
+/// fields it writes on the battlemap's partition: one naming no battlemap,
+/// carrying another field, lacking one, or holding a value no grid can is
+/// refused, 422, and not queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -528,6 +534,19 @@ async fn submit<L: Llm>(
                     body.target_id = Some(prepared.target_id);
                 }
                 Err(refusal) => return refused(refusal),
+            }
+        }
+    } else if save_grid_settings::names(&body.data_capability) {
+        match save_grid_settings::prepare(&body.payload, body.target_id.as_deref()) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
             }
         }
     } else if export_campaign::names(&body.data_capability) {

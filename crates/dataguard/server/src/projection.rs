@@ -20,15 +20,19 @@
 //! column. An upload (`media.uploadMedia`) writes its media's partition,
 //! `Media/<its id>`, whole: [`ProjectingStore`] adds its `media` row and, for
 //! a battlemap, its `battlemap_grid` row, in one transaction — whose triggers
-//! judge the grid and the place again. A change of a media's place
+//! judge the grid and the place again. A save of a battlemap's grid
+//! (`media.saveGridSettings`) writes its media's partition: [`ProjectingStore`]
+//! writes the six settings of its `battlemap_grid` row, never `feet_per_hex`,
+//! which the table generates. A change of a media's place
 //! (`media.setMediaPlace`) writes the same partition with `placeId` alone:
-//! [`ProjectingStore`] writes `media.place_id`, and no other column — whose
-//! trigger judges `media-place-is-lieu` again. A campaign's row is its
-//! table's over the engine's, and an archive is read from the tables
-//! ([`ProjectingStore::archived`]), as are a media's place
+//! [`ProjectingStore`] writes `media.place_id` as the engine's row holds it,
+//! and no other column — whose trigger judges `media-place-is-lieu` again. A
+//! campaign's row is its table's over the engine's, and an archive is read
+//! from the tables ([`ProjectingStore::archived`]), as are a media's place
 //! ([`ProjectingStore::place`]) and the media and its place of a change of
-//! place ([`ProjectingStore::placing`]). Every other method is the inner
-//! store's.
+//! place ([`ProjectingStore::placing`]). A media's row is its tables' over
+//! the engine's — the media and its grid — so its kind is judged as the
+//! table holds it. Every other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -317,14 +321,89 @@ const PLACING: &str = "SELECT jsonb_build_object(
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Media/' || m.id::text AND r.tombstoned)";
 
-/// The place a change of place gave the media `$1` names — `$2`, a uuid, or
-/// null for none — written on its `media` row, and no other column. Its
-/// constraint trigger judges `media-place-is-lieu` again.
-const PLACE_MEDIA: &str = "UPDATE media SET place_id = ($2::text)::uuid
-    WHERE id = ($1::text)::uuid AND place_id IS DISTINCT FROM ($2::text)::uuid";
+/// The place the engine holds on the media partition `$1` names — on every
+/// one when it is null; none when its row has no `placeId` — written on its
+/// `media` row, and no other column, where it differs. After each apply of a
+/// media, and at a start, so a change of place whose projection failed after
+/// its apply is written again. A place no uuid names, or one
+/// `media-place-is-lieu` would refuse — an element the tables do not hold,
+/// no lieu, or one of another campaign — is left aside: one such row would
+/// fail this one statement and keep every other media from its place.
+const PLACE_MEDIAS: &str = "UPDATE media m SET place_id = placed.place_id
+    FROM (SELECT r.partition, CASE WHEN pg_input_is_valid(r.fields ->> 'placeId', 'uuid')
+            THEN (r.fields ->> 'placeId')::uuid END AS place_id
+        FROM dataguard_rows r
+        WHERE r.partition LIKE 'Media/%' AND NOT r.tombstoned
+            AND ($1::text IS NULL OR r.partition = $1::text)
+            AND (r.fields ->> 'placeId' IS NULL
+                OR pg_input_is_valid(r.fields ->> 'placeId', 'uuid'))) placed
+    WHERE placed.partition = 'Media/' || m.id::text
+        AND m.place_id IS DISTINCT FROM placed.place_id
+        AND (placed.place_id IS NULL OR EXISTS (SELECT 1 FROM entity e
+            WHERE e.id = placed.place_id AND e.type = 'lieu'
+                AND e.campaign_id = m.campaign_id))";
 
 /// A media's row and its place's, when there is one: what [`PLACING`] reads.
 pub type Placing = (BTreeMap<String, Value>, Option<BTreeMap<String, Value>>);
+
+/// A media as its tables hold it — its row and its battlemap's grid — under
+/// the Media aggregate's fields, `$1` its id in whatever case: what the
+/// engine judges a save of the grid against, its kind first. A media the
+/// engine deleted (its tombstone) is none.
+const MEDIA_ROW: &str = "SELECT jsonb_strip_nulls(jsonb_build_object(
+        'id', m.id, 'campaignId', m.campaign_id, 'kind', m.kind, 'title', m.title,
+        'filePath', m.file_path, 'widthPx', m.width_px, 'heightPx', m.height_px,
+        'placeId', m.place_id, 'uploadedAt', m.uploaded_at,
+        'mediaId', g.media_id, 'hexSizePx', g.hex_size_px, 'offsetX', g.offset_x,
+        'offsetY', g.offset_y, 'orientation', g.orientation, 'color', g.color,
+        'opacity', g.opacity, 'feetPerHex', g.feet_per_hex
+    ))::text
+    FROM media m LEFT JOIN battlemap_grid g ON g.media_id = m.id
+    WHERE m.id::text = lower($1)
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+            WHERE r.partition = 'Media/' || m.id::text AND r.tombstoned)";
+
+/// The grid the engine holds on the media partition `$1` names — on every
+/// one when it is null — written on its battlemap's `battlemap_grid` row:
+/// the six settings, never `feet_per_hex`. After each apply of a media, and
+/// at a start, so a save whose projection failed after its apply is written
+/// again. A row that is no battlemap's, misses a setting, or holds one the
+/// table's CHECKs or precision would refuse once rounded to its hundredth,
+/// is left aside: one such row would fail this one statement and keep every
+/// other battlemap from its grid.
+const SAVE_GRIDS: &str = "INSERT INTO battlemap_grid
+        (media_id, hex_size_px, offset_x, offset_y, orientation, color, opacity)
+    SELECT m.id, (v ->> 'hexSizePx')::numeric, (v ->> 'offsetX')::numeric,
+        (v ->> 'offsetY')::numeric, v ->> 'orientation', v ->> 'color',
+        (v ->> 'opacity')::numeric
+    FROM dataguard_rows r
+    CROSS JOIN LATERAL (SELECT r.fields::jsonb AS v) saved
+    JOIN media m ON r.partition = 'Media/' || m.id::text
+    WHERE NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND m.kind = 'battlemap'
+        AND jsonb_typeof(v -> 'hexSizePx') = 'number'
+        AND jsonb_typeof(v -> 'offsetX') = 'number'
+        AND jsonb_typeof(v -> 'offsetY') = 'number'
+        AND jsonb_typeof(v -> 'orientation') = 'string'
+        AND jsonb_typeof(v -> 'color') = 'string'
+        AND jsonb_typeof(v -> 'opacity') = 'number'
+        AND round((v ->> 'hexSizePx')::numeric, 2) BETWEEN 0.01 AND 99999.99
+        AND abs(round((v ->> 'offsetX')::numeric, 2)) <= 99999.99
+        AND abs(round((v ->> 'offsetY')::numeric, 2)) <= 99999.99
+        AND v ->> 'orientation' IN ('pointe', 'plat')
+        AND round((v ->> 'opacity')::numeric, 2) BETWEEN 0 AND 1
+    ON CONFLICT (media_id) DO UPDATE SET
+        hex_size_px = EXCLUDED.hex_size_px,
+        offset_x = EXCLUDED.offset_x,
+        offset_y = EXCLUDED.offset_y,
+        orientation = EXCLUDED.orientation,
+        color = EXCLUDED.color,
+        opacity = EXCLUDED.opacity
+    WHERE (battlemap_grid.hex_size_px, battlemap_grid.offset_x, battlemap_grid.offset_y,
+            battlemap_grid.orientation, battlemap_grid.color, battlemap_grid.opacity)
+        IS DISTINCT FROM (EXCLUDED.hex_size_px, EXCLUDED.offset_x, EXCLUDED.offset_y,
+            EXCLUDED.orientation, EXCLUDED.color, EXCLUDED.opacity)";
 
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
@@ -367,6 +446,8 @@ impl ProjectingStore {
         self.repair_elements().await;
         self.repair_exports(None).await;
         self.repair_media(None).await;
+        self.repair_grids(None).await;
+        self.repair_places(None).await;
     }
 
     /// The element `id` names as a media's place reads it, when the tables
@@ -388,10 +469,7 @@ impl ProjectingStore {
         &self,
         id: &str,
     ) -> std::result::Result<bool, tokio_postgres::Error> {
-        Ok(!self
-            .campaign_row(&format!("{CAMPAIGN}{id}"))
-            .await?
-            .is_empty())
+        Ok(!self.table_row(&format!("{CAMPAIGN}{id}")).await?.is_empty())
     }
 
     /// Projects the media the engine holds and `media` does not — of the
@@ -449,6 +527,38 @@ impl ProjectingStore {
         tx.commit().await
     }
 
+    /// Writes the grid the engine holds on the media `partition` names — on
+    /// every media, `None` — on its `battlemap_grid` row, logging a failure:
+    /// after each apply of a media, and at a start.
+    async fn repair_grids(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(SAVE_GRIDS, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: grid not saved: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
+    }
+
+    /// Writes the place the engine holds on the media `partition` names — on
+    /// every media, `None` — on its `media` row, logging a failure: after
+    /// each apply of a media, and at a start.
+    async fn repair_places(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(PLACE_MEDIAS, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: media not placed: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
+    }
+
     /// Writes the last export the engine stamped on the row of the campaign
     /// `partition` names — of every campaign, `None` — logging a failure:
     /// after each apply of a campaign, and at a start.
@@ -498,60 +608,21 @@ impl ProjectingStore {
         Ok(object(found.remove("media")).map(|media| (media, object(found.remove("place")))))
     }
 
-    /// The media a change of place (`media.setMediaPlace`) writes, and the
-    /// place it gives it — `None` for none — when `result` is one's: read off
-    /// the command itself, still queued, never off the row it leaves, which
-    /// every other write of the media carries along with a place the table
-    /// may have nullified since. A media's tombstone places nothing.
-    async fn placed(
-        &self,
-        write: &Write,
-        result: &CommandResult,
-    ) -> Option<(String, Option<String>)> {
-        let media = write
-            .partition
-            .strip_prefix(MEDIA)
-            .filter(|_| !write.tombstone)?;
-        let queued = match self.inner.pending().await {
-            Ok(queued) => queued,
-            Err(e) => {
-                eprintln!("projection: media not placed: {e}");
-                return None;
-            }
-        };
-        let entry = queued
-            .into_iter()
-            .find(|entry| entry.command == result.command_id)
-            .filter(|entry| set_media_place::names(&entry.data_capability))?;
-        let place = entry.payload.get(set_media_place::PLACE_ID)?;
-        Some((media.to_owned(), place.as_str().map(str::to_owned)))
-    }
-
-    /// Writes the place a change of place gave `media` on its `media` row,
-    /// logging a failure.
-    async fn place_media(&self, media: &str, place: Option<&str>) {
-        let written = {
-            let client = self.inner.client().lock().await;
-            client.execute(PLACE_MEDIA, &[&media, &place]).await
-        };
-        if let Err(e) = written {
-            eprintln!(
-                "projection: media not placed: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            );
-        }
-    }
-
-    /// The campaign `partition` names as its table holds it, when it does.
-    async fn campaign_row(
+    /// The campaign or the media `partition` names as its tables hold it,
+    /// when they do.
+    async fn table_row(
         &self,
         partition: &str,
     ) -> std::result::Result<BTreeMap<String, Value>, tokio_postgres::Error> {
-        let Some(id) = partition.strip_prefix(CAMPAIGN) else {
+        let (sql, id) = if let Some(id) = partition.strip_prefix(CAMPAIGN) {
+            (CAMPAIGN_ROW, id)
+        } else if let Some(id) = partition.strip_prefix(MEDIA) {
+            (MEDIA_ROW, id)
+        } else {
             return Ok(BTreeMap::new());
         };
         let client = self.inner.client().lock().await;
-        let row = client.query_opt(CAMPAIGN_ROW, &[&id]).await?;
+        let row = client.query_opt(sql, &[&id]).await?;
         Ok(row
             .and_then(|row| serde_json::from_str::<Value>(row.get::<_, &str>(0)).ok())
             .and_then(|row| match row {
@@ -892,18 +963,19 @@ impl Store for ProjectingStore {
     /// A campaign's row is its table's over the engine's own: a campaign the
     /// fixtures hold exists for the engine before any command wrote it, and
     /// what the engine copied of it when it applied a command is never
-    /// judged over what the table holds now. Tables not migrated yet hold
-    /// none.
+    /// judged over what the table holds now. So is a media's, with its
+    /// battlemap's grid: its kind is the table's. Tables not migrated yet
+    /// hold none.
     async fn row(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
         let mut row = self.inner.row(partition).await?;
-        if !partition.starts_with(CAMPAIGN) {
+        if !partition.starts_with(CAMPAIGN) && !partition.starts_with(MEDIA) {
             return Ok(row);
         }
-        let table = match self.campaign_row(partition).await {
+        let table = match self.table_row(partition).await {
             Ok(row) => row,
             Err(e) => {
                 eprintln!(
-                    "projection: campaign not read: {}",
+                    "projection: {partition} not read: {}",
                     e.as_db_error().map_or("-", |db| db.code().code())
                 );
                 BTreeMap::new()
@@ -922,7 +994,6 @@ impl Store for ProjectingStore {
     }
 
     async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
-        let placed = self.placed(write, result).await;
         let version = self.inner.apply(write, result).await?;
         if projects(write) {
             self.repair_settings().await;
@@ -934,10 +1005,13 @@ impl Store for ProjectingStore {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
         } else if media(write) {
+            // Its media first, an upload's: SAVE_GRIDS writes only the grid
+            // of a media the table holds.
             self.repair_media(Some(&write.partition)).await;
-            if let Some((media, place)) = &placed {
-                self.place_media(media, place.as_deref()).await;
-            }
+            self.repair_grids(Some(&write.partition)).await;
+            // Its place last: PLACE_MEDIAS writes only the place of a media
+            // the table holds.
+            self.repair_places(Some(&write.partition)).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.
