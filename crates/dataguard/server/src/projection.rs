@@ -328,7 +328,9 @@ const WRITE_SOUND: &str =
 /// cascade). The engine's tombstone keeps each as it was.
 const REMOVE_SOUNDS: &str = "DELETE FROM sound s USING dataguard_rows r
     WHERE r.partition = 'Sound/' || s.id::text AND r.tombstoned
-        AND ($1::text IS NULL OR r.partition = $1::text)";
+        AND ($1::text IS NULL OR s.id = CASE
+            WHEN pg_input_is_valid(substr($1::text, length('Sound/') + 1), 'uuid')
+            THEN substr($1::text, length('Sound/') + 1)::uuid END)";
 
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.

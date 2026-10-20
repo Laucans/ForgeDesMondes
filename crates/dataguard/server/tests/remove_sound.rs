@@ -278,3 +278,32 @@ async fn a_removal_by_a_caller_who_is_no_approver_waits_for_its_review() {
     assert_eq!(answer["result"]["status"], "awaiting_review", "{answer}");
     assert!(s.idle().await);
 }
+
+#[tokio::test]
+async fn a_sound_whose_removal_is_queued_is_none_to_remove_or_edit_again() {
+    let s = served().await;
+    let door = s.door().await;
+    let (status, answer) = s.remove(Some(&door), caller("dm")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    // Applied after the tombstone, an edit would bring the sound back.
+    for (data_capability, payload) in [
+        ("soundbox.removeSound@1", json!({})),
+        (
+            "soundbox.updateSound@1",
+            json!({ "name": "Porte qui grince" }),
+        ),
+    ] {
+        let (status, answer) = s
+            .post(json!({
+                "dataCapability": data_capability,
+                "payload": payload,
+                "targetId": door,
+                "caller": caller("dm-2"),
+            }))
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{data_capability}: {answer}");
+        assert_eq!(answer["error"], "ce son n'existe pas");
+    }
+    applied(&s.settled().await);
+    assert!(s.idle().await);
+}

@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use harness_dataguard::Result;
-use harness_dataguard::command::{CommandResult, Entry};
+use harness_dataguard::command::{CommandResult, Effect, Entry};
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
 use restore_entity_version::Kept;
@@ -236,7 +236,8 @@ impl Rows {
     }
 
     /// `partition`'s row as the commands queued on it will leave it: the row
-    /// applied, then each pending command's payload, in queue order.
+    /// applied, then each pending command's payload, in queue order — a
+    /// deletion leaving none, its tombstone.
     ///
     /// # Errors
     ///
@@ -252,7 +253,11 @@ impl Rows {
             .collect();
         ahead.sort_by_key(|entry| entry.position);
         for entry in ahead {
-            row.extend(entry.payload);
+            if entry.effect == Effect::Delete {
+                row.clear();
+            } else {
+                row.extend(entry.payload);
+            }
         }
         Ok(row)
     }
@@ -458,5 +463,25 @@ mod tests {
         assert_eq!(row["name"], "Morlox");
         assert_eq!(row["notes"], "last");
         assert_eq!(row["hpMax"], 21);
+    }
+
+    #[tokio::test]
+    async fn a_row_whose_deletion_is_queued_is_projected_as_none() {
+        let inner = Arc::new(MemoryStore::default());
+        let store: Arc<dyn Store> = inner.clone();
+        store
+            .apply(&write(json!({ "name": "Morlox" }), false), &result())
+            .await
+            .expect("applied");
+        let mut removal = pending("c_3", MORLOX, 3, json!({ "notes": "gone" }));
+        removal.effect = Effect::Delete;
+        for entry in [
+            removal,
+            pending("c_2", MORLOX, 2, json!({ "notes": "first" })),
+        ] {
+            store.save(&entry).await.expect("saved");
+        }
+        let row = Rows::new(store).projected(MORLOX).await.expect("projected");
+        assert!(row.is_empty(), "{row:?}");
     }
 }

@@ -263,6 +263,15 @@ async fn a_sound_removed_leaves_the_library_s_readers_and_its_tombstone_keeps_it
     assert_eq!(kept["filePath"], "sons/porte.ogg", "{kept}");
     assert_eq!(kept["tags"], json!(["bois"]), "{kept}");
     assert_eq!(kept["campaignId"], VALOMBRE, "{kept}");
+
+    // A start leaves it removed, its playbacks with it.
+    drop((engine, app));
+    let _restarted = scratch.serve().await;
+    assert_eq!(scratch.listed().await, ["Foule"]);
+    assert_eq!(
+        scratch.rows_of("sound_playback", "sound_id", &door).await,
+        0
+    );
     scratch.drop().await;
 }
 
@@ -299,6 +308,14 @@ async fn a_removal_the_table_lost_is_made_again_at_the_next_start() {
     let (engine, app) = scratch.serve().await;
     let door = add(&engine, &app, "Porte").await;
     add(&engine, &app, "Foule").await;
+    let (_, played) = command(
+        &engine,
+        &app,
+        "soundbox.playSound@1",
+        json!({ "target": { "id": door }, "payload": {} }),
+    )
+    .await;
+    applied(&played);
     applied(&remove(&engine, &app, &door, json!({})).await);
     // The removal lost: the door's row back in the table.
     scratch
@@ -313,6 +330,10 @@ async fn a_removal_the_table_lost_is_made_again_at_the_next_start() {
     drop((engine, app));
     let _restarted = scratch.serve().await;
     assert_eq!(scratch.listed().await, ["Foule"]);
+    assert_eq!(
+        scratch.rows_of("sound_playback", "sound_id", &door).await,
+        0
+    );
     assert!(scratch.engine_row(&door).await.0);
     scratch.drop().await;
 }
