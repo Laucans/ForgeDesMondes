@@ -981,6 +981,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_creation_under_a_key_never_sent_is_judged() {
+        let scene = "5c000000-0000-4000-8000-000000000001";
+        let body = serde_json::json!({
+            "dataCapability": "table.createBattlemapInstance@1",
+            "payload": {
+                "session": "5e000000-0000-4000-8000-000000000001",
+                "scene": scene,
+                "battlemap": "6d000000-0000-4000-8000-000000000001",
+            },
+            "idempotencyKey": format!("table.createBattlemapInstance:{scene}"),
+        });
+        let request = Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, body) = answer(request).await;
+        // Not replayed: over the engine's memory the tables hold no session.
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "cette séance n'existe pas" })
+        );
+    }
+
+    #[tokio::test]
     async fn a_creation_names_the_fixtures_battlemap_by_its_slug() {
         let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
         let reads = Reads::none().named([(
