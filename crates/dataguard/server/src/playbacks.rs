@@ -42,11 +42,14 @@ const PROJECT: &str = "INSERT INTO sound_playback
         AND NOT EXISTS (SELECT 1 FROM sound_playback p WHERE p.id::text = lower(r.fields ->> 'id'))";
 
 /// The playbacks the engine holds and the table does not: a projection that
-/// failed after its apply, or was lost since.
+/// failed after its apply, or was lost since. A playback of a sound the
+/// engine removed is none: the table cascaded it with its sound.
 const UNPROJECTED: &str = "SELECT r.partition FROM dataguard_rows r
     WHERE r.partition LIKE 'SoundPlayback/%' AND NOT r.tombstoned
         AND r.partition = 'SoundPlayback/' || lower(r.fields ->> 'id')
         AND NOT EXISTS (SELECT 1 FROM sound_playback p WHERE p.id::text = lower(r.fields ->> 'id'))
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows s
+            WHERE s.partition = 'Sound/' || lower(r.fields ->> 'soundId') AND s.tombstoned)
     ORDER BY r.partition";
 
 /// What the tables hold of the sound and the session a trigger names — ids
