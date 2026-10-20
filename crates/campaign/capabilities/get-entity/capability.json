@@ -1,0 +1,10 @@
+{
+  "capability": "campaign.getEntity",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "One element's full sheet, for the DM who opens it: the element's id, name, kind (pj, pnj, lieu or evenement), aliases, description and notes. A PC or an NPC also carries its sheet: its six abilities (FOR, DEX, CON, INT, SAG, CHA) and the modifier of each, computed from the score and never stored (AbilityModifier@1: a DEX of 18 gives +4), armour class and maximum hit points, its features (actions then spells, each with a name and a text), its initial prompt, background and behaviour, its D&D Beyond link and its token: the colour, the initials of the name, whether it has a portrait (and its crop) and whether it has a dedicated image. With neither a portrait nor a token image the token is the initials on the colour. A PC carries the id of its player; an NPC has none. An unknown element has no answer (null).",
+  "implements": "AbilityModifier@1",
+  "input": { "id": "string" },
+  "output": "{ id: string, name: string, aliases: string[], kind: 'pj' | 'pnj' | 'lieu' | 'evenement', description: string, notes: string, player?: string | null, prompt?: string, background?: string, behavior?: string, stats?: { FOR, DEX, CON, INT, SAG, CHA: number | null }, modifiers?: { FOR, DEX, CON, INT, SAG, CHA: number | null }, ca?: number | null, pvMax?: number | null, features?: { name: string, text: string }[], color?: string, initials?: string, portrait?: boolean, tokenImage?: boolean, crop?: object | null, ddb?: { url: string, syncedAt: string | null } | null } | null",
+  "reads": ["queries/get-entity.graphql"]
+}

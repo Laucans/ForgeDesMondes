@@ -1,0 +1,10 @@
+[package]
+name = "list-places"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability campaign.listPlaces: the places of a campaign — id, name, aliases, description — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"

@@ -1,0 +1,10 @@
+[package]
+name = "list-characters"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability campaign.listCharacters: the PCs and NPCs of a campaign, the PCs with their player — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"

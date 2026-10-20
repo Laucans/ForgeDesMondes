@@ -1,0 +1,150 @@
+{
+  "concept": "AbilityModifier",
+  "version": 1,
+  "cases": [
+    {
+      "name": "score 1: the lowest score gives -5",
+      "input": {
+        "score": 1
+      },
+      "output": {
+        "modifier": -5
+      }
+    },
+    {
+      "name": "score 2: an even score below 10",
+      "input": {
+        "score": 2
+      },
+      "output": {
+        "modifier": -4
+      }
+    },
+    {
+      "name": "score 3: an odd score below 10 rounds down to -4, not -3",
+      "input": {
+        "score": 3
+      },
+      "output": {
+        "modifier": -4
+      }
+    },
+    {
+      "name": "score 8: an even score below 10",
+      "input": {
+        "score": 8
+      },
+      "output": {
+        "modifier": -1
+      }
+    },
+    {
+      "name": "score 9: an odd score below 10 is -1: floor, not truncation toward zero",
+      "input": {
+        "score": 9
+      },
+      "output": {
+        "modifier": -1
+      }
+    },
+    {
+      "name": "score 10: the average score gives 0",
+      "input": {
+        "score": 10
+      },
+      "output": {
+        "modifier": 0
+      }
+    },
+    {
+      "name": "score 11: an odd score above 10 rounds down to 0",
+      "input": {
+        "score": 11
+      },
+      "output": {
+        "modifier": 0
+      }
+    },
+    {
+      "name": "score 12: an even score above 10",
+      "input": {
+        "score": 12
+      },
+      "output": {
+        "modifier": 1
+      }
+    },
+    {
+      "name": "score 13: an odd score above 10 rounds down to 1",
+      "input": {
+        "score": 13
+      },
+      "output": {
+        "modifier": 1
+      }
+    },
+    {
+      "name": "score 15: an odd score above 10 rounds down to 2",
+      "input": {
+        "score": 15
+      },
+      "output": {
+        "modifier": 2
+      }
+    },
+    {
+      "name": "score 16: an even score above 10",
+      "input": {
+        "score": 16
+      },
+      "output": {
+        "modifier": 3
+      }
+    },
+    {
+      "name": "score 18: an even score above 10 gives +4",
+      "input": {
+        "score": 18
+      },
+      "output": {
+        "modifier": 4
+      }
+    },
+    {
+      "name": "score 19: an odd score above 10 rounds down to 4",
+      "input": {
+        "score": 19
+      },
+      "output": {
+        "modifier": 4
+      }
+    },
+    {
+      "name": "score 20: an even score above 10",
+      "input": {
+        "score": 20
+      },
+      "output": {
+        "modifier": 5
+      }
+    },
+    {
+      "name": "score 29: an odd score at the top rounds down to 9",
+      "input": {
+        "score": 29
+      },
+      "output": {
+        "modifier": 9
+      }
+    },
+    {
+      "name": "score 30: the highest score gives +10",
+      "input": {
+        "score": 30
+      },
+      "output": {
+        "modifier": 10
+      }
+    }
+  ]
+}
