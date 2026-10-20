@@ -1,0 +1,20 @@
+{
+  "dataCapability": "table.renameToken",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$token"
+  },
+  "touches": ["BattlemapInstance.name"],
+  "payload": {
+    "token": "uuid — the token renamed; when absent, the command's target is the token",
+    "name": "string — its new name, kept without the blanks around it; empty or blank is refused"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["instance-isolated", "multi-drop-numbering"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

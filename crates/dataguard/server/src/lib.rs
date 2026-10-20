@@ -34,9 +34,9 @@
 //! battlemap instance (`table.placeTokens`) is prepared against what the
 //! tables and the queue hold of the instance and the character, which
 //! [`Rows`] reads: one command per token. A token hidden or revealed
-//! (`table.setTokenVisibility`) is prepared against the token's row as the
-//! queue will leave it, which [`Rows`] reads: its visibility alone, on its
-//! partition.
+//! (`table.setTokenVisibility`), or a rename of a token (`table.renameToken`),
+//! is prepared against the token's row as the queue will leave it, which
+//! [`Rows`] reads: its visibility, or its name, alone, on its partition.
 
 use std::sync::Arc;
 
@@ -368,7 +368,9 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// visibility it writes on the token's partition, against the token's row:
 /// one naming no uuid, or a visibility that is no boolean, is refused, 422,
 /// and one of a token the engine does not hold on the instance targeted,
-/// 404 — neither is queued.
+/// 404 — neither is queued. A rename of a token (`rename_token::prepare`) is
+/// made the name it writes on the token's partition, the same way: one naming
+/// no uuid, or an empty name, 422; one of a token not on the instance, 404.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -557,6 +559,31 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if rename_token::names(&body.data_capability) {
+        let unprocessable = |refusal: rename_token::Refusal| {
+            let status = if refusal == rename_token::Refusal::UnknownToken {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            (
+                status,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            )
+        };
+        let request = rename_token::request(&body.payload, body.target_id.as_deref())
+            .map_err(unprocessable)?;
+        let base = match served
+            .rows
+            .projected(&rename_token::partition(&request.token))
+            .await
+        {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = rename_token::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
