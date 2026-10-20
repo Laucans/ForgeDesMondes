@@ -186,6 +186,17 @@ async fn command_by(
     payload: Value,
     roles: Value,
 ) -> (StatusCode, Value) {
+    sent(app, target, payload, roles, None).await
+}
+
+/// [`command_by`], under the idempotency key `key` when one is given.
+async fn sent(
+    app: &Router,
+    target: Option<&str>,
+    payload: Value,
+    roles: Value,
+    key: Option<&str>,
+) -> (StatusCode, Value) {
     let mut body = json!({
         "dataCapability": "table.removeToken@1",
         "payload": payload,
@@ -193,6 +204,9 @@ async fn command_by(
     });
     if let Some(target) = target {
         body["target"] = json!({ "id": target });
+    }
+    if let Some(key) = key {
+        body["idempotencyKey"] = json!(key);
     }
     let request = Request::post("/commands")
         .header("content-type", "application/json")
@@ -417,4 +431,31 @@ async fn a_token_whose_removal_is_queued_is_none_to_remove_again_nor_to_write() 
     );
     applied(&engine, 1).await;
     assert_eq!(row(&rows, JETON_KAEL).await["visible"], false);
+}
+
+#[tokio::test]
+async fn a_removal_sent_again_under_its_key_is_replayed_queued_or_applied() {
+    let (engine, _, app) = served().await;
+    ambush(&engine, false).await;
+    let removal = || {
+        sent(
+            &app,
+            Some(INSTANCE),
+            json!({ "token": CHEF_BANDIT_1 }),
+            json!(["role:approver"]),
+            Some("remove-chef"),
+        )
+    };
+    let (status, first) = removal().await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{first}");
+    // Queued, not applied: the answer lost, the client sends it again.
+    let (status, again) = removal().await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["commandId"], first["commandId"], "{again}");
+    applied(&engine, 1).await;
+    // Applied: the token's row is a tombstone, the removal still replays.
+    let (status, late) = removal().await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{late}");
+    assert_eq!(late["commandId"], first["commandId"], "{late}");
+    applied(&engine, 0).await;
 }

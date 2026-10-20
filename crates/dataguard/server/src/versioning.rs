@@ -295,10 +295,7 @@ impl Rows {
     /// `partition`'s row as the commands queued on it will leave it: the row
     /// applied, then each pending command's payload, in queue order — a
     /// relative command's numbers added to the row's, as the engine composes
-    /// them (`guard::projected`, `table.changeHitPoints`) — and nothing after
-    /// a deletion (`table.removeToken`): a row whose removal is queued is
-    /// none to write, so no command is judged against it to land after its
-    /// tombstone, which a write lifts. The row and the
+    /// them (`guard::projected`, `table.changeHitPoints`). The row and the
     /// queue are read while the applier is still ([`APPLYING`]): it writes a
     /// row before it marks its command applied, and a command read in both
     /// would be counted twice.
@@ -307,6 +304,34 @@ impl Rows {
     ///
     /// The store's.
     pub async fn projected(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
+        let (row, ahead) = self.ahead(partition).await?;
+        Ok(ahead
+            .iter()
+            .fold(row, |row, entry| guard::projected(&row, entry)))
+    }
+
+    /// A token's row as [`Rows::projected`] reads it, and none at all once
+    /// its removal is queued (`table.removeToken`): no command is judged
+    /// against it to land after its tombstone, which a write lifts. The
+    /// token's commands alone read it so; every other aggregate's row reads
+    /// through a deletion as ever.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn standing(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
+        let (row, ahead) = self.ahead(partition).await?;
+        if ahead.iter().any(|entry| entry.effect == Effect::Delete) {
+            return Ok(BTreeMap::new());
+        }
+        Ok(ahead
+            .iter()
+            .fold(row, |row, entry| guard::projected(&row, entry)))
+    }
+
+    /// `partition`'s row applied and its pending commands in queue order,
+    /// read while the applier is still ([`APPLYING`]).
+    async fn ahead(&self, partition: &str) -> Result<(BTreeMap<String, Value>, Vec<Entry>)> {
         let applying = APPLYING.lock().await;
         let row = self.store.row(partition).await?;
         let mut ahead: Vec<Entry> = self
@@ -318,10 +343,7 @@ impl Rows {
             .collect();
         drop(applying);
         ahead.sort_by_key(|entry| entry.position);
-        Ok(ahead.iter().fold(row, |row, entry| match entry.effect {
-            Effect::Delete => BTreeMap::new(),
-            _ => guard::projected(&row, entry),
-        }))
+        Ok((row, ahead))
     }
 }
 
@@ -531,6 +553,47 @@ mod tests {
         assert_eq!(row["name"], "Morlox");
         assert_eq!(row["notes"], "last");
         assert_eq!(row["hpMax"], 21);
+    }
+
+    #[tokio::test]
+    async fn a_row_whose_deletion_is_queued_still_stands_projected_and_none_for_a_token() {
+        let store: Arc<dyn Store> = Arc::new(MemoryStore::default());
+        store
+            .apply(&write(json!({ "name": "Morlox" }), false), &result())
+            .await
+            .expect("applied");
+        let mut removal = pending("c_2", MORLOX, 2, json!({}));
+        removal.effect = Effect::Delete;
+        for entry in [
+            removal,
+            pending("c_3", MORLOX, 3, json!({ "notes": "late" })),
+        ] {
+            store.save(&entry).await.expect("saved");
+        }
+        let rows = Rows::new(store);
+        let row = rows.projected(MORLOX).await.expect("projected");
+        assert_eq!(row["name"], "Morlox");
+        assert_eq!(row["notes"], "late");
+        assert_eq!(
+            rows.standing(MORLOX).await.expect("standing"),
+            BTreeMap::new()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_token_standing_with_no_deletion_queued_is_its_row_projected() {
+        let store: Arc<dyn Store> = Arc::new(MemoryStore::default());
+        store
+            .apply(&write(json!({ "name": "Morlox" }), false), &result())
+            .await
+            .expect("applied");
+        store
+            .save(&pending("c_2", MORLOX, 2, json!({ "notes": "queued" })))
+            .await
+            .expect("saved");
+        let row = Rows::new(store).standing(MORLOX).await.expect("standing");
+        assert_eq!(row["name"], "Morlox");
+        assert_eq!(row["notes"], "queued");
     }
 
     #[tokio::test]
