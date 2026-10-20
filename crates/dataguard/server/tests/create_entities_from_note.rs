@@ -362,6 +362,65 @@ async fn a_validation_retried_after_a_failure_half_way_finds_its_element_and_mak
 }
 
 #[tokio::test]
+async fn a_proposal_recording_an_element_the_engine_rejected_makes_it_again() {
+    let s = Served::new().await;
+    let (_, proposals) = s.analysed(VALOMBRE).await;
+    let pnj = first(&proposals, "pnj");
+    let wire: Fields = [
+        ("campaign".to_owned(), json!(VALOMBRE)),
+        ("accepted".to_owned(), json!([pnj])),
+    ]
+    .into();
+    let request = create_entities_from_note::request(&wire).expect("a request");
+    let held = create_entities_from_note::Proposal {
+        id: pnj.to_owned(),
+        row: proposals[pnj].clone(),
+        campaign: Some(VALOMBRE.to_owned()),
+        recognised: false,
+    };
+    let batch = request
+        .batch(
+            &[held],
+            vec![create_entities_from_note::Fresh::of(pnj)],
+            "2026-10-20T18:00:00.000Z",
+        )
+        .expect("a batch");
+    // What a validation leaves when its element is rejected once applied: the
+    // proposal's stamp, applied, and no element behind it.
+    let stamp = batch
+        .stamps
+        .iter()
+        .find(|c| c.target_id == pnj)
+        .expect("a stamp");
+    s.engine
+        .submit(Submission {
+            data_capability: "campaign.createEntitiesFromNote@1".to_owned(),
+            payload: stamp.payload.clone(),
+            target_id: Some(pnj.to_owned()),
+            caller: serde_json::from_value(caller()).expect("a caller"),
+            ..Submission::default()
+        })
+        .await
+        .expect("the stamp is queued");
+    s.applied().await;
+    let element = &batch.elements[0].command.target_id;
+    let row = s.row(&format!("NoteImport/{pnj}")).await;
+    assert_eq!(row["createdEntityId"], json!(element));
+    assert!(s.row(&format!("Entity/{element}")).await.is_empty());
+
+    let (status, answer) = s
+        .validate(json!({ "campaign": VALOMBRE, "accepted": [pnj] }))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    s.applied().await;
+    let made = s.row(&format!("Entity/{element}")).await;
+    assert_eq!(made["name"], proposals[pnj]["name"]);
+    let row = s.row(&format!("NoteImport/{pnj}")).await;
+    assert_eq!(row["createdEntityId"], json!(element));
+    assert_eq!(row["checked"], true);
+}
+
+#[tokio::test]
 async fn a_proposal_recognising_an_element_of_the_campaign_creates_none_even_accepted() {
     let s = Served::new().await;
     let gaspard = s.saved("pnj", "Gaspard Grosmollet", &["Gaspard"]).await;

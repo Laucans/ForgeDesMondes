@@ -663,7 +663,9 @@ async fn extract<L: Llm, S: SpeechToText>(
 /// command is answered. Then each proposal checked or unchecked, in id
 /// order: the last, applied after the others, is answered.
 /// An element's ids come from its proposal's, so a validation retried after a
-/// failure half-way finds the element it queued and does not queue it again. Each command is
+/// failure half-way finds the element it queued and does not queue it again. A
+/// proposal recording an element the engine holds none of — rejected once
+/// applied — is made again. Each command is
 /// the caller's; an idempotency key is the last proposal's alone, as an
 /// analysis's is its note's — a validation that writes no proposal keeps
 /// none. Validations run one at a time, each against the proposals the one
@@ -797,8 +799,9 @@ static VALIDATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The proposals a validation of `accepted` is made against, as the commands
 /// queued will leave them: the accepted ones, and every other of their
-/// notes, each with its note's campaign and whether the element it
-/// recognises is one the engine still holds.
+/// notes, each with its note's campaign, whether the element it recognises is
+/// one the engine still holds, and no element made when the engine holds
+/// none of the one it records.
 async fn held(
     rows: &Rows,
     accepted: &[String],
@@ -819,7 +822,18 @@ async fn held(
         std::collections::BTreeMap::new();
     let mut proposals = Vec::new();
     for id in ids {
-        let row = rows.projected(&format!("NoteImport/{id}")).await?;
+        let mut row = rows.projected(&format!("NoteImport/{id}")).await?;
+        // An element rejected once applied leaves its proposal recording an
+        // element that never existed: the proposal is held as not made, and
+        // a validation makes it again.
+        if let Some(element) = text(&row, "createdEntityId")
+            && rows
+                .projected(&format!("Entity/{element}"))
+                .await?
+                .is_empty()
+        {
+            row.remove("createdEntityId");
+        }
         let campaign = match text(&row, "noteId") {
             Some(note) => match campaigns.get(&note) {
                 Some(campaign) => campaign.clone(),
