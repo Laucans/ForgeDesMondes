@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "a38b4dca729ff4fd"
+      "builtFrom": "0a6d7f5999ecd251"
     },
     {
       "name": "CampaignOverview",
@@ -145,7 +145,11 @@
       "actions": [
         "campaign.exportCampaign"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
+      },
+      "source": "apps/campaign/campaign-overview",
+      "builtFrom": "2248ffd8e859ac27"
     },
     {
       "name": "SessionList",
@@ -210,7 +214,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "af7075374f66f8f3"
+      "builtFrom": "a1bb7c53138752db"
     },
     {
       "name": "ToCreateList",
@@ -258,7 +262,7 @@
     {
       "name": "VersionHistory",
       "system": "campaign",
-      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour en arrière",
+      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour à une version antérieure",
       "fragment": "components/VersionHistory.html",
       "fixtures": [
         "fixtures/campaign.listEntityVersions.json"
@@ -272,7 +276,9 @@
       "props": {
         "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse",
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
-      }
+      },
+      "source": "apps/campaign/version-history",
+      "builtFrom": "47bd5e4fb96275ab"
     },
     {
       "name": "PreviousSummary",

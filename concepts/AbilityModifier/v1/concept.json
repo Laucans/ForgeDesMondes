@@ -1,0 +1,15 @@
+{
+  "concept": "AbilityModifier",
+  "version": 1,
+  "kind": "derived",
+  "definition": "The modifier of an ability score (STR, DEX, CON, INT, WIS, CHA): floor((score - 10) / 2), rounded toward negative infinity, never toward zero. A score of 18 gives +4, 10 and 11 give 0, 9 gives -1 (not 0: floor, not truncation) and 1 gives -5. The DM never types a modifier: it is always computed from the score, so a modifier is never stored apart from the score it comes from and every reader shows the same value. The score is an integer from 1 to 30; the Concept says nothing of a score outside that range.",
+  "output": {
+    "modifier": {
+      "type": "integer",
+      "rule": "floor((score - 10) / 2); an even score gives (score - 10) / 2, an odd score gives (score - 11) / 2"
+    }
+  },
+  "inputs": ["ability.score"],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}

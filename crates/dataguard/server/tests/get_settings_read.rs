@@ -52,7 +52,10 @@ async fn the_settings_are_read_from_the_tables_the_migration_builds() {
     scratch.batch_execute(MIGRATION).await.expect("migrated");
     let reads = Reads::open(&named(&name)).await.expect("the reads open");
 
-    let seeded = reads.run("ai.getSettings").await.expect("an answer");
+    let seeded = reads
+        .run("ai.getSettings", &json!({}))
+        .await
+        .expect("an answer");
     assert_eq!(seeded["provider"], "cloud", "{seeded}");
     assert_eq!(seeded["lastTest"], json!(null), "{seeded}");
     assert_eq!(
@@ -74,7 +77,10 @@ async fn the_settings_are_read_from_the_tables_the_migration_builds() {
         ))
         .await
         .expect("a key and two tests");
-    let read = reads.run("ai.getSettings").await.expect("an answer");
+    let read = reads
+        .run("ai.getSettings", &json!({}))
+        .await
+        .expect("an answer");
     assert_eq!(
         read["providers"]["cloud"]["key"],
         "sk-ant-••••••••••••••••3f9c"

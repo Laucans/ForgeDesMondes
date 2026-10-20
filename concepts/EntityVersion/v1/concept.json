@@ -1,0 +1,29 @@
+{
+  "concept": "EntityVersion",
+  "version": 1,
+  "kind": "derived",
+  "definition": "What one version of an element (a PJ, a PNJ, a place or an event) holds. A version is computed from three things: `snapshot`, the complete state of the element, its sheet and its aliases after the change; `previous`, the version it follows, or null for the first one; and `source`, where the change came from. The snapshot is a flat JSON object: one key per field of the element and of its sheet, and `aliases`, an array of strings whose order is significant. It is always complete, never a delta. The `number` goes up and never comes back: 1 when `previous` is null, otherwise the previous number plus 1, whatever the source (a restoration takes the next number too, never the number of the version it restores). The `source` is one of `dm`, `ia`, `dndbeyond`, `brief` or `restauration`. The `diff` is the field-by-field difference between the previous snapshot and this one, the first version being compared with an empty snapshot. A field is in the diff exactly when its value differs between the two snapshots, values compared as JSON, numbers by value (15 and 15.0 are the same number), strings, booleans, arrays and objects as a whole, case and type mattering (an empty string, 0, false and an empty array are values, not absences). A field absent from a snapshot and a field whose value is null are the same thing, so neither one alone makes a difference. Each entry is `{field, old, new}`, `old` and `new` being the whole value on that side (null when the field is absent or null there). The entries are sorted by `field`, in code point order. A snapshot identical to the previous one gives an empty diff and still takes the next number. The snapshot is taken as well-formed: checking its fields is not the work of this Concept. A version is never modified once written: a correction is a new version.",
+  "output": {
+    "number": {
+      "type": "integer",
+      "minimum": 1,
+      "rule": "1 when previous is null; otherwise previous.number plus 1"
+    },
+    "source": {
+      "enum": ["dm", "ia", "dndbeyond", "brief", "restauration"],
+      "rule": "the source given, unchanged"
+    },
+    "diff": {
+      "type": "array",
+      "items": {
+        "field": "string, a key of either snapshot",
+        "old": "the value in previous.snapshot, null when absent",
+        "new": "the value in snapshot, null when absent"
+      },
+      "rule": "one entry per field whose value differs between previous.snapshot (empty when previous is null) and snapshot, sorted by field; empty when the two are the same"
+    }
+  },
+  "inputs": ["entityVersion.previous", "entityVersion.snapshot", "entityVersion.source"],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}

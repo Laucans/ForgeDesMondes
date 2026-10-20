@@ -1,0 +1,9 @@
+{
+  "capability": "campaign.getCampaign",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "One campaign's overview, for its home screen: id, name, type (campagne or oneshot), cover, art, glyph, pitch, the day it was created, the day of its last export (null before the first) and the counts of players, characters, places and events it holds, derived from the campaign's rows. An unknown id has no answer (null), not an error.",
+  "input": { "id": "string" },
+  "output": "{ id: string, name: string, type: 'campagne' | 'oneshot', cover: string | null, art: string | null, glyph: string | null, pitch: string | null, createdAt: string, lastExport: string | null, counts: { players: number, characters: number, places: number, events: number } } | null",
+  "reads": ["queries/get-campaign.graphql"]
+}
