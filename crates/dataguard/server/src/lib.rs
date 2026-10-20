@@ -39,7 +39,9 @@
 //! the media the tables hold, which [`Rows`] reads, and the session's
 //! diffusion row as the queue will leave it. A move of that window
 //! (`live.moveWindow`) is prepared against the campaign's live session,
-//! which [`Rows`] reads.
+//! which [`Rows`] reads. A close of that window (`live.closeWindow`) is
+//! prepared against the campaign's live session, which [`Rows`] reads, and
+//! the session's diffusion row as the queue will leave it.
 
 use std::sync::Arc;
 
@@ -377,7 +379,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// row, brought onto the screen: one naming no campaign or no position, or
 /// with no live session, is refused, 422, before it is queued; one of a
 /// window that is not open is queued, for the DataGuard to refuse under
-/// window-fields-together.
+/// window-fields-together. A close of the window (`close_window::prepare`)
+/// is made its fields emptied together on its campaign's live session's
+/// diffusion row: one naming no campaign, with no live session, or of a
+/// session with no diffusion row — nothing shown, so no window — is refused,
+/// 422, before it is queued; one of a window already closed is applied, the
+/// row unchanged but its stamp.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -604,6 +611,28 @@ async fn submit<L: Llm>(
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         };
         let prepared = move_window::prepare(&named, session, &now()).map_err(refused)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if close_window::names(&body.data_capability) {
+        let refused = |refusal: close_window::Refusal| {
+            (
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            )
+        };
+        let campaign = close_window::campaign(&body.payload).map_err(refused)?;
+        let session = match served.rows.live_session(&campaign).await {
+            Ok(session) => session,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let row = match &session {
+            Some(session) => match served.rows.projected(&format!("Diffusion/{session}")).await {
+                Ok(row) => row,
+                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+            },
+            None => close_window::Row::new(),
+        };
+        let prepared = close_window::prepare(session, &row, &now()).map_err(refused)?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
     }
