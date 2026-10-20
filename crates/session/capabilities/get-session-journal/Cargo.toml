@@ -1,0 +1,10 @@
+[package]
+name = "get-session-journal"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability session.getSessionJournal: a session's timestamped journal — the time and the text of each transcribed line, in spoken order — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"

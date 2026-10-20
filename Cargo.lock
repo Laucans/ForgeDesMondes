@@ -427,6 +427,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "get-session-journal"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "get-settings"
 version = "0.1.0"
 dependencies = [

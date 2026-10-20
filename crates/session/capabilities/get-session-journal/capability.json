@@ -1,0 +1,9 @@
+{
+  "capability": "session.getSessionJournal",
+  "system": "session",
+  "version": "1.0.0",
+  "description": "A session's journal, for the DM to reread what was said: the transcribed lines in spoken order, each with the time it was spoken (HH:MM, UTC) and its text. Read while the microphone runs — the next read includes a line just recorded — and after the session is closed, every line kept at closing. Text only, never audio; the summary is another read.",
+  "input": { "session": "string" },
+  "output": "{ journal: { t: string, text: string }[] }",
+  "reads": ["queries/getSessionJournal.graphql"]
+}
