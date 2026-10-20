@@ -38,7 +38,9 @@
 //! partition, `BattlemapInstance/<its id>`, and each of its entries theirs:
 //! [`ProjectingStore`] inserts the `combat` row, then the `initiative_entry`
 //! rows, and points the combat at its current entry once the table holds it
-//! ([`combats`]).
+//! ([`combats`]). Its end (`table.endCombat`) writes the combat's partition
+//! again with its end and no current turn: [`ProjectingStore`] writes
+//! `combat.ended_at` and `combat.current_entry_id`, and no other column.
 //! A token taken off the map (`table.removeToken`) tombstones its partition:
 //! [`ProjectingStore`] deletes its `token` row, and the foreign keys follow
 //! the aggregate's relations (its initiative entry cascades, a turn on it is
@@ -484,6 +486,16 @@ impl ProjectingStore {
         combats::lineup(&client, instance, queued).await
     }
 
+    /// The combats of the instance an end names (`table.endCombat`) that
+    /// may be open.
+    pub async fn open_combats(
+        &self,
+        instance: &str,
+    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        combats::open(&client, instance).await
+    }
+
     /// Writes the last export the engine stamped on the row of the campaign
     /// `partition` names — of every campaign, `None` — logging a failure:
     /// after each apply of a campaign, and at a start.
@@ -914,6 +926,10 @@ impl Store for ProjectingStore {
                 let token = id("tokenId");
                 if combat.is_some() || token.is_some() || id("initiativeEntryId").is_some() {
                     combats::enter(&client, &write.partition, combat, token).await;
+                }
+                // An end makes the combat's end and its turn the engine's.
+                if id("endedAt").is_some() {
+                    combats::end(&client, Some(&write.partition)).await;
                 }
             }
             // A rename, a badge set, or any later write, makes the token's name

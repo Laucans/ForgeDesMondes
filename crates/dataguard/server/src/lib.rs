@@ -50,7 +50,9 @@
 //! prepared against what the tables, the engine's rows and the queue hold of
 //! the instance's open combat and of the token's character, which [`Rows`]
 //! reads: its entry, and a step of the rank of each entry it lands ahead of,
-//! one command each.
+//! one command each. Its end (`table.endCombat`) is prepared against the
+//! instance's combat still open, as the queue will leave it, which [`Rows`]
+//! reads: its end and no current turn, on the combat's partition.
 
 use std::sync::Arc;
 
@@ -419,7 +421,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// no uuid, 422; one of a token not on the instance, 404; one sent again
 /// under the key of a removal the engine holds, the engine's to replay.
 /// The token commands judge the token's row as none once its removal is
-/// queued (`Rows::standing`).
+/// queued (`Rows::standing`). An end of an instance's combat is made the end
+/// it writes on the open combat's partition ([`ending`]).
 /// A participant taken out of the open combat is made the deletion of its
 /// entry's partition the same way ([`removal`]); its token stays.
 /// A participant joining a running combat is made its entry and the moves of
@@ -561,6 +564,9 @@ async fn submit<L: Llm>(
     } else if start_combat::names(&body.data_capability) {
         let _initiative = INITIATIVE.lock().await;
         return starting(&served, body, &now()).await;
+    } else if end_combat::names(&body.data_capability) {
+        let _initiative = INITIATIVE.lock().await;
+        return ending(&served, body, &now()).await;
     } else if set_token_visibility::names(&body.data_capability) {
         let unprocessable = |refusal: set_token_visibility::Refusal| {
             let status = if refusal == set_token_visibility::Refusal::UnknownToken {
@@ -782,12 +788,12 @@ static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// numbers, nor place a PC twice.
 static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One change of a combat's order at a time — a start, a participant
-/// joining — from the read of the combat and its entries until its commands
-/// are queued: two starts of an instance sent at once never both pass
-/// (`one-active-combat`), two joining never take the same rank, and a join
-/// never reads a combat a start is still queueing. `reorderInitiative` and
-/// `endCombat` must take it too when they land; `removeParticipant` holds
-/// [`TURNING`] only.
+/// joining, an end — from the read of the combat and its entries until its
+/// commands are queued: two starts of an instance sent at once never both
+/// pass, nor two ends of its combat (`one-active-combat`), two joining never
+/// take the same rank, and a join never reads a combat a start is still
+/// queueing. `reorderInitiative` must take it too when it lands;
+/// `removeParticipant` holds [`TURNING`] only.
 static INITIATIVE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One change of HP at a time, from its judgement until it is queued: two
 /// blows sent at once are each cut against the HP the other leaves. The
@@ -1186,6 +1192,47 @@ async fn starting<L>(served: &Served<L>, mut body: Submission, now: &str) -> Rep
             (StatusCode::ACCEPTED, Json(submitted))
         })
         .ok_or_else(|| refused(StatusCode::UNPROCESSABLE_ENTITY, &Refusal::NoParticipant))
+}
+
+/// `body`, an end of an instance's combat (`table.endCombat`), made the end
+/// it writes on the partition of the instance's combat still open, applied
+/// or queued (`end_combat::prepare`) — the fixtures' slug it names read as
+/// the id the tables hold it by — and queued. Refused, and nothing queued:
+/// an instance that is no uuid, 422; an instance with no combat open — over
+/// the engine's memory, every instance —, 409 (`one-active-combat`). Sent
+/// again under the key of an end the engine holds, it is the engine's to
+/// replay, as it was: its combat reads as ended once its end is queued.
+async fn ending<L>(served: &Served<L>, mut body: Submission, now: &str) -> Reply<Submitted> {
+    use axum::http::StatusCode;
+    use end_combat::DATA_CAPABILITY;
+    let failed = |e: Error| refused(status_of(&e), &e);
+    let replayed = match &body.idempotency_key {
+        Some(key) => served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?,
+        None => false,
+    };
+    if !replayed {
+        let wire = served.reads.stored(&body.payload);
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(id));
+        let request = end_combat::request(&wire, target.as_deref())
+            .map_err(|why| refused(StatusCode::UNPROCESSABLE_ENTITY, &why))?;
+        let open = served
+            .rows
+            .open_combat(&request.instance)
+            .await
+            .map_err(failed)?;
+        let prepared = end_combat::prepare(open.as_deref(), now)
+            .map_err(|why| refused(StatusCode::CONFLICT, &why))?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    }
+    reply(StatusCode::ACCEPTED, served.engine.submit(body).await)
 }
 
 /// The dice a start throws (`start_combat::Dice`), thrown before it is
