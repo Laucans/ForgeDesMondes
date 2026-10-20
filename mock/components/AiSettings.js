@@ -648,6 +648,7 @@
     shareInstance(data);
     return void 0;
   }
+  var onScreen = (fraction, kept) => typeof fraction === "number" && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept;
   async function onWindow(server, change) {
     const row = await diffusionRow(server);
     if (!row.window) return ["window-fields-together"];
@@ -669,11 +670,11 @@
       if (window.Mock) window.Mock.store.set("diffusion", row);
       return void 0;
     },
-    // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone;
-    // the size and the content stay.
+    // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone,
+    // brought back onto the screen (0 to 1); the size and the content stay.
     "live.moveWindow": (server, { payload: payload2 }) => onWindow(server, (w) => {
-      w.x = payload2.x;
-      w.y = payload2.y;
+      w.x = onScreen(payload2.x, w.x);
+      w.y = onScreen(payload2.y, w.y);
     }),
     // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
     // is stored, the largest that fits the box asked for at the image's ratio

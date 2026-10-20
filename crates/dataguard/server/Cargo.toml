@@ -51,3 +51,4 @@ export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 show-cover = { path = "../../live/data-capabilities/show-cover" }
 show-on-player-view = { path = "../../live/data-capabilities/show-on-player-view" }
 show-window-on-player-view = { path = "../../live/data-capabilities/show-window-on-player-view" }
+move-window = { path = "../../live/data-capabilities/move-window" }
