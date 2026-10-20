@@ -42,7 +42,11 @@
 //! max. A reorder of the initiative (`table.reorderInitiative`) is prepared
 //! against the instance's open combat and its participants as the queue
 //! will leave them, which [`Rows`] reads: one command per entry, its rank
-//! alone. A start of an instance's combat (`table.startCombat`) is prepared
+//! alone. A « Suivant » (`table.nextTurn`) is prepared against the instance's
+//! open combat and its participants as the queue will leave them, which
+//! [`Rows`] reads: the next living participant's turn, and the round's step,
+//! on the combat's partition.
+//! A start of an instance's combat (`table.startCombat`) is prepared
 //! against what the tables and the queue hold of the instance, which
 //! [`Rows`] reads: one command for the combat, then one per participant.
 
@@ -85,6 +89,7 @@ mod sound;
 mod sound_playback;
 mod suggestion;
 mod tokens;
+mod turns;
 mod versioning;
 
 pub use reads::Reads;
@@ -399,7 +404,14 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// token's partition, the same way — the fixtures' slugs it names read as
 /// the ids the tables hold them by, one at a time until it is queued
 /// ([`MARKING`]): one naming no uuid, no condition, or no `on`, 422; one of a
-/// token not on the instance, 404. A start of an instance's combat is made
+/// token not on the instance, 404.
+/// A « Suivant » (`next_turn::prepare`) is made the turn it writes on the
+/// combat's partition, against the instance's open combat and its
+/// participants, one at a time from its judgement until it is queued
+/// ([`TURNING`]): one naming no uuid, 422; an instance with no open combat —
+/// over the engine's memory, every one — or none of whose participants is
+/// alive, 409 — neither is queued.
+/// A start of an instance's combat is made
 /// the combat's row and its entries', one command each ([`starting`]).
 /// A token taken off the map (`remove_token::prepare`) is made the deletion
 /// of the token's partition, which writes no field, the same way: one naming
@@ -435,8 +447,8 @@ async fn submit<L: Llm>(
     }
     let mut refusal = None;
     let mut archive = None;
-    // Held until the creation of an instance, a change of HP, or a token's
-    // new conditions, is queued.
+    // Held until the creation of an instance, a change of HP, a token's new
+    // conditions, or a turn, is queued.
     let mut holding = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
@@ -599,6 +611,23 @@ async fn submit<L: Llm>(
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         };
         let prepared = change_hit_points::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if next_turn::names(&body.data_capability) {
+        let wire = served.reads.stored(&body.payload);
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(id));
+        let request = next_turn::request(&wire, target.as_deref())
+            .map_err(|why| refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, &why))?;
+        holding = Some(TURNING.lock().await);
+        let (combat, participants) = match served.rows.turn(&request.instance).await {
+            Ok(turn) => turn,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = next_turn::prepare(&request, combat.as_ref(), &participants)
+            .map_err(|why| refused(axum::http::StatusCode::CONFLICT, &why))?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
     } else if export_campaign::names(&body.data_capability) {
@@ -765,6 +794,10 @@ static MARKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// ranks are queued: two reorders sent at once never interleave their ranks,
 /// and each is judged against the participants the other leaves.
 static REORDERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One « Suivant » at a time, from its judgement until it is queued: two
+/// sent at once each start from the turn the other leaves, and the round
+/// counts each lap once.
+static TURNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A refusal before a command is queued: its status, and why in words.
 type Refused = (axum::http::StatusCode, Json<serde_json::Value>);

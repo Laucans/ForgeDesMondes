@@ -31,6 +31,9 @@
 //! [`ProjectingStore`] writes `token.name`, and no other column; a condition
 //! badge put on or taken off (`table.setTokenCondition`), with its conditions
 //! alone: [`ProjectingStore`] writes `token.conditions`, and no other column.
+//! A « Suivant » (`table.nextTurn`) writes a combat's partition with its
+//! current entry and its round alone: [`ProjectingStore`] writes
+//! `combat.current_entry_id` and `combat.round` ([`turns`]).
 //! A combat started on an instance (`table.startCombat`) writes its
 //! partition, `BattlemapInstance/<its id>`, and each of its entries theirs:
 //! [`ProjectingStore`] inserts the `combat` row, then the `initiative_entry`
@@ -80,6 +83,7 @@ use crate::history::History;
 use crate::instances;
 use crate::ranks;
 use crate::tokens;
+use crate::turns;
 use crate::versioning::{ENTITY, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
@@ -370,6 +374,7 @@ impl ProjectingStore {
             tokens::hit_points(&client, None).await;
             combats::repair(&client).await;
             ranks::rank(&client, None).await;
+            turns::turn(&client, None).await;
         }
         self.repair_names(None).await;
         self.repair_conditions(None).await;
@@ -448,6 +453,26 @@ impl ProjectingStore {
     ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
         let client = self.inner.client().lock().await;
         ranks::entries(&client, combat).await
+    }
+
+    /// The combats the engine holds of the instance a « Suivant » names
+    /// (`table.nextTurn`), open or ended.
+    pub async fn combats(
+        &self,
+        instance: &str,
+    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        turns::combats(&client, instance).await
+    }
+
+    /// The entries the engine holds of the combat a « Suivant » turns
+    /// (`table.nextTurn`).
+    pub async fn entries(
+        &self,
+        combat: &str,
+    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        turns::entries(&client, combat).await
     }
 
     /// What the tables hold of the instance a start of its combat names
@@ -880,6 +905,7 @@ impl Store for ProjectingStore {
                 tokens::project(&client, &write.partition).await;
                 tokens::show(&client, Some(&write.partition)).await;
                 tokens::hit_points(&client, Some(&write.partition)).await;
+                turns::turn(&client, Some(&write.partition)).await;
                 // The engine applies a run's partitions by name: an entry is
                 // entered with the last of itself, its combat and its token.
                 let id = |field: &str| write.values.get(field).and_then(Value::as_str);

@@ -674,6 +674,28 @@
       combat.order = placed.map((at) => combat.order[at]);
       return void 0;
     },
+    // table.nextTurn (Initiative@1, « Suivant »): the open combat of the instance `targetId` — or `payload.instance`
+    // — passes the turn to the next living participant after the current one in its order, a hidden one like any
+    // other (`hidden-keeps-rank`), a dead one skipped (`dead-derived`); the round goes up when the search wraps
+    // past the last (`next-turn`). An instance with no open combat, or none of whose participants is alive, is
+    // refused. Ids are compared in any case, as the server does.
+    "table.nextTurn": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const id = targetId || payload.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const inst = instances.find((i) => same2(i.id, id));
+      const combat = inst?.state.combat;
+      if (!combat) return ["next-turn"];
+      const alive = combat.order.map((p) => inst.state.tokens.some((t) => same2(t.id, p.id) && !t.dead));
+      const at = combat.order.findIndex((p) => same2(p.id, combat.current));
+      const after = alive.findIndex((living, i) => living && i > at);
+      const wrapped = after === -1 ? alive.findIndex((living, i) => living && i <= at) : -1;
+      if (after === -1 && wrapped === -1) return ["next-turn"];
+      combat.current = combat.order[after === -1 ? wrapped : after].id;
+      if (after === -1) combat.round += 1;
+      return void 0;
+    },
     // table.removeToken: one token taken off the map, `payload.token` on the instance `targetId` — or the token
     // itself as the target, or no target. Its partition is tombstoned and the tables follow the aggregate's
     // relations: its entry leaves the order, whose places close up, and a turn still on it is no one's — the
