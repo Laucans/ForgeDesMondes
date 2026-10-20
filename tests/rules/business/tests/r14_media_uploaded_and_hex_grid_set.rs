@@ -39,7 +39,8 @@ fn r14_media_uploaded_and_hex_grid_set() {
                 "a hex is not 5 feet at the start",
             )?;
 
-            let set = json!({ "size": 40, "ox": 5, "oy": 7, "orient": "flat", "color": "accent", "opacity": 70 });
+            // HexGrid@1: opacity is a fraction of 1 (a screen shows the percentage).
+            let set = json!({ "size": 40, "ox": 5, "oy": 7, "orient": "flat", "color": "accent", "opacity": 0.7 });
             apply(s, "media.saveGridSettings", set.clone(), Some(&id))?;
             let saved = grid(s)?;
             for key in ["size", "ox", "oy", "orient", "color", "opacity"] {
