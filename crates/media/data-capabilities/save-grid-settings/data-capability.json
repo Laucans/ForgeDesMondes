@@ -1,0 +1,36 @@
+{
+  "dataCapability": "media.saveGridSettings",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "upsert",
+  "target": {
+    "aggregate": "Media",
+    "id": "$id"
+  },
+  "touches": [
+    "Media.hexSizePx",
+    "Media.offsetX",
+    "Media.offsetY",
+    "Media.orientation",
+    "Media.color",
+    "Media.opacity"
+  ],
+  "payload": {
+    "id": "uuid — the battlemap, when the command names no target; never written",
+    "size": "number — the hex size in image pixels; strictly above 0 (grid-values-range)",
+    "ox": "number — the grid's horizontal offset in image pixels",
+    "oy": "number — the grid's vertical offset in image pixels",
+    "orient": "'pointy' | 'flat' — the hex's top (HexGrid@1)",
+    "color": "string — the grid's colour",
+    "opacity": "number — a fraction of 1, from 0 to 1 (grid-values-range); any other field, the feet per hex first, is refused"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "grid-only-for-battlemap",
+    "hex-is-five-feet",
+    "grid-values-range"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

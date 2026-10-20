@@ -1,0 +1,10 @@
+[package]
+name = "reset-battlemap"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.resetBattlemap: « Réinitialiser la carte » — every token, combat and initiative entry of one battlemap instance tombstoned on its own BattlemapInstance partition (a soft delete), each carrying the reset's time its instance is stamped with; the instance, its battlemap and its grid stay, and no other instance is written (instance-isolated)."
+publish = false
+
+[dependencies]
+serde_json = "1"

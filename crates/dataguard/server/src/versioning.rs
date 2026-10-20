@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use harness_dataguard::Result;
-use harness_dataguard::command::{CommandResult, Effect, Entry};
+use harness_dataguard::command::{CommandResult, Effect, Entry, State};
 use harness_dataguard::guard;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
@@ -27,7 +27,7 @@ use serde_json::Value;
 
 use crate::aliases::Aliases;
 use crate::history::History;
-use crate::projection::ProjectingStore;
+use crate::projection::{Placing, ProjectingStore};
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -192,8 +192,8 @@ fn id_of(row: &BTreeMap<String, Value>, field: &str) -> Option<String> {
 }
 
 /// The rows the engine holds, as a command about to be submitted sees them,
-/// and — over a database — what its tables hold of a campaign, and of what a
-/// creation of an instance names.
+/// and — over a database — what its tables hold of a campaign, a media and
+/// its place, and of what a creation of an instance names.
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
@@ -617,13 +617,101 @@ impl Rows {
         self.first_open(combats).await
     }
 
+    /// What the instance a reset names (`table.resetBattlemap`) holds — in
+    /// the tables, in the engine's rows, or queued — as the commands queued
+    /// will leave it: its tokens, its combats, open or ended, and the
+    /// entries of either; a row whose deletion is queued — held for review
+    /// or parked too, which a second reset does not queue again — is none,
+    /// and an instance whose creation is queued is one. Over the engine's memory,
+    /// which has no table, no instance.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn reset_map(&self, instance: &str) -> Result<reset_battlemap::Map> {
+        let Some(tables) = &self.tables else {
+            return Ok(reset_battlemap::Map::default());
+        };
+        let text = |entry: &Entry, field: &str| {
+            entry
+                .payload
+                .get(field)
+                .and_then(Value::as_str)
+                .map(str::to_ascii_lowercase)
+        };
+        let of =
+            |entry: &Entry, field: &str, id: &str| text(entry, field).is_some_and(|it| it == id);
+        // The queue before the tables, as a start reads them: a row applied
+        // between the two reads is then read twice, which the ids make one,
+        // rather than missed by both.
+        let pending = self.store.pending().await?;
+        let mut tokens: Vec<String> = pending
+            .iter()
+            .filter(|entry| of(entry, "tokenInstanceId", instance))
+            .filter_map(|entry| text(entry, "tokenId"))
+            .collect();
+        let mut combats: Vec<String> = pending
+            .iter()
+            .filter(|entry| of(entry, "combatInstanceId", instance))
+            .filter_map(|entry| text(entry, "combatId"))
+            .collect();
+        let mut map = tables
+            .reset_map(instance, &tokens, &combats)
+            .await
+            .map_err(|e| {
+                harness_dataguard::Error::Store(format!(
+                    "instance not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                ))
+            })?;
+        map.instance |= pending.iter().any(|entry| {
+            entry.effect == Effect::Insert
+                && entry.partition == format!("BattlemapInstance/{instance}")
+        });
+        tokens.append(&mut map.tokens);
+        combats.append(&mut map.combats);
+        let entries: Vec<String> = pending
+            .iter()
+            .filter(|entry| {
+                text(entry, "initiativeEntryCombatId").is_some_and(|id| combats.contains(&id))
+                    || text(entry, "initiativeEntryTokenId").is_some_and(|id| tokens.contains(&id))
+            })
+            .filter_map(|entry| text(entry, "initiativeEntryId"))
+            .chain(map.entries.drain(..))
+            .collect();
+        // A deletion queued is the tombstone of its partition.
+        let removed: Vec<String> = pending
+            .iter()
+            .filter(|entry| entry.effect == Effect::Delete)
+            .filter_map(|entry| entry.partition.strip_prefix("BattlemapInstance/"))
+            .map(str::to_ascii_lowercase)
+            .collect();
+        let standing = |ids: Vec<String>| -> Vec<String> {
+            ids.into_iter().filter(|id| !removed.contains(id)).collect()
+        };
+        map.tokens = standing(tokens);
+        map.combats = standing(combats);
+        map.entries = standing(entries);
+        Ok(map)
+    }
+
     /// The first of `combats`, by id, whose row has no end as the commands
-    /// queued on it will leave it (`one-active-combat`).
+    /// queued on it will leave it (`one-active-combat`) — none once its
+    /// deletion is queued (`table.resetBattlemap`), which no end is written
+    /// behind. A deletion held for review or parked is not one: it may be
+    /// refused or expire, and the combat would still be open.
     async fn first_open(&self, mut combats: Vec<String>) -> Result<Option<String>> {
         combats.sort_unstable();
         combats.dedup();
         for combat in combats {
-            let row = self.projected(&start_combat::partition(&combat)).await?;
+            let (row, ahead) = self.ahead(&start_combat::partition(&combat)).await?;
+            if ahead.iter().any(deleting) {
+                continue;
+            }
+            let row = ahead
+                .iter()
+                .fold(row, |row, entry| guard::projected(&row, entry));
             if row.get("endedAt").is_none_or(Value::is_null) {
                 return Ok(Some(combat));
             }
@@ -771,6 +859,111 @@ impl Rows {
             .is_some())
     }
 
+    /// The element `id` names as a media's place reads it — its type and its
+    /// campaign — from the tables over a database, which hold the fixtures'
+    /// elements and every one applied; from the engine's row over its
+    /// memory. `None` when there is no such live element.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn place(&self, id: &str) -> Result<Option<upload_media::Place>> {
+        let Some(tables) = &self.tables else {
+            // The ids the server makes are lower case.
+            let row = self
+                .store
+                .row(&format!("{ENTITY}{}", id.to_ascii_lowercase()))
+                .await?;
+            let text = |field: &str| row.get(field).and_then(Value::as_str).map(str::to_owned);
+            return Ok(text("type")
+                .zip(text("entityCampaignId"))
+                .map(|(kind, campaign)| upload_media::Place { kind, campaign }));
+        };
+        tables.place(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "entity not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether the tables hold the campaign `id` names, live — over the
+    /// engine's memory, which has no table, every campaign is held.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn holds_campaign(&self, id: &str) -> Result<bool> {
+        let Some(tables) = &self.tables else {
+            return Ok(true);
+        };
+        tables.holds_campaign(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether a command of `data_capability` was submitted under `key`
+    /// already: its replay is the engine's to answer, as it was queued.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn replayed(&self, data_capability: &str, key: &str) -> Result<bool> {
+        // The engine keeps a key under the id alone, its `@version` dropped.
+        let id = data_capability.split('@').next().unwrap_or_default();
+        self.store
+            .by_idempotency_key(id, key)
+            .await
+            .map(|command| command.is_some())
+    }
+
+    /// The media `media` names and the element `place` names, as a change of
+    /// place (`media.setMediaPlace`) is judged against them: over a database
+    /// the tables' rows, which hold the fixtures' and judge the place again,
+    /// under the engine's as the commands queued on them will leave them — a
+    /// lieu or a media created a moment ago is there, and a field the engine
+    /// holds wins. `None` when there is no such media, and the place `None`
+    /// when there is no such element — or none is named.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn placed(&self, media: &str, place: Option<&str>) -> Result<Option<Placing>> {
+        let held = |row: BTreeMap<String, Value>| Some(row).filter(|row| !row.is_empty());
+        let engine_media = held(self.projected(&format!("Media/{media}")).await?);
+        let engine_place = match place {
+            Some(place) => held(self.projected(&format!("{ENTITY}{place}")).await?),
+            None => None,
+        };
+        let Some(tables) = &self.tables else {
+            return Ok(engine_media.map(|media| (media, engine_place)));
+        };
+        let found = tables.placing(media, place).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "media not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        let (table_media, table_place) = found.unzip();
+        let over = |under: Option<BTreeMap<String, Value>>,
+                    row: Option<BTreeMap<String, Value>>| {
+            match (under, row) {
+                (Some(mut under), Some(row)) => {
+                    under.extend(row);
+                    Some(under)
+                }
+                (under, row) => under.or(row),
+            }
+        };
+        Ok(over(table_media, engine_media)
+            .map(|media| (media, over(table_place.flatten(), engine_place))))
+    }
+
     /// The versions of `element` a restoration can name, oldest first.
     pub fn versions(&self, element: &str) -> Vec<Kept> {
         self.history.of(element)
@@ -832,6 +1025,12 @@ impl Rows {
     }
 }
 
+/// Whether `entry` is a deletion that goes to the head by itself: not held
+/// for review, nor parked, which an approver or the clock may still refuse.
+fn deleting(entry: &Entry) -> bool {
+    entry.effect == Effect::Delete && matches!(entry.state, State::Queued | State::Confirmed)
+}
+
 /// Held by the applier for each of its runs ([`crate::applier`]), and by
 /// [`Rows::projected`] while it reads a row and the queue: a run writes a
 /// command's row, then marks it applied, and the two reads never fall
@@ -840,7 +1039,6 @@ pub(crate) static APPLYING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_n
 
 #[cfg(test)]
 mod tests {
-    use harness_dataguard::command::State;
     use harness_dataguard::memory::MemoryStore;
     use harness_dataguard::store::Collision;
     use serde_json::json;

@@ -1,0 +1,10 @@
+[package]
+name = "set-media-place"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability media.setMediaPlace: a media of a campaign, battlemap or illustration, attached to one of its campaign's places — an element of type « lieu » — or detached, on its Media partition; its place_id and nothing else."
+publish = false
+
+[dependencies]
+serde_json = "1"

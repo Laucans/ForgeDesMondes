@@ -711,6 +711,22 @@
       inst.state.combat = null;
       return void 0;
     },
+    // table.resetBattlemap: « Réinitialiser la carte » — the instance `targetId` — or `payload.instance` — loses
+    // every token, its combat and their initiative; the instance itself, its battlemap and every other instance
+    // stay as they are (`instance-isolated`). No such instance resets none, and one with no token and no combat
+    // has nothing to reset, as the server refuses both. Ids are compared in any case, as the server does.
+    "table.resetBattlemap": async (server2, { payload, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const id = targetId || payload.instance;
+      const fixture = await server2.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server2.instances ? server2.instances.values() : []];
+      const inst = instances.find((i) => same2(i.id, id));
+      if (!inst) return ["not-found"];
+      if (!inst.state.tokens.length && !inst.state.combat) return ["state-persisted-reset"];
+      inst.state.tokens = [];
+      inst.state.combat = null;
+      return void 0;
+    },
     // table.setTokenCondition: the badge `payload.state` put on (`on: true`) or taken off (`on: false`) one token,
     // `payload.token` on the instance `targetId` — or the token itself as the target, or no target. The other
     // tokens of its character keep their badges (`instance-isolated`); a badge put on twice is there once, and one
@@ -859,6 +875,51 @@
       combat.order.splice(at, 0, { id: token.id, init, dex: dex == null ? 0 : Math.floor((dex - 10) / 2), dexScore: dex, draw });
       return void 0;
     },
+    // media.uploadMedia (crates/media/data-capabilities/upload-media): a
+    // battlemap or an illustration added to the library, the path the DM chose
+    // recorded and no file copied. A battlemap arrives with its default grid
+    // (`grid-only-for-battlemap`) — a 32 px hex, pointy, 45 % opaque — at 5
+    // feet per hex; an illustration has none. A place, when one is named, is a
+    // lieu of the campaign (`media-place-is-lieu`); a kind that is neither is
+    // refused (`media-kind`, the table's CHECK).
+    "media.uploadMedia": async (server2, { payload }) => {
+      const { kind, place = null } = payload;
+      if (kind !== "battlemap" && kind !== "illustration") return ["media-kind"];
+      if (place && !(await server2.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["media-place-is-lieu"];
+      const media = await server2.load("media");
+      const base = { id: server2.uuid(), title: String(payload.title || "").trim() || "Sans titre", file: payload.file || "", uploadedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), place };
+      if (kind === "battlemap") media.battlemaps.push({ ...base, width: payload.width || 0, height: payload.height || 0, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 } });
+      else media.illustrations.push(base);
+      return void 0;
+    },
+    // media.saveGridSettings (crates/media/data-capabilities/save-grid-settings):
+    // a battlemap's grid kept — the six fields of HexGrid@1, the opacity a
+    // fraction of 1 where the mock-up's fixtures write a percentage. A hex size
+    // of 0 or an opacity outside 0..1 is refused by `grid-values-range`; an
+    // illustration or an unknown id has no grid (`grid-only-for-battlemap`).
+    "media.saveGridSettings": async (server2, { payload, targetId }) => {
+      const battlemap = (await server2.load("media")).battlemaps.find((b) => b.id === targetId);
+      if (!battlemap) return ["grid-only-for-battlemap"];
+      const { size, ox, oy, orient, color, opacity } = payload;
+      if (!(size > 0) || !(opacity >= 0 && opacity <= 1)) return ["grid-values-range"];
+      battlemap.grid = { size, ox, oy, orient, color, opacity: Math.round(opacity * 100) };
+      return void 0;
+    },
+    // media.setMediaPlace (crates/media/data-capabilities/set-media-place): a
+    // media — battlemap or illustration — attached to one of the campaign's
+    // places, or detached with `place: null`, and nothing else of it changes. A
+    // place that is no lieu the fixtures list is refused by
+    // `media-place-is-lieu`; an unknown media is `not-found`.
+    "media.setMediaPlace": async (server2, { payload, targetId }) => {
+      const id = targetId || payload.media;
+      const listed = [await server2.load("media"), await server2.load("media.listMedia")];
+      const found = listed.flatMap((media) => media.battlemaps.concat(media.illustrations)).filter((m) => m.id === id);
+      if (!found.length) return ["not-found"];
+      const place = payload.place ?? null;
+      if (place !== null && !(await server2.load("campaign.listPlaces")).some((p) => p.id === place)) return ["media-place-is-lieu"];
+      for (const medium of found) medium.place = place;
+      return void 0;
+    },
     // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
     // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
     // version after it are undone, each field back to what it was. Either way the restoration is a new version
@@ -993,6 +1054,17 @@
       const fixture = await server2.load("table.getBattlemapInstance");
       if (!instance || instance === fixture.id) return fixture;
       return server2.instances && server2.instances.get(instance);
+    },
+    // media.getBattlemap (crates/media/capabilities/get-battlemap): one
+    // battlemap of the media library, by its id, its grid as HexGrid@1 states
+    // it — the opacity a fraction of 1 where the mock-up's fixtures write a
+    // percentage, and a hex always 5 feet. An illustration or an unknown id
+    // is no battlemap: `null`, as the server answers it, not a `not-found`.
+    "media.getBattlemap": async (server2, { id }) => {
+      const battlemap = (await server2.load("media")).battlemaps.find((b) => b.id === id);
+      if (!battlemap) return null;
+      const { opacity, ...grid } = battlemap.grid;
+      return { ...battlemap, grid: { ...grid, opacity: opacity / 100, feetPerHex: 5 } };
     },
     // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
     // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).

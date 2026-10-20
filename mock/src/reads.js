@@ -14,6 +14,17 @@ export const READS = {
     if (!instance || instance === fixture.id) return fixture;
     return server.instances && server.instances.get(instance);
   },
+  // media.getBattlemap (crates/media/capabilities/get-battlemap): one
+  // battlemap of the media library, by its id, its grid as HexGrid@1 states
+  // it — the opacity a fraction of 1 where the mock-up's fixtures write a
+  // percentage, and a hex always 5 feet. An illustration or an unknown id
+  // is no battlemap: `null`, as the server answers it, not a `not-found`.
+  'media.getBattlemap': async (server, { id }) => {
+    const battlemap = (await server.load('media')).battlemaps.find((b) => b.id === id);
+    if (!battlemap) return null;
+    const { opacity, ...grid } = battlemap.grid;
+    return { ...battlemap, grid: { ...grid, opacity: opacity / 100, feetPerHex: 5 } };
+  },
   // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
   // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
   'campaign.listEntityVersions': async (server, { entity }) => {

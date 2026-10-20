@@ -1,0 +1,10 @@
+[package]
+name = "list-media"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability media.listMedia: a campaign's media library — its cover, its battlemaps with their grid and place, its illustrations — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"

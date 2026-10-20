@@ -40,7 +40,9 @@
 //!
 //! A participant taken out of the combat (`table.removeParticipant`) is a
 //! tombstone on its entry's partition: [`leave`] takes its row out of the
-//! table.
+//! table. A reset of the instance (`table.resetBattlemap`) tombstones its
+//! combats too: [`wipe`] takes each out of the table, and its entries with
+//! it (`initiativeEntryCombatId`, cascade).
 
 use add_participant::Character;
 use serde_json::Value;
@@ -229,6 +231,16 @@ const LEAVE: &str = "DELETE FROM initiative_entry e
     WHERE r.tombstoned
         AND ($1::text IS NULL OR r.partition = $1::text)
         AND r.partition = 'BattlemapInstance/' || e.id::text";
+
+/// The combat of the partition `$1` — of every combat when it is null — the
+/// engine holds tombstoned, out of the table (`table.resetBattlemap`): its
+/// entries go with it by the table's foreign key (`initiativeEntryCombatId`,
+/// cascade); the tombstone the engine keeps is what was removed.
+const WIPE: &str = "DELETE FROM combat c
+    USING dataguard_rows r
+    WHERE r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'BattlemapInstance/' || c.id::text";
 
 /// The combats the engine holds and the table does not: a projection that
 /// failed after its apply, or was lost since.
@@ -433,6 +445,20 @@ pub async fn leave(client: &Client, partition: Option<&str>) {
     if let Err(e) = client.execute(LEAVE, &[&partition]).await {
         eprintln!(
             "projection: initiative entry not removed: {}",
+            e.as_db_error().map_or("-", |db| db.code().code())
+        );
+    }
+}
+
+/// Takes the combat `partition` names out of the table once the engine
+/// holds it tombstoned — every such combat, `None` — logging a failure:
+/// after each tombstone of the aggregate, and at a start, so a reset whose
+/// projection failed after its apply is made again. Tables not migrated yet
+/// hold none.
+pub async fn wipe(client: &Client, partition: Option<&str>) {
+    if let Err(e) = client.execute(WIPE, &[&partition]).await {
+        eprintln!(
+            "projection: combat not removed: {}",
             e.as_db_error().map_or("-", |db| db.code().code())
         );
     }

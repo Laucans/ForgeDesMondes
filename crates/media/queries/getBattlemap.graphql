@@ -1,0 +1,24 @@
+# fields: Media.id, Media.kind, Media.title, Media.filePath, Media.widthPx, Media.heightPx, Media.placeId, Media.uploadedAt, Media.mediaId, Media.hexSizePx, Media.offsetX, Media.offsetY, Media.orientation, Media.color, Media.opacity
+# The battlemap screens' read: every battlemap with its grid settings, as last
+# saved. A battlemap has its grid from the moment it is uploaded, so the two
+# tables join one to one; an illustration has none and is not selected. The
+# Capability keeps the one battlemap whose id the caller names
+# (crates/media/capabilities/get-battlemap). The hex's 5 feet is not read:
+# HexGrid@1 states it, whatever the store holds.
+query GetBattlemap {
+  battlemaps {
+    id
+    title
+    filePath
+    widthPx
+    heightPx
+    placeId
+    uploadedAt
+    hexSizePx
+    offsetX
+    offsetY
+    orientation
+    color
+    opacity
+  }
+}
