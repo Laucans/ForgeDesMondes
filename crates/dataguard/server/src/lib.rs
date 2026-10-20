@@ -30,7 +30,9 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. A change of a media's
+//! place (`media.setMediaPlace`) is judged against the media and the place as
+//! [`Rows`] reads them — `media-place-is-lieu` first — before it is queued.
 
 use std::sync::Arc;
 
@@ -346,7 +348,14 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. A change of a
+/// media's place (`set_media_place::prepare`) is made the `placeId` it writes
+/// on the media's partition, judged against the media and the place as
+/// [`Rows::placed`] reads them: one of a media there is not — or named by
+/// anything but a uuid — is refused, 404;
+/// one naming a place that is no lieu of the media's campaign
+/// (`media-place-is-lieu`), or no media, or a malformed place, 422 — and
+/// neither is queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -468,6 +477,39 @@ async fn submit<L: Llm>(
                     Json(serde_json::json!({ "error": refusal.to_string() })),
                 ));
             }
+        }
+    } else if set_media_place::names(&body.data_capability) {
+        // A media there is not is not found; anything else is unprocessable.
+        let refused = |refusal: set_media_place::Refusal| {
+            let status = if refusal == set_media_place::Refusal::UnknownMedia {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            Err((
+                status,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            ))
+        };
+        let asked = match set_media_place::asked(&body.payload, body.target_id.as_deref()) {
+            Ok(asked) => asked,
+            Err(refusal) => return refused(refusal),
+        };
+        let found = match served
+            .rows
+            .placed(&asked.media, asked.place.as_deref())
+            .await
+        {
+            Ok(found) => found,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let (media, place) = found.map_or((None, None), |(media, place)| (Some(media), place));
+        match set_media_place::prepare(&asked, media.as_ref(), place.as_ref()) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => return refused(refusal),
         }
     } else if export_campaign::names(&body.data_capability) {
         let id = body

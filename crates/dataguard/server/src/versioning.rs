@@ -26,7 +26,7 @@ use serde_json::Value;
 
 use crate::aliases::Aliases;
 use crate::history::History;
-use crate::projection::ProjectingStore;
+use crate::projection::{Placing, ProjectingStore};
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -150,7 +150,8 @@ impl Store for Versioning {
 }
 
 /// The rows the engine holds, as a command about to be submitted sees them,
-/// and — over a database — what its tables hold of a campaign.
+/// and — over a database — what its tables hold of a campaign, a media and
+/// its place.
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
@@ -195,6 +196,37 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
+    }
+
+    /// The media `media` names and the element `place` names, as a change of
+    /// place (`media.setMediaPlace`) is judged against them: over a database
+    /// as the tables hold them, which judge the place again; over the
+    /// engine's memory, which is the tables, as the commands queued on them
+    /// will leave them. `None` when there is no such media, and the place
+    /// `None` when there is no such element — or none is named.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn placed(&self, media: &str, place: Option<&str>) -> Result<Option<Placing>> {
+        if let Some(tables) = &self.tables {
+            return tables.placing(media, place).await.map_err(|e| {
+                harness_dataguard::Error::Store(format!(
+                    "media not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                ))
+            });
+        }
+        let held = |row: BTreeMap<String, Value>| Some(row).filter(|row| !row.is_empty());
+        let Some(media) = held(self.projected(&format!("Media/{media}")).await?) else {
+            return Ok(None);
+        };
+        let place = match place {
+            Some(place) => held(self.projected(&format!("{ENTITY}{place}")).await?),
+            None => None,
+        };
+        Ok(Some((media, place)))
     }
 
     /// The versions of `element` a restoration can name, oldest first.
