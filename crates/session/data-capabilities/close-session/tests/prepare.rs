@@ -225,6 +225,7 @@ async fn a_session_with_no_status_is_none_to_close() {
     let llm = FakeLlm::new();
     let refused = prepare(&llm, &BTreeMap::new(), &[], &cloud(), NOW).await;
     assert_eq!(refused, Err(Refusal::UnknownSession));
+    assert_eq!(Refusal::UnknownSession.to_string(), "séance inconnue");
     assert!(llm.journal().list().is_empty());
 }
 
@@ -281,6 +282,18 @@ fn the_active_provider_is_read_as_the_tables_hold_it() {
         Some("sk-ant-test")
     );
     assert_eq!(models.summary, "claude-haiku-4-5-20251001");
+    let mut server = cloud();
+    server.insert("detectedApiType".into(), "opencode".into());
+    assert!(
+        matches!(
+            provider(&server),
+            Some(ProviderConfig::Api {
+                api_type: Some(ApiType::Opencode),
+                ..
+            })
+        ),
+        "{server:?}"
+    );
 
     let mut claude = opencode();
     claude.insert("binary".into(), "claude-code".into());

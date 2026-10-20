@@ -282,6 +282,43 @@ async fn status_lifecycle_refuses_to_close_a_closed_session_again_and_nothing_is
 }
 
 #[tokio::test]
+async fn status_lifecycle_refuses_a_second_close_queued_before_the_first_is_applied() {
+    let Served {
+        engine, rows, app, ..
+    } = serve().await;
+    settings(&engine, &app, claude_code()).await;
+    session(&engine, "live").await;
+    let body = json!({
+        "dataCapability": "session.closeSession@1",
+        "payload": {},
+        "target": { "aggregate": "Session", "id": SEANCE },
+        "caller": { "by": "dm", "from": "LiveSessionBar", "roles": ["role:approver"] },
+    });
+
+    // « Clore la séance » clicked twice: both queued before the applier runs.
+    let mut queued = Vec::new();
+    for _ in 0..2 {
+        let (status, answer) = call(&app, "/commands", body.clone()).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+        queued.push(answer["commandId"].clone());
+    }
+    let mut results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 2, "{results:?}");
+    let second = results.pop();
+    assert_eq!(
+        second.as_ref().map(|r| r.command_id.clone().into()),
+        queued.pop()
+    );
+    refused_by_status_lifecycle(second);
+    closed(results.pop());
+
+    // The first close stands, with its summary.
+    let row = row(&rows).await;
+    assert_eq!(row["sessionStatus"], "closed", "{row:?}");
+    assert_eq!(row["summaryModel"], "claude-haiku-4-5-20251001", "{row:?}");
+}
+
+#[tokio::test]
 async fn status_lifecycle_a_closed_session_takes_no_more_journal_lines() {
     let Served {
         engine, rows, app, ..

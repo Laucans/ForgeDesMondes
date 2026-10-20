@@ -14,7 +14,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use dataguard_server::{Engine, Planted, planted, router};
+use dataguard_server::{Engine, Planted, Rows, planted, router};
 use harness_dataguard::command::{CommandResult, State};
 use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, RequestKind};
@@ -103,14 +103,15 @@ impl Scratch {
     }
 
     /// The engine as the server plants it over this database, its wire
-    /// protocol, and the fake `llm` port it reaches.
-    async fn serve(&self) -> (Arc<Engine>, Router, Arc<FakeLlm>) {
+    /// protocol, the fake `llm` port it reaches, and the rows it judges.
+    async fn serve(&self) -> (Arc<Engine>, Router, Arc<FakeLlm>, Rows) {
         let Planted { engine, rows } = planted(&self.url)
             .await
             .expect("the engine over PostgreSQL");
         let engine = Arc::new(engine);
         let llm = Arc::new(FakeLlm::new());
-        (engine.clone(), router(engine, rows, llm.clone()), llm)
+        let app = router(engine.clone(), rows.clone(), llm.clone());
+        (engine, app, llm, rows)
     }
 
     /// One table's rows, as JSON text, in a stable order.
@@ -193,7 +194,7 @@ async fn close(engine: &Engine, app: &Router, session: &str) -> (Value, CommandR
 async fn close_session_closes_the_row_stops_its_playbacks_keeps_its_journal_and_stores_the_summary()
 {
     let scratch = Scratch::new("close").await;
-    let (engine, app, llm) = scratch.serve().await;
+    let (engine, app, llm, _) = scratch.serve().await;
     let journal = scratch.rows("session_journal_line").await;
     let other = scratch.session(AUTRE_SEANCE).await;
 
@@ -262,7 +263,7 @@ async fn close_session_closes_the_row_stops_its_playbacks_keeps_its_journal_and_
 #[tokio::test]
 async fn status_lifecycle_refuses_to_close_a_session_in_prep_and_no_table_changes() {
     let scratch = Scratch::new("prep").await;
-    let (engine, app, llm) = scratch.serve().await;
+    let (engine, app, llm, _) = scratch.serve().await;
     let before = (
         scratch.rows("session").await,
         scratch.rows("sound_playback").await,
@@ -285,10 +286,12 @@ async fn status_lifecycle_refuses_to_close_a_session_in_prep_and_no_table_change
 #[tokio::test]
 async fn a_close_the_tables_lost_is_written_again_at_the_next_start() {
     let scratch = Scratch::new("repair").await;
-    let (engine, app, llm) = scratch.serve().await;
+    let (engine, app, llm, rows) = scratch.serve().await;
     let (answer, result) = close(&engine, &app, SEANCE).await;
     assert_eq!(result.status, State::Applied, "{result:?} {answer}");
     let closed = scratch.session(SEANCE).await;
+    let partition = format!("Session/{SEANCE}");
+    let judged = rows.projected(&partition).await.expect("the row");
     let sent = llm.journal().list().len();
 
     // The projection lost: the row live again, a playback running again.
@@ -303,13 +306,30 @@ async fn a_close_the_tables_lost_is_written_again_at_the_next_start() {
         .await
         .expect("the projection undone");
 
-    // The engine closed it: a close again is refused, whatever the table
-    // still says, and nothing is summarised again.
+    // The engine closed it: its close is judged, not the table's microphone
+    // or summary.
+    let lagging = rows.projected(&partition).await.expect("the row");
+    for field in [
+        "sessionStatus",
+        "closedAt",
+        "microphoneOn",
+        "summary",
+        "summaryModel",
+    ] {
+        assert_eq!(
+            lagging.get(field),
+            judged.get(field),
+            "{field}: {lagging:?}"
+        );
+    }
+    assert_eq!(lagging["microphoneOn"], false, "{lagging:?}");
+    // A close again is refused, whatever the table still says, and nothing
+    // is summarised again.
     let (_, again) = close(&engine, &app, SEANCE).await;
     assert_eq!(again.status, State::Rejected, "{again:?}");
     assert_eq!(again.violations, ["status-lifecycle"], "{again:?}");
     assert_eq!(llm.journal().list().len(), sent);
-    drop((engine, app, llm));
+    drop((engine, app, llm, rows));
 
     // The next start writes the close again.
     let _restarted = scratch.serve().await;

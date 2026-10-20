@@ -208,7 +208,8 @@ fn rank(status: &Value) -> Option<usize> {
 /// A session goes from prep to live, then to closed, one step at a time and
 /// never back; once closed, it takes no journal line. A close — a command
 /// setting the status to closed and dating it — closes a live session only:
-/// one already closed is not closed again, though its summary may be edited.
+/// one already closed, or with a close queued ahead of it, is not closed
+/// again, though its summary may be edited.
 fn status_lifecycle(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let status = value(state, STATUS);
     let before = value(&entry.projection.confirmed, STATUS);
@@ -221,7 +222,20 @@ fn status_lifecycle(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
         && written(entry).any(|field| JOURNAL.contains(&field.as_str()));
     let closes = entry.payload.get(STATUS).and_then(Value::as_str) == Some(CLOSED)
         && entry.payload.contains_key(CLOSED_AT);
-    forward && !journal && (!closes || before.is_null() || before.as_str() == Some(LIVE))
+    let from_live = (before.is_null() || before.as_str() == Some(LIVE)) && !closed_ahead(entry);
+    forward && !journal && (!closes || from_live)
+}
+
+/// Whether a close was queued ahead of `entry` when it was submitted: the
+/// confirmed row still says live, yet the session is closed before `entry`
+/// is applied. A command ahead shows the first of `entry`'s fields it
+/// writes — for a close, its status.
+fn closed_ahead(entry: &Entry) -> bool {
+    entry
+        .projection
+        .pending_ahead
+        .iter()
+        .any(|ahead| ahead.value.as_ref().and_then(Value::as_str) == Some(CLOSED))
 }
 
 /// A closed session has its microphone off and its close dated; a summary

@@ -261,6 +261,16 @@ const CAMPAIGN: &str = "Campaign/";
 /// The partitions of the Session aggregate: `Session/<session id>`.
 const SESSION: &str = "Session/";
 
+/// What a close writes on a session: the engine's, once it closed it, over
+/// a table that lags behind.
+const CLOSE: [&str; 5] = [
+    "sessionStatus",
+    "closedAt",
+    "microphoneOn",
+    "summary",
+    "summaryModel",
+];
+
 /// A session as its table holds it, under the Session aggregate's fields,
 /// `$1` its id in whatever case: what the engine judges a close against —
 /// every session no command of the engine wrote yet. A session the engine
@@ -799,7 +809,8 @@ impl Store for ProjectingStore {
     /// what the engine copied of it when it applied a command is never
     /// judged over what the table holds now. So is a session's: its status
     /// is the one a close is judged against (`status-lifecycle`) — but a
-    /// session the engine closed is closed, whatever its table still says.
+    /// session the engine closed keeps the engine's close, its status, its
+    /// microphone and its summary, whatever its table still says.
     /// Tables not migrated yet hold none.
     async fn row(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
         let mut row = self.inner.row(partition).await?;
@@ -820,14 +831,20 @@ impl Store for ProjectingStore {
                 BTreeMap::new()
             }
         };
-        // A close is never undone: a session the engine closed stays closed,
-        // its table lagging behind until its projection is made again.
+        // A close is never undone: a session the engine closed keeps its
+        // close, its table lagging behind until its projection is made again.
         let closed = partition.starts_with(SESSION)
             && row.get("sessionStatus").and_then(Value::as_str) == Some("closed");
+        let kept: Vec<(String, Value)> = if closed {
+            CLOSE
+                .iter()
+                .filter_map(|field| Some(((*field).to_owned(), row.get(*field)?.clone())))
+                .collect()
+        } else {
+            Vec::new()
+        };
         row.extend(table);
-        if closed {
-            row.insert("sessionStatus".to_owned(), "closed".into());
-        }
+        row.extend(kept);
         Ok(row)
     }
 
