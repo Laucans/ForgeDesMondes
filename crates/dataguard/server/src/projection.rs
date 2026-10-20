@@ -21,7 +21,11 @@
 //! per imported note, `NoteImport/<its id>`, and one per proposal: once the
 //! note is applied, [`ProjectingStore`] adds its `imported_note` row and the
 //! `note_proposal` row of every proposal of it applied, in one transaction —
-//! whichever the engine applied first. A campaign's row is its table's over the engine's, and
+//! whichever the engine applied first. A validation of a note's proposals
+//! (`campaign.createEntitiesFromNote`) writes each proposal's partition
+//! again, its check and the element it created: [`ProjectingStore`] writes
+//! `note_proposal.checked` and `created_entity_id` — the element's once the
+//! tables hold it, whichever the engine applied first. A campaign's row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!

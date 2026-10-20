@@ -34,7 +34,11 @@
 //! (`ai.extractFromNotes`) is made, before anything is queued, through the
 //! `llm` port and — for a dictation — the `speech-to-text` port the router
 //! is given, against the elements its campaign holds, which [`Rows`] knows:
-//! it is submitted as one command per proposal and one for the note.
+//! it is submitted as one command per proposal and one for the note. A
+//! validation of a note's proposals (`campaign.createEntitiesFromNote`) is
+//! made against the proposals the engine holds, which [`Rows`] knows by
+//! note: it is submitted as one Entity command per element it creates, then
+//! one command per proposal it checks or unchecks.
 
 use std::sync::Arc;
 

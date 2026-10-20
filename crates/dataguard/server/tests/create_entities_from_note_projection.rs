@@ -301,3 +301,77 @@ async fn the_proposals_held_before_a_start_are_unchecked_by_a_validation_after_i
     }
     s.drop().await;
 }
+
+#[tokio::test]
+async fn an_element_applied_after_its_proposal_is_recorded_on_it_once_the_tables_hold_it() {
+    let s = Scratch::new("late_element").await;
+    let (engine, app) = s.serve().await;
+    let note = extract(&engine, &app).await;
+    let ombeline = s.proposal(&note, "Mère Ombeline").await;
+    // A DM who is no approver: the element and the proposals wait for a
+    // review each, the element's first.
+    let body = json!({
+        "dataCapability": "campaign.createEntitiesFromNote@1",
+        "payload": { "campaign": VALOMBRE, "accepted": [ombeline] },
+        "caller": { "by": "dm", "from": "NoteImport", "roles": [] },
+    });
+    let request = Request::post("/commands")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("a request");
+    let response = app.clone().oneshot(request).await.expect("an answer");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("a body");
+    let answer: Value = serde_json::from_slice(&bytes).expect("JSON");
+    let reviews: Vec<String> = answer["warnings"]
+        .as_array()
+        .expect("warnings")
+        .iter()
+        .filter_map(|w| {
+            w.as_str()?
+                .strip_prefix("review ")?
+                .strip_suffix(" required")
+        })
+        .map(str::to_owned)
+        .collect();
+    assert!(reviews.len() >= 2, "{answer}");
+    let approve = |review: String| {
+        let engine = engine.clone();
+        async move {
+            engine
+                .decide(&review, "mj", &["role:approver".to_string()], true)
+                .await
+                .expect("approved");
+            let applied = engine.run_once().await.expect("the applier ran");
+            assert!(
+                applied.iter().all(|r| r.status == State::Applied),
+                "{applied:?}"
+            );
+        }
+    };
+    // The proposals first: the element they name is none the tables hold.
+    for review in reviews[1..].iter().cloned() {
+        approve(review).await;
+    }
+    let stamped = s
+        .rows(&format!(
+            "SELECT checked, created_entity_id FROM note_proposal WHERE id = '{ombeline}'"
+        ))
+        .await;
+    assert_eq!(
+        stamped,
+        [json!({ "checked": true, "created_entity_id": null })]
+    );
+
+    approve(reviews[0].clone()).await;
+    let created = s
+        .rows(&format!(
+            "SELECT e.name FROM note_proposal p JOIN entity e ON e.id = p.created_entity_id \
+             WHERE p.id = '{ombeline}'"
+        ))
+        .await;
+    assert_eq!(created, [json!({ "name": "Mère Ombeline" })]);
+    s.drop().await;
+}
