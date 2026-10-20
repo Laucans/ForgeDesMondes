@@ -1,0 +1,2914 @@
+{
+  "version": 1,
+  "tables": [
+    {
+      "business": [
+        "R3",
+        "R77",
+        "R92",
+        "R99"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du réglage.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut ; les quatre fournisseurs semés ont des identifiants fixes (crates/data/migrations/0001_ai_settings.sql)."
+          ]
+        },
+        {
+          "business": [
+            "R3"
+          ],
+          "name": "mode",
+          "nullable": false,
+          "purpose": "« api » ou « binaire ».",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_mode_fields : « api » ou « binaire », avec les champs de ce mode (invariant mode-fields de l'agrégat AiSettings)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "label",
+          "nullable": false,
+          "purpose": "Libellé affiché (« Endpoint opencode du serveur maison »).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R92"
+          ],
+          "name": "url",
+          "nullable": true,
+          "purpose": "URL de l'API, en mode « api ».",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_mode_fields : renseignée en mode « api », vide en mode « binaire »."
+          ]
+        },
+        {
+          "business": [
+            "R3",
+            "R92"
+          ],
+          "name": "detected_api_type",
+          "nullable": true,
+          "purpose": "Type d'API détecté (cloud, opencode).",
+          "type": "text",
+          "technical": [
+            "CHECK ai_provider_api_type_recognized : null, « cloud » ou « opencode », les types de ProviderApiType@1 (invariant api-type-recognized).",
+            "Dérivé par ai.saveSettings de l'URL et de la réponse de l'endpoint (ProviderApiType@1), jamais saisi ; stocké, car cette réponse ne se recalcule pas depuis d'autres lignes."
+          ]
+        },
+        {
+          "business": [],
+          "name": "api_key",
+          "nullable": true,
+          "purpose": "Clé d'API, stockée en local.",
+          "type": "text",
+          "technical": [
+            "Secret : jamais journalisé, masqué à chaque lecture ; vide dans le semis."
+          ]
+        },
+        {
+          "business": [
+            "R3"
+          ],
+          "name": "binary",
+          "nullable": true,
+          "purpose": "« opencode » ou « claude-code », en mode « binaire ».",
+          "type": "text",
+          "technical": [
+            "Mot réservé de PostgreSQL : toujours écrit entre guillemets (\"binary\").",
+            "CHECK ai_provider_mode_fields : « opencode » ou « claude-code » en mode « binaire », vide en mode « api »."
+          ]
+        },
+        {
+          "business": [
+            "R99",
+            "R100"
+          ],
+          "name": "generation_model",
+          "nullable": false,
+          "purpose": "Modèle pour statblocks, backgrounds et analyses.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R26",
+            "R99"
+          ],
+          "name": "summary_model",
+          "nullable": false,
+          "purpose": "Modèle pour les résumés de séance.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R3",
+            "R99"
+          ],
+          "name": "last_test_ok",
+          "nullable": true,
+          "purpose": "Résultat du dernier test de connexion.",
+          "type": "boolean",
+          "technical": [
+            "Écrit par ai.testConnection seul, qui n'écrit que les champs last_test_* (invariant test-does-not-save)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "last_test_at",
+          "nullable": true,
+          "purpose": "Date du dernier test.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [
+            "R92",
+            "R99"
+          ],
+          "name": "last_test_message",
+          "nullable": true,
+          "purpose": "Message de réussite ou raison de l'échec.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "last_test_latency_ms",
+          "nullable": true,
+          "purpose": "Latence mesurée.",
+          "type": "integer"
+        }
+      ],
+      "name": "ai_provider",
+      "purpose": "Réglage d'un fournisseur de génération : en mode « API » (URL dont le type est détecté) ou en mode « Binaire » (opencode ou Claude Code). Seul du texte lui est envoyé."
+    },
+    {
+      "business": [
+        "R3"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Toujours 1 : une seule ligne.",
+          "type": "smallint",
+          "technical": [
+            "Clé primaire, 1 par défaut ; CHECK ai_settings_single_row (id = 1) : une seule ligne (invariant single-settings-row)."
+          ]
+        },
+        {
+          "business": [
+            "R3",
+            "R100"
+          ],
+          "name": "active_provider_id",
+          "nullable": false,
+          "purpose": "Fournisseur utilisé pour les générations.",
+          "references": "ai_provider.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE RESTRICT ON UPDATE CASCADE (onDelete restrict, onUpdate propagate de l'agrégat) ; semée sur le fournisseur cloud."
+          ]
+        },
+        {
+          "business": [],
+          "name": "updated_at",
+          "nullable": false,
+          "purpose": "Dernier enregistrement des paramètres.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "ai_settings",
+      "purpose": "Réglage unique de la machine : quel fournisseur est actif."
+    },
+    {
+      "business": [
+        "R1 : plusieurs campagnes et oneshots, sans compte",
+        "R2 : export et import en archive, l'import crée toujours une copie distincte"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la campagne.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0002_campaign.sql)."
+          ]
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom affiché à l'accueil (« Les Cendres de Valombre »).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1 : un oneshot n'a qu'une séance"
+          ],
+          "name": "kind",
+          "nullable": false,
+          "purpose": "« campagne » ou « oneshot ».",
+          "type": "text",
+          "technical": [
+            "CHECK campaign_kind : « campagne » ou « oneshot » (invariant oneshot-single-session de l'agrégat Campaign ; le compte des séances attend la table session)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "pitch",
+          "nullable": true,
+          "purpose": "Accroche affichée sous le nom.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "art",
+          "nullable": true,
+          "purpose": "Palette de la couverture par défaut (ember, dusk, night).",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "glyph",
+          "nullable": true,
+          "purpose": "Lettre affichée sur la couverture par défaut.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R1",
+            "R24"
+          ],
+          "name": "cover_media_id",
+          "nullable": true,
+          "purpose": "Illustration de couverture, aussi affichée par défaut sur la player view.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Campaign.coverMediaId : onDelete nullify, onUpdate propagate), posée par crates/data/migrations/0005_media.sql ; indexée (campaign_cover_media_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date de création de la campagne.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "last_exported_at",
+          "nullable": true,
+          "purpose": "Date du dernier export en archive, affichée sur l'aperçu.",
+          "type": "timestamptz",
+          "technical": [
+            "Écrit par campaign.exportCampaign seul, qui n'écrit rien d'autre (invariant export-stamps-date)."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "imported_at",
+          "nullable": true,
+          "purpose": "Date d'import si la campagne est une copie créée depuis une archive.",
+          "type": "timestamptz",
+          "technical": [
+            "Écrit par un import seul, à la création de la copie (invariant import-creates-copy)."
+          ]
+        },
+        {
+          "business": [
+            "R2"
+          ],
+          "name": "origin_campaign_id",
+          "nullable": true,
+          "purpose": "Identifiant de la campagne d'origine lu dans l'archive. Ce n'est pas une clé étrangère : l'originale peut ne pas exister sur cette machine.",
+          "type": "uuid",
+          "technical": [
+            "Écrit par un import seul, à la création de la copie, jamais sur l'originale (invariant import-creates-copy)."
+          ]
+        },
+        {
+          "business": [
+            "R16",
+            "R111"
+          ],
+          "name": "sound_master_volume",
+          "nullable": false,
+          "purpose": "Volume global de la soundbox, entre 0 et 1.",
+          "type": "numeric(3,2)",
+          "technical": [
+            "1 par défaut ; CHECK campaign_master_volume_range : entre 0 et 1 (invariant master-volume-range)."
+          ]
+        }
+      ],
+      "name": "campaign",
+      "purpose": "Une campagne ou un oneshot du DM, avec sa couverture, son pitch et ses réglages propres. Aucun compte : toutes les campagnes de la machine sont visibles à l'accueil."
+    },
+    {
+      "business": [
+        "R4 : les joueurs sont conservés à part des personnages ; un PJ est lié à un joueur",
+        "player-not-character : un joueur n'est pas un élément de campagne, il n'a ni fiche ni token"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du joueur.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0003_player.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne à laquelle participe le joueur.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Player.campaignId : onDelete cascade, onUpdate propagate) : supprimer une campagne supprime ses joueurs.",
+            "Indexée (player_campaign_id) : les joueurs d'une campagne sont lus par elle."
+          ]
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom du joueur.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "notes",
+          "nullable": true,
+          "purpose": "Notes du DM sur le joueur.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date d'ajout.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "player",
+      "purpose": "Un joueur réel de la table, distinct des personnages qu'il incarne : un nom et des notes, ni fiche ni token. Ses PJ pointent vers lui (character.player_id), jamais l'inverse."
+    },
+    {
+      "business": [
+        "R4",
+        "every-change-versioned : tout enregistrement de l'élément, de sa fiche ou de ses alias ajoute une version dans la même transaction (triggers de contrainte différés every_change_versioned sur entity, character et entity_alias) ; ce que font les relations (cascade de la campagne, suppression ou nouvel identifiant du joueur) n'en demande pas",
+        "R94",
+        "R96",
+        "character-is-pj-or-pnj : seul un élément « pj » ou « pnj » a une fiche de personnage",
+        "every-change-versioned : tout enregistrement de l'élément, de sa fiche ou de ses alias ajoute une version, dans la même transaction",
+        "Une suppression est logique, une pierre tombale du DataGuard, sauf accord d'un humain"
+      ],
+      "fields": [
+        {
+          "business": [
+            "R93"
+          ],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de l'élément, porté par l'URL de sa fiche.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0004_entity.sql).",
+            "Les versions retiennent l'identifiant : ON UPDATE RESTRICT depuis entity_version.entity_id."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne de l'élément.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Entity.entityCampaignId : onDelete cascade, onUpdate propagate).",
+            "Indexée (entity_campaign_id) : les éléments d'une campagne sont lus et comptés par elle."
+          ]
+        },
+        {
+          "business": [
+            "R4",
+            "R96"
+          ],
+          "name": "type",
+          "nullable": false,
+          "purpose": "« pj », « pnj », « lieu » ou « evenement ». Détermine l'onglet et la section du rail.",
+          "type": "text",
+          "technical": [
+            "CHECK entity_type : 'pj', 'pnj', 'lieu' ou 'evenement'.",
+            "Trigger de contrainte différé character_is_pj_or_pnj : un changement de type est refusé s'il laisse une fiche à un lieu ou un joueur à un PNJ."
+          ]
+        },
+        {
+          "business": [
+            "R6",
+            "R93"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom de l'élément, cherché dans le rail et détecté au micro.",
+          "type": "text",
+          "technical": [
+            "Trigger de contrainte différé alias_unique_in_campaign : le nom ne double pas l'alias d'un autre élément de la campagne, une fois normalisé (alias_match_normalized, AliasMatch@1)."
+          ]
+        },
+        {
+          "business": [
+            "R95"
+          ],
+          "name": "description",
+          "nullable": true,
+          "purpose": "Description lisible de l'élément.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R4",
+            "R25"
+          ],
+          "name": "notes",
+          "nullable": true,
+          "purpose": "Notes privées du DM, jamais montrées aux joueurs.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date de création.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R9"
+          ],
+          "name": "updated_at",
+          "nullable": false,
+          "purpose": "Date du dernier enregistrement.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut ; posé par l'enregistrement qui écrit l'élément."
+          ]
+        }
+      ],
+      "name": "entity",
+      "purpose": "Élément de campagne commun : PJ, PNJ, lieu ou événement. Porte le nom, les notes et sert de cible unique aux alias, aux versions, aux scènes et aux suggestions."
+    },
+    {
+      "business": [
+        "R4",
+        "R7",
+        "R8",
+        "R100",
+        "R101",
+        "character-is-pj-or-pnj : la fiche n'existe que pour un PJ ou un PNJ ; seul un PJ a un joueur, de la même campagne",
+        "dex-modifier-derived : le modificateur de DEX vaut floor((DEX - 10) / 2) (AbilityModifier@1), calculé à la lecture, jamais stocké ni saisi",
+        "default-token : sans image de token ni portrait, le token est une pastille de token_color à l'initiale du nom ; un recadrage est celui du portrait"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "entity_id",
+          "nullable": false,
+          "purpose": "Élément dont c'est la fiche de personnage.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire : une fiche au plus par élément.",
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Entity.characterEntityId : onDelete cascade, onUpdate propagate).",
+            "Trigger de contrainte différé character_is_pj_or_pnj : l'élément est de type « pj » ou « pnj »."
+          ]
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "player_id",
+          "nullable": true,
+          "purpose": "Joueur qui incarne le PJ. Toujours vide pour un PNJ.",
+          "references": "player.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Entity.playerId : onDelete nullify, onUpdate propagate).",
+            "Trigger de contrainte différé character_is_pj_or_pnj : vide pour un PNJ ; pour un PJ, un joueur de la campagne de l'élément.",
+            "Indexée (character_player_id)."
+          ]
+        },
+        {
+          "business": [
+            "R7",
+            "R77"
+          ],
+          "name": "initial_prompt",
+          "nullable": true,
+          "purpose": "Prompt initial dicté puis transcrit, envoyé comme texte au fournisseur.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R7",
+            "R100"
+          ],
+          "name": "background",
+          "nullable": true,
+          "purpose": "Histoire du personnage.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R100"
+          ],
+          "name": "behavior",
+          "nullable": true,
+          "purpose": "Comportement et manière de jouer le personnage.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R4",
+            "R100"
+          ],
+          "name": "strength",
+          "nullable": true,
+          "purpose": "Caractéristique FOR.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R22",
+            "R105"
+          ],
+          "name": "dexterity",
+          "nullable": true,
+          "purpose": "Caractéristique DEX, utilisée aussi pour départager l'initiative.",
+          "type": "smallint",
+          "technical": [
+            "Aucune colonne ne stocke son modificateur (dex-modifier-derived) : floor((dexterity - 10) / 2), AbilityModifier@1."
+          ]
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "constitution",
+          "nullable": true,
+          "purpose": "Caractéristique CON.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "intelligence",
+          "nullable": true,
+          "purpose": "Caractéristique INT.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "wisdom",
+          "nullable": true,
+          "purpose": "Caractéristique SAG.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4"
+          ],
+          "name": "charisma",
+          "nullable": true,
+          "purpose": "Caractéristique CHA.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4",
+            "R100"
+          ],
+          "name": "armor_class",
+          "nullable": true,
+          "purpose": "CA.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4",
+            "R100"
+          ],
+          "name": "hp_max",
+          "nullable": true,
+          "purpose": "PV maximum de la fiche, copiés sur chaque instance de token de PNJ.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R4",
+            "R8"
+          ],
+          "name": "spells",
+          "nullable": false,
+          "purpose": "Sorts de la fiche.",
+          "type": "jsonb",
+          "technical": [
+            "'[]' par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R4",
+            "R100"
+          ],
+          "name": "actions",
+          "nullable": false,
+          "purpose": "Actions et capacités du statblock (nom, texte).",
+          "type": "jsonb",
+          "technical": [
+            "'[]' par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "portrait_media_id",
+          "nullable": true,
+          "purpose": "Portrait du personnage.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Entity.portraitMediaId : onDelete nullify, onUpdate propagate), posée par crates/data/migrations/0005_media.sql ; indexée (character_portrait_media_id). Ce que fait la relation n'est l'enregistrement de personne : every_change_versioned ne demande pas de version, et le recadrage part avec le portrait (trigger token_crop_follows_portrait)."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "token_media_id",
+          "nullable": true,
+          "purpose": "Image de token dédiée, si le DM en a fourni une.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Entity.tokenMediaId : onDelete nullify, onUpdate propagate), posée par crates/data/migrations/0005_media.sql ; indexée (character_token_media_id). Ce que fait la relation n'est l'enregistrement de personne : every_change_versioned ne demande pas de version."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "token_crop",
+          "nullable": true,
+          "purpose": "Recadrage du portrait utilisé comme token.",
+          "type": "jsonb",
+          "technical": [
+            "CHECK character_default_token_crop : un recadrage n'existe qu'avec un portrait (default-token).",
+            "Trigger token_crop_follows_portrait (0005_media.sql) : un portrait annulé par la suppression de son média emporte son recadrage."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "token_color",
+          "nullable": false,
+          "purpose": "Couleur de la pastille par défaut.",
+          "type": "text",
+          "technical": [
+            "CHECK character_default_token_color : jamais vide (default-token)."
+          ]
+        },
+        {
+          "business": [
+            "R8"
+          ],
+          "name": "dndbeyond_id",
+          "nullable": true,
+          "purpose": "Identifiant du personnage sur D&D Beyond.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R8"
+          ],
+          "name": "dndbeyond_synced_at",
+          "nullable": true,
+          "purpose": "Date de la dernière resynchronisation.",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "character",
+      "purpose": "Complément d'un élément de type PJ ou PNJ : fiche jouable, background, token et lien D&D Beyond."
+    },
+    {
+      "business": [
+        "R6",
+        "R18",
+        "R93",
+        "alias-unique-in-campaign : un alias normalisé (AliasMatch@1) ne désigne qu'un élément de la campagne et ne double pas le nom d'un autre"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de l'alias.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut."
+          ]
+        },
+        {
+          "business": [],
+          "name": "entity_id",
+          "nullable": false,
+          "purpose": "Élément désigné.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Entity.entityAliasEntityId : onDelete cascade, onUpdate propagate).",
+            "Indexée (entity_alias_entity_id)."
+          ]
+        },
+        {
+          "business": [
+            "R6",
+            "R93"
+          ],
+          "name": "alias",
+          "nullable": false,
+          "purpose": "Texte de l'alias.",
+          "type": "text",
+          "technical": [
+            "Trigger de contrainte différé alias_unique_in_campaign, sur alias_match_normalized(alias) : minuscules, sans accents, sans blancs autour (AliasMatch@1) ; un alias vide ne désigne rien."
+          ]
+        }
+      ],
+      "name": "entity_alias",
+      "purpose": "Un autre nom par lequel un élément est désigné à la table (« la taverne », « la rôdeuse »)."
+    },
+    {
+      "business": [
+        "R9",
+        "R12",
+        "every-change-versioned : une version n'est jamais modifiée ; son numéro suit celui de la précédente (EntityVersion@1)",
+        "restore-exact : une restauration nomme une version antérieure du même élément et réécrit ses valeurs telles quelles",
+        "dndbeyond-resync-scope : une version « dndbeyond » ne change que les caractéristiques, la CA, les PV max, les sorts et les actions",
+        "proposal-fills-sheet-fields : une version « ia » ne remplit que background, comportement, caractéristiques, CA, PV max et actions"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la version.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut.",
+            "Trigger every_change_versioned (BEFORE UPDATE OR DELETE) : une version n'est jamais modifiée ni effacée ; elle part avec son élément seul, par la cascade de entity_version.entity_id."
+          ]
+        },
+        {
+          "business": [],
+          "name": "entity_id",
+          "nullable": false,
+          "purpose": "Élément versionné.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE RESTRICT (relation Entity.entityVersionEntityId : onDelete cascade, onUpdate restrict)."
+          ]
+        },
+        {
+          "business": [
+            "R9"
+          ],
+          "name": "version_number",
+          "nullable": false,
+          "purpose": "Numéro croissant par élément.",
+          "type": "integer",
+          "technical": [
+            "CHECK entity_version_number (>= 1) ; UNIQUE entity_version_numbered (entity_id, version_number).",
+            "Trigger entity_version_added (BEFORE INSERT) : le numéro est le dernier de l'élément plus 1."
+          ]
+        },
+        {
+          "business": [
+            "R9",
+            "R12"
+          ],
+          "name": "source",
+          "nullable": false,
+          "purpose": "« dm », « ia », « dndbeyond », « brief » ou « restauration ».",
+          "type": "text",
+          "technical": [
+            "CHECK entity_version_source : 'dm', 'ia', 'dndbeyond', 'brief' ou 'restauration'.",
+            "Trigger entity_version_added : 'dndbeyond' et 'ia' ne changent que les champs de leur périmètre, lus dans diff."
+          ]
+        },
+        {
+          "business": [
+            "R9"
+          ],
+          "name": "snapshot",
+          "nullable": false,
+          "purpose": "État complet de l'élément, de sa fiche et de ses alias après la modification.",
+          "type": "jsonb",
+          "technical": [
+            "CHECK entity_version_snapshot : un objet JSON, une clé par champ de l'élément et de sa fiche, plus aliases (EntityVersion@1)."
+          ]
+        },
+        {
+          "business": [
+            "R9",
+            "R12"
+          ],
+          "name": "diff",
+          "nullable": false,
+          "purpose": "Différence avec la version précédente.",
+          "type": "jsonb",
+          "technical": [
+            "CHECK entity_version_diff : un tableau d'entrées {field, old, new} triées par field (EntityVersion@1).",
+            "Trigger entity_version_added : chaque entrée nomme son champ par une chaîne ; le trigger marque la transaction (réglage local entity.versioned_<élément>) comme ayant versionné l'élément."
+          ]
+        },
+        {
+          "business": [
+            "R9"
+          ],
+          "name": "restored_from_version_id",
+          "nullable": true,
+          "purpose": "Version restaurée, si cette version est un retour arrière.",
+          "references": "entity_version.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE RESTRICT (relation Entity.restoredFromVersionId : onDelete nullify, onUpdate restrict).",
+            "CHECK entity_version_restored_by_restoration : renseigné seulement pour la source 'restauration' ; le trigger entity_version_added l'exige alors, version antérieure du même élément, dont chaque champ du diff reprend la valeur.",
+            "Indexée (entity_version_restored_from_version_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date de la version.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "entity_version",
+      "purpose": "Version enregistrée d'un élément, avec son diff et sa source. Une version n'est jamais modifiée."
+    },
+    {
+      "business": [
+        "R14",
+        "R97",
+        "R112",
+        "grid-only-for-battlemap : seule une battlemap a un réglage de grille, et elle en a toujours un dès son téléversement",
+        "media-place-is-lieu : le lieu d'un média, s'il est renseigné, est un élément de type « lieu » de la même campagne",
+        "Une suppression est logique, une pierre tombale du DataGuard, sauf accord d'un humain"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du média.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0005_media.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne du média.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Media.campaignId : onDelete cascade, onUpdate propagate).",
+            "Indexée (media_campaign_id) : les médias d'une campagne sont lus et supprimés par elle.",
+            "Trigger de contrainte différé media_place_is_lieu : le lieu du média est de cette campagne."
+          ]
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "kind",
+          "nullable": false,
+          "purpose": "« battlemap » ou « illustration ».",
+          "type": "text",
+          "technical": [
+            "CHECK media_kind : « battlemap » ou « illustration ».",
+            "Trigger de contrainte différé grid_only_for_battlemap : une battlemap a sa grille dans la transaction de son téléversement, un autre média n'en a pas."
+          ]
+        },
+        {
+          "business": [],
+          "name": "title",
+          "nullable": false,
+          "purpose": "Titre affiché sur la carte du média.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "file_path",
+          "nullable": false,
+          "purpose": "Chemin local du fichier image.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R112"
+          ],
+          "name": "width_px",
+          "nullable": false,
+          "purpose": "Largeur de l'image.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R112"
+          ],
+          "name": "height_px",
+          "nullable": false,
+          "purpose": "Hauteur de l'image.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R97"
+          ],
+          "name": "place_id",
+          "nullable": true,
+          "purpose": "Lieu auquel le média est rattaché. Facultatif.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Media.placeId : onDelete nullify, onUpdate propagate).",
+            "Indexée (media_place_id).",
+            "Trigger de contrainte différé media_place_is_lieu, sur media et sur entity : l'élément est de type « lieu » et de la campagne du média."
+          ]
+        },
+        {
+          "business": [],
+          "name": "uploaded_at",
+          "nullable": false,
+          "purpose": "Date du téléversement.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "media",
+      "purpose": "Battlemap ou illustration préconstruite et téléversée, éventuellement rattachée à un lieu."
+    },
+    {
+      "business": [
+        "R14",
+        "grid-only-for-battlemap : seule une battlemap a un réglage de grille, et elle en a toujours un dès son téléversement",
+        "hex-is-five-feet : un hex vaut toujours 5 pieds, quels que soient sa taille, son décalage ou son orientation",
+        "grid-values-range : la taille d'un hex est strictement positive et l'opacité reste entre 0 et 1"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "media_id",
+          "nullable": false,
+          "purpose": "Battlemap réglée.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire : une grille au plus par battlemap.",
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Media.mediaId : onDelete cascade, onUpdate propagate).",
+            "Trigger de contrainte différé grid_only_for_battlemap : le média est une battlemap ; sa grille ne la quitte qu'avec elle."
+          ]
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "hex_size_px",
+          "nullable": false,
+          "purpose": "Taille d'un hex en pixels de l'image.",
+          "type": "numeric(7,2)",
+          "technical": [
+            "CHECK grid_values_range : strictement positive."
+          ]
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "offset_x",
+          "nullable": false,
+          "purpose": "Décalage horizontal de la grille.",
+          "type": "numeric(7,2)"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "offset_y",
+          "nullable": false,
+          "purpose": "Décalage vertical de la grille.",
+          "type": "numeric(7,2)"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "orientation",
+          "nullable": false,
+          "purpose": "« pointe » ou « plat ».",
+          "type": "text",
+          "technical": [
+            "CHECK battlemap_grid_orientation : « pointe » ou « plat »."
+          ]
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "color",
+          "nullable": false,
+          "purpose": "Couleur des traits de la grille.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R14"
+          ],
+          "name": "opacity",
+          "nullable": false,
+          "purpose": "Opacité de la grille, entre 0 et 1.",
+          "type": "numeric(3,2)",
+          "technical": [
+            "CHECK grid_values_range : entre 0 et 1."
+          ]
+        },
+        {
+          "business": [
+            "R14",
+            "R19"
+          ],
+          "name": "feet_per_hex",
+          "nullable": false,
+          "purpose": "Colonne générée, toujours égale à 5.",
+          "type": "smallint",
+          "technical": [
+            "GENERATED ALWAYS AS (5) STORED : jamais écrite.",
+            "CHECK hex_is_five_feet : égale à 5."
+          ]
+        }
+      ],
+      "name": "battlemap_grid",
+      "purpose": "Réglage de la grille hexagonale d'une battlemap."
+    },
+    {
+      "business": [
+        "R6",
+        "R18",
+        "R93"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne concernée.",
+          "type": "uuid",
+          "technical": [
+            "entity.campaign_id."
+          ]
+        },
+        {
+          "business": [],
+          "name": "entity_id",
+          "nullable": true,
+          "purpose": "Élément désigné par le terme, si c'en est un.",
+          "type": "uuid",
+          "technical": [
+            "entity.id, pour un nom comme pour un alias."
+          ]
+        },
+        {
+          "business": [],
+          "name": "sound_id",
+          "nullable": true,
+          "purpose": "Son désigné par le terme, si c'en est un.",
+          "type": "uuid",
+          "technical": [
+            "NULL tant que la table sound n'existe pas."
+          ]
+        },
+        {
+          "business": [
+            "R6"
+          ],
+          "name": "term",
+          "nullable": false,
+          "purpose": "Nom ou alias tel qu'affiché.",
+          "type": "text",
+          "technical": [
+            "entity.name ou entity_alias.alias."
+          ]
+        },
+        {
+          "business": [
+            "R93"
+          ],
+          "name": "normalized_term",
+          "nullable": false,
+          "purpose": "Terme en minuscules et sans accents (« rodeuse »).",
+          "type": "text",
+          "technical": [
+            "alias_match_normalized(term) ; un terme vide une fois normalisé n'y figure pas."
+          ]
+        }
+      ],
+      "name": "detection_vocabulary_view",
+      "purpose": "Vue calculée, non stockée : tous les noms et alias des éléments d'une campagne, normalisés sans accents ni casse (AliasMatch@1). Sert au vocabulaire de transcription, à la détection en direct et à la recherche du rail ; les termes des sons la rejoignent avec la table sound."
+    },
+    {
+      "business": [
+        "R1"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne concernée.",
+          "type": "uuid",
+          "technical": [
+            "campaign.id : une ligne par campagne."
+          ]
+        },
+        {
+          "business": [
+            "R1"
+          ],
+          "name": "entity_counts",
+          "nullable": false,
+          "purpose": "Comptes de joueurs, de personnages (PJ et PNJ), de lieux et d'événements.",
+          "type": "jsonb",
+          "technical": [
+            "{players, characters, places, events} : count(*) sur player et entity, par campagne ; médias et sons s'y ajoutent avec leurs tables."
+          ]
+        }
+      ],
+      "name": "campaign_overview_view",
+      "purpose": "Vue calculée, non stockée : le modèle de lecture du Campaign aggregate, les compteurs de chaque campagne pour l'accueil et l'aperçu. Le nombre de séances, leurs dates et les comptes de médias et de sons la rejoignent avec les tables de leurs jalons."
+    },
+    {
+      "business": [
+        "R1",
+        "R13",
+        "R17",
+        "R26"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la séance.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0006_session.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne de la séance.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.sessionCampaignId : onDelete cascade, onUpdate propagate).",
+            "Indexée (session_campaign_id)."
+          ]
+        },
+        {
+          "business": [
+            "R13"
+          ],
+          "name": "position",
+          "nullable": false,
+          "purpose": "Numéro d'ordre de la séance (séance 4).",
+          "type": "integer"
+        },
+        {
+          "business": [],
+          "name": "title",
+          "nullable": false,
+          "purpose": "Titre de la séance.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "planned_on",
+          "nullable": true,
+          "purpose": "Date prévue.",
+          "type": "date"
+        },
+        {
+          "business": [
+            "R17",
+            "R26"
+          ],
+          "name": "status",
+          "nullable": false,
+          "purpose": "« prep », « live » ou « closed ».",
+          "type": "text",
+          "technical": [
+            "CHECK session_status : « prep », « live » ou « closed »."
+          ]
+        },
+        {
+          "business": [],
+          "name": "started_at",
+          "nullable": true,
+          "purpose": "Début de la séance en direct.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [
+            "R26"
+          ],
+          "name": "closed_at",
+          "nullable": true,
+          "purpose": "Clôture de la séance.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [
+            "R18",
+            "R26",
+            "R77"
+          ],
+          "name": "microphone_on",
+          "nullable": false,
+          "purpose": "Indique si le micro écoute. L'audio reste sur la machine.",
+          "type": "boolean"
+        },
+        {
+          "business": [
+            "R13",
+            "R26"
+          ],
+          "name": "summary",
+          "nullable": true,
+          "purpose": "Résumé généré à la clôture, puis retouchable.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R26"
+          ],
+          "name": "summary_model",
+          "nullable": true,
+          "purpose": "Modèle qui a généré le résumé.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "summary_edited_at",
+          "nullable": true,
+          "purpose": "Dernière retouche du résumé par le DM.",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "session",
+      "purpose": "Une séance de la campagne : préparation, conduite en direct, puis clôture avec son résumé."
+    },
+    {
+      "business": [
+        "R10"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire (session_id, character_id) : un PJ est coché une fois par séance (crates/data/migrations/0006_session.sql).",
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.sessionPresentCharacterSessionId : onDelete cascade, onUpdate propagate)."
+          ]
+        },
+        {
+          "business": [
+            "R10"
+          ],
+          "name": "character_id",
+          "nullable": false,
+          "purpose": "PJ présent.",
+          "references": "character.entity_id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.sessionPresentCharacterCharacterId : onDelete cascade, onUpdate propagate).",
+            "Indexée (session_present_character_character_id)."
+          ]
+        },
+        {
+          "business": [
+            "R10"
+          ],
+          "name": "added_at",
+          "nullable": false,
+          "purpose": "Moment où le PJ a été coché, y compris en cours de séance.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "session_present_character",
+      "purpose": "PJ coché présent pour une séance."
+    },
+    {
+      "business": [
+        "R10"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance.",
+          "type": "uuid",
+          "technical": [
+            "Colonne de la vue session_roster_view (crates/data/migrations/0006_session.sql). Union sans doublon de session_present_character et des scene_entity de type « pnj » des scènes de la séance."
+          ]
+        },
+        {
+          "business": [
+            "R10"
+          ],
+          "name": "character_id",
+          "nullable": false,
+          "purpose": "Personnage proposé.",
+          "type": "uuid",
+          "technical": [
+            "character.entity_id du PJ présent, ou entity.id du PNJ lié à une scène."
+          ]
+        },
+        {
+          "business": [],
+          "name": "via",
+          "nullable": false,
+          "purpose": "« present » pour un PJ coché, « scene » pour un PNJ lié à une scène.",
+          "type": "text",
+          "technical": [
+            "« present » ou « scene »."
+          ]
+        }
+      ],
+      "name": "session_roster_view",
+      "purpose": "Vue calculée, non stockée : les personnages proposés dans la DM view et sur les battlemaps d'une séance, c'est-à-dire les PJ présents plus les PNJ liés à ses scènes."
+    },
+    {
+      "business": [
+        "R11",
+        "R17"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la scène.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0006_session.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance de la scène.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.sceneSessionId : onDelete cascade, onUpdate propagate).",
+            "Indexée (scene_session_id, avec position)."
+          ]
+        },
+        {
+          "business": [
+            "R11",
+            "R17"
+          ],
+          "name": "position",
+          "nullable": false,
+          "purpose": "Rang de la scène, réordonnable.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R11"
+          ],
+          "name": "title",
+          "nullable": false,
+          "purpose": "Titre de la scène.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R11",
+            "R25"
+          ],
+          "name": "notes",
+          "nullable": true,
+          "purpose": "Notes de préparation du DM.",
+          "type": "text"
+        }
+      ],
+      "name": "scene",
+      "purpose": "Une scène ordonnée de la séance, issue du brief oral ou ajoutée à la main."
+    },
+    {
+      "business": [
+        "R11",
+        "R97",
+        "R102"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "scene_id",
+          "nullable": false,
+          "purpose": "Scène.",
+          "references": "scene.id",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire (scene_id, entity_id) : un élément est lié une fois par scène (crates/data/migrations/0006_session.sql).",
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.sceneEntitySceneId : onDelete cascade, onUpdate propagate)."
+          ]
+        },
+        {
+          "business": [
+            "R11"
+          ],
+          "name": "entity_id",
+          "nullable": false,
+          "purpose": "Élément lié.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.entityId : onDelete cascade, onUpdate propagate).",
+            "Indexée (scene_entity_entity_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "position",
+          "nullable": false,
+          "purpose": "Ordre d'affichage dans la scène.",
+          "type": "integer"
+        }
+      ],
+      "name": "scene_entity",
+      "purpose": "Lien entre une scène et un lieu, un personnage ou un événement."
+    },
+    {
+      "business": [
+        "R11"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "scene_id",
+          "nullable": false,
+          "purpose": "Scène.",
+          "references": "scene.id",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire (scene_id, media_id) : un média est lié une fois par scène (crates/data/migrations/0006_session.sql).",
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.sceneMediaSceneId : onDelete cascade, onUpdate propagate)."
+          ]
+        },
+        {
+          "business": [
+            "R11"
+          ],
+          "name": "media_id",
+          "nullable": false,
+          "purpose": "Média lié.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.sceneMediaMediaId : onDelete cascade, onUpdate propagate).",
+            "Indexée (scene_media_media_id)."
+          ]
+        }
+      ],
+      "name": "scene_media",
+      "purpose": "Média lié directement à une scène."
+    },
+    {
+      "business": [
+        "R97"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance.",
+          "type": "uuid",
+          "technical": [
+            "Colonne de la vue session_media_view (crates/data/migrations/0006_session.sql). Une ligne par média et par séance : les scene_media des scènes de la séance, puis les médias dont le lieu est lié à une de ses scènes ; un média à la fois lié à une scène et rattaché à un lieu d'une scène y figure une fois, en lien direct."
+          ]
+        },
+        {
+          "business": [
+            "R97"
+          ],
+          "name": "media_id",
+          "nullable": false,
+          "purpose": "Média associé.",
+          "type": "uuid"
+        },
+        {
+          "business": [
+            "R97"
+          ],
+          "name": "via_place_id",
+          "nullable": true,
+          "purpose": "Lieu par lequel passe l'association, ou vide pour un lien direct.",
+          "type": "uuid",
+          "technical": [
+            "media.place_id pour un média rattaché à un lieu d'une scène, vide pour un média lié directement."
+          ]
+        }
+      ],
+      "name": "session_media_view",
+      "purpose": "Vue calculée, non stockée : les médias associés à une séance, soit liés directement à une scène, soit rattachés à un lieu présent dans une de ses scènes."
+    },
+    {
+      "business": [
+        "R11",
+        "R12",
+        "R77",
+        "R102"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du brief.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0006_session.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance préparée.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.oralBriefSessionId : onDelete cascade, onUpdate propagate).",
+            "Indexée (oral_brief_session_id)."
+          ]
+        },
+        {
+          "business": [
+            "R77"
+          ],
+          "name": "transcript",
+          "nullable": false,
+          "purpose": "Transcription en texte. Aucun audio n'est conservé.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "duration_seconds",
+          "nullable": false,
+          "purpose": "Durée de la dictée.",
+          "type": "integer"
+        },
+        {
+          "business": [],
+          "name": "recorded_at",
+          "nullable": false,
+          "purpose": "Date de la dictée.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [
+            "R11"
+          ],
+          "name": "analyzed_at",
+          "nullable": true,
+          "purpose": "Date de l'analyse en scènes.",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "oral_brief",
+      "purpose": "Brief de séance raconté au micro, transcrit en local puis analysé comme texte."
+    },
+    {
+      "business": [
+        "R12",
+        "R102",
+        "R103"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de l'entrée.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0006_session.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne visée.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.entityToCreateCampaignId : onDelete cascade, onUpdate propagate).",
+            "Indexée (entity_to_create_campaign_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": true,
+          "purpose": "Séance du brief d'origine.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Session.entityToCreateSessionId : onDelete cascade, onUpdate propagate).",
+            "Indexée (entity_to_create_session_id)."
+          ]
+        },
+        {
+          "business": [
+            "R102"
+          ],
+          "name": "brief_id",
+          "nullable": true,
+          "purpose": "Brief qui a cité l'élément.",
+          "references": "oral_brief.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Session.briefId : onDelete nullify, onUpdate propagate).",
+            "Indexée (entity_to_create_brief_id)."
+          ]
+        },
+        {
+          "business": [
+            "R102"
+          ],
+          "name": "scene_id",
+          "nullable": true,
+          "purpose": "Scène où l'élément est attendu.",
+          "references": "scene.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Session.entityToCreateSceneId : onDelete nullify, onUpdate propagate).",
+            "Indexée (entity_to_create_scene_id)."
+          ]
+        },
+        {
+          "business": [
+            "R102"
+          ],
+          "name": "type",
+          "nullable": false,
+          "purpose": "« pnj », « lieu » ou « evenement ».",
+          "type": "text",
+          "technical": [
+            "CHECK entity_to_create_type : « pnj », « lieu » ou « evenement »."
+          ]
+        },
+        {
+          "business": [
+            "R102"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom cité.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R102",
+            "R103"
+          ],
+          "name": "excerpt",
+          "nullable": false,
+          "purpose": "Extrait du brief qui le cite.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R103"
+          ],
+          "name": "refinement_text",
+          "nullable": true,
+          "purpose": "Phrases ajoutées par le DM avec « Affiner ».",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R103"
+          ],
+          "name": "status",
+          "nullable": false,
+          "purpose": "« a_creer » ou « creee ».",
+          "type": "text",
+          "technical": [
+            "CHECK entity_to_create_status : « a_creer » ou « creee »."
+          ]
+        },
+        {
+          "business": [
+            "R103"
+          ],
+          "name": "created_entity_id",
+          "nullable": true,
+          "purpose": "Élément créé à partir de l'entrée.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Session.createdEntityId : onDelete nullify, onUpdate propagate).",
+            "Indexée (entity_to_create_created_entity_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date d'ajout à la liste.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "entity_to_create",
+      "purpose": "Entrée de la liste « à créer » : un élément cité dans un brief mais absent de la campagne."
+    },
+    {
+      "business": [
+        "R13",
+        "R26"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la ligne.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0006_session.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE RESTRICT (relation Session.sessionJournalLineSessionId : onDelete cascade, onUpdate restrict).",
+            "Indexée (session_journal_line_session_id, avec spoken_at)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "scene_id",
+          "nullable": true,
+          "purpose": "Scène en cours au moment de la ligne.",
+          "references": "scene.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Session.sessionJournalLineSceneId : onDelete nullify, onUpdate propagate).",
+            "Indexée (session_journal_line_scene_id)."
+          ]
+        },
+        {
+          "business": [
+            "R13"
+          ],
+          "name": "spoken_at",
+          "nullable": false,
+          "purpose": "Horodatage.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [
+            "R26",
+            "R77"
+          ],
+          "name": "text",
+          "nullable": false,
+          "purpose": "Texte transcrit.",
+          "type": "text"
+        }
+      ],
+      "name": "session_journal_line",
+      "purpose": "Ligne horodatée du journal de séance, transcrite en local."
+    },
+    {
+      "business": [
+        "R16",
+        "R110",
+        "R111",
+        "sound-volume-range : le volume propre reste entre 0 et 1 ; le volume effectif vaut volume × volume global, ce qui garde le rapport entre deux sons",
+        "tags-normalized : les tags sont en minuscules, sans doublon ; le filtre par tag et la recherche sur le nom ne lisent que ces champs"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du son.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0007_sound.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne du son.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Sound.campaignId : onDelete cascade, onUpdate propagate) : supprimer une campagne supprime ses sons.",
+            "Indexée (sound_campaign_id) : les sons d'une campagne sont lus par elle."
+          ]
+        },
+        {
+          "business": [
+            "R110",
+            "R6"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom cherché (« porte qui grince ») et détectable au micro.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "file_path",
+          "nullable": false,
+          "purpose": "Chemin local du fichier audio.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R16",
+            "R110"
+          ],
+          "name": "tags",
+          "nullable": false,
+          "purpose": "Tags de filtrage (porte, taverne).",
+          "type": "text[]",
+          "technical": [
+            "'{}' par défaut.",
+            "CHECK tags_normalized (sound_tags_normalized(tags)) : une dimension, chaque tag en minuscules, aucun NULL, aucun doublon."
+          ]
+        },
+        {
+          "business": [
+            "R16",
+            "R111"
+          ],
+          "name": "volume",
+          "nullable": false,
+          "purpose": "Volume propre, entre 0 et 1.",
+          "type": "numeric(3,2)",
+          "technical": [
+            "1 par défaut : plein volume tant que le DM ne le bouge pas.",
+            "CHECK sound_volume_range (volume BETWEEN 0 AND 1).",
+            "Le volume effectif (volume × campaign.sound_master_volume, EffectiveVolume@1) n'est stocké nulle part : il est calculé à la lecture."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date d'ajout.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "sound",
+      "purpose": "Effet sonore tagué de la soundbox, avec son volume propre."
+    },
+    {
+      "business": [
+        "R5"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la note.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0008_note_import.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "campaign_id",
+          "nullable": false,
+          "purpose": "Campagne visée.",
+          "references": "campaign.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation NoteImport.campaignId : onDelete cascade, onUpdate propagate) : supprimer une campagne supprime ses notes et leurs propositions.",
+            "Indexée (imported_note_campaign_id) : les notes d'une campagne sont lues par elle."
+          ]
+        },
+        {
+          "business": [
+            "R5",
+            "R77"
+          ],
+          "name": "raw_text",
+          "nullable": false,
+          "purpose": "Texte collé, envoyé comme texte au fournisseur.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date du collage.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        },
+        {
+          "business": [],
+          "name": "analyzed_at",
+          "nullable": true,
+          "purpose": "Date de la dernière analyse par l'IA.",
+          "type": "timestamptz",
+          "technical": [
+            "Vide tant que la note n'a pas été analysée."
+          ]
+        }
+      ],
+      "name": "imported_note",
+      "purpose": "Notes en texte libre collées par le DM pour reprendre une campagne."
+    },
+    {
+      "business": [
+        "R5",
+        "no-creation-before-validation : l'analyse des notes ne crée aucun élément ; seule la validation en crée, et seulement pour les propositions cochées qui n'ont pas encore de created_entity_id"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la proposition.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut."
+          ]
+        },
+        {
+          "business": [],
+          "name": "note_id",
+          "nullable": false,
+          "purpose": "Note analysée.",
+          "references": "imported_note.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation NoteImport.noteId : onDelete cascade, onUpdate propagate) : supprimer une note supprime ses propositions.",
+            "Indexée (note_proposal_note_id)."
+          ]
+        },
+        {
+          "business": [
+            "R5"
+          ],
+          "name": "type",
+          "nullable": false,
+          "purpose": "« pj », « pnj », « lieu » ou « evenement ».",
+          "type": "text",
+          "technical": [
+            "CHECK note_proposal_type : pj, pnj, lieu ou evenement, les types d'un élément (entity.type)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom proposé.",
+          "type": "text"
+        },
+        {
+          "business": [],
+          "name": "excerpt",
+          "nullable": false,
+          "purpose": "Extrait des notes qui justifie la proposition.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R5"
+          ],
+          "name": "existing_entity_id",
+          "nullable": true,
+          "purpose": "Élément existant reconnu. Dans ce cas, la proposition est décochée par défaut.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation NoteImport.existingEntityId : onDelete nullify, onUpdate propagate).",
+            "Indexée (note_proposal_existing_entity_id)."
+          ]
+        },
+        {
+          "business": [
+            "R5"
+          ],
+          "name": "checked",
+          "nullable": false,
+          "purpose": "Coché par le DM dans la liste à valider.",
+          "type": "boolean",
+          "technical": [
+            "Sans valeur par défaut : l'analyse le fixe, décoché quand un élément existant est reconnu.",
+            "CHECK no_creation_before_validation : une proposition décochée n'a pas de created_entity_id."
+          ]
+        },
+        {
+          "business": [
+            "R5"
+          ],
+          "name": "created_entity_id",
+          "nullable": true,
+          "purpose": "Élément créé à la validation.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation NoteImport.createdEntityId : onDelete nullify, onUpdate propagate).",
+            "Indexée (note_proposal_created_entity_id).",
+            "Trigger no_creation_before_validation : vide à l'insertion (l'analyse ne crée rien), écrit une seule fois, par la validation ; seules les relations le changent ensuite, quand l'élément créé est supprimé ou change d'id."
+          ]
+        }
+      ],
+      "name": "note_proposal",
+      "purpose": "Entité proposée par l'IA à partir de notes, en attente de validation par le DM."
+    },
+    {
+      "business": [
+        "R16",
+        "R111"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la lecture.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0009_sound_playback.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation SoundPlayback.sessionId : onDelete cascade, onUpdate propagate).",
+            "Indexée (sound_playback_session_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "sound_id",
+          "nullable": false,
+          "purpose": "Son joué.",
+          "references": "sound.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation SoundPlayback.soundId : onDelete cascade, onUpdate propagate).",
+            "Indexée (sound_playback_sound_id)."
+          ]
+        },
+        {
+          "business": [
+            "R111"
+          ],
+          "name": "origin",
+          "nullable": false,
+          "purpose": "« soundbox » ou « pastille ».",
+          "type": "text",
+          "technical": [
+            "CHECK sound_playback_origin : « soundbox » ou « pastille »."
+          ]
+        },
+        {
+          "business": [],
+          "name": "started_at",
+          "nullable": false,
+          "purpose": "Début de la lecture.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [
+            "R16",
+            "R111"
+          ],
+          "name": "stopped_at",
+          "nullable": true,
+          "purpose": "Arrêt, notamment par « Tout arrêter ».",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "sound_playback",
+      "purpose": "Lecture d'un son pendant une séance. Plusieurs lectures peuvent se superposer. Le son ne sort que côté DM."
+    },
+    {
+      "business": [
+        "R15",
+        "R23"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de l'instance.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0010_battlemap_instance.sql)."
+          ]
+        },
+        {
+          "business": [
+            "R15"
+          ],
+          "name": "battlemap_media_id",
+          "nullable": false,
+          "purpose": "Battlemap d'origine.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE NO ACTION ON UPDATE CASCADE, DEFERRABLE INITIALLY DEFERRED (relation BattlemapInstance.battlemapMediaId : onDelete restrict, onUpdate propagate) : la suppression de la ligne visée est refusée au COMMIT tant que des lignes la désignent ; celle d'une campagne entière, qui emporte aussi la séance, passe.",
+            "Indexée (battlemap_instance_battlemap_media_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation BattlemapInstance.sessionId : onDelete cascade, onUpdate propagate).",
+            "Indexée (battlemap_instance_session_id)."
+          ]
+        },
+        {
+          "business": [
+            "R15"
+          ],
+          "name": "scene_id",
+          "nullable": false,
+          "purpose": "Scène. Une seule instance par scène.",
+          "references": "scene.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation BattlemapInstance.sceneId : onDelete cascade, onUpdate propagate).",
+            "Indexée (battlemap_instance_scene_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "created_at",
+          "nullable": false,
+          "purpose": "Date de création.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        },
+        {
+          "business": [
+            "R23"
+          ],
+          "name": "reset_at",
+          "nullable": true,
+          "purpose": "Dernier « Réinitialiser la carte ».",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "battlemap_instance",
+      "purpose": "Copie de travail d'une battlemap pour une scène, qui porte les tokens et le combat sans toucher la battlemap d'origine."
+    },
+    {
+      "business": [
+        "R19",
+        "R20",
+        "R21",
+        "R25",
+        "R101",
+        "R106",
+        "R108",
+        "R114"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du token.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0010_battlemap_instance.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "instance_id",
+          "nullable": false,
+          "purpose": "Instance de battlemap.",
+          "references": "battlemap_instance.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation BattlemapInstance.tokenInstanceId : onDelete cascade, onUpdate propagate).",
+            "Indexée (token_instance_id)."
+          ]
+        },
+        {
+          "business": [
+            "R20"
+          ],
+          "name": "character_id",
+          "nullable": false,
+          "purpose": "Personnage incarné.",
+          "references": "character.entity_id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE NO ACTION ON UPDATE CASCADE, DEFERRABLE INITIALLY DEFERRED (relation BattlemapInstance.characterId : onDelete review, onUpdate propagate) : la suppression de la ligne visée est refusée au COMMIT tant que des lignes la désignent ; celle d'une campagne entière, qui emporte aussi la séance, passe.",
+            "Indexée (token_character_id)."
+          ]
+        },
+        {
+          "business": [
+            "R20",
+            "R101"
+          ],
+          "name": "number",
+          "nullable": true,
+          "purpose": "Numéro de l'instance (1, 2, 3) quand plusieurs tokens incarnent le même personnage.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R20"
+          ],
+          "name": "name",
+          "nullable": false,
+          "purpose": "Nom affiché (« Bandit 2 »), renommable instance par instance.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R19",
+            "R114"
+          ],
+          "name": "q",
+          "nullable": false,
+          "purpose": "Coordonnée axiale q de l'hex. La distance d'un déplacement se mesure depuis la position (q, r) d'origine.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R19",
+            "R114"
+          ],
+          "name": "r",
+          "nullable": false,
+          "purpose": "Coordonnée axiale r de l'hex.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R25",
+            "R107"
+          ],
+          "name": "visible",
+          "nullable": false,
+          "purpose": "Indique si le token est montré sur la player view.",
+          "type": "boolean"
+        },
+        {
+          "business": [
+            "R21",
+            "R106"
+          ],
+          "name": "hp_current",
+          "nullable": true,
+          "purpose": "PV courants de cette instance. Toujours vide pour un PJ.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R21",
+            "R108"
+          ],
+          "name": "hp_max",
+          "nullable": true,
+          "purpose": "PV maximum, copiés de la fiche à la pose. Toujours vide pour un PJ.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R21"
+          ],
+          "name": "conditions",
+          "nullable": false,
+          "purpose": "États appliqués (À terre, Empoisonné…).",
+          "type": "text[]"
+        },
+        {
+          "business": [
+            "R21",
+            "R108"
+          ],
+          "name": "dead",
+          "nullable": false,
+          "purpose": "Colonne générée : vrai quand hp_current vaut 0 ou moins. Le token est alors grisé et sauté dans l'initiative.",
+          "type": "boolean",
+          "technical": [
+            "GENERATED ALWAYS AS (coalesce(hp_current <= 0, false)) STORED : jamais écrite, fausse quand les PV ne sont pas suivis."
+          ]
+        },
+        {
+          "business": [
+            "R25",
+            "R108"
+          ],
+          "name": "health_band",
+          "nullable": true,
+          "purpose": "Colonne générée, seul état montré aux joueurs : « indemne » si PV = max, « blessé » au-dessus de la moitié, « en sang » à la moitié ou moins, « mort » à 0.",
+          "type": "text",
+          "technical": [
+            "GENERATED ALWAYS AS … STORED : vide si hp_current ou hp_max l'est, « mort » à 0 ou moins, « indemne » à hp_max ou plus, « blessé » au-dessus de la moitié (hp_current × 2 > hp_max), « en sang » sinon."
+          ]
+        },
+        {
+          "business": [
+            "R101"
+          ],
+          "name": "label_initial",
+          "nullable": false,
+          "purpose": "Colonne générée : première lettre du nom, affichée sur la pastille par défaut.",
+          "type": "text",
+          "technical": [
+            "GENERATED ALWAYS AS (left(name, 1)) STORED : jamais écrite."
+          ]
+        }
+      ],
+      "name": "token",
+      "purpose": "Instance d'un personnage posée sur une battlemap, avec sa position en hex, ses PV, ses états et sa visibilité."
+    },
+    {
+      "business": [
+        "R22",
+        "R23"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant du combat.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0010_battlemap_instance.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "instance_id",
+          "nullable": false,
+          "purpose": "Instance où se déroule le combat.",
+          "references": "battlemap_instance.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation BattlemapInstance.combatInstanceId : onDelete cascade, onUpdate propagate).",
+            "Indexée (combat_instance_id)."
+          ]
+        },
+        {
+          "business": [
+            "R22"
+          ],
+          "name": "round",
+          "nullable": false,
+          "purpose": "Compteur de rounds, à partir de 1.",
+          "type": "integer"
+        },
+        {
+          "business": [
+            "R22"
+          ],
+          "name": "current_entry_id",
+          "nullable": true,
+          "purpose": "Participant dont c'est le tour.",
+          "references": "initiative_entry.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation BattlemapInstance.currentEntryId : onDelete nullify, onUpdate propagate).",
+            "Indexée (combat_current_entry_id).",
+            "Ajoutée par ALTER TABLE après initiative_entry, qui désigne combat (combat_current_entry_id_fkey)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "started_at",
+          "nullable": false,
+          "purpose": "Début du combat.",
+          "type": "timestamptz"
+        },
+        {
+          "business": [],
+          "name": "ended_at",
+          "nullable": true,
+          "purpose": "Fin du combat.",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "combat",
+      "purpose": "Combat lancé sur une instance de battlemap."
+    },
+    {
+      "business": [
+        "R22",
+        "R105",
+        "R107"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de l'entrée.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0010_battlemap_instance.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "combat_id",
+          "nullable": false,
+          "purpose": "Combat.",
+          "references": "combat.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation BattlemapInstance.initiativeEntryCombatId : onDelete cascade, onUpdate propagate).",
+            "Indexée (initiative_entry_combat_id, avec rank)."
+          ]
+        },
+        {
+          "business": [
+            "R106"
+          ],
+          "name": "token_id",
+          "nullable": false,
+          "purpose": "Participant.",
+          "references": "token.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation BattlemapInstance.initiativeEntryTokenId : onDelete cascade, onUpdate propagate).",
+            "Indexée (initiative_entry_token_id)."
+          ]
+        },
+        {
+          "business": [
+            "R105"
+          ],
+          "name": "roll",
+          "nullable": true,
+          "purpose": "d20 tiré pour un PNJ. Vide pour un PJ.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R22",
+            "R105"
+          ],
+          "name": "initiative",
+          "nullable": false,
+          "purpose": "Total d'initiative : d20 plus le modificateur de DEX pour un PNJ, valeur saisie par le DM pour un PJ.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R22",
+            "R105"
+          ],
+          "name": "dex_score",
+          "nullable": true,
+          "purpose": "DEX du participant au lancement, utilisée pour départager.",
+          "type": "smallint"
+        },
+        {
+          "business": [
+            "R22",
+            "R105"
+          ],
+          "name": "tiebreak",
+          "nullable": false,
+          "purpose": "Tirage aléatoire pour une égalité qui subsiste à DEX égale.",
+          "type": "double precision"
+        },
+        {
+          "business": [
+            "R22",
+            "R107"
+          ],
+          "name": "rank",
+          "nullable": false,
+          "purpose": "Place dans l'ordre : calculée au lancement, puis modifiable par le DM.",
+          "type": "integer"
+        }
+      ],
+      "name": "initiative_entry",
+      "purpose": "Place d'un token dans l'initiative d'un combat."
+    },
+    {
+      "business": [
+        "R21",
+        "R22",
+        "R25",
+        "R107"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "combat_id",
+          "nullable": false,
+          "purpose": "Combat.",
+          "type": "uuid",
+          "technical": [
+            "Colonne de la vue initiative_order_view (crates/data/migrations/0010_battlemap_instance.sql). Une ligne par initiative_entry, jointe à son token."
+          ]
+        },
+        {
+          "business": [],
+          "name": "entry_id",
+          "nullable": false,
+          "purpose": "Entrée d'initiative.",
+          "type": "uuid"
+        },
+        {
+          "business": [
+            "R22",
+            "R107"
+          ],
+          "name": "order_index",
+          "nullable": false,
+          "purpose": "Position, triée par rank.",
+          "type": "integer",
+          "technical": [
+            "row_number() par combat, trié par rank puis id, à partir de 1."
+          ]
+        },
+        {
+          "business": [
+            "R25",
+            "R107"
+          ],
+          "name": "shown_to_players",
+          "nullable": false,
+          "purpose": "Vrai si le token est visible. Un token révélé apparaît à son rank.",
+          "type": "boolean",
+          "technical": [
+            "token.visible."
+          ]
+        },
+        {
+          "business": [
+            "R21"
+          ],
+          "name": "skipped",
+          "nullable": false,
+          "purpose": "Vrai si le token est mort.",
+          "type": "boolean",
+          "technical": [
+            "token.dead."
+          ]
+        }
+      ],
+      "name": "initiative_order_view",
+      "purpose": "Vue calculée, non stockée : l'ordre du carrousel pour chaque vue. Les morts sont sautés et les tokens cachés n'apparaissent que côté DM."
+    },
+    {
+      "business": [
+        "R18",
+        "R98",
+        "R109"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "id",
+          "nullable": false,
+          "purpose": "Identifiant de la suggestion.",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire, gen_random_uuid() par défaut (crates/data/migrations/0011_suggestion.sql)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance en direct.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Suggestion.sessionId : onDelete cascade, onUpdate propagate).",
+            "Indexée (live_suggestion_session_id, avec detected_at décroissant)."
+          ]
+        },
+        {
+          "business": [
+            "R18",
+            "R98"
+          ],
+          "name": "entity_id",
+          "nullable": true,
+          "purpose": "Élément suggéré.",
+          "references": "entity.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Suggestion.entityId : onDelete cascade, onUpdate propagate).",
+            "Indexée (live_suggestion_entity_id)."
+          ]
+        },
+        {
+          "business": [],
+          "name": "sound_id",
+          "nullable": true,
+          "purpose": "Son suggéré.",
+          "references": "sound.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Suggestion.soundId : onDelete cascade, onUpdate propagate).",
+            "Indexée (live_suggestion_sound_id)."
+          ]
+        },
+        {
+          "business": [
+            "R18"
+          ],
+          "name": "matched_text",
+          "nullable": false,
+          "purpose": "Nom ou alias reconnu dans la transcription locale.",
+          "type": "text"
+        },
+        {
+          "business": [
+            "R18",
+            "R109"
+          ],
+          "name": "detected_at",
+          "nullable": false,
+          "purpose": "Moment de la détection. Sert au tri du plus récent au plus ancien.",
+          "type": "timestamptz"
+        }
+      ],
+      "name": "live_suggestion",
+      "purpose": "Élément ou son détecté par le micro et proposé dans la pastille. Ce sont des ajouts purs, d'où se calculent la pile des 5 dernières et l'historique."
+    },
+    {
+      "business": [
+        "R24",
+        "R112",
+        "R113"
+      ],
+      "fields": [
+        {
+          "business": [],
+          "name": "session_id",
+          "nullable": false,
+          "purpose": "Séance diffusée.",
+          "references": "session.id",
+          "type": "uuid",
+          "technical": [
+            "Clé primaire : une diffusion par séance (crates/data/migrations/0012_diffusion.sql).",
+            "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation Diffusion.sessionId : onDelete cascade, onUpdate propagate)."
+          ]
+        },
+        {
+          "business": [
+            "R24"
+          ],
+          "name": "base_kind",
+          "nullable": false,
+          "purpose": "« cover », « illustration » ou « battlemap ».",
+          "type": "text",
+          "technical": [
+            "CHECK diffusion_base_kind : « cover », « illustration » ou « battlemap »."
+          ]
+        },
+        {
+          "business": [
+            "R24"
+          ],
+          "name": "base_media_id",
+          "nullable": true,
+          "purpose": "Illustration affichée en fond.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Diffusion.baseMediaId : onDelete nullify, onUpdate propagate).",
+            "Indexée (diffusion_base_media_id)."
+          ]
+        },
+        {
+          "business": [
+            "R113"
+          ],
+          "name": "base_instance_id",
+          "nullable": true,
+          "purpose": "Instance de battlemap affichée en fond.",
+          "references": "battlemap_instance.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Diffusion.baseInstanceId : onDelete nullify, onUpdate propagate).",
+            "Indexée (diffusion_base_instance_id)."
+          ]
+        },
+        {
+          "business": [
+            "R24",
+            "R112"
+          ],
+          "name": "window_media_id",
+          "nullable": true,
+          "purpose": "Illustration montrée en fenêtre flottante.",
+          "references": "media.id",
+          "type": "uuid",
+          "technical": [
+            "Clé étrangère ON DELETE SET NULL ON UPDATE CASCADE (relation Diffusion.windowMediaId : onDelete nullify, onUpdate propagate).",
+            "Indexée (diffusion_window_media_id)."
+          ]
+        },
+        {
+          "business": [
+            "R112"
+          ],
+          "name": "window_x",
+          "nullable": true,
+          "purpose": "Position horizontale de la fenêtre, en fraction de l'écran.",
+          "type": "numeric(6,4)"
+        },
+        {
+          "business": [
+            "R112"
+          ],
+          "name": "window_y",
+          "nullable": true,
+          "purpose": "Position verticale de la fenêtre, en fraction de l'écran.",
+          "type": "numeric(6,4)"
+        },
+        {
+          "business": [
+            "R24",
+            "R112"
+          ],
+          "name": "window_width",
+          "nullable": true,
+          "purpose": "Largeur de la fenêtre, en fraction de l'écran. La hauteur se calcule à partir des proportions du média.",
+          "type": "numeric(6,4)"
+        },
+        {
+          "business": [
+            "R113"
+          ],
+          "name": "view_zoom",
+          "nullable": false,
+          "purpose": "Zoom de la battlemap diffusée.",
+          "type": "numeric(6,3)"
+        },
+        {
+          "business": [
+            "R113"
+          ],
+          "name": "view_pan_x",
+          "nullable": false,
+          "purpose": "Décalage horizontal du cadrage.",
+          "type": "numeric(9,2)"
+        },
+        {
+          "business": [
+            "R113"
+          ],
+          "name": "view_pan_y",
+          "nullable": false,
+          "purpose": "Décalage vertical du cadrage.",
+          "type": "numeric(9,2)"
+        },
+        {
+          "business": [
+            "R114"
+          ],
+          "name": "updated_at",
+          "nullable": false,
+          "purpose": "Dernier changement, diffusé aux onglets.",
+          "type": "timestamptz",
+          "technical": [
+            "now() par défaut."
+          ]
+        }
+      ],
+      "name": "diffusion",
+      "purpose": "Ce que montre la player view d'une séance : fond (couverture, illustration ou battlemap), fenêtre flottante et cadrage."
+    }
+  ],
+  "links": []
+}

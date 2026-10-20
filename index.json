@@ -2,17 +2,17 @@
   "version": 1,
   "heads": {
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
-    "main_agent": "a94940918d3a40b29cc73b0c4b5bc6760ad1902d",
+    "main_agent": "e0b409e9430a572286bc732f622a38799ca6d215",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
     "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8231e1957a1c7f5f44be11679c0f3bf1380ff473",
     "milestone/18-campaigns-players-and-characters-with-versioned-history": "84e4f9939f92ec443a49d0e0b71400bbe25f18be",
-    "milestone/19-media-library-data-and-hex-grid-settings": "7210433ca6af90819f314008a71e160adbb89d79",
-    "milestone/20-sessions-present-pcs-scenes-and-media-attached-by-place": "ba51d031137ab70af6002f9c71f01c27f4807443",
-    "milestone/21-soundbox-tagged-sound-library-and-live-playback": "6bfeaf0e2ad4a594844b5dacb9d8718a92c87156",
-    "milestone/23-notes-import-extraction-then-validation-in-a-batch": "26ea9191a047ef66911f41904948b5d48a90e882",
-    "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "d10b53ce54920367e28f1f65927767ebd23da00b",
-    "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "c68aefcd3fc68b22599b6136dd2968dc291ef6c6",
-    "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "1c44e3da6e344c17e30d15bba9d5fd00fd9d5233",
+    "milestone/19-media-library-data-and-hex-grid-settings": "e9beac21832b50919750cb0be233fb71128d3271",
+    "milestone/20-sessions-present-pcs-scenes-and-media-attached-by-place": "0b9d3dcc2b6990277b6782d9f633761b3b91dcbf",
+    "milestone/21-soundbox-tagged-sound-library-and-live-playback": "d684f45b68e2efd08738006236556881dbc9aa75",
+    "milestone/23-notes-import-extraction-then-validation-in-a-batch": "b7bfcb060e4ceb41f7cedc4f6a11dd64ff22461f",
+    "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "1e7e216fd45cfdd04d8455528170374fdeada927",
+    "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "e71eabb1d407f1843f0e85a240acac218970881f",
+    "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "392a12d5cc4d5c9f5344950665b2b7eaa7103ca1",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
   },
@@ -198,6 +198,70 @@
       "sha": "28a28de077f972218ef4dda3d2c75e796fc972cd",
       "at": "2026-10-18T22:16:18Z",
       "dir": "milestone/18-campaigns-players-and-characters-with-versioned-history/20261018T221618Z-28a28de",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "main_agent",
+      "sha": "e0b409e9430a572286bc732f622a38799ca6d215",
+      "at": "2026-10-20T10:12:32Z",
+      "dir": "main_agent/20261020T101232Z-e0b409e",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/28-closing-a-session-journal-summary-and-preparation-screen",
+      "sha": "392a12d5cc4d5c9f5344950665b2b7eaa7103ca1",
+      "at": "2026-10-20T10:12:32Z",
+      "dir": "milestone/28-closing-a-session-journal-summary-and-preparation-screen/20261020T101232Z-392a12d",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations",
+      "sha": "e71eabb1d407f1843f0e85a240acac218970881f",
+      "at": "2026-10-20T10:12:32Z",
+      "dir": "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations/20261020T101232Z-e71eabb",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/25-battlemap-instances-tokens-hit-points-and-combat",
+      "sha": "1e7e216fd45cfdd04d8455528170374fdeada927",
+      "at": "2026-10-20T10:12:32Z",
+      "dir": "milestone/25-battlemap-instances-tokens-hit-points-and-combat/20261020T101232Z-1e7e216",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/23-notes-import-extraction-then-validation-in-a-batch",
+      "sha": "b7bfcb060e4ceb41f7cedc4f6a11dd64ff22461f",
+      "at": "2026-10-20T10:12:32Z",
+      "dir": "milestone/23-notes-import-extraction-then-validation-in-a-batch/20261020T101232Z-b7bfcb0",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/21-soundbox-tagged-sound-library-and-live-playback",
+      "sha": "d684f45b68e2efd08738006236556881dbc9aa75",
+      "at": "2026-10-20T10:12:32Z",
+      "dir": "milestone/21-soundbox-tagged-sound-library-and-live-playback/20261020T101232Z-d684f45",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/20-sessions-present-pcs-scenes-and-media-attached-by-place",
+      "sha": "0b9d3dcc2b6990277b6782d9f633761b3b91dcbf",
+      "at": "2026-10-20T10:12:32Z",
+      "dir": "milestone/20-sessions-present-pcs-scenes-and-media-attached-by-place/20261020T101232Z-0b9d3dc",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/19-media-library-data-and-hex-grid-settings",
+      "sha": "e9beac21832b50919750cb0be233fb71128d3271",
+      "at": "2026-10-20T10:12:32Z",
+      "dir": "milestone/19-media-library-data-and-hex-grid-settings/20261020T101232Z-e9beac2",
       "schema": true,
       "model": true
     }
