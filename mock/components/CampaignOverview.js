@@ -460,6 +460,27 @@
       inst.state.tokens.find((t) => same2(t.id, tokenId)).visible = payload.visible;
       return void 0;
     },
+    // table.changeHitPoints: one NPC token's current HP changed by `payload.delta`, `payload.token` on the
+    // instance `targetId` — or the token itself as the target. Its HP land between 0 and its HP max, and at 0
+    // it is dead, derived from its HP alone (`dead-derived`); the other tokens of its character are untouched
+    // (`hp-change-one-token`). A PC's token tracks no HP, and a change that is no whole number is refused.
+    "table.changeHitPoints": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      if (!Number.isInteger(payload.delta)) return ["pj-hp-not-tracked"];
+      const named = payload.token !== void 0;
+      const tokenId = named ? payload.token : targetId;
+      if (typeof tokenId !== "string") return ["not-found"];
+      const instance = named && targetId && !same2(targetId, tokenId) ? targetId : null;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const inst = instances.find((i) => (instance == null || same2(i.id, instance)) && i.state.tokens.some((t) => same2(t.id, tokenId)));
+      if (!inst) return ["not-found"];
+      const token = inst.state.tokens.find((t) => same2(t.id, tokenId));
+      if (!Number.isInteger(token.hp) || !Number.isInteger(token.hpMax)) return ["pj-hp-not-tracked"];
+      token.hp = Math.max(0, Math.min(token.hpMax, token.hp + payload.delta));
+      token.dead = token.hp === 0;
+      return void 0;
+    },
     // table.renameToken: one token renamed, `payload.token` on the instance `targetId` — or the token itself as
     // the target, or no target. Its number and the other tokens of its character are untouched
     // (`multi-drop-numbering`); a name of blanks alone is refused. Ids are compared in any case, as the server does.

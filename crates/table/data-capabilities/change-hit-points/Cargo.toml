@@ -1,0 +1,10 @@
+[package]
+name = "change-hit-points"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.changeHitPoints: one NPC token's current HP changed by a delta, clamped to 0..hp_max, on its own BattlemapInstance partition — never another token of the same character (hp-change-one-token); dead at 0, which the table derives (dead-derived)."
+publish = false
+
+[dependencies]
+serde_json = "1"

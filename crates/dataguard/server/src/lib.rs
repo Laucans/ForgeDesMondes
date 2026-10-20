@@ -36,7 +36,10 @@
 //! [`Rows`] reads: one command per token. A token hidden or revealed
 //! (`table.setTokenVisibility`), or a rename of a token (`table.renameToken`),
 //! is prepared against the token's row as the queue will leave it, which
-//! [`Rows`] reads: its visibility, or its name, alone, on its partition.
+//! [`Rows`] reads: its visibility, or its name, alone, on its partition. A
+//! change of an NPC's HP (`table.changeHitPoints`) is prepared the same way:
+//! the step of its current HP alone, cut so they land between 0 and its HP
+//! max.
 
 use std::sync::Arc;
 
@@ -305,11 +308,18 @@ pub fn applier(engine: Arc<Engine>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            if let Err(e) = engine.run_once().await {
+            if let Err(e) = applied(&engine).await {
                 eprintln!("applier: {e}");
             }
         }
     })
+}
+
+/// One run of the applier, [`versioning::APPLYING`] held from its first
+/// write to its last mark: a row projected is never read between the two.
+async fn applied(engine: &Engine) -> Result<Vec<harness_dataguard::command::CommandResult>, Error> {
+    let _applying = versioning::APPLYING.lock().await;
+    engine.run_once().await
 }
 
 fn status_of(error: &Error) -> axum::http::StatusCode {
@@ -371,6 +381,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// 404 — neither is queued. A rename of a token (`rename_token::prepare`) is
 /// made the name it writes on the token's partition, the same way: one naming
 /// no uuid, or an empty name, 422; one of a token not on the instance, 404.
+/// A change of HP (`change_hit_points::prepare`) is made the step it adds to
+/// the token's current HP, against the token's row, one at a time from its
+/// judgement until it is queued ([`CHANGING_HP`]): one naming no uuid, or a
+/// change that is no whole number, 422; one of a token not on the instance,
+/// 404 — neither is queued. A PC's token, which tracks no HP, is queued with
+/// the change as sent, which the DataGuard rejects (`pj-hp-not-tracked`).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -397,8 +413,8 @@ async fn submit<L: Llm>(
     }
     let mut refusal = None;
     let mut archive = None;
-    // Held until the creation of an instance is queued.
-    let mut creating = None;
+    // Held until the creation of an instance, or a change of HP, is queued.
+    let mut holding = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
     let now = || {
@@ -496,7 +512,7 @@ async fn submit<L: Llm>(
             }
         }
     } else if create_battlemap_instance::names(&body.data_capability) {
-        creating = Some(CREATING.lock().await);
+        holding = Some(CREATING.lock().await);
         creation(&served, &mut body, &now()).await?;
     } else if place_tokens::names(&body.data_capability) {
         let _placing = PLACING.lock().await;
@@ -526,6 +542,34 @@ async fn submit<L: Llm>(
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         };
         let prepared = set_token_visibility::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if change_hit_points::names(&body.data_capability) {
+        let unprocessable = |refusal: change_hit_points::Refusal| {
+            let status = if refusal == change_hit_points::Refusal::UnknownToken {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            refused(status, &refusal)
+        };
+        let wire = served.reads.stored(&body.payload);
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(id));
+        let request =
+            change_hit_points::request(&wire, target.as_deref()).map_err(unprocessable)?;
+        holding = Some(CHANGING_HP.lock().await);
+        let base = match served
+            .rows
+            .projected(&change_hit_points::partition(&request.token))
+            .await
+        {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = change_hit_points::prepare(&request, &base).map_err(unprocessable)?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
     } else if export_campaign::names(&body.data_capability) {
@@ -592,7 +636,7 @@ async fn submit<L: Llm>(
         }
         submitted
     });
-    drop(creating);
+    drop(holding);
     reply(axum::http::StatusCode::ACCEPTED, submitted)
 }
 
@@ -604,6 +648,12 @@ static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// queued: two drops of a character sent at once never take the same
 /// numbers, nor place a PC twice.
 static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One change of HP at a time, from its judgement until it is queued: two
+/// blows sent at once are each cut against the HP the other leaves. The
+/// applier is kept out of the judgement's read ([`versioning::APPLYING`]), so
+/// a blow it applies meanwhile is counted once: neither takes a token below 0
+/// nor above its HP max, and no damage heals.
+static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A refusal before a command is queued: its status, and why in words.
 type Refused = (axum::http::StatusCode, Json<serde_json::Value>);
@@ -979,6 +1029,19 @@ mod tests {
     async fn the_memory_url_plants_the_in_memory_engine() {
         let engine = plant(MEMORY).await.expect("no database is reached");
         assert_eq!(engine.data_version().await.expect("a version"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_run_of_the_applier_waits_while_a_row_is_projected() {
+        let engine = Arc::new(plant(MEMORY).await.expect("the in-memory engine"));
+        let projecting = versioning::APPLYING.lock().await;
+        let run = tokio::spawn(async move { applied(&engine).await });
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!run.is_finished(), "ran while a row was projected");
+        drop(projecting);
+        run.await.expect("joined").expect("the applier ran");
     }
 
     #[tokio::test]
