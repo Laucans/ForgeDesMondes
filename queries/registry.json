@@ -179,6 +179,25 @@
         "player.name",
         "player.notes"
       ]
+    },
+    {
+      "query": "ListSounds",
+      "capability": "soundbox.listSounds",
+      "file": "crates/soundbox/queries/listSounds.graphql",
+      "sha256": "949f24a42bf440493fbd6a7eb3d24c26f6a9a69d6c9ac57e85a4f068c3709efc",
+      "fields": [
+        "campaign.id",
+        "campaign.soundMasterVolume",
+        "sound.id",
+        "sound.campaignId",
+        "sound.name",
+        "sound.filePath",
+        "sound.tags",
+        "sound.volume",
+        "sound.createdAt",
+        "soundPlayback.soundId",
+        "soundPlayback.stoppedAt"
+      ]
     }
   ]
 }

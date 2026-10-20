@@ -424,16 +424,21 @@ mod tests {
         );
     }
 
-    /// The hash `scripts/queries.sh` registered for `ai.getSettings`.
-    fn registered_hash() -> String {
+    /// The hash `scripts/queries.sh` registered for `capability`.
+    fn registered_hash_of(capability: &str) -> String {
         let registry: Value = serde_json::from_str(include_str!("../../../queries/registry.json"))
             .expect("the registry");
         registry["queries"]
             .as_array()
-            .and_then(|q| q.iter().find(|q| q["capability"] == "ai.getSettings"))
+            .and_then(|q| q.iter().find(|q| q["capability"] == capability))
             .and_then(|q| q["sha256"].as_str())
-            .expect("ai.getSettings is registered")
+            .unwrap_or_else(|| panic!("{capability} is registered"))
             .to_string()
+    }
+
+    /// The hash `scripts/queries.sh` registered for `ai.getSettings`.
+    fn registered_hash() -> String {
+        registered_hash_of("ai.getSettings")
     }
 
     #[tokio::test]
@@ -491,10 +496,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_soundbox_read_no_capability_registers_is_a_clean_404() {
+    async fn a_registered_list_sounds_answers_and_under_another_hash_is_404() {
         for body in [
-            json!({ "sha256": "0".repeat(64), "variables": {} }),
-            json!({ "variables": {} }),
+            json!({ "sha256": registered_hash_of("soundbox.listSounds"), "variables": { "campaign": "c1" } }),
+            json!({ "variables": { "campaign": "c1" } }),
         ] {
             let (status, answer) = answer(
                 Method::POST,
@@ -502,15 +507,27 @@ mod tests {
                 Some(body),
             )
             .await;
-            assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
-            assert!(
-                answer["error"]
-                    .as_str()
-                    .is_some_and(|e| e.contains("soundbox.listSounds")
-                        && e.contains("not a registered persisted query")),
-                "{answer}"
+            assert_eq!(status, StatusCode::OK, "{answer}");
+            assert_eq!(
+                answer["data"],
+                Value::Null,
+                "no store, no campaign: {answer}"
             );
+            assert!(answer.get("asOf").is_some(), "{answer}");
         }
+        let (status, answer) = answer(
+            Method::POST,
+            "/capabilities/soundbox.listSounds",
+            Some(json!({ "sha256": "0".repeat(64), "variables": {} })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
+        assert!(
+            answer["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("not a registered persisted query")),
+            "{answer}"
+        );
     }
 
     #[tokio::test]

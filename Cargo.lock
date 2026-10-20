@@ -282,6 +282,7 @@ dependencies = [
  "list-events",
  "list-places",
  "list-players",
+ "list-sounds",
  "platform-conformance",
  "ports-llm",
  "restore-entity-version",
@@ -849,6 +850,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "list-sounds"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
 ]
 
 [[package]]
