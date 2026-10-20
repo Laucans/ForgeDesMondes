@@ -293,6 +293,7 @@ dependencies = [
  "serde",
  "serde_json",
  "set-master-volume",
+ "set-sound-volume",
  "test-connection",
  "thiserror",
  "tokio",
@@ -1512,6 +1513,13 @@ dependencies = [
 
 [[package]]
 name = "set-master-volume"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "set-sound-volume"
 version = "0.1.0"
 dependencies = [
  "serde_json",

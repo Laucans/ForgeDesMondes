@@ -22,12 +22,13 @@
 //! `campaign.sound_master_volume` as the engine holds it, and no other
 //! column. An addition of a sound (`soundbox.addSound`) writes its
 //! partition, `Sound/<its id>`, whole, and an edit (`soundbox.updateSound`)
-//! the fields it changes on it: [`ProjectingStore`] adds the sound's `sound`
-//! row, or writes on the one the table holds the name, the file, the tags and
-//! the volume the engine's row holds, and no other column. A removal of a
-//! sound (`soundbox.removeSound`) is the engine's tombstone on that
-//! partition, the sound kept there as it was: [`ProjectingStore`] takes its
-//! row out of the `sound` table, which no reader sees then, its playbacks
+//! the fields it changes on it, and a move of its own slider
+//! (`soundbox.setSoundVolume`) its volume alone: [`ProjectingStore`] adds the
+//! sound's `sound` row, or writes on the one the table holds the name, the
+//! file, the tags and the volume the engine's row holds, and no other column.
+//! A removal of a sound (`soundbox.removeSound`) is the engine's tombstone on
+//! that partition, the sound kept there as it was: [`ProjectingStore`] takes
+//! its row out of the `sound` table, which no reader sees then, its playbacks
 //! with it (`SoundPlayback.soundId`, onDelete cascade). A playback of a
 //! sound (`soundbox.playSound`) writes its partition, `SoundPlayback/<its
 //! id>`: [`ProjectingStore`] inserts its `sound_playback` row

@@ -292,6 +292,7 @@ async fn a_sound_whose_removal_is_queued_is_none_to_remove_or_edit_again() {
             "soundbox.updateSound@1",
             json!({ "name": "Porte qui grince" }),
         ),
+        ("soundbox.setSoundVolume@1", json!({ "volume": 40 })),
     ] {
         let (status, answer) = s
             .post(json!({
