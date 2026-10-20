@@ -82,11 +82,11 @@ pub struct Base {
 }
 
 impl Base {
-    /// Whether the base shows something — the cover, an illustration with
-    /// its media, a battlemap with its instance — as base-coherent asks.
+    /// Whether the base shows something other than the cover — an
+    /// illustration with its media, a battlemap with its instance — as
+    /// base-coherent asks; any other base gives way to the cover.
     fn shows(&self) -> bool {
         match self.kind.as_str() {
-            COVER => self.media.is_none() && self.instance.is_none(),
             "illustration" => self.media.is_some() && self.instance.is_none(),
             "battlemap" => self.instance.is_some() && self.media.is_none(),
             _ => false,

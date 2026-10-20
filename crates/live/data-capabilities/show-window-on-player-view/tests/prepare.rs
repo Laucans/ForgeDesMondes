@@ -90,6 +90,14 @@ fn a_payload_naming_no_campaign_no_media_or_no_uuid_is_refused() {
             Refusal::NotAnId,
         ),
         (
+            json!({ "campaign": "c1000000", "media": PORTRAIT }),
+            Refusal::NotAnId,
+        ),
+        (
+            json!({ "campaign": "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz", "media": PORTRAIT }),
+            Refusal::NotAnId,
+        ),
+        (
             json!({ "campaign": VALOMBRE, "media": 42 }),
             Refusal::NotAnId,
         ),
@@ -199,6 +207,46 @@ fn a_table_base_whose_illustration_is_gone_gives_way_to_the_cover() {
     assert_eq!(prepared.payload["baseKind"], "cover");
     assert_eq!(prepared.payload["baseMediaId"], Value::Null);
     assert_eq!(prepared.payload["baseInstanceId"], Value::Null);
+}
+
+#[test]
+fn a_session_the_engine_holds_no_row_of_keeps_the_illustration_its_table_shows() {
+    let found = Found {
+        base: Some(Base {
+            kind: "illustration".to_string(),
+            media: Some(PORTRAIT.to_string()),
+            instance: None,
+        }),
+        ..illustration()
+    };
+    let prepared = prepare(&portrait(), &found, &Row::new(), NOW).expect("prepared");
+    assert_eq!(prepared.payload["baseKind"], "illustration");
+    assert_eq!(prepared.payload["baseMediaId"], PORTRAIT);
+    assert_eq!(prepared.payload["baseInstanceId"], Value::Null);
+}
+
+#[test]
+fn a_table_base_that_is_not_coherent_gives_way_to_the_cover() {
+    for (kind, media, instance) in [
+        ("cover", Some(PORTRAIT), None),
+        ("cover", None, Some(INSTANCE)),
+        ("battlemap", Some(PORTRAIT), Some(INSTANCE)),
+        ("illustration", Some(PORTRAIT), Some(INSTANCE)),
+        ("unknown", None, None),
+    ] {
+        let found = Found {
+            base: Some(Base {
+                kind: kind.to_string(),
+                media: media.map(str::to_string),
+                instance: instance.map(str::to_string),
+            }),
+            ..illustration()
+        };
+        let prepared = prepare(&portrait(), &found, &Row::new(), NOW).expect("prepared");
+        assert_eq!(prepared.payload["baseKind"], "cover", "{kind}");
+        assert_eq!(prepared.payload["baseMediaId"], Value::Null, "{kind}");
+        assert_eq!(prepared.payload["baseInstanceId"], Value::Null, "{kind}");
+    }
 }
 
 #[test]
