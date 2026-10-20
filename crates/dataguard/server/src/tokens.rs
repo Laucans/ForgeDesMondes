@@ -11,7 +11,9 @@
 //! row; a token the table holds already is left as it is: a later write of
 //! its partition (a move, a rename) is not the drop's to project. A token
 //! hidden or revealed (`table.setTokenVisibility`) is: [`show`] writes its
-//! `visible` column, and no other.
+//! `visible` column, and no other. So is an NPC's change of HP
+//! (`table.changeHitPoints`): [`hit_points`] writes its `hp_current` column,
+//! and no other — its death and its band are the table's to derive.
 
 use place_tokens::{Character, Roster};
 use tokio_postgres::Client;
@@ -86,6 +88,26 @@ const SHOW: &str = "UPDATE token t
         AND jsonb_typeof(r.fields -> 'visible') = 'boolean'
         AND t.visible IS DISTINCT FROM (r.fields ->> 'visible')::boolean";
 
+/// The current HP the engine holds of the token partition `$1` names — of
+/// every token when it is null — written on its row: the one column a change
+/// of HP writes (`table.changeHitPoints`), the token's own alone, never
+/// another of the same character (`hp-change-one-token`); `dead` and
+/// `health_band` follow, generated (`dead-derived`). After each apply of a
+/// token, and at a start, so HP whose projection failed after their apply are
+/// written again. The token is found by its key, the id its partition names;
+/// one the table does not hold yet is the drop's to insert, and HP that are
+/// no number — a PC's, which are never tracked — are left aside.
+const HIT_POINTS: &str = "UPDATE token t
+    SET hp_current = (r.fields ->> 'hpCurrent')::numeric::smallint
+    FROM dataguard_rows r
+    WHERE NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
+        AND t.id = CASE WHEN pg_input_is_valid(r.fields ->> 'tokenId', 'uuid')
+            THEN (r.fields ->> 'tokenId')::uuid END
+        AND jsonb_typeof(r.fields -> 'hpCurrent') = 'number'
+        AND t.hp_current IS DISTINCT FROM (r.fields ->> 'hpCurrent')::numeric::smallint";
+
 /// The tokens the engine holds and the table does not: a projection that
 /// failed after its apply, or was lost since.
 const UNPROJECTED: &str = "SELECT r.partition FROM dataguard_rows r
@@ -147,6 +169,18 @@ pub async fn show(client: &Client, partition: Option<&str>) {
     if let Err(e) = client.execute(SHOW, &[&partition]).await {
         eprintln!(
             "projection: token visibility not written: {}",
+            e.as_db_error().map_or("-", |db| db.code().code())
+        );
+    }
+}
+
+/// Writes the current HP the engine holds of the token `partition` names —
+/// of every token, `None` — on its row, logging a failure: after each apply
+/// of a token, and at a start. Tables not migrated yet hold none.
+pub async fn hit_points(client: &Client, partition: Option<&str>) {
+    if let Err(e) = client.execute(HIT_POINTS, &[&partition]).await {
+        eprintln!(
+            "projection: token HP not written: {}",
             e.as_db_error().map_or("-", |db| db.code().code())
         );
     }
