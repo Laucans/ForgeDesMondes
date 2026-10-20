@@ -55,3 +55,4 @@ rename-token = { path = "../../table/data-capabilities/rename-token" }
 change-hit-points = { path = "../../table/data-capabilities/change-hit-points" }
 set-token-condition = { path = "../../table/data-capabilities/set-token-condition" }
 start-combat = { path = "../../table/data-capabilities/start-combat" }
+remove-token = { path = "../../table/data-capabilities/remove-token" }

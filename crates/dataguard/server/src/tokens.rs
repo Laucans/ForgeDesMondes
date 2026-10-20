@@ -13,7 +13,11 @@
 //! hidden or revealed (`table.setTokenVisibility`) is: [`show`] writes its
 //! `visible` column, and no other. So is an NPC's change of HP
 //! (`table.changeHitPoints`): [`hit_points`] writes its `hp_current` column,
-//! and no other — its death and its band are the table's to derive.
+//! and no other — its death and its band are the table's to derive. A token
+//! taken off the map (`table.removeToken`) is a tombstone on its partition:
+//! [`remove`] takes its row out of the table, and the table's foreign keys
+//! follow the aggregate's relations — its initiative entry goes with it
+//! (cascade), a turn still on that entry is no one's (nullify).
 
 use place_tokens::{Character, Roster};
 use tokio_postgres::Client;
@@ -108,6 +112,20 @@ const HIT_POINTS: &str = "UPDATE token t
         AND jsonb_typeof(r.fields -> 'hpCurrent') = 'number'
         AND t.hp_current IS DISTINCT FROM (r.fields ->> 'hpCurrent')::numeric::smallint";
 
+/// The token of the partition `$1` — of every token when it is null — the
+/// engine holds tombstoned, out of the table: the row is the read side's, the
+/// tombstone the engine keeps (a soft delete, reversible through its
+/// journal) is what was removed. The token is found by the partition its id
+/// names, which a tombstone keeps whatever its fields; the instance's own
+/// partition names no token. Its entry and the turn on it follow by the
+/// table's foreign keys (`initiativeEntryTokenId` cascade, `currentEntryId`
+/// nullify), and the carousel's places close up (`initiative_order_view`).
+const REMOVE: &str = "DELETE FROM token t
+    USING dataguard_rows r
+    WHERE r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'BattlemapInstance/' || t.id::text";
+
 /// The tokens the engine holds and the table does not: a projection that
 /// failed after its apply, or was lost since.
 const UNPROJECTED: &str = "SELECT r.partition FROM dataguard_rows r
@@ -186,6 +204,19 @@ pub async fn hit_points(client: &Client, partition: Option<&str>) {
     if let Err(e) = client.execute(HIT_POINTS, &[&partition]).await {
         eprintln!(
             "projection: token HP not written: {}",
+            e.as_db_error().map_or("-", |db| db.code().code())
+        );
+    }
+}
+
+/// Takes the token `partition` names out of the table once the engine holds
+/// it tombstoned — every such token, `None` — logging a failure: after each
+/// tombstone of the aggregate, and at a start, so a removal whose projection
+/// failed after its apply is made again. Tables not migrated yet hold none.
+pub async fn remove(client: &Client, partition: Option<&str>) {
+    if let Err(e) = client.execute(REMOVE, &[&partition]).await {
+        eprintln!(
+            "projection: token not removed: {}",
             e.as_db_error().map_or("-", |db| db.code().code())
         );
     }

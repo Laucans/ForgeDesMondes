@@ -22,7 +22,7 @@ fn r16_tagged_sound_effects() {
             "data-capability:campaign.createCampaign",
         ],
         |s| {
-            let campaign = new_campaign(s, "campagne")?;
+            let campaign = new_campaign(s, "oneshot")?;
             let tag = unique("tag");
             let mut ids = Vec::new();
             for (name, tags, volume) in [

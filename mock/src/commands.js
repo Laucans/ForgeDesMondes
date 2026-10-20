@@ -221,6 +221,30 @@ export const COMMANDS = {
     token.states = payload.on ? (states.includes(state) ? states : states.concat(state)) : states.filter((s) => s !== state);
     return undefined;
   },
+  // table.removeToken: one token taken off the map, `payload.token` on the instance `targetId` — or the token
+  // itself as the target, or no target. Its partition is tombstoned and the tables follow the aggregate's
+  // relations: its entry leaves the order, whose places close up, and a turn still on it is no one's — the
+  // Battlemap sends table.nextTurn first when it holds the turn. Ids are compared in any case, as the server does.
+  'table.removeToken': async (server, { payload, targetId }) => {
+    const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+    // A `token` sent, even null, names the token: the target is then its instance, as the server reads it.
+    const named = payload.token !== undefined;
+    const tokenId = named ? payload.token : targetId;
+    if (typeof tokenId !== 'string') return ['not-found'];
+    const instance = named && targetId && !same(targetId, tokenId) ? targetId : null;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const inst = instances.find((i) => (instance == null || same(i.id, instance)) && i.state.tokens.some((t) => same(t.id, tokenId)));
+    if (!inst) return ['not-found'];
+    const id = inst.state.tokens.find((t) => same(t.id, tokenId)).id;
+    inst.state.tokens = inst.state.tokens.filter((t) => t.id !== id);
+    const combat = inst.state.combat;
+    if (combat) {
+      combat.order = combat.order.filter((o) => o.id !== id);
+      if (combat.current === id) combat.current = null;
+    }
+    return undefined;
+  },
   // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
   // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
   // version after it are undone, each field back to what it was. Either way the restoration is a new version

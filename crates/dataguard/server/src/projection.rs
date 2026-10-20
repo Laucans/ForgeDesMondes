@@ -36,6 +36,10 @@
 //! [`ProjectingStore`] inserts the `combat` row, then the `initiative_entry`
 //! rows, and points the combat at its current entry once the table holds it
 //! ([`combats`]).
+//! A token taken off the map (`table.removeToken`) tombstones its partition:
+//! [`ProjectingStore`] deletes its `token` row, and the foreign keys follow
+//! the aggregate's relations (its initiative entry cascades, a turn on it is
+//! nullified).
 //! A campaign's row is its table's over the engine's, and an archive is read
 //! from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
@@ -357,6 +361,7 @@ impl ProjectingStore {
         {
             let client = self.inner.client().lock().await;
             instances::repair(&client).await;
+            tokens::remove(&client, None).await;
             tokens::repair(&client).await;
             tokens::show(&client, None).await;
             tokens::hit_points(&client, None).await;
@@ -868,6 +873,10 @@ impl Store for ProjectingStore {
             // and conditions follow the engine's.
             self.repair_names(Some(&write.partition)).await;
             self.repair_conditions(Some(&write.partition)).await;
+        } else if tokens::of_aggregate(&write.partition) {
+            // A tombstone: a token taken off the map leaves the table.
+            let client = self.inner.client().lock().await;
+            tokens::remove(&client, Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
