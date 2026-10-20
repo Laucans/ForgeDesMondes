@@ -17,9 +17,11 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A campaign's row is its table's over the engine's, and
-//! an archive is read from the tables ([`ProjectingStore::archived`]). Every
-//! other method is the inner store's.
+//! column. A playback of a sound (`soundbox.playSound`) writes its
+//! partition, `SoundPlayback/<its id>`: [`ProjectingStore`] inserts its
+//! `sound_playback` row ([`playbacks`]). A campaign's row is its table's over
+//! the engine's, and an archive is read from the tables
+//! ([`ProjectingStore::archived`]). Every other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -51,6 +53,7 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
+use crate::playbacks;
 use crate::versioning::{ENTITY, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
@@ -290,6 +293,18 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        playbacks::repair(&*self.inner.client().lock().await).await;
+    }
+
+    /// What the tables hold of the sound a playback names, and of the
+    /// session it names if any (`soundbox.playSound`).
+    pub async fn stage(
+        &self,
+        sound: &str,
+        session: Option<&str>,
+    ) -> std::result::Result<play_sound::Stage, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        playbacks::stage(&client, sound, session).await
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -700,6 +715,8 @@ impl Store for ProjectingStore {
             self.record_test(&write.partition, provider, false).await;
         } else if element(write) {
             self.repair_elements().await;
+        } else if !write.tombstone && playbacks::of_aggregate(&write.partition) {
+            playbacks::project(&*self.inner.client().lock().await, &write.partition).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;

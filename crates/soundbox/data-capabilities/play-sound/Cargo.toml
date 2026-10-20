@@ -1,0 +1,10 @@
+[package]
+name = "play-sound"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.playSound: the DM triggers a sound from the soundbox or a suggestion's pastille and a playback of it starts in the campaign's session, layered over whatever plays already (simultaneous-playback) — one new row, its origin the DM view's surface (dm-side-only)."
+publish = false
+
+[dependencies]
+serde_json = "1"

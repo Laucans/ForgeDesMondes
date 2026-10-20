@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f7a01e12285c7cdd"
+      "builtFrom": "26956063d3518146"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "dba984383bd25eeb"
+      "builtFrom": "4036f6b148395ba4"
     },
     {
       "name": "SessionList",
@@ -274,7 +274,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "ba5a9eee28e6d0cf"
+      "builtFrom": "26893b272a534298"
     },
     {
       "name": "PreviousSummary",
@@ -435,7 +435,7 @@
         "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
       },
       "source": "apps/soundbox/sound-library",
-      "builtFrom": "60afd6fd8518fe98"
+      "builtFrom": "97ad93de3ebedc1b"
     },
     {
       "name": "LiveSessionBar",
@@ -523,7 +523,7 @@
       ],
       "props": {},
       "source": "apps/soundbox/live-soundbox",
-      "builtFrom": "fb6fad4605070274"
+      "builtFrom": "cf460d384daf7287"
     },
     {
       "name": "SuggestionPill",
