@@ -545,6 +545,9 @@ async fn a_caller_who_is_no_approver_has_each_deletion_reviewed_first() {
     let (engine, app) = s.serve().await;
     dropped(&app, INSTANCE, 1).await;
     assert_eq!(applied(&engine).await, 2);
+    started(&app, INSTANCE).await;
+    // A combat and an entry per token.
+    assert_eq!(applied(&engine).await, 3);
     let (status, body) = sent(
         &app,
         "table.resetBattlemap@1",
@@ -557,9 +560,45 @@ async fn a_caller_who_is_no_approver_has_each_deletion_reviewed_first() {
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
     assert_eq!(body["result"]["status"], "awaiting_review", "{body}");
     // Held until an approver decides: the applier runs nothing, the map
-    // stays.
+    // stays and the instance is not stamped.
     assert_eq!(applied(&engine).await, 0);
-    assert_eq!(s.map(INSTANCE).await[0].len(), 2);
+    let [tokens, combats, entries] = s.map(INSTANCE).await;
+    assert_eq!((tokens.len(), combats.len(), entries.len()), (2, 1, 2));
+    assert_eq!(s.reset_at(INSTANCE).await, None);
+    // The held deletion of the combat may be refused: it is still open, and
+    // none other starts (one-active-combat).
+    let (status, body) = command(&app, "table.startCombat@1", INSTANCE, json!({})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_reset_whose_last_deletion_is_withdrawn_stamps_nothing_until_a_reset_wipes_the_map() {
+    let s = Scratch::new("withdrawn").await;
+    let (engine, app) = s.serve().await;
+    dropped(&app, INSTANCE, 1).await;
+    assert_eq!(applied(&engine).await, 2);
+    let (status, body) = reset(&app, INSTANCE).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // The answer is the last deletion's: withdrawn, a token stays.
+    let cancel = Request::post(format!(
+        "/commands/{}/cancel",
+        body["commandId"].as_str().unwrap()
+    ))
+    .header("content-type", "application/json")
+    .body(Body::from(json!({ "by": "dm" }).to_string()))
+    .unwrap();
+    let response = app.clone().oneshot(cancel).await.expect("an answer");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(applied(&engine).await, 1);
+    assert_eq!(s.map(INSTANCE).await[0].len(), 1);
+    // The first deletion applied: state-persisted-reset holds not yet.
+    assert_eq!(s.reset_at(INSTANCE).await, None);
+    let (status, body) = reset(&app, INSTANCE).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 1);
+    assert_eq!(s.map(INSTANCE).await[0].len(), 0);
+    assert!(s.reset_at(INSTANCE).await.is_some());
     s.drop().await;
 }
 

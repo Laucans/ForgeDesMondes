@@ -17,8 +17,8 @@
 //! [`crate::Rows::reset_map`] adds —, none the engine tombstoned. It never
 //! writes the instance's partition: each of its deletions carries the
 //! instance and the reset's time, which the engine keeps with the command,
-//! and once the engine applied one, [`stamp`] writes the instance's
-//! `reset_at` — a later reset replaces it, none clears it.
+//! and once the engine applied the last of them, [`stamp`] writes the
+//! instance's `reset_at` — a later reset replaces it, none clears it.
 
 use create_battlemap_instance::Placement;
 use reset_battlemap::Map;
@@ -111,7 +111,10 @@ const MAP: &str = "WITH tokens AS (
 /// The last reset the engine applied of each instance — of the command
 /// `$1`'s instance alone, or of every instance when it is null —, as its
 /// deletions carry it, written on the instance's row when it is later than
-/// the one it holds: a reset replaces the last, none clears it.
+/// the one it holds: a reset replaces the last, none clears it. Only an
+/// instance left with no token and no combat is stamped
+/// (`state-persisted-reset`): while a deletion is held for review, parked,
+/// or refused, the stamp waits for the last row to go.
 const STAMP: &str = "UPDATE battlemap_instance b SET reset_at = s.at
     FROM (SELECT lower(q.entry -> 'payload' ->> 'battlemapInstanceId') AS instance,
             max((q.entry -> 'payload' ->> 'resetAt')::timestamptz) AS at
@@ -120,7 +123,15 @@ const STAMP: &str = "UPDATE battlemap_instance b SET reset_at = s.at
             AND pg_input_is_valid(q.entry -> 'payload' ->> 'resetAt', 'timestamptz')
             AND (q.command = $1::text OR ($1::text IS NULL AND q.state = 'applied'))
         GROUP BY 1) s
-    WHERE b.id::text = s.instance AND (b.reset_at IS NULL OR b.reset_at < s.at)";
+    WHERE b.id::text = s.instance AND (b.reset_at IS NULL OR b.reset_at < s.at)
+        AND NOT EXISTS (SELECT 1 FROM token t WHERE t.instance_id = b.id)
+        AND NOT EXISTS (SELECT 1 FROM combat c WHERE c.instance_id = b.id)
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+            WHERE r.partition LIKE 'BattlemapInstance/%' AND NOT r.tombstoned
+                AND ((r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
+                        AND lower(r.fields ->> 'tokenInstanceId') = s.instance)
+                    OR (r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'combatId')
+                        AND lower(r.fields ->> 'combatInstanceId') = s.instance)))";
 
 /// What the tables hold of the session, the scene and the battlemap named —
 /// ids the tables can read.
@@ -169,8 +180,8 @@ pub async fn map(
 }
 
 /// Stamps the instance a reset's deletion `command` carries with its time
-/// — every instance with the last reset applied, `None` — logging a
-/// failure: after each tombstone of the aggregate, and at a start. Tables
+/// once it holds no token and no combat — every instance with the last reset
+/// applied, `None` — logging a failure: after each tombstone of the aggregate, and at a start. Tables
 /// not migrated yet hold none.
 pub async fn stamp(client: &Client, command: Option<&str>) {
     if let Err(e) = client.execute(STAMP, &[&command]).await {

@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use harness_dataguard::Result;
-use harness_dataguard::command::{CommandResult, Effect, Entry};
+use harness_dataguard::command::{CommandResult, Effect, Entry, State};
 use harness_dataguard::guard;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
@@ -469,8 +469,9 @@ impl Rows {
     /// What the instance a reset names (`table.resetBattlemap`) holds — in
     /// the tables, in the engine's rows, or queued — as the commands queued
     /// will leave it: its tokens, its combats, open or ended, and the
-    /// entries of either; a row whose deletion is queued is none, and an
-    /// instance whose creation is queued is one. Over the engine's memory,
+    /// entries of either; a row whose deletion is queued — held for review
+    /// or parked too, which a second reset does not queue again — is none,
+    /// and an instance whose creation is queued is one. Over the engine's memory,
     /// which has no table, no instance.
     ///
     /// # Errors
@@ -547,13 +548,14 @@ impl Rows {
     /// The first of `combats`, by id, whose row has no end as the commands
     /// queued on it will leave it (`one-active-combat`) — none once its
     /// deletion is queued (`table.resetBattlemap`), which no end is written
-    /// behind.
+    /// behind. A deletion held for review or parked is not one: it may be
+    /// refused or expire, and the combat would still be open.
     async fn first_open(&self, mut combats: Vec<String>) -> Result<Option<String>> {
         combats.sort_unstable();
         combats.dedup();
         for combat in combats {
             let (row, ahead) = self.ahead(&start_combat::partition(&combat)).await?;
-            if ahead.iter().any(|entry| entry.effect == Effect::Delete) {
+            if ahead.iter().any(deleting) {
                 continue;
             }
             let row = ahead
@@ -767,6 +769,12 @@ impl Rows {
     }
 }
 
+/// Whether `entry` is a deletion that goes to the head by itself: not held
+/// for review, nor parked, which an approver or the clock may still refuse.
+fn deleting(entry: &Entry) -> bool {
+    entry.effect == Effect::Delete && matches!(entry.state, State::Queued | State::Confirmed)
+}
+
 /// Held by the applier for each of its runs ([`crate::applier`]), and by
 /// [`Rows::projected`] while it reads a row and the queue: a run writes a
 /// command's row, then marks it applied, and the two reads never fall
@@ -775,7 +783,6 @@ pub(crate) static APPLYING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_n
 
 #[cfg(test)]
 mod tests {
-    use harness_dataguard::command::State;
     use harness_dataguard::memory::MemoryStore;
     use harness_dataguard::store::Collision;
     use serde_json::json;
