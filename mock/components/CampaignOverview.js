@@ -518,6 +518,19 @@
       } else library.illustrations.push({ ...base, art: "dusk", glyph: String(payload.title).charAt(0).toUpperCase(), ratio: 1.5 });
       return void 0;
     },
+    // session.reorderScenes (crates/session/data-capabilities/reorder-scenes):
+    // the session's whole order, every rank rewritten at once — 1 to n in the
+    // order's order. `scene-order-contiguous` refuses an order that omits a
+    // scene, repeats one or names one the session does not hold.
+    "session.reorderScenes": async (server, { payload }) => {
+      const scenes = await server.load("session.listScenes");
+      const order = Array.isArray(payload.order) ? payload.order : [];
+      const ids = new Set(scenes.map((sc) => sc.id));
+      if (order.length !== ids.size || new Set(order).size !== order.length || !order.every((id) => ids.has(id))) return ["scene-order-contiguous"];
+      for (const sc of scenes) sc.order = order.indexOf(sc.id) + 1;
+      scenes.sort((a, b) => a.order - b.order);
+      return void 0;
+    },
     // session.addPlaceToSession (task #162): the place joins a scene — the one the payload names, else the
     // first — once, and its media follow: session-media-by-place, derived, never stored.
     "session.addPlaceToSession": async (server, { payload }) => {

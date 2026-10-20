@@ -9,10 +9,12 @@
 //! diff that never happened. Over the engine's memory it keeps [`Aliases`]
 //! too, which `alias-unique-in-campaign` reads, and the [`History`] of the
 //! versions a restoration is prepared against; over a database the
-//! projection keeps them, once the tables hold the write. Every other method
-//! is the inner store's. [`Rows`] reads what a link of a place to a scene is
-//! judged against (`session.addPlaceToSession`), and keeps its verdict in
-//! [`Links`].
+//! projection keeps them, once the tables hold the write. Over either, it
+//! keeps [`Scenes`] — which session each scene is of, as every write of the
+//! Session aggregate applied leaves it — which `scene-order-contiguous`
+//! judges a reorder against. Every other method is the inner store's.
+//! [`Rows`] reads what a link of a place to a scene is judged against
+//! (`session.addPlaceToSession`), and keeps its verdict in [`Links`].
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -31,6 +33,7 @@ use crate::aliases::Aliases;
 use crate::history::History;
 use crate::projection::ProjectingStore;
 use crate::scene_places::{Facts, Links};
+use crate::scenes::Scenes;
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -48,6 +51,7 @@ pub struct Versioning {
     inner: Arc<dyn Store>,
     aliases: Option<Arc<Aliases>>,
     history: Option<Arc<History>>,
+    scenes: Arc<Scenes>,
 }
 
 impl Versioning {
@@ -58,6 +62,7 @@ impl Versioning {
             inner,
             aliases,
             history: None,
+            scenes: Arc::default(),
         }
     }
 
@@ -65,6 +70,27 @@ impl Versioning {
     #[must_use]
     pub fn keeping(self, history: Option<Arc<History>>) -> Self {
         Self { history, ..self }
+    }
+
+    /// The same, keeping the scenes' sessions in `scenes`.
+    #[must_use]
+    pub fn following(self, scenes: Arc<Scenes>) -> Self {
+        Self { scenes, ..self }
+    }
+
+    /// Applies a write of any aggregate but Entity: what a Session partition
+    /// holds — the whole row a write carries — recorded in [`Scenes`] once
+    /// applied, and forgotten once removed.
+    async fn apply_other(&self, write: &Write, result: &CommandResult) -> Result<u64> {
+        let version = self.inner.apply(write, result).await?;
+        if let Some(id) = write.partition.strip_prefix(SESSION) {
+            if write.tombstone {
+                self.scenes.forget(id);
+            } else {
+                self.scenes.record(&write.values);
+            }
+        }
+        Ok(version)
     }
 }
 
@@ -104,7 +130,7 @@ impl Store for Versioning {
 
     async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let Some(element) = element_of(write) else {
-            return self.inner.apply(write, result).await;
+            return self.apply_other(write, result).await;
         };
         if write.tombstone {
             let version = self.inner.apply(write, result).await?;
@@ -163,6 +189,7 @@ pub struct Rows {
     store: Arc<dyn Store>,
     history: Arc<History>,
     tables: Option<Arc<ProjectingStore>>,
+    scenes: Arc<Scenes>,
     links: Arc<Links>,
 }
 
@@ -178,6 +205,7 @@ impl Rows {
             store,
             history,
             tables: None,
+            scenes: Arc::default(),
             links: Arc::default(),
         }
     }
@@ -185,6 +213,33 @@ impl Rows {
     /// The same, a campaign's archive read from `tables`.
     pub(crate) fn reading(self, tables: Option<Arc<ProjectingStore>>) -> Self {
         Self { tables, ..self }
+    }
+
+    /// The same, the scenes' sessions kept in `scenes`.
+    pub(crate) fn following(self, scenes: Arc<Scenes>) -> Self {
+        Self { scenes, ..self }
+    }
+
+    /// Takes what the tables and the engine's rows hold of `session`'s
+    /// scenes into what a reorder of them is judged against: the fixtures'
+    /// scenes, which no command wrote. Over the engine's memory, which has
+    /// no table, nothing: its scenes are the ones it applied.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn refresh_scenes(&self, session: &str) -> Result<()> {
+        let Some(tables) = &self.tables else {
+            return Ok(());
+        };
+        let held = tables.scenes_of(Some(session)).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "scenes not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        self.scenes.take(&held);
+        Ok(())
     }
 
     /// The same, the verdicts of the links of places to scenes kept in

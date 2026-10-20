@@ -535,6 +535,17 @@ async fn text_only_no_audio_rejects_audio_or_anything_but_a_column_s_value() {
             &["text-only-no-audio"],
         );
     }
+    // A session's order of its scenes is the one list a row holds, of ids
+    // only: bytes there are no order, nor any column's value.
+    rejected_by(
+        &written(
+            &engine,
+            "test.updateSession",
+            json!({ "sessionId": SEANCE, "scenePosition": [82, 73, 70, 70] }),
+        )
+        .await,
+        &["scene-order-contiguous", "text-only-no-audio"],
+    );
     // The brief as its transcribed text: kept.
     applied(
         &written(

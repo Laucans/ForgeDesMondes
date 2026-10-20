@@ -32,10 +32,14 @@
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
 //! the command's result once its stamp is applied. A creation of a campaign
 //! (`campaign.createCampaign`) is prepared with the ids the server gives it
-//! and its oneshot's session. A place put in a scene
-//! (`session.addPlaceToSession`) is prepared against what the tables and the
-//! engine's rows hold of its session, its scene and its place, which [`Rows`]
-//! reads: its verdict on `scene-links-same-campaign` is kept for the judge.
+//! and its oneshot's session. A reorder of a session's scenes
+//! (`session.reorderScenes`) is written whole on the session's partition,
+//! and judged against the session's scenes the engine holds and — over a
+//! database — its tables hold ([`Rows::refresh_scenes`]). A place put in a
+//! scene (`session.addPlaceToSession`) is prepared against what the tables
+//! and the engine's rows hold of its session, its scene and its place, which
+//! [`Rows`] reads: its verdict on `scene-links-same-campaign` is kept for the
+//! judge.
 
 use std::sync::Arc;
 
@@ -69,6 +73,7 @@ mod player;
 mod projection;
 mod reads;
 mod scene_places;
+mod scenes;
 mod session;
 mod sound;
 mod sound_playback;
@@ -169,6 +174,7 @@ pub struct Planted {
 pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     let aliases = Arc::new(aliases::Aliases::default());
     let history = Arc::new(history::History::default());
+    let scenes = Arc::new(scenes::Scenes::default());
     let links = Arc::new(scene_places::Links::default());
     let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
@@ -186,6 +192,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
         store.repair_tests().await;
         store.elements().await;
         store.versions(None).await;
+        store.sessions(&scenes).await;
         let store = Arc::new(store);
         tables = Some(store.clone());
         store
@@ -194,8 +201,11 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     // the versions.
     let kept = (url == MEMORY).then(|| aliases.clone());
     let versions = (url == MEMORY).then(|| history.clone());
-    let store: Arc<dyn Store> =
-        Arc::new(versioning::Versioning::new(store, kept).keeping(versions));
+    let store: Arc<dyn Store> = Arc::new(
+        versioning::Versioning::new(store, kept)
+            .keeping(versions)
+            .following(scenes.clone()),
+    );
     let engine = bound(
         Engine::new(
             store.clone(),
@@ -203,21 +213,26 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
             Arc::new(SystemClock),
         ),
         aliases,
+        scenes.clone(),
         links.clone(),
     )?;
     engine.load().await?;
-    let rows = Rows::keeping(store, history).reading(tables).linking(links);
+    let rows = Rows::keeping(store, history)
+        .reading(tables)
+        .following(scenes)
+        .linking(links);
     rows.rejudge_links().await?;
     Ok(Planted { engine, rows })
 }
 
 /// `engine` bound to what the checkout holds: the registry, every
 /// aggregate and DataCapability, and the invariants the product executes —
-/// `alias-unique-in-campaign` reading `aliases`, `scene-links-same-campaign`
-/// the verdicts of `links`.
+/// `alias-unique-in-campaign` reading `aliases`, `scene-order-contiguous`
+/// reading `scenes`, `scene-links-same-campaign` the verdicts of `links`.
 fn bound(
     engine: Engine,
     aliases: Arc<aliases::Aliases>,
+    scenes: Arc<scenes::Scenes>,
     links: Arc<scene_places::Links>,
 ) -> Result<Engine, PlantError> {
     let mut engine = engine.with_registry(Registry::parse(registry::REGISTRY)?);
@@ -229,6 +244,7 @@ fn bound(
     }
     engine = engine.with_invariants(Arc::new(Product {
         entity: entity::Entity::new(aliases),
+        session: session::Session::new(scenes),
         scene_places: scene_places::ScenePlaces::new(links),
     }));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
@@ -239,6 +255,7 @@ fn bound(
 /// one judge, and each aggregate's own judges its rows alone.
 struct Product {
     entity: entity::Entity,
+    session: session::Session,
     scene_places: scene_places::ScenePlaces,
 }
 
@@ -256,7 +273,7 @@ impl Invariants for Product {
             &self.entity,
             &media::Media,
             &note_import::NoteImport,
-            &session::Session,
+            &self.session,
             &self.scene_places,
             &sound::Sound,
             &battlemap_instance::BattlemapInstance,
@@ -365,13 +382,16 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// of a campaign (`create_campaign::prepare`) is given its id — and a
 /// oneshot's session its own — and written whole on its new partition, the
 /// command's target whatever the request named: one with no name, or of a
-/// kind there is not, is refused, 422, and not queued. A place put in a
-/// scene (`add_place_to_session::prepare`) is made the link it writes on its
-/// own partition, in the scene named or the session's first, after the
-/// scene's last element — or at its rank when the scene links it already —
-/// its verdict on `scene-links-same-campaign` kept for the judge: one naming
-/// no session or no place, of a session with no scene, or of an element that
-/// is no place, is refused, 422, and not queued.
+/// kind there is not, is refused, 422, and not queued. A reorder of a
+/// session's scenes (`reorder_scenes::prepare`) is written whole on the
+/// session's partition, what the tables hold of its scenes read first: one
+/// naming no session, or no list of scene ids, is refused, 422, and not
+/// queued. A place put in a scene (`add_place_to_session::prepare`) is made
+/// the link it writes on its own partition, in the scene named or the
+/// session's first, after the scene's last element — or at its rank when the
+/// scene links it already — its verdict on `scene-links-same-campaign` kept
+/// for the judge: one naming no session or no place, of a session with no
+/// scene, or of an element that is no place, is refused, 422, and not queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -539,6 +559,22 @@ async fn submit<L: Llm>(
         };
         match create_campaign::prepare(&body.payload, fresh) {
             Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
+    } else if reorder_scenes::names(&body.data_capability) {
+        match reorder_scenes::prepare(&body.payload) {
+            Ok(prepared) => {
+                if let Err(e) = served.rows.refresh_scenes(&prepared.target_id).await {
+                    return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+                }
                 body.payload = prepared.payload;
                 body.target_id = Some(prepared.target_id);
             }
@@ -852,6 +888,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
             ),
+            Arc::default(),
             Arc::default(),
             Arc::default(),
         )

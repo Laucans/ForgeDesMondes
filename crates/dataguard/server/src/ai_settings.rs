@@ -278,6 +278,7 @@ mod tests {
             ),
             Arc::default(),
             Arc::default(),
+            Arc::default(),
         )
         .expect("the product's manifests parse");
         for manifest in [
