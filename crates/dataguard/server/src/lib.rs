@@ -33,7 +33,8 @@
 //! the command's result once its stamp is applied. A change of the master
 //! volume (`soundbox.setMasterVolume`) is made the fraction it writes on its
 //! campaign's partition. An addition of a sound (`soundbox.addSound`) is
-//! prepared against the campaign it names, which [`Rows`] reads.
+//! prepared against the campaign it names, which [`Rows`] reads, and an edit
+//! of one (`soundbox.updateSound`) against the sound's row.
 
 use std::sync::Arc;
 
@@ -357,6 +358,10 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// addition of a sound (`add_sound::prepare`) is given its id and made the row
 /// it writes, its tags normalised and its volume a fraction of 1: one naming no
 /// campaign the engine holds is refused, 404, and one with no name or no file,
+/// 422. An edit of a sound (`update_sound::prepare`) is made the fields it
+/// changes, its tags normalised and its volume a fraction of 1: one naming
+/// no sound the engine holds — a sound queued for addition is one — is
+/// refused, 404, and one with a blank name or file, or nothing to change,
 /// 422.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
@@ -573,6 +578,35 @@ async fn submit<L: Llm>(
                     ),
                 ));
             }
+            Ok(_) => {}
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        }
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if update_sound::names(&body.data_capability) {
+        let unprepared = |refusal: update_sound::Refusal| {
+            let status = if refusal == update_sound::Refusal::NoSound {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            Err((
+                status,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            ))
+        };
+        let prepared = match update_sound::prepare(&body.payload, body.target_id.as_deref()) {
+            Ok(prepared) => prepared,
+            Err(refusal) => return unprepared(refusal),
+        };
+        // The sound as the commands queued ahead leave it: an addition still
+        // queued is one.
+        match served
+            .rows
+            .projected(&format!("Sound/{}", prepared.target_id))
+            .await
+        {
+            Ok(row) if row.is_empty() => return unprepared(update_sound::Refusal::NoSound),
             Ok(_) => {}
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         }
