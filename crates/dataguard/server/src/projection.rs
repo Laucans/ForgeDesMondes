@@ -44,7 +44,9 @@
 //! A token taken off the map (`table.removeToken`) tombstones its partition:
 //! [`ProjectingStore`] deletes its `token` row, and the foreign keys follow
 //! the aggregate's relations (its initiative entry cascades, a turn on it is
-//! nullified).
+//! nullified). A reorder of a combat's initiative (`table.reorderInitiative`)
+//! writes each entry's partition with its rank alone: [`ProjectingStore`]
+//! writes `initiative_entry.rank`, and no other column ([`ranks`]).
 //! A participant joining a running combat (`table.addParticipant`) writes its
 //! entry's partition, `BattlemapInstance/<its id>`, and each partition of an
 //! entry it lands ahead of with a step of its rank: [`ProjectingStore`]
@@ -89,6 +91,7 @@ use crate::aliases::Aliases;
 use crate::combats;
 use crate::history::History;
 use crate::instances;
+use crate::ranks;
 use crate::tokens;
 use crate::turns;
 use crate::versioning::{ENTITY, element_of};
@@ -381,6 +384,7 @@ impl ProjectingStore {
             tokens::show(&client, None).await;
             tokens::hit_points(&client, None).await;
             combats::repair(&client).await;
+            ranks::rank(&client, None).await;
             turns::turn(&client, None).await;
         }
         self.repair_names(None).await;
@@ -454,8 +458,9 @@ impl ProjectingStore {
         combats::seating(&client, instance, character).await
     }
 
-    /// The combats the engine holds of the instance a « Suivant » names
-    /// (`table.nextTurn`), open or ended.
+    /// The combats the engine holds of the instance a « Suivant » or a
+    /// reorder names (`table.nextTurn`, `table.reorderInitiative`), open or
+    /// ended.
     pub async fn combats(
         &self,
         instance: &str,
@@ -464,8 +469,8 @@ impl ProjectingStore {
         turns::combats(&client, instance).await
     }
 
-    /// The entries the engine holds of the combat a « Suivant » turns
-    /// (`table.nextTurn`).
+    /// The entries the engine holds of the combat a « Suivant » turns or a
+    /// reorder ranks (`table.nextTurn`, `table.reorderInitiative`).
     pub async fn entries(
         &self,
         combat: &str,
@@ -931,6 +936,7 @@ impl Store for ProjectingStore {
                 if id("endedAt").is_some() {
                     combats::end(&client, Some(&write.partition)).await;
                 }
+                ranks::rank(&client, Some(&write.partition)).await;
             }
             // A rename, a badge set, or any later write, makes the token's name
             // and conditions follow the engine's.

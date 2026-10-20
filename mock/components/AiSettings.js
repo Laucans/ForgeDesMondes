@@ -688,6 +688,24 @@
       token.states = payload2.on ? states.includes(state) ? states : states.concat(state) : states.filter((s) => s !== state);
       return void 0;
     },
+    // table.reorderInitiative: the open combat of the instance `targetId` — or `payload.instance` — takes the order
+    // `payload.order`, every participant once, named by its token: the first gets rank 1, the next 2, without gap
+    // (`initiative-tiebreak`). A hidden one takes the rank it is given (`hidden-keeps-rank`); no participant is added
+    // or removed and the turn does not move. An order that omits, repeats or adds a participant is refused, and so is
+    // an instance with no open combat. Ids are compared in any case, as the server does.
+    "table.reorderInitiative": async (server, { payload: payload2, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const id = targetId || payload2.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const combat = instances.find((i) => same2(i.id, id))?.state.combat;
+      if (!combat) return ["not-found"];
+      const order = Array.isArray(payload2.order) ? payload2.order : [];
+      const placed = order.map((named) => combat.order.findIndex((p) => same2(p.id, named)));
+      if (order.length !== combat.order.length || placed.some((at, i) => at < 0 || placed.indexOf(at) !== i)) return ["initiative-tiebreak"];
+      combat.order = placed.map((at) => combat.order[at]);
+      return void 0;
+    },
     // table.removeParticipant: one participant taken out of the open combat, `payload.entry` in a combat of the
     // instance `targetId` — or the entry itself as the target, or no target. The mock-up's order names each
     // participant by its token, which stands for its entry here. Its entry's partition is tombstoned and nothing else

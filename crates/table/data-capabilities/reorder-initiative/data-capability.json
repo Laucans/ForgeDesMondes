@@ -1,0 +1,20 @@
+{
+  "dataCapability": "table.reorderInitiative",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": ["BattlemapInstance.rank"],
+  "payload": {
+    "instance": "uuid — the battlemap instance whose open combat is reordered, when the command names no target",
+    "order": "array of uuids — every participant of the open combat, once each, named by its token (or its initiative entry), in the order the DM gives: the first gets rank 1, the next 2, and so on, without gap. An order that omits or repeats a participant, or names one that is not in the combat, is refused. A hidden participant takes the rank it is given (hidden-keeps-rank); no participant is added or removed and the turn does not move"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["instance-isolated", "initiative-tiebreak", "hidden-keeps-rank"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

@@ -307,6 +307,7 @@ dependencies = [
  "remove-participant",
  "remove-token",
  "rename-token",
+ "reorder-initiative",
  "restore-entity-version",
  "save-entity",
  "save-settings",
@@ -1255,6 +1256,13 @@ dependencies = [
 
 [[package]]
 name = "rename-token"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "reorder-initiative"
 version = "0.1.0"
 dependencies = [
  "serde_json",
