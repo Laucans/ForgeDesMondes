@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "1eaf7f5f1503ca15"
+      "builtFrom": "9acec60586efd583"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "e8dbba24d1864063"
+      "builtFrom": "6bc805f53cb4f325"
     },
     {
       "name": "SessionList",
@@ -274,7 +274,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "cc3c2d64766f598f"
+      "builtFrom": "8011438e6cbce2b1"
     },
     {
       "name": "PreviousSummary",
@@ -415,7 +415,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "6040f98f5938b4a8"
+      "builtFrom": "6b26c2f82d265a2c"
     },
     {
       "name": "SoundLibrary",

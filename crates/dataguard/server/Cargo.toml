@@ -49,3 +49,4 @@ save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
+upload-media = { path = "../../media/data-capabilities/upload-media" }

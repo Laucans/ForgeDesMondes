@@ -343,3 +343,43 @@ async fn a_command_replayed_with_its_idempotency_key_is_applied_once() {
     );
     assert_eq!(served.carte().await, once);
 }
+
+#[tokio::test]
+async fn a_replay_is_answered_as_it_was_queued_though_its_place_is_retyped_since() {
+    let valombre = valombre().await;
+    let served = &valombre.served;
+    let payload = json!({ "place": valombre.moulin });
+    let (status, first) = served
+        .place(Some(CARTE), payload.clone(), Some("attach-2"))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{first}");
+    assert_eq!(served.settled().await.status, State::Applied);
+
+    // The Moulin is no lieu any more.
+    let (status, answer) = served
+        .post(
+            "/commands",
+            json!({
+                "dataCapability": "campaign.saveEntity@1",
+                "payload": {
+                    "campaign": VALOMBRE,
+                    "entity": { "id": valombre.moulin, "kind": "pnj", "name": "Le Meunier" },
+                },
+                "caller": { "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] },
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    assert_eq!(served.settled().await.status, State::Applied);
+    let (status, fresh) = served.place(Some(CARTE), payload.clone(), None).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "a new command is judged against what the Moulin is now: {fresh}"
+    );
+
+    let (status, again) = served.place(Some(CARTE), payload, Some("attach-2")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["replayed"], json!(true), "{again}");
+    assert_eq!(again["commandId"], first["commandId"]);
+}

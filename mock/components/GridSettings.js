@@ -748,6 +748,23 @@
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
+    // media.uploadMedia (crates/media/data-capabilities/upload-media): a
+    // battlemap or an illustration added to the library, the path the DM chose
+    // recorded and no file copied. A battlemap arrives with its default grid
+    // (`grid-only-for-battlemap`) — a 32 px hex, pointy, 45 % opaque — at 5
+    // feet per hex; an illustration has none. A place, when one is named, is a
+    // lieu of the campaign (`media-place-is-lieu`); a kind that is neither is
+    // refused (`media-kind`, the table's CHECK).
+    "media.uploadMedia": async (server, { payload: payload2 }) => {
+      const { kind, place = null } = payload2;
+      if (kind !== "battlemap" && kind !== "illustration") return ["media-kind"];
+      if (place && !(await server.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["media-place-is-lieu"];
+      const media = await server.load("media");
+      const base = { id: server.uuid(), title: String(payload2.title || "").trim() || "Sans titre", file: payload2.file || "", uploadedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), place };
+      if (kind === "battlemap") media.battlemaps.push({ ...base, width: payload2.width || 0, height: payload2.height || 0, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 } });
+      else media.illustrations.push(base);
+      return void 0;
+    },
     // media.saveGridSettings (crates/media/data-capabilities/save-grid-settings):
     // a battlemap's grid kept — the six fields of HexGrid@1, the opacity a
     // fraction of 1 where the mock-up's fixtures write a percentage. A hex size

@@ -389,3 +389,51 @@ async fn another_write_of_the_media_never_writes_its_place_again() {
     assert_eq!(scratch.place_of(CARTE).await, None);
     scratch.drop().await;
 }
+
+#[tokio::test]
+async fn a_lieu_still_queued_is_a_place_as_the_queue_will_leave_it() {
+    let scratch = Scratch::new("queued").await;
+    let (engine, app) = scratch.serve().await;
+
+    // The Clairière is saved, and not applied: the tables do not hold it.
+    let request = Request::post("/commands")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "dataCapability": "campaign.saveEntity@1",
+                "payload": {
+                    "campaign": VALOMBRE,
+                    "entity": { "kind": "lieu", "name": "La Clairière" },
+                },
+                "caller": { "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] },
+            })
+            .to_string(),
+        ))
+        .expect("a request");
+    let response = app.clone().oneshot(request).await.expect("an answer");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("a body");
+    let saved: Value = serde_json::from_slice(&bytes).expect("JSON");
+    let clairiere = saved["partition"]
+        .as_str()
+        .and_then(|partition| partition.strip_prefix("Entity/"))
+        .expect("an Entity partition")
+        .to_owned();
+
+    let (status, answer) = place(&app, CARTE, Some(&clairiere), None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+
+    let settled = engine.run_once().await.expect("the applier ran");
+    assert_eq!(settled.len(), 2, "{settled:?}");
+    assert!(
+        settled.iter().all(|result| result.status == State::Applied),
+        "{settled:?}"
+    );
+    assert_eq!(
+        scratch.place_of(CARTE).await.as_deref(),
+        Some(clairiere.as_str())
+    );
+    scratch.drop().await;
+}

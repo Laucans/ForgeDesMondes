@@ -198,35 +198,109 @@ impl Rows {
         })
     }
 
+    /// The element `id` names as a media's place reads it — its type and its
+    /// campaign — from the tables over a database, which hold the fixtures'
+    /// elements and every one applied; from the engine's row over its
+    /// memory. `None` when there is no such live element.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn place(&self, id: &str) -> Result<Option<upload_media::Place>> {
+        let Some(tables) = &self.tables else {
+            // The ids the server makes are lower case.
+            let row = self
+                .store
+                .row(&format!("{ENTITY}{}", id.to_ascii_lowercase()))
+                .await?;
+            let text = |field: &str| row.get(field).and_then(Value::as_str).map(str::to_owned);
+            return Ok(text("type")
+                .zip(text("entityCampaignId"))
+                .map(|(kind, campaign)| upload_media::Place { kind, campaign }));
+        };
+        tables.place(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "entity not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether the tables hold the campaign `id` names, live — over the
+    /// engine's memory, which has no table, every campaign is held.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn holds_campaign(&self, id: &str) -> Result<bool> {
+        let Some(tables) = &self.tables else {
+            return Ok(true);
+        };
+        tables.holds_campaign(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether a command of `data_capability` was submitted under `key`
+    /// already: its replay is the engine's to answer, as it was queued.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn replayed(&self, data_capability: &str, key: &str) -> Result<bool> {
+        // The engine keeps a key under the id alone, its `@version` dropped.
+        let id = data_capability.split('@').next().unwrap_or_default();
+        self.store
+            .by_idempotency_key(id, key)
+            .await
+            .map(|command| command.is_some())
+    }
+
     /// The media `media` names and the element `place` names, as a change of
     /// place (`media.setMediaPlace`) is judged against them: over a database
-    /// as the tables hold them, which judge the place again; over the
-    /// engine's memory, which is the tables, as the commands queued on them
-    /// will leave them. `None` when there is no such media, and the place
-    /// `None` when there is no such element — or none is named.
+    /// the tables' rows, which hold the fixtures' and judge the place again,
+    /// under the engine's as the commands queued on them will leave them — a
+    /// lieu or a media created a moment ago is there, and a field the engine
+    /// holds wins. `None` when there is no such media, and the place `None`
+    /// when there is no such element — or none is named.
     ///
     /// # Errors
     ///
     /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
     /// the store's.
     pub async fn placed(&self, media: &str, place: Option<&str>) -> Result<Option<Placing>> {
-        if let Some(tables) = &self.tables {
-            return tables.placing(media, place).await.map_err(|e| {
-                harness_dataguard::Error::Store(format!(
-                    "media not read: {}",
-                    e.as_db_error().map_or("-", |db| db.code().code())
-                ))
-            });
-        }
         let held = |row: BTreeMap<String, Value>| Some(row).filter(|row| !row.is_empty());
-        let Some(media) = held(self.projected(&format!("Media/{media}")).await?) else {
-            return Ok(None);
-        };
-        let place = match place {
+        let engine_media = held(self.projected(&format!("Media/{media}")).await?);
+        let engine_place = match place {
             Some(place) => held(self.projected(&format!("{ENTITY}{place}")).await?),
             None => None,
         };
-        Ok(Some((media, place)))
+        let Some(tables) = &self.tables else {
+            return Ok(engine_media.map(|media| (media, engine_place)));
+        };
+        let found = tables.placing(media, place).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "media not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        let (table_media, table_place) = found.unzip();
+        let over = |under: Option<BTreeMap<String, Value>>,
+                    row: Option<BTreeMap<String, Value>>| {
+            match (under, row) {
+                (Some(mut under), Some(row)) => {
+                    under.extend(row);
+                    Some(under)
+                }
+                (under, row) => under.or(row),
+            }
+        };
+        Ok(over(table_media, engine_media)
+            .map(|media| (media, over(table_place.flatten(), engine_place))))
     }
 
     /// The versions of `element` a restoration can name, oldest first.
