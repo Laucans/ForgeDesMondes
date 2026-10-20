@@ -1,0 +1,10 @@
+[package]
+name = "close-window"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.closeWindow: the DM closes the floating window over the live session's player view, on the session's Diffusion partition — its media, x, y and width emptied together, the base and the framing untouched, a closed window closed again harmlessly."
+publish = false
+
+[dependencies]
+serde_json = "1"

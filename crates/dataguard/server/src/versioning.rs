@@ -220,8 +220,9 @@ impl Rows {
     }
 
     /// The live session of the campaign the uuid `campaign` names, whose
-    /// diffusion row a return to its cover (`live.showCover`) or a move of
-    /// its window (`live.moveWindow`) writes: `None` when it has none — and
+    /// diffusion row a return to its cover (`live.showCover`), a move of its
+    /// window (`live.moveWindow`) or a close of it (`live.closeWindow`)
+    /// writes: `None` when it has none — and
     /// over the engine's memory, which has no table.
     ///
     /// # Errors
