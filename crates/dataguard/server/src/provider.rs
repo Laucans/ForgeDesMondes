@@ -111,6 +111,21 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_api_provider_detected_as_the_cloud_keeps_that_type() {
+        let saved = row(json!({
+            "mode": "api",
+            "url": "https://api.anthropic.com/v1",
+            "detectedApiType": "cloud",
+            "generationModel": "g",
+            "summaryModel": "s"
+        }));
+        let ProviderConfig::Api { api_type, .. } = active(&saved) else {
+            panic!("a saved api is an api provider");
+        };
+        assert_eq!(api_type, Some(ApiType::Cloud));
+    }
+
+    #[test]
     fn a_saved_binary_is_active_with_its_models() {
         for (name, binary) in [
             ("opencode", Binary::Opencode),

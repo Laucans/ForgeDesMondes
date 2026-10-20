@@ -453,6 +453,17 @@ mod tests {
     }
 
     #[test]
+    fn a_uuid_is_36_characters_in_the_8_4_4_4_12_shape() {
+        assert!(uuid("0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d"));
+        // Right alphabet, wrong length.
+        assert!(!uuid("0a1b2c3d"));
+        assert!(!uuid(""));
+        // Right length, dashes misplaced or a non-hex digit.
+        assert!(!uuid("0a1b2c3d04e5f-6a7b-8c9d-0e1f2a3b4c5d"));
+        assert!(!uuid("0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5g"));
+    }
+
+    #[test]
     fn a_blank_alias_recognises_nothing() {
         let known = [Known {
             id: "e1".to_owned(),
