@@ -303,8 +303,8 @@ async fn submit(engine: &Engine, data_capability: &str, id: &str, payload: Value
 
 /// Chef bandit 1, Bandit 1 and Bandit 2 dropped on the instance, in combat
 /// in that order at round 1, on the first — ended at `ended` when one is
-/// given —, the engine's rows laid in the tables as a start's projection
-/// lays them.
+/// given —, the engine's rows, which its projection lays in the tables as
+/// a start's does.
 async fn fight(s: &Scratch, engine: &Engine, app: &Router, ended: Option<&str>) {
     for (character, count) in [(VESNA, 1), (BANDIT, 2)] {
         let (status, body) = command(
@@ -348,24 +348,6 @@ async fn fight(s: &Scratch, engine: &Engine, app: &Router, ended: Option<&str>) 
         .await;
     }
     assert_eq!(applied(engine).await, 4);
-    let ended = ended.map_or("NULL".to_string(), |at| format!("'{at}'"));
-    let mut sql = format!(
-        "INSERT INTO combat (id, instance_id, round, started_at, ended_at)
-         VALUES ('{COMBAT}', '{INSTANCE}', 1, '2026-10-20T20:00:00Z', {ended});"
-    );
-    for ((entry, name), rank) in ENTRIES.iter().zip(PARTICIPANTS).zip(1..) {
-        let token = s.token(name).await;
-        sql.push_str(&format!(
-            "INSERT INTO initiative_entry (id, combat_id, token_id, initiative, tiebreak, rank)
-             VALUES ('{entry}', '{COMBAT}', '{token}', {}, 0.5, {rank});",
-            20 - rank
-        ));
-    }
-    sql.push_str(&format!(
-        "UPDATE combat SET current_entry_id = '{}' WHERE id = '{COMBAT}';",
-        ENTRIES[0]
-    ));
-    s.client.batch_execute(&sql).await.expect("the combat laid");
 }
 
 /// « Suivant » on the instance, queued: its status and answer.
@@ -475,6 +457,31 @@ async fn next_turn_a_removal_queued_ahead_counts_before_the_turn_is_judged() {
     let (status, body) = suivant(&app).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
     assert_eq!(applied(&engine).await, 2);
+    assert_eq!(s.turn().await, (1, Some(3)));
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn next_turn_an_entry_moved_to_another_combat_by_a_command_queued_ahead_takes_no_turn() {
+    let s = Scratch::new("entry_moved").await;
+    let (engine, app) = s.serve().await;
+    fight(&s, &engine, &app, None).await;
+    // A move of the second to another combat waits in the queue, though the
+    // table still holds it here: the turn is judged against the entry as
+    // the queue will leave it, so it goes from the first to the third. The
+    // engine refuses the move when it comes (`instance-isolated`), and
+    // applies the turn.
+    seed(
+        &engine,
+        ENTRIES[1],
+        json!({ "initiativeEntryCombatId": "c0000000-0000-4000-8000-0000000000ff" }),
+    )
+    .await;
+    let (status, body) = suivant(&app).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let results = engine.run_once().await.expect("the applier ran");
+    let states: Vec<State> = results.iter().map(|result| result.status).collect();
+    assert_eq!(states, [State::Rejected, State::Applied], "{results:?}");
     assert_eq!(s.turn().await, (1, Some(3)));
     s.drop().await;
 }

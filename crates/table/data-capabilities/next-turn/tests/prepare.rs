@@ -218,3 +218,28 @@ fn an_instance_that_is_no_uuid_is_refused() {
     let wire = row(json!({ "instance": 7 }));
     assert_eq!(request(&wire, None), Err(Refusal::NotAnId));
 }
+
+#[test]
+fn an_instance_that_is_a_hex_run_of_another_length_is_refused() {
+    assert_eq!(request(&Row::new(), Some("abcd")), Err(Refusal::NotAnId));
+    assert_eq!(
+        request(&Row::new(), Some("b1000000-0000-4000-8000-00000000000")),
+        Err(Refusal::NotAnId)
+    );
+}
+
+#[test]
+fn each_refusal_says_what_it_is() {
+    assert_eq!(
+        Refusal::NotAnId.to_string(),
+        "instance n'est pas un identifiant"
+    );
+    assert_eq!(
+        Refusal::NoOpenCombat.to_string(),
+        "aucun combat n'est en cours sur cette instance"
+    );
+    assert_eq!(
+        Refusal::NoOneAlive.to_string(),
+        "aucun participant vivant à qui passer le tour"
+    );
+}
