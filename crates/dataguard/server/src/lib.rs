@@ -661,7 +661,9 @@ async fn extract<L: Llm, S: SpeechToText>(
 /// proposal, which stays as it was, and the warnings are told, each after
 /// the proposal's name; when no proposal is left to write, that element's
 /// command is answered. Then each proposal checked or unchecked, in id
-/// order: the last, applied after the others, is answered. Each command is
+/// order: the last, applied after the others, is answered.
+/// An element's ids come from its proposal's, so a validation retried after a
+/// failure half-way finds the element it queued and does not queue it again. Each command is
 /// the caller's; an idempotency key is the last proposal's alone, as an
 /// analysis's is its note's — a validation that writes no proposal keeps
 /// none. Validations run one at a time, each against the proposals the one
@@ -698,20 +700,9 @@ async fn validate<L: Llm, S: SpeechToText>(
         Ok(proposals) => proposals,
         Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
     };
-    let fresh: Result<Vec<Fresh>, _> = request
-        .accepted
-        .iter()
-        .map(|_| {
-            Ok::<_, getrandom::Error>(Fresh {
-                entity: fresh_uuid()?,
-                version: fresh_uuid()?,
-            })
-        })
-        .collect();
-    let Ok(fresh) = fresh else {
-        let e = Error::Store("no randomness for an id".to_string());
-        return reply(StatusCode::ACCEPTED, Err(e));
-    };
+    // The same ids every time: a validation retried after a failure half-way
+    // finds the elements it made, and does not make them twice.
+    let fresh: Vec<Fresh> = request.accepted.iter().map(|id| Fresh::of(id)).collect();
     let batch = match request.batch(&proposals, fresh, now) {
         Ok(batch) => batch,
         Err(refusal) => return refused(StatusCode::NOT_FOUND, refusal.to_string()),
@@ -728,6 +719,16 @@ async fn validate<L: Llm, S: SpeechToText>(
     let mut rejected = std::collections::BTreeSet::new();
     let mut last_rejected = None;
     for element in batch.elements {
+        // Queued by a validation that failed before it stamped its proposal.
+        match served
+            .rows
+            .projected(&format!("Entity/{}", element.command.target_id))
+            .await
+        {
+            Ok(held) if !held.is_empty() => continue,
+            Ok(_) => {}
+            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
+        }
         let submitted = match served
             .engine
             .submit(command(save_entity::DATA_CAPABILITY, element.command))

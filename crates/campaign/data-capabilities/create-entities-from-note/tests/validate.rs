@@ -357,3 +357,25 @@ fn a_batch_wants_one_pair_of_ids_per_accepted_proposal() {
     };
     let _ = request.batch(&note(), fresh(1), NOW);
 }
+
+#[test]
+fn an_element_is_given_the_same_uuids_every_time_from_its_proposal() {
+    let fresh = Fresh::of("p1");
+    assert_eq!(fresh, Fresh::of("p1"));
+    assert_ne!(fresh, Fresh::of("p2"));
+    assert_ne!(fresh.entity, fresh.version);
+    for id in [&fresh.entity, &fresh.version] {
+        let parts: Vec<usize> = id.split('-').map(str::len).collect();
+        assert_eq!(parts, [8, 4, 4, 4, 12], "{id}");
+        assert!(
+            id.chars().all(|c| c == '-' || c.is_ascii_hexdigit()),
+            "{id}"
+        );
+        // Version 5, variant 10.
+        assert_eq!(id.as_bytes()[14], b'5', "{id}");
+        assert!(
+            matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
+            "{id}"
+        );
+    }
+}

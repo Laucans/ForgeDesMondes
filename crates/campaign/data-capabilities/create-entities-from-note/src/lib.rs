@@ -116,6 +116,45 @@ pub struct Fresh {
     pub version: String,
 }
 
+impl Fresh {
+    /// The ids the element `proposal` becomes is given: the same ones every
+    /// time, so a validation retried after a failure half-way finds the
+    /// element it made and does not make it twice.
+    #[must_use]
+    pub fn of(proposal: &str) -> Self {
+        Self {
+            entity: derived_uuid("entity", proposal),
+            version: derived_uuid("version", proposal),
+        }
+    }
+}
+
+/// A uuid (version 5 layout) derived from `what` and the proposal's id.
+fn derived_uuid(what: &str, proposal: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::new()
+        .chain_update(DATA_CAPABILITY)
+        .chain_update([0])
+        .chain_update(what)
+        .chain_update([0])
+        .chain_update(proposal)
+        .finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&hash[..16]);
+    // The version (5) and the variant (10), on the bits cleared for them.
+    bytes[6] = 0x50 + (bytes[6] & 0x0f);
+    bytes[8] = 0x80 + (bytes[8] & 0x3f);
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    )
+}
+
 /// One command: the partition's id and what it writes there.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Command {

@@ -16,6 +16,7 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use dataguard_server::{Engine, MEMORY, Planted, Reads, Rows, planted, router_reading};
+use harness_dataguard::api::Submission;
 use harness_dataguard::command::State;
 use harness_dataguard::manifest::DataCapability;
 use ports_llm::fake::FakeLlm;
@@ -293,6 +294,70 @@ async fn validating_again_creates_no_second_element() {
         s.row(&format!("Entity/{}", created.as_str().expect("an element")))
             .await,
         element
+    );
+}
+
+#[tokio::test]
+async fn a_validation_retried_after_a_failure_half_way_finds_its_element_and_makes_no_second() {
+    let s = Served::new().await;
+    let (_, proposals) = s.analysed(VALOMBRE).await;
+    let pnj = first(&proposals, "pnj");
+    // The failure: the element was queued, applied, and its proposal never
+    // recorded it. It is queued as the route does, under the ids its
+    // proposal gives it.
+    let wire: Fields = [
+        ("campaign".to_owned(), json!(VALOMBRE)),
+        ("accepted".to_owned(), json!([pnj])),
+    ]
+    .into();
+    let request = create_entities_from_note::request(&wire).expect("a request");
+    let held = create_entities_from_note::Proposal {
+        id: pnj.to_owned(),
+        row: proposals[pnj].clone(),
+        campaign: Some(VALOMBRE.to_owned()),
+        recognised: false,
+    };
+    let batch = request
+        .batch(
+            &[held],
+            vec![create_entities_from_note::Fresh::of(pnj)],
+            "2026-10-20T18:00:00.000Z",
+        )
+        .expect("a batch");
+    let element = &batch.elements[0].command;
+    s.engine
+        .submit(Submission {
+            data_capability: "campaign.saveEntity@1".to_owned(),
+            payload: element.payload.clone(),
+            target_id: Some(element.target_id.clone()),
+            caller: serde_json::from_value(caller()).expect("a caller"),
+            ..Submission::default()
+        })
+        .await
+        .expect("the element is queued");
+    s.applied().await;
+    let before = s.row(&format!("Entity/{}", element.target_id)).await;
+    assert_eq!(before["name"], proposals[pnj]["name"]);
+    assert!(
+        s.row(&format!("NoteImport/{pnj}"))
+            .await
+            .get("createdEntityId")
+            .is_none_or(Value::is_null),
+        "the proposal recorded nothing"
+    );
+
+    let (status, answer) = s
+        .validate(json!({ "campaign": VALOMBRE, "accepted": [pnj] }))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    // Only the proposals are written: the element is not submitted again.
+    assert_eq!(s.applied().await.len(), proposals.len());
+    let row = s.row(&format!("NoteImport/{pnj}")).await;
+    assert_eq!(row["createdEntityId"], json!(element.target_id));
+    assert_eq!(row["checked"], true);
+    assert_eq!(
+        s.row(&format!("Entity/{}", element.target_id)).await,
+        before
     );
 }
 
