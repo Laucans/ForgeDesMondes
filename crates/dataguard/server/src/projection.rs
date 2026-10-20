@@ -24,7 +24,9 @@
 //! `BattlemapInstance/<its id>`: [`ProjectingStore`] inserts its `token` row
 //! ([`tokens`]); a token hidden or revealed (`table.setTokenVisibility`)
 //! writes it again with its visibility alone: [`ProjectingStore`] writes
-//! `token.visible`, and no other column. A rename of a token
+//! `token.visible`, and no other column; a change of an NPC's HP
+//! (`table.changeHitPoints`) writes it with its current HP alone:
+//! [`ProjectingStore`] writes `token.hp_current`. A rename of a token
 //! (`table.renameToken`) writes the same partition with its name alone:
 //! [`ProjectingStore`] writes `token.name`, and no other column. A campaign's
 //! row is its table's over the engine's, and an archive is read from the
@@ -326,6 +328,7 @@ impl ProjectingStore {
             instances::repair(&client).await;
             tokens::repair(&client).await;
             tokens::show(&client, None).await;
+            tokens::hit_points(&client, None).await;
         }
         self.repair_names(None).await;
     }
@@ -785,6 +788,7 @@ impl Store for ProjectingStore {
                 instances::project(&client, &write.partition).await;
                 tokens::project(&client, &write.partition).await;
                 tokens::show(&client, Some(&write.partition)).await;
+                tokens::hit_points(&client, Some(&write.partition)).await;
             }
             // A rename, or any later write, makes the token's name follow the
             // engine's.

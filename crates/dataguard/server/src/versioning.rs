@@ -18,6 +18,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
+use harness_dataguard::guard;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
 use restore_entity_version::Kept;
@@ -292,27 +293,42 @@ impl Rows {
     }
 
     /// `partition`'s row as the commands queued on it will leave it: the row
-    /// applied, then each pending command's payload, in queue order.
+    /// applied, then each pending command's payload, in queue order — a
+    /// relative command's numbers added to the row's, as the engine composes
+    /// them (`guard::projected`, `table.changeHitPoints`). The row is read
+    /// again after the queue until it is the same: a command applied between
+    /// the two reads would otherwise be in neither.
     ///
     /// # Errors
     ///
     /// The store's.
     pub async fn projected(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
         let mut row = self.store.row(partition).await?;
-        let mut ahead: Vec<Entry> = self
-            .store
-            .pending()
-            .await?
-            .into_iter()
-            .filter(|entry| entry.partition == partition)
-            .collect();
-        ahead.sort_by_key(|entry| entry.position);
-        for entry in ahead {
-            row.extend(entry.payload);
+        let mut ahead = Vec::new();
+        for _ in 0..SNAPSHOTS {
+            ahead = self
+                .store
+                .pending()
+                .await?
+                .into_iter()
+                .filter(|entry| entry.partition == partition)
+                .collect();
+            let again = self.store.row(partition).await?;
+            if again == row {
+                break;
+            }
+            row = again;
         }
-        Ok(row)
+        ahead.sort_by_key(|entry| entry.position);
+        Ok(ahead
+            .iter()
+            .fold(row, |row, entry| guard::projected(&row, entry)))
     }
 }
+
+/// How many times [`Rows::projected`] reads the queue for a row the applier
+/// leaves as it is meanwhile.
+const SNAPSHOTS: usize = 3;
 
 #[cfg(test)]
 mod tests {

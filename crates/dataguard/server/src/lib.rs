@@ -36,7 +36,10 @@
 //! [`Rows`] reads: one command per token. A token hidden or revealed
 //! (`table.setTokenVisibility`), or a rename of a token (`table.renameToken`),
 //! is prepared against the token's row as the queue will leave it, which
-//! [`Rows`] reads: its visibility, or its name, alone, on its partition.
+//! [`Rows`] reads: its visibility, or its name, alone, on its partition. A
+//! change of an NPC's HP (`table.changeHitPoints`) is prepared the same way:
+//! the step of its current HP alone, cut so they land between 0 and its HP
+//! max.
 
 use std::sync::Arc;
 
@@ -371,6 +374,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// 404 — neither is queued. A rename of a token (`rename_token::prepare`) is
 /// made the name it writes on the token's partition, the same way: one naming
 /// no uuid, or an empty name, 422; one of a token not on the instance, 404.
+/// A change of HP (`change_hit_points::prepare`) is made the step it adds to
+/// the token's current HP, against the token's row, one at a time from its
+/// judgement until it is queued ([`CHANGING_HP`]): one naming no uuid, or a
+/// change that is no whole number, 422; one of a token not on the instance,
+/// 404 — neither is queued. A PC's token, which tracks no HP, is queued with
+/// the change as sent, which the DataGuard rejects (`pj-hp-not-tracked`).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -397,8 +406,8 @@ async fn submit<L: Llm>(
     }
     let mut refusal = None;
     let mut archive = None;
-    // Held until the creation of an instance is queued.
-    let mut creating = None;
+    // Held until the creation of an instance, or a change of HP, is queued.
+    let mut holding = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
     let now = || {
@@ -496,7 +505,7 @@ async fn submit<L: Llm>(
             }
         }
     } else if create_battlemap_instance::names(&body.data_capability) {
-        creating = Some(CREATING.lock().await);
+        holding = Some(CREATING.lock().await);
         creation(&served, &mut body, &now()).await?;
     } else if place_tokens::names(&body.data_capability) {
         let _placing = PLACING.lock().await;
@@ -526,6 +535,34 @@ async fn submit<L: Llm>(
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         };
         let prepared = set_token_visibility::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if change_hit_points::names(&body.data_capability) {
+        let unprocessable = |refusal: change_hit_points::Refusal| {
+            let status = if refusal == change_hit_points::Refusal::UnknownToken {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            refused(status, &refusal)
+        };
+        let wire = served.reads.stored(&body.payload);
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(id));
+        let request =
+            change_hit_points::request(&wire, target.as_deref()).map_err(unprocessable)?;
+        holding = Some(CHANGING_HP.lock().await);
+        let base = match served
+            .rows
+            .projected(&change_hit_points::partition(&request.token))
+            .await
+        {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = change_hit_points::prepare(&request, &base).map_err(unprocessable)?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
     } else if export_campaign::names(&body.data_capability) {
@@ -592,7 +629,7 @@ async fn submit<L: Llm>(
         }
         submitted
     });
-    drop(creating);
+    drop(holding);
     reply(axum::http::StatusCode::ACCEPTED, submitted)
 }
 
@@ -604,6 +641,10 @@ static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// queued: two drops of a character sent at once never take the same
 /// numbers, nor place a PC twice.
 static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One change of HP at a time, from its judgement until it is queued: two
+/// blows sent at once are each cut against the HP the other leaves, so
+/// neither takes a token below 0 nor above its HP max.
+static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A refusal before a command is queued: its status, and why in words.
 type Refused = (axum::http::StatusCode, Json<serde_json::Value>);
