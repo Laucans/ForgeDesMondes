@@ -17,11 +17,12 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A return to the cover (`live.showCover`) and a window opened on
-//! the player view (`live.showWindowOnPlayerView`) write their session's
-//! partition, `Diffusion/<its id>`: [`ProjectingStore`] upserts the
-//! session's `diffusion` row with what the engine's row carries, the rest as
-//! the table holds it. A campaign's row is its table's over the engine's, and
+//! column. A return to the cover (`live.showCover`), a window opened on the
+//! player view (`live.showWindowOnPlayerView`) and a move of it
+//! (`live.moveWindow`) write their session's partition, `Diffusion/<its
+//! id>`: [`ProjectingStore`] upserts the session's `diffusion` row with what
+//! the engine's row carries, the rest as the table holds it. A campaign's
+//! row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
