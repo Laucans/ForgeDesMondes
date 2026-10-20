@@ -604,6 +604,38 @@
       inst.state.tokens.find((t) => same2(t.id, tokenId)).name = name;
       return void 0;
     },
+    // table.startCombat: the combat of the instance `targetId` — or `payload.instance` —, every token in it, a
+    // hidden one like any other (`hidden-keeps-rank`). An NPC rolls `payload.rolls[token]` or a d20, plus its DEX
+    // modifier; a PC rolls nothing and takes the initiative `payload.initiative[character]` the DM entered
+    // (`npc-initiative-bounds`). Ranked by initiative, then DEX score, then a random draw (`initiative-tiebreak`);
+    // round 1 on rank 1. An instance whose combat is open starts none (`one-active-combat`); a PC with no
+    // initiative, or a roll out of 1 to 20 or of no NPC token, is refused. Ids are compared in any case.
+    "table.startCombat": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const id = targetId || payload.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const inst = instances.find((i) => same2(i.id, id));
+      if (!inst || !inst.state.tokens.length) return ["not-found"];
+      if (inst.state.combat) return ["one-active-combat"];
+      const figure = (figures, key) => Object.entries(figures || {}).find(([k]) => same2(k, key))?.[1];
+      const tokens = inst.state.tokens;
+      if (Object.keys(payload.rolls || {}).some((k) => !tokens.some((t) => same2(t.id, k) && t.kind === "pnj"))) return ["npc-initiative-bounds"];
+      const characters = await server.load("campaign.listCharacters");
+      const seated = [];
+      for (const t of tokens) {
+        const score = characters.find((c) => c.id === t.char)?.stats?.DEX;
+        const pc = t.kind === "pj";
+        const dexScore = pc ? score ?? null : score ?? 10;
+        const roll = pc ? null : figure(payload.rolls, t.id) ?? 1 + Math.floor(Math.random() * 20);
+        const init = pc ? figure(payload.initiative, t.char) : roll + Math.floor((dexScore - 10) / 2);
+        if (!Number.isInteger(init) || roll !== null && (!Number.isInteger(roll) || roll < 1 || roll > 20)) return ["npc-initiative-bounds"];
+        seated.push({ id: t.id, init, roll, dexScore, draw: Math.random() });
+      }
+      const order = seated.sort((a, b) => b.init - a.init || (b.dexScore ?? -Infinity) - (a.dexScore ?? -Infinity) || b.draw - a.draw).map(({ id: token, init, roll, dexScore }) => ({ id: token, init, roll, dex: dexScore === null ? 0 : Math.floor((dexScore - 10) / 2) }));
+      inst.state.combat = { round: 1, current: order[0].id, order };
+      return void 0;
+    },
     // table.setTokenCondition: the badge `payload.state` put on (`on: true`) or taken off (`on: false`) one token,
     // `payload.token` on the instance `targetId` — or the token itself as the target, or no target. The other
     // tokens of its character keep their badges (`instance-isolated`); a badge put on twice is there once, and one

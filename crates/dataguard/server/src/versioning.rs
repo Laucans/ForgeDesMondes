@@ -273,6 +273,63 @@ impl Rows {
         Ok(roster)
     }
 
+    /// What the tables hold of the instance a start of its combat names
+    /// (`table.startCombat`), with the tokens queued on it and not applied
+    /// yet: they join too. A combat of the instance — in the tables, in the
+    /// engine's rows, or queued — is open while its row, as the commands
+    /// queued on it will leave it, has no end. Over the engine's memory,
+    /// which has no table, no instance.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn lineup(&self, instance: &str) -> Result<start_combat::Lineup> {
+        let Some(tables) = &self.tables else {
+            return Ok(start_combat::Lineup::default());
+        };
+        let text = |entry: &Entry, field: &str| {
+            entry
+                .payload
+                .get(field)
+                .and_then(Value::as_str)
+                .map(str::to_ascii_lowercase)
+        };
+        let of_instance =
+            |entry: &Entry, field: &str| text(entry, field).is_some_and(|id| id == instance);
+        // The queue before the tables, as a drop's roster reads them: a
+        // token applied between the two reads is then read twice, which the
+        // tables' read makes one, rather than missed by both.
+        let pending = self.store.pending().await?;
+        let queued: Vec<(String, String)> = pending
+            .iter()
+            .filter(|entry| of_instance(entry, "tokenInstanceId"))
+            .filter_map(|entry| Some((text(entry, "tokenId")?, text(entry, "characterId")?)))
+            .collect();
+        let mut combats: Vec<String> = pending
+            .iter()
+            .filter(|entry| of_instance(entry, "combatInstanceId"))
+            .filter_map(|entry| text(entry, "combatId"))
+            .collect();
+        let (mut lineup, held) = tables.lineup(instance, &queued).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "lineup not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        combats.extend(held);
+        combats.sort_unstable();
+        combats.dedup();
+        for combat in combats {
+            let row = self.projected(&start_combat::partition(&combat)).await?;
+            if row.get("endedAt").is_none_or(Value::is_null) {
+                lineup.open = true;
+                break;
+            }
+        }
+        Ok(lineup)
+    }
+
     /// Whether the engine holds a command of `data_capability` under the
     /// idempotency key `key`: one it replays.
     ///
