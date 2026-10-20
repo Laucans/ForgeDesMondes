@@ -9,6 +9,7 @@ members = [
     "crates/*/data-capabilities/*",
     "crates/data",
     "crates/dataguard/server",
+    "crates/media/read",
     "crates/ports/*",
     "crates/ports/llm/anthropic-claude-api-default-claude-sonnet-5-5-for-generation-claude-haiku-4-5-20251001-for-summaries-switchable-to-the-dm-s-home-opencode-server-endpoint-or-to-the-opencode-claude-code-binaries",
     "crates/server",

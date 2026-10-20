@@ -277,14 +277,17 @@ dependencies = [
  "ports-llm",
  "restore-entity-version",
  "save-entity",
+ "save-grid-settings",
  "save-settings",
  "serde",
  "serde_json",
+ "set-media-place",
  "test-connection",
  "thiserror",
  "tokio",
  "tokio-postgres",
  "tower",
+ "upload-media",
 ]
 
 [[package]]
@@ -399,6 +402,14 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "get-battlemap"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
 ]
 
 [[package]]
@@ -817,6 +828,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-media"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "list-places"
 version = "0.1.0"
 dependencies = [
@@ -881,6 +899,16 @@ checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
 dependencies = [
  "cfg-if",
  "digest",
+]
+
+[[package]]
+name = "media-read"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "serde_json",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -1356,6 +1384,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "save-grid-settings"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "save-settings"
 version = "0.1.0"
 dependencies = [
@@ -1475,6 +1510,13 @@ dependencies = [
  "tokio",
  "tower",
  "uuid",
+]
+
+[[package]]
+name = "set-media-place"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -1849,6 +1891,13 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "upload-media"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "url"
