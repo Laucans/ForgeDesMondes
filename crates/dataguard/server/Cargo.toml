@@ -50,3 +50,4 @@ restore-entity-version = { path = "../../campaign/data-capabilities/restore-enti
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 show-cover = { path = "../../live/data-capabilities/show-cover" }
 show-window-on-player-view = { path = "../../live/data-capabilities/show-window-on-player-view" }
+move-window = { path = "../../live/data-capabilities/move-window" }

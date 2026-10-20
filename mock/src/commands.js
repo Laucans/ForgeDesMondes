@@ -91,6 +91,10 @@ async function onCombat(server, id, change) {
   return undefined;
 }
 
+// A position on the screen, in fractions of it: from 0 to 1 — `kept` when
+// what is asked is no number, which the server refuses.
+const onScreen = (fraction, kept) => (typeof fraction === 'number' && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept);
+
 // The floating window of the diffusion, changed by `change`; the other tabs are told.
 async function onWindow(server, change) {
   const row = await diffusionRow(server);
@@ -123,9 +127,9 @@ export const COMMANDS = {
     if (window.Mock) window.Mock.store.set('diffusion', row);
     return undefined;
   },
-  // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone;
-  // the size and the content stay.
-  'live.moveWindow': (server, { payload }) => onWindow(server, (w) => { w.x = payload.x; w.y = payload.y; }),
+  // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone,
+  // brought back onto the screen (0 to 1); the size and the content stay.
+  'live.moveWindow': (server, { payload }) => onWindow(server, (w) => { w.x = onScreen(payload.x, w.x); w.y = onScreen(payload.y, w.y); }),
   // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
   // is stored, the largest that fits the box asked for at the image's ratio
   // (window-proportional); the position stays.

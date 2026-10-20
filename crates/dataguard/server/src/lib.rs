@@ -35,7 +35,9 @@
 //! [`Rows`] reads. A window opened on the player view
 //! (`live.showWindowOnPlayerView`) is prepared against the live session and
 //! the media the tables hold, which [`Rows`] reads, and the session's
-//! diffusion row as the queue will leave it.
+//! diffusion row as the queue will leave it. A move of that window
+//! (`live.moveWindow`) is prepared against the campaign's live session,
+//! which [`Rows`] reads.
 
 use std::sync::Arc;
 
@@ -361,7 +363,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// same, for the DataGuard to refuse under window-proportional, and told
 /// among the warnings; one naming no campaign or no media, with no live
 /// session, or naming a media the tables do not hold, is refused, 422,
-/// before it is queued.
+/// before it is queued. A move of the window (`move_window::prepare`) is
+/// made the position it writes on its campaign's live session's diffusion
+/// row, brought onto the screen: one naming no campaign or no position, or
+/// with no live session, is refused, 422, before it is queued; one of a
+/// window that is not open is queued, for the DataGuard to refuse under
+/// window-fields-together.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -558,6 +565,21 @@ async fn submit<L: Llm>(
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
         refusal = prepared.warning;
+    } else if move_window::names(&body.data_capability) {
+        let refused = |refusal: move_window::Refusal| {
+            (
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            )
+        };
+        let named = move_window::named(&body.payload).map_err(refused)?;
+        let session = match served.rows.live_session(&named.campaign).await {
+            Ok(session) => session,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = move_window::prepare(&named, session, &now()).map_err(refused)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
