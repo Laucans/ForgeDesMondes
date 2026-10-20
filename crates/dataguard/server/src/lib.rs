@@ -35,7 +35,11 @@
 //! and its oneshot's session. A reorder of a session's scenes
 //! (`session.reorderScenes`) is written whole on the session's partition,
 //! and judged against the session's scenes the engine holds and — over a
-//! database — its tables hold ([`Rows::refresh_scenes`]).
+//! database — its tables hold ([`Rows::refresh_scenes`]). A place put in a
+//! scene (`session.addPlaceToSession`) is prepared against what the tables
+//! and the engine's rows hold of its session, its scene and its place, which
+//! [`Rows`] reads: its verdict on `scene-links-same-campaign` is kept for the
+//! judge.
 
 use std::sync::Arc;
 
@@ -68,6 +72,7 @@ mod note_import;
 mod player;
 mod projection;
 mod reads;
+mod scene_places;
 mod scenes;
 mod session;
 mod sound;
@@ -170,6 +175,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     let aliases = Arc::new(aliases::Aliases::default());
     let history = Arc::new(history::History::default());
     let scenes = Arc::new(scenes::Scenes::default());
+    let links = Arc::new(scene_places::Links::default());
     let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
@@ -208,24 +214,26 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
         ),
         aliases,
         scenes.clone(),
+        links.clone(),
     )?;
     engine.load().await?;
-    Ok(Planted {
-        engine,
-        rows: Rows::keeping(store, history)
-            .reading(tables)
-            .following(scenes),
-    })
+    let rows = Rows::keeping(store, history)
+        .reading(tables)
+        .following(scenes)
+        .linking(links);
+    rows.rejudge_links().await?;
+    Ok(Planted { engine, rows })
 }
 
 /// `engine` bound to what the checkout holds: the registry, every
 /// aggregate and DataCapability, and the invariants the product executes —
 /// `alias-unique-in-campaign` reading `aliases`, `scene-order-contiguous`
-/// reading `scenes`.
+/// reading `scenes`, `scene-links-same-campaign` the verdicts of `links`.
 fn bound(
     engine: Engine,
     aliases: Arc<aliases::Aliases>,
     scenes: Arc<scenes::Scenes>,
+    links: Arc<scene_places::Links>,
 ) -> Result<Engine, PlantError> {
     let mut engine = engine.with_registry(Registry::parse(registry::REGISTRY)?);
     for text in registry::AGGREGATES {
@@ -237,6 +245,7 @@ fn bound(
     engine = engine.with_invariants(Arc::new(Product {
         entity: entity::Entity::new(aliases),
         session: session::Session::new(scenes),
+        scene_places: scene_places::ScenePlaces::new(links),
     }));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
     Ok(engine)
@@ -247,6 +256,7 @@ fn bound(
 struct Product {
     entity: entity::Entity,
     session: session::Session,
+    scene_places: scene_places::ScenePlaces,
 }
 
 impl Invariants for Product {
@@ -256,7 +266,7 @@ impl Invariants for Product {
         state: &std::collections::BTreeMap<String, serde_json::Value>,
         entry: &Entry,
     ) -> Vec<String> {
-        let judges: [&dyn Invariants; 12] = [
+        let judges: [&dyn Invariants; 13] = [
             &ai_settings::AiSettings,
             &campaign::Campaign,
             &player::Player,
@@ -264,6 +274,7 @@ impl Invariants for Product {
             &media::Media,
             &note_import::NoteImport,
             &self.session,
+            &self.scene_places,
             &sound::Sound,
             &battlemap_instance::BattlemapInstance,
             &diffusion::Diffusion,
@@ -375,7 +386,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// session's scenes (`reorder_scenes::prepare`) is written whole on the
 /// session's partition, what the tables hold of its scenes read first: one
 /// naming no session, or no list of scene ids, is refused, 422, and not
-/// queued.
+/// queued. A place put in a scene (`add_place_to_session::prepare`) is made
+/// the link it writes on its own partition, in the scene named or the
+/// session's first, after the scene's last element — or at its rank when the
+/// scene links it already — its verdict on `scene-links-same-campaign` kept
+/// for the judge: one naming no session or no place, of a session with no
+/// scene, or of an element that is no place, is refused, 422, and not queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -568,6 +584,31 @@ async fn submit<L: Llm>(
                     Json(serde_json::json!({ "error": refusal.to_string() })),
                 ));
             }
+        }
+    } else if add_place_to_session::names(&body.data_capability) {
+        let refused = |refusal: add_place_to_session::Refusal| {
+            Err((
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            ))
+        };
+        let asked = match add_place_to_session::asked(&body.payload) {
+            Ok(asked) => asked,
+            Err(refusal) => return refused(refusal),
+        };
+        let facts = match served.rows.place_facts(&asked).await {
+            Ok(facts) => facts,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let kind = facts.place_type.as_deref();
+        match add_place_to_session::prepare(&asked, facts.scene.as_ref(), kind) {
+            Ok(prepared) => {
+                let same = facts.same_campaign(&asked.session);
+                served.rows.judged(&prepared.target_id, same);
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => return refused(refusal),
         }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
@@ -847,6 +888,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
             ),
+            Arc::default(),
             Arc::default(),
             Arc::default(),
         )

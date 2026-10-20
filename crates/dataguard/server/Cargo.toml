@@ -50,3 +50,4 @@ restore-entity-version = { path = "../../campaign/data-capabilities/restore-enti
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 create-campaign = { path = "../../campaign/data-capabilities/create-campaign" }
 reorder-scenes = { path = "../../session/data-capabilities/reorder-scenes" }
+add-place-to-session = { path = "../../session/data-capabilities/add-place-to-session" }

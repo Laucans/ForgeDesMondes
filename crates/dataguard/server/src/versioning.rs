@@ -13,10 +13,13 @@
 //! keeps [`Scenes`] — which session each scene is of, as every write of the
 //! Session aggregate applied leaves it — which `scene-order-contiguous`
 //! judges a reorder against. Every other method is the inner store's.
+//! [`Rows`] reads what a link of a place to a scene is judged against
+//! (`session.addPlaceToSession`), and keeps its verdict in [`Links`].
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use add_place_to_session::{Asked, PLACE, POSITION, SCENE, Scene, link_id, link_of};
 use async_trait::async_trait;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
@@ -29,6 +32,7 @@ use serde_json::Value;
 use crate::aliases::Aliases;
 use crate::history::History;
 use crate::projection::ProjectingStore;
+use crate::scene_places::{Facts, Links};
 use crate::scenes::Scenes;
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
@@ -186,6 +190,7 @@ pub struct Rows {
     history: Arc<History>,
     tables: Option<Arc<ProjectingStore>>,
     scenes: Arc<Scenes>,
+    links: Arc<Links>,
 }
 
 impl Rows {
@@ -201,6 +206,7 @@ impl Rows {
             history,
             tables: None,
             scenes: Arc::default(),
+            links: Arc::default(),
         }
     }
 
@@ -236,6 +242,126 @@ impl Rows {
         Ok(())
     }
 
+    /// The same, the verdicts of the links of places to scenes kept in
+    /// `links`, which the engine's judge reads.
+    pub(crate) fn linking(self, links: Arc<Links>) -> Self {
+        Self { links, ..self }
+    }
+
+    /// What the link `asked` asks for is judged against: what the tables hold
+    /// of its session, its scene — the one named, else the session's first —
+    /// and its place, and where they hold nothing (over the engine's memory,
+    /// always) what the engine's rows say, the commands queued on them
+    /// included. The scene links the place already when this very link is
+    /// applied or queued, and the places queued for it besides.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read; the
+    /// store's.
+    pub(crate) async fn place_facts(&self, asked: &Asked) -> Result<Facts> {
+        let mut facts = match &self.tables {
+            Some(tables) => tables.place_facts(asked).await.map_err(|e| {
+                harness_dataguard::Error::Store(format!(
+                    "session not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                ))
+            })?,
+            None => Facts::default(),
+        };
+        let pending = self.store.pending().await?;
+        let text = |row: &BTreeMap<String, Value>, field: &str| {
+            row.get(field).and_then(Value::as_str).map(str::to_owned)
+        };
+        if facts.session_campaign.is_none() {
+            let session = self
+                .folded(&format!("{SESSION}{}", asked.session), &pending)
+                .await?;
+            facts.session_campaign = text(&session, "sessionCampaignId");
+        }
+        if facts.scene.is_none() {
+            facts.scene = asked.scene.clone().map(|id| Scene {
+                id,
+                links: BTreeMap::new(),
+            });
+        }
+        if let Some(scene) = &mut facts.scene {
+            if facts.scene_session.is_none() {
+                let row = self
+                    .folded(&format!("{SESSION}{}", scene.id), &pending)
+                    .await?;
+                facts.scene_session = text(&row, "sceneSessionId");
+            }
+            let link = link_id(&asked.session, &scene.id, &asked.place);
+            let row = self.folded(&format!("{SESSION}{link}"), &pending).await?;
+            if let Some(position) = row.get(POSITION).and_then(Value::as_u64) {
+                scene.links.entry(asked.place.clone()).or_insert(position);
+            }
+            // The places queued for the same scene, not applied yet.
+            for entry in pending
+                .iter()
+                .filter(|entry| add_place_to_session::names(&entry.data_capability))
+            {
+                let payload = &entry.payload;
+                let (Some(of), Some(place), Some(position)) = (
+                    payload.get(SCENE).and_then(Value::as_str),
+                    payload.get(PLACE).and_then(Value::as_str),
+                    payload.get(POSITION).and_then(Value::as_u64),
+                ) else {
+                    continue;
+                };
+                if of.eq_ignore_ascii_case(&scene.id) {
+                    scene
+                        .links
+                        .entry(place.to_ascii_lowercase())
+                        .or_insert(position);
+                }
+            }
+        }
+        if facts.place_campaign.is_none() {
+            let place = self
+                .folded(&format!("{ENTITY}{}", asked.place), &pending)
+                .await?;
+            facts.place_campaign = text(&place, "entityCampaignId");
+            facts.place_type = facts.place_type.or_else(|| text(&place, "type"));
+        }
+        Ok(facts)
+    }
+
+    /// Keeps the verdict of the link `id` names: whether its scene is its
+    /// session's and its place of its campaign.
+    pub(crate) fn judged(&self, id: &str, same_campaign: bool) {
+        self.links.judged(id, same_campaign);
+    }
+
+    /// Judges again every link queued: at a start, before the applier runs,
+    /// so a link queued before is applied as it was judged when submitted.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::place_facts`].
+    pub(crate) async fn rejudge_links(&self) -> Result<()> {
+        for entry in self.store.pending().await? {
+            if !add_place_to_session::names(&entry.data_capability) {
+                continue;
+            }
+            let Some(id) = entry.partition.strip_prefix(SESSION) else {
+                continue;
+            };
+            let Some((session, scene, place)) = link_of(id) else {
+                continue;
+            };
+            let asked = Asked {
+                session: session.to_owned(),
+                scene: Some(scene.to_owned()),
+                place: place.to_owned(),
+            };
+            let facts = self.place_facts(&asked).await?;
+            self.judged(id, facts.same_campaign(session));
+        }
+        Ok(())
+    }
+
     /// What the tables hold of the campaign `id` names, as an archive holds
     /// it (`campaign.exportCampaign`): `None` when they hold no such
     /// campaign — and over the engine's memory, which has no table.
@@ -267,17 +393,21 @@ impl Rows {
     ///
     /// The store's.
     pub async fn projected(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
+        let pending = self.store.pending().await?;
+        self.folded(partition, &pending).await
+    }
+
+    /// `partition`'s row as the commands of `pending` queued on it will leave
+    /// it: the row applied, then each one's payload, in queue order.
+    async fn folded(&self, partition: &str, pending: &[Entry]) -> Result<BTreeMap<String, Value>> {
         let mut row = self.store.row(partition).await?;
-        let mut ahead: Vec<Entry> = self
-            .store
-            .pending()
-            .await?
-            .into_iter()
+        let mut ahead: Vec<&Entry> = pending
+            .iter()
             .filter(|entry| entry.partition == partition)
             .collect();
         ahead.sort_by_key(|entry| entry.position);
         for entry in ahead {
-            row.extend(entry.payload);
+            row.extend(entry.payload.clone());
         }
         Ok(row)
     }
