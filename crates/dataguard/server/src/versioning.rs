@@ -150,6 +150,47 @@ impl Store for Versioning {
     }
 }
 
+/// An instance's open combat as the commands queued will leave it
+/// ([`Rows::open_combat`]).
+struct OpenCombat {
+    /// Its id, lowercase.
+    id: String,
+    /// Its row.
+    row: BTreeMap<String, Value>,
+    /// Its entries naming it, a rank and a token, by id.
+    seats: Vec<Seat>,
+}
+
+/// An entry of an open combat: its id, its rank, its token's id and the
+/// token's row — none once its removal is queued.
+struct Seat {
+    entry: String,
+    rank: i64,
+    token: String,
+    standing: BTreeMap<String, Value>,
+}
+
+impl Seat {
+    /// Whether its token is still on the map, hidden or not.
+    fn placed(&self) -> bool {
+        names(&self.standing, "tokenId", &self.token)
+    }
+}
+
+/// Whether `row`'s `field` is the id `id`, in any case.
+fn names(row: &BTreeMap<String, Value>, field: &str, id: &str) -> bool {
+    row.get(field)
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.eq_ignore_ascii_case(id))
+}
+
+/// `row`'s `field`, an id, lowercase.
+fn id_of(row: &BTreeMap<String, Value>, field: &str) -> Option<String> {
+    row.get(field)
+        .and_then(Value::as_str)
+        .map(str::to_ascii_lowercase)
+}
+
 /// The rows the engine holds, as a command about to be submitted sees them,
 /// and — over a database — what its tables hold of a campaign, and of what a
 /// creation of an instance names.
@@ -295,101 +336,33 @@ impl Rows {
         &self,
         instance: &str,
     ) -> Result<(Option<next_turn::Combat>, Vec<next_turn::Participant>)> {
-        let Some(tables) = &self.tables else {
+        let Some(combat) = self.open_combat(instance).await? else {
             return Ok((None, Vec::new()));
         };
-        let unread = |e: tokio_postgres::Error| {
-            harness_dataguard::Error::Store(format!(
-                "combat not read: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            ))
-        };
-        let names = |row: &BTreeMap<String, Value>, field: &str, id: &str| {
-            row.get(field)
-                .and_then(Value::as_str)
-                .is_some_and(|value| value.eq_ignore_ascii_case(id))
-        };
-        let id_of = |row: &BTreeMap<String, Value>, field: &str| {
-            row.get(field)
-                .and_then(Value::as_str)
-                .map(str::to_ascii_lowercase)
-        };
-        let _applying = APPLYING.lock().await;
-        let mut queued = self.store.pending().await?;
-        queued.sort_by_key(|entry| entry.position);
-        let folded = async |id: &str| -> Result<BTreeMap<String, Value>> {
-            let partition = next_turn::partition(id);
-            let ahead: Vec<&Entry> = queued
-                .iter()
-                .filter(|entry| entry.partition == partition)
-                .collect();
-            if ahead.iter().any(|entry| entry.effect == Effect::Delete) {
-                return Ok(BTreeMap::new());
-            }
-            let row = self.store.row(&partition).await?;
-            Ok(ahead
-                .iter()
-                .fold(row, |row, entry| guard::projected(&row, entry)))
-        };
-        let mut combats: Vec<String> = queued
-            .iter()
-            .filter(|entry| names(&entry.payload, "combatInstanceId", instance))
-            .filter_map(|entry| id_of(&entry.payload, "combatId"))
+        let participants = combat
+            .seats
+            .into_iter()
+            .map(|seat| {
+                let dead = seat
+                    .standing
+                    .get("hpCurrent")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|hp| hp <= 0.0);
+                next_turn::Participant {
+                    alive: seat.placed() && !dead,
+                    entry: seat.entry,
+                    rank: seat.rank,
+                }
+            })
             .collect();
-        combats.extend(tables.combats(instance).await.map_err(unread)?);
-        combats.sort_unstable();
-        combats.dedup();
-        let mut open = None;
-        for id in combats {
-            let row = folded(&id).await?;
-            if names(&row, "combatId", &id)
-                && names(&row, "combatInstanceId", instance)
-                && row.get("endedAt").is_none_or(Value::is_null)
-            {
-                open = Some(next_turn::Combat {
-                    current: id_of(&row, "currentEntryId"),
-                    id,
-                });
-                break;
-            }
-        }
-        let Some(combat) = open else {
-            return Ok((None, Vec::new()));
-        };
-        let mut entries: Vec<String> = queued
-            .iter()
-            .filter(|entry| names(&entry.payload, "initiativeEntryCombatId", &combat.id))
-            .filter_map(|entry| id_of(&entry.payload, "initiativeEntryId"))
-            .collect();
-        entries.extend(tables.entries(&combat.id).await.map_err(unread)?);
-        entries.sort_unstable();
-        entries.dedup();
-        let mut participants = Vec::new();
-        for id in entries {
-            let row = folded(&id).await?;
-            let (Some(rank), Some(token)) = (
-                row.get("rank").and_then(Value::as_i64),
-                id_of(&row, "initiativeEntryTokenId"),
-            ) else {
-                continue;
-            };
-            if !names(&row, "initiativeEntryId", &id)
-                || !names(&row, "initiativeEntryCombatId", &combat.id)
-            {
-                continue;
-            }
-            let standing = folded(&token).await?;
-            let dead = standing
-                .get("hpCurrent")
-                .and_then(Value::as_f64)
-                .is_some_and(|hp| hp <= 0.0);
-            participants.push(next_turn::Participant {
-                entry: id,
-                rank,
-                alive: names(&standing, "tokenId", &token) && !dead,
-            });
-        }
-        Ok((Some(combat), participants))
+        let current = id_of(&combat.row, "currentEntryId");
+        Ok((
+            Some(next_turn::Combat {
+                current,
+                id: combat.id,
+            }),
+            participants,
+        ))
     }
 
     /// What the tables hold of the instance a start of its combat names
@@ -482,6 +455,30 @@ impl Rows {
         &self,
         instance: &str,
     ) -> Result<Option<Vec<reorder_initiative::Participant>>> {
+        Ok(self.open_combat(instance).await?.map(|combat| {
+            combat
+                .seats
+                .into_iter()
+                .filter(Seat::placed)
+                .map(|seat| reorder_initiative::Participant {
+                    entry: seat.entry,
+                    token: seat.token,
+                })
+                .collect()
+        }))
+    }
+
+    /// The open combat of the instance `instance` and its seats, as the
+    /// commands queued will leave them — what a « Suivant » and a reorder
+    /// both judge against ([`Rows::turn`], [`Rows::open_lineup`]): the
+    /// combats and entries the engine holds or the queue brings, each row
+    /// folded with the commands queued on it, as [`Rows::projected`] folds
+    /// them, and a row whose deletion is queued gone. One snapshot: the
+    /// applier is kept still from the queue's read to the last row's
+    /// ([`APPLYING`]). A combat is open while it names the instance and has
+    /// no end; an entry is a seat while it names the combat, a rank and a
+    /// token. Over the engine's memory, which has no table, none.
+    async fn open_combat(&self, instance: &str) -> Result<Option<OpenCombat>> {
         let Some(tables) = &self.tables else {
             return Ok(None);
         };
@@ -491,21 +488,11 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         };
-        let names = |row: &BTreeMap<String, Value>, field: &str, id: &str| {
-            row.get(field)
-                .and_then(Value::as_str)
-                .is_some_and(|value| value.eq_ignore_ascii_case(id))
-        };
-        let id_of = |row: &BTreeMap<String, Value>, field: &str| {
-            row.get(field)
-                .and_then(Value::as_str)
-                .map(str::to_ascii_lowercase)
-        };
         let _applying = APPLYING.lock().await;
         let mut queued = self.store.pending().await?;
         queued.sort_by_key(|entry| entry.position);
         let folded = async |id: &str| -> Result<BTreeMap<String, Value>> {
-            let partition = reorder_initiative::partition(id);
+            let partition = next_turn::partition(id);
             let ahead: Vec<&Entry> = queued
                 .iter()
                 .filter(|entry| entry.partition == partition)
@@ -523,7 +510,7 @@ impl Rows {
             .filter(|entry| names(&entry.payload, "combatInstanceId", instance))
             .filter_map(|entry| id_of(&entry.payload, "combatId"))
             .collect();
-        combats.extend(tables.initiative_combats(instance).await.map_err(unread)?);
+        combats.extend(tables.combats(instance).await.map_err(unread)?);
         combats.sort_unstable();
         combats.dedup();
         let mut open = None;
@@ -533,37 +520,44 @@ impl Rows {
                 && names(&row, "combatInstanceId", instance)
                 && row.get("endedAt").is_none_or(Value::is_null)
             {
-                open = Some(id);
+                open = Some((id, row));
                 break;
             }
         }
-        let Some(combat) = open else {
+        let Some((id, row)) = open else {
             return Ok(None);
         };
         let mut entries: Vec<String> = queued
             .iter()
-            .filter(|entry| names(&entry.payload, "initiativeEntryCombatId", &combat))
+            .filter(|entry| names(&entry.payload, "initiativeEntryCombatId", &id))
             .filter_map(|entry| id_of(&entry.payload, "initiativeEntryId"))
             .collect();
-        entries.extend(tables.initiative_entries(&combat).await.map_err(unread)?);
+        entries.extend(tables.entries(&id).await.map_err(unread)?);
         entries.sort_unstable();
         entries.dedup();
-        let mut participants = Vec::new();
-        for id in entries {
-            let row = folded(&id).await?;
-            let Some(token) = id_of(&row, "initiativeEntryTokenId") else {
+        let mut seats = Vec::new();
+        for entry in entries {
+            let seat = folded(&entry).await?;
+            let (Some(rank), Some(token)) = (
+                seat.get("rank").and_then(Value::as_i64),
+                id_of(&seat, "initiativeEntryTokenId"),
+            ) else {
                 continue;
             };
-            if !names(&row, "initiativeEntryId", &id)
-                || !names(&row, "initiativeEntryCombatId", &combat)
-                || !row.get("rank").is_some_and(Value::is_i64)
-                || !names(&folded(&token).await?, "tokenId", &token)
+            if !names(&seat, "initiativeEntryId", &entry)
+                || !names(&seat, "initiativeEntryCombatId", &id)
             {
                 continue;
             }
-            participants.push(reorder_initiative::Participant { entry: id, token });
+            let standing = folded(&token).await?;
+            seats.push(Seat {
+                entry,
+                rank,
+                token,
+                standing,
+            });
         }
-        Ok(Some(participants))
+        Ok(Some(OpenCombat { id, row, seats }))
     }
 
     /// Whether the engine holds a command of `data_capability` under the
@@ -606,7 +600,8 @@ impl Rows {
     /// A token's row as [`Rows::projected`] reads it, and none at all once
     /// its removal is queued (`table.removeToken`): no command is judged
     /// against it to land after its tombstone, which a write lifts. The
-    /// token's commands alone read it so; every other aggregate's row reads
+    /// token's commands alone read it so — and a participant's removal its
+    /// entry's (`table.removeParticipant`); every other aggregate's row reads
     /// through a deletion as ever.
     ///
     /// # Errors

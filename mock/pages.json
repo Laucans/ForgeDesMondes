@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "c8e81a5ee4713ac4"
+      "builtFrom": "725a10ea9a42baab"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "ceffcde5ed8f3796"
+      "builtFrom": "20588dd989075fd9"
     },
     {
       "name": "SessionList",
@@ -274,7 +274,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "6565d7bb8ac66322"
+      "builtFrom": "3367de0b816e0b05"
     },
     {
       "name": "PreviousSummary",
@@ -336,7 +336,7 @@
       ],
       "props": {},
       "source": "apps/session/scene-board",
-      "builtFrom": "1cfd68b3eafee5e8"
+      "builtFrom": "8b36949a07ecdb3f"
     },
     {
       "name": "Battlemap",

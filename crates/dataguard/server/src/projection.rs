@@ -45,6 +45,10 @@
 //! nullified). A reorder of a combat's initiative (`table.reorderInitiative`)
 //! writes each entry's partition with its rank alone: [`ProjectingStore`]
 //! writes `initiative_entry.rank`, and no other column ([`ranks`]).
+//! A participant taken out of the combat
+//! (`table.removeParticipant`) tombstones its entry's partition:
+//! [`ProjectingStore`] deletes its `initiative_entry` row, its token stays,
+//! and a turn on it is nullified ([`combats`]).
 //! A campaign's row is its table's over the engine's, and an archive is read
 //! from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
@@ -369,6 +373,7 @@ impl ProjectingStore {
             let client = self.inner.client().lock().await;
             instances::repair(&client).await;
             tokens::remove(&client, None).await;
+            combats::leave(&client, None).await;
             tokens::repair(&client).await;
             tokens::show(&client, None).await;
             tokens::hit_points(&client, None).await;
@@ -435,28 +440,9 @@ impl ProjectingStore {
         tokens::roster(&client, instance, character).await
     }
 
-    /// The combats the engine holds of the instance a reorder names
-    /// (`table.reorderInitiative`), open or ended.
-    pub async fn initiative_combats(
-        &self,
-        instance: &str,
-    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
-        let client = self.inner.client().lock().await;
-        ranks::combats(&client, instance).await
-    }
-
-    /// The entries the engine holds of the combat a reorder ranks
-    /// (`table.reorderInitiative`).
-    pub async fn initiative_entries(
-        &self,
-        combat: &str,
-    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
-        let client = self.inner.client().lock().await;
-        ranks::entries(&client, combat).await
-    }
-
-    /// The combats the engine holds of the instance a « Suivant » names
-    /// (`table.nextTurn`), open or ended.
+    /// The combats the engine holds of the instance a « Suivant » or a
+    /// reorder names (`table.nextTurn`, `table.reorderInitiative`), open or
+    /// ended.
     pub async fn combats(
         &self,
         instance: &str,
@@ -465,8 +451,8 @@ impl ProjectingStore {
         turns::combats(&client, instance).await
     }
 
-    /// The entries the engine holds of the combat a « Suivant » turns
-    /// (`table.nextTurn`).
+    /// The entries the engine holds of the combat a « Suivant » turns or a
+    /// reorder ranks (`table.nextTurn`, `table.reorderInitiative`).
     pub async fn entries(
         &self,
         combat: &str,
@@ -925,9 +911,11 @@ impl Store for ProjectingStore {
             self.repair_names(Some(&write.partition)).await;
             self.repair_conditions(Some(&write.partition)).await;
         } else if tokens::of_aggregate(&write.partition) {
-            // A tombstone: a token taken off the map leaves the table.
+            // A tombstone: a token taken off the map leaves the table, a
+            // participant taken out of the combat its order.
             let client = self.inner.client().lock().await;
             tokens::remove(&client, Some(&write.partition)).await;
+            combats::leave(&client, Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;

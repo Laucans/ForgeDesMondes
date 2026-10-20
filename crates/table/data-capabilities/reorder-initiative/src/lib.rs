@@ -19,6 +19,12 @@
 //! - an instance with no open combat has no order to rewrite;
 //! - an order that omits a participant, repeats one, or names one that is
 //!   not in the combat is refused: no participant is added or removed.
+//!
+//! One order is n commands, not one write: a reorder that fails partway
+//! leaves the ranks queued so far, and is sent again under the same
+//! idempotency key — the ranks the engine holds replay, the rest are
+//! queued. That is the milestone's accepted risk, as for `table.placeTokens`
+//! and `table.startCombat`.
 
 use std::collections::BTreeMap;
 
