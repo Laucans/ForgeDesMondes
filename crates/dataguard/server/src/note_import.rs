@@ -58,8 +58,11 @@ fn value<'a>(row: &'a BTreeMap<String, Value>, field: &str) -> &'a Value {
 fn no_creation_before_validation(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let created = value(state, CREATED);
     let before = value(&entry.projection.confirmed, CREATED);
-    // Written now: an insert, or an upsert of a row the engine does not hold.
-    let born = entry.effect == Effect::Insert || entry.projection.confirmed.is_empty();
+    // Written now: an insert, or an upsert of a row the engine does not hold
+    // — an update never is, though the row it reads is empty when the command
+    // is queued.
+    let born = entry.effect == Effect::Insert
+        || (entry.effect == Effect::Upsert && entry.projection.confirmed.is_empty());
     let written = !born || created.is_null();
     let checked = created.is_null() || value(state, CHECKED) == &Value::Bool(true);
     let once = before.is_null() || created == before;

@@ -227,6 +227,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-entities-from-note"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -261,6 +270,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "create-entities-from-note",
  "data",
  "export-campaign",
  "extract-from-notes",

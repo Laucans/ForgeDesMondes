@@ -21,7 +21,11 @@
 //! per imported note, `NoteImport/<its id>`, and one per proposal: once the
 //! note is applied, [`ProjectingStore`] adds its `imported_note` row and the
 //! `note_proposal` row of every proposal of it applied, in one transaction —
-//! whichever the engine applied first. A campaign's row is its table's over the engine's, and
+//! whichever the engine applied first. A validation of a note's proposals
+//! (`campaign.createEntitiesFromNote`) writes each proposal's partition
+//! again, its check and the element it created: [`ProjectingStore`] writes
+//! `note_proposal.checked` and `created_entity_id` — the element's once the
+//! tables hold it, whichever the engine applied first. A campaign's row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -55,7 +59,8 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
-use crate::versioning::{ENTITY, element_of};
+use crate::notes::Notes;
+use crate::versioning::{ENTITY, NOTE_IMPORT, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
 pub const AI_SETTINGS: &str = "AiSettings/1";
@@ -293,9 +298,40 @@ const ADD_PROPOSALS: &str = "INSERT INTO note_proposal
             WHERE p.id::text = lower(r.fields ->> 'noteProposalId'))
     ORDER BY r.partition";
 
-/// The partitions of the NoteImport aggregate: an imported note's,
-/// `NoteImport/<its id>`, and a proposal's, `NoteImport/<its id>`.
-const NOTE_IMPORT: &str = "NoteImport/";
+/// The checked state and the created element the engine holds of each
+/// proposal the tables hold — of the note `$1` names, or of every one when
+/// it is null; of the proposals that created the element `$2` names, or of
+/// every one when it is null — where they differ: a validation applied
+/// (`campaign.createEntitiesFromNote`). An element the tables do not hold
+/// yet is recorded once they do; one recorded is never replaced, nor is a
+/// proposal that created one unchecked (`no-creation-before-validation`).
+const STAMP_PROPOSALS: &str = "UPDATE note_proposal p
+    SET checked = s.checked,
+        created_entity_id = coalesce(e.id, p.created_entity_id)
+    FROM (SELECT r.partition, lower(r.fields ->> 'createdEntityId') AS created,
+            CASE r.fields ->> 'checked' WHEN 'true' THEN true WHEN 'false' THEN false END AS checked
+        FROM dataguard_rows r
+        WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned) s
+    LEFT JOIN entity e ON e.id::text = s.created
+    WHERE s.partition = 'NoteImport/' || p.id::text AND s.checked IS NOT NULL
+        AND ($1::text IS NULL OR p.note_id::text = lower($1::text))
+        AND ($2::text IS NULL OR s.created = lower($2::text))
+        AND (p.created_entity_id IS NULL OR e.id IS NULL OR e.id = p.created_entity_id)
+        AND (s.checked OR coalesce(e.id, p.created_entity_id) IS NULL)
+        AND (p.checked <> s.checked
+            OR p.created_entity_id IS DISTINCT FROM coalesce(e.id, p.created_entity_id))";
+
+/// Every proposal the engine holds, with its note: what [`Notes`] starts
+/// from.
+const PROPOSALS: &str =
+    "SELECT r.fields ->> 'noteId', substr(r.partition, length('NoteImport/') + 1)
+    FROM dataguard_rows r
+    WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned
+        AND jsonb_typeof(r.fields -> 'noteId') = 'string'";
+
+/// Whether the row of the partition `$1` names is the engine's tombstone.
+const TOMBSTONED: &str =
+    "SELECT EXISTS (SELECT 1 FROM dataguard_rows WHERE partition = $1 AND tombstoned)";
 
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
@@ -353,6 +389,7 @@ impl ProjectingStore {
             let tx = client.transaction().await?;
             tx.execute(ADD_NOTES, &[&note]).await?;
             tx.execute(ADD_PROPOSALS, &[&note]).await?;
+            tx.execute(STAMP_PROPOSALS, &[&note, &None::<&str>]).await?;
             tx.commit().await
         };
         if let Err(e) = written.await {
@@ -362,6 +399,43 @@ impl ProjectingStore {
                 db.map_or("-", |db| db.code().code()),
                 db.and_then(|db| db.constraint()).unwrap_or_default()
             );
+        }
+    }
+
+    /// Records `element` on the proposals that created it, once the tables
+    /// hold it, logging a failure: after each apply of an element.
+    async fn stamp_created(&self, element: &str) {
+        let stamped = {
+            let client = self.inner.client().lock().await;
+            client
+                .execute(STAMP_PROPOSALS, &[&None::<&str>, &Some(element)])
+                .await
+        };
+        if let Err(e) = stamped {
+            eprintln!(
+                "projection: proposals not stamped: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
+    }
+
+    /// Records every proposal the engine holds among its note's: at a start,
+    /// so a validation unchecks the ones applied before.
+    pub async fn notes(&self, notes: &Notes) {
+        let rows = {
+            let client = self.inner.client().lock().await;
+            client.query(PROPOSALS, &[]).await
+        };
+        match rows {
+            Ok(rows) => {
+                for row in rows {
+                    notes.record(row.get(0), row.get(1));
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: proposals not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
         }
     }
 
@@ -390,6 +464,16 @@ impl ProjectingStore {
         let client = self.inner.client().lock().await;
         let row = client.query_opt(ARCHIVE, &[&id]).await?;
         Ok(row.and_then(|row| serde_json::from_str(row.get::<_, &str>(0)).ok()))
+    }
+
+    /// Whether the engine deleted `partition`'s row: its tombstone.
+    pub async fn tombstoned(
+        &self,
+        partition: &str,
+    ) -> std::result::Result<bool, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let row = client.query_one(TOMBSTONED, &[&partition]).await?;
+        Ok(row.get(0))
     }
 
     /// The campaign `partition` names as its table holds it, when it does.
@@ -784,6 +868,9 @@ impl Store for ProjectingStore {
             self.record_test(&write.partition, provider, false).await;
         } else if element(write) {
             self.repair_elements().await;
+            if let Some(element) = element_of(write) {
+                self.stamp_created(element).await;
+            }
         } else if let Some(note) = noted(write) {
             self.repair_notes(Some(note)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
