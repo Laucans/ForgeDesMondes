@@ -138,6 +138,17 @@ fn what_the_tables_could_never_hold_is_refused() {
             Some(INSTANCE),
             Refusal::NotAnId("token"),
         ),
+        // Hex digits and dashes where a uuid has them, one digit short or over.
+        (
+            json!({ "token": &CHEF_BANDIT_1[..35], "visible": false }),
+            Some(INSTANCE),
+            Refusal::NotAnId("token"),
+        ),
+        (
+            json!({ "token": format!("{CHEF_BANDIT_1}0"), "visible": false }),
+            Some(INSTANCE),
+            Refusal::NotAnId("token"),
+        ),
         (
             json!({ "token": 3, "visible": false }),
             Some(INSTANCE),
