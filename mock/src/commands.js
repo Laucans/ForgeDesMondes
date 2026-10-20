@@ -112,6 +112,22 @@ export const COMMANDS = {
     }
     return undefined;
   },
+  // table.renameToken: one token renamed, `payload.token` on the instance `targetId` — or the token itself as
+  // the target, or no target. Its number and the other tokens of its character are untouched
+  // (`multi-drop-numbering`); a name of blanks alone is refused. Ids are compared in any case, as the server does.
+  'table.renameToken': async (server, { payload, targetId }) => {
+    const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+    if (!name) return ['multi-drop-numbering'];
+    const tokenId = payload.token ?? targetId;
+    const instance = payload.token != null && targetId && !same(targetId, tokenId) ? targetId : null;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const inst = instances.find((i) => (instance == null || same(i.id, instance)) && i.state.tokens.some((t) => same(t.id, tokenId)));
+    if (!inst) return ['not-found'];
+    inst.state.tokens.find((t) => same(t.id, tokenId)).name = name;
+    return undefined;
+  },
   // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
   // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
   // version after it are undone, each field back to what it was. Either way the restoration is a new version

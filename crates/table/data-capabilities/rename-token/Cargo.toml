@@ -1,0 +1,10 @@
+[package]
+name = "rename-token"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.renameToken: one token of a battlemap instance renamed, on its own BattlemapInstance partition — its name alone, never its number nor another token of the same character (multi-drop-numbering)."
+publish = false
+
+[dependencies]
+serde_json = "1"
