@@ -64,6 +64,7 @@ mod diffusion;
 mod entity;
 mod exports;
 mod history;
+mod instances;
 mod media;
 mod note_import;
 mod player;
@@ -353,8 +354,16 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes. A drop of
-/// tokens is made the token rows it inserts, one command each ([`placing`]).
+/// an archive of, 422 — neither is queued, so nothing changes. A creation of
+/// a scene's battlemap instance (`create_battlemap_instance::prepare`) is
+/// made the row it inserts on the instance's partition, whose id the scene
+/// gives, against what the tables hold of what it names: ids that are none,
+/// 422; a session, a scene or a battlemap the tables do not hold, 404 — over
+/// the engine's memory, every one; a scene of another session or a battlemap
+/// of another campaign, 422; a scene that has its instance, applied or
+/// queued, 409 (`one-instance-per-scene`). None is queued; one sent again
+/// under its idempotency key is replayed ([`creation`]). A drop of tokens is
+/// made the token rows it inserts, one command each ([`placing`]).
 /// A token hidden or revealed (`set_token_visibility::prepare`) is made the
 /// visibility it writes on the token's partition, against the token's row:
 /// one naming no uuid, or a visibility that is no boolean, is refused, 422,
@@ -386,6 +395,8 @@ async fn submit<L: Llm>(
     }
     let mut refusal = None;
     let mut archive = None;
+    // Held until the creation of an instance is queued.
+    let mut creating = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
     let now = || {
@@ -482,6 +493,9 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if create_battlemap_instance::names(&body.data_capability) {
+        creating = Some(CREATING.lock().await);
+        creation(&served, &mut body, &now()).await?;
     } else if place_tokens::names(&body.data_capability) {
         let _placing = PLACING.lock().await;
         return placing(&served, body).await;
@@ -551,9 +565,14 @@ async fn submit<L: Llm>(
         }
         submitted
     });
+    drop(creating);
     reply(axum::http::StatusCode::ACCEPTED, submitted)
 }
 
+/// One creation of a scene's battlemap instance at a time, from its
+/// judgement until it is queued: two creations of a scene sent at once never
+/// both pass.
+static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One drop of tokens at a time, from its judgement until its tokens are
 /// queued: two drops of a character sent at once never take the same
 /// numbers, nor place a PC twice.
@@ -567,6 +586,61 @@ fn refused(status: axum::http::StatusCode, why: &impl std::fmt::Display) -> Refu
         status,
         Json(serde_json::json!({ "error": why.to_string() })),
     )
+}
+
+/// `body`, a creation of a scene's battlemap instance, made the row it
+/// inserts on the instance's partition (`create_battlemap_instance::prepare`)
+/// — the fixtures' slugs it names read as the ids the tables hold them by —
+/// or refused. One sent again under the key of a command the engine holds is
+/// the engine's to replay, as it was.
+async fn creation<L>(served: &Served<L>, body: &mut Submission, now: &str) -> Result<(), Refused> {
+    use axum::http::StatusCode;
+    use create_battlemap_instance::{DATA_CAPABILITY, Refusal};
+    let failed = |e: Error| refused(status_of(&e), &e);
+    let wire = served.reads.stored(&body.payload);
+    let request = create_battlemap_instance::request(&wire)
+        .map_err(|why| refused(StatusCode::UNPROCESSABLE_ENTITY, &why))?;
+    let id = create_battlemap_instance::instance_id(&request.scene);
+    body.target_id = Some(id.clone());
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return Ok(());
+    }
+    let mut placement = served
+        .rows
+        .placement(&request.session, &request.scene, &request.battlemap)
+        .await
+        .map_err(failed)?;
+    // An instance of the scene queued and not applied yet is its instance
+    // too: it lands on the same partition.
+    let queued = served
+        .rows
+        .projected(&format!("BattlemapInstance/{id}"))
+        .await
+        .map_err(failed)?;
+    if queued.contains_key("battlemapInstanceId") {
+        placement.instance.get_or_insert(id);
+    }
+    let prepared =
+        create_battlemap_instance::prepare(&request, &placement, now).map_err(|why| {
+            let status = match why {
+                Refusal::UnknownSession | Refusal::UnknownScene | Refusal::UnknownBattlemap => {
+                    StatusCode::NOT_FOUND
+                }
+                Refusal::SceneHasAnInstance => StatusCode::CONFLICT,
+                Refusal::NotAnId(_)
+                | Refusal::SceneOfAnotherSession
+                | Refusal::BattlemapOfAnotherCampaign => StatusCode::UNPROCESSABLE_ENTITY,
+            };
+            refused(status, &why)
+        })?;
+    body.payload = prepared.payload;
+    Ok(())
 }
 
 /// `body`, a drop of a character on a battlemap instance
@@ -900,6 +974,162 @@ mod tests {
             body,
             serde_json::json!({ "error": "no DataCapability named x.y" })
         );
+    }
+
+    /// `POST /commands` of table.createBattlemapInstance with `payload`.
+    fn creation(payload: serde_json::Value) -> Request<Body> {
+        let body = serde_json::json!({
+            "dataCapability": "table.createBattlemapInstance@1",
+            "payload": payload,
+        });
+        Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_creation_of_an_instance_is_judged_on_the_tables_before_it_is_queued() {
+        let session = "5e000000-0000-4000-8000-000000000001";
+        let scene = "5c000000-0000-4000-8000-000000000001";
+        let battlemap = "6d000000-0000-4000-8000-000000000001";
+        // Over the engine's memory the tables hold no session: none is queued.
+        let (status, body) = answer(creation(serde_json::json!({
+            "session": session, "scene": scene, "battlemap": battlemap,
+        })))
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "cette séance n'existe pas" })
+        );
+        // A slug is no id the tables hold.
+        let (status, body) = answer(creation(serde_json::json!({
+            "session": session, "scene": scene, "battlemap": "bm-gue",
+        })))
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "battlemap n'est pas un identifiant" })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_creation_under_a_key_never_sent_is_judged() {
+        let scene = "5c000000-0000-4000-8000-000000000001";
+        let body = serde_json::json!({
+            "dataCapability": "table.createBattlemapInstance@1",
+            "payload": {
+                "session": "5e000000-0000-4000-8000-000000000001",
+                "scene": scene,
+                "battlemap": "6d000000-0000-4000-8000-000000000001",
+            },
+            "idempotencyKey": format!("table.createBattlemapInstance:{scene}"),
+        });
+        let request = Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let (status, body) = answer(request).await;
+        // Not replayed: over the engine's memory the tables hold no session.
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "cette séance n'existe pas" })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_creation_names_the_fixtures_battlemap_by_its_slug() {
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        let reads = Reads::none().named([(
+            "bm-gue".to_string(),
+            "6d000000-0000-4000-8000-000000000001".to_string(),
+        )]);
+        let app = router_reading(
+            Arc::new(engine),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+            Arc::new(reads),
+        );
+        let response = app
+            .oneshot(creation(serde_json::json!({
+                "session": "5e000000-0000-4000-8000-000000000001",
+                "scene": "5c000000-0000-4000-8000-000000000001",
+                "battlemap": "bm-gue",
+            })))
+            .await
+            .expect("an answer");
+        // The slug is read as its id: judged on the tables, which over the
+        // engine's memory hold no session.
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_creation_sent_again_under_its_key_is_replayed() {
+        let scene = "5c000000-0000-4000-8000-000000000001";
+        let payload = serde_json::json!({
+            "session": "5e000000-0000-4000-8000-000000000001",
+            "scene": scene,
+            "battlemap": "6d000000-0000-4000-8000-000000000001",
+        });
+        let key = format!("table.createBattlemapInstance:{scene}");
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        // The first one, queued as the tables of a database would let it be.
+        let first = engine
+            .submit(Submission {
+                data_capability: "table.createBattlemapInstance@1".to_string(),
+                payload: create_battlemap_instance::request(
+                    &serde_json::from_value(payload.clone()).expect("a row"),
+                )
+                .map(|asked| {
+                    let placed = create_battlemap_instance::Placement {
+                        session_campaign: Some("c".into()),
+                        scene_session: Some(asked.session.clone()),
+                        battlemap_campaign: Some("c".into()),
+                        instance: None,
+                    };
+                    create_battlemap_instance::prepare(&asked, &placed, "2026-10-20T10:00:00Z")
+                        .expect("prepared")
+                        .payload
+                })
+                .expect("ids"),
+                target_id: Some(create_battlemap_instance::instance_id(scene)),
+                based_on: None,
+                idempotency_key: Some(key.clone()),
+                caller: harness_dataguard::guard::Caller {
+                    by: "dm".to_string(),
+                    from: "session.SceneBoard".to_string(),
+                    permissions: Vec::new(),
+                    roles: vec!["role:approver".to_string()],
+                },
+            })
+            .await
+            .expect("queued");
+        let app = router(
+            Arc::new(engine),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+        );
+        let body = serde_json::json!({
+            "dataCapability": "table.createBattlemapInstance@1",
+            "payload": payload,
+            "idempotencyKey": key,
+        });
+        let request = Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = app.oneshot(request).await.expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        let answer: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+        assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+        assert_eq!(answer["replayed"], true, "{answer}");
+        assert_eq!(answer["commandId"], first.command_id.as_str(), "{answer}");
     }
 
     const INSTANCE: &str = "b1a00000-0000-4000-8000-000000000001";

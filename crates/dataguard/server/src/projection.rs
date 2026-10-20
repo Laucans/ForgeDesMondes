@@ -17,12 +17,16 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A token dropped on a battlemap instance (`table.placeTokens`)
+//! column. A scene's battlemap instance (`table.createBattlemapInstance`)
 //! writes its partition, `BattlemapInstance/<its id>`: [`ProjectingStore`]
-//! inserts its `token` row ([`tokens`]); a token hidden or revealed
-//! (`table.setTokenVisibility`) writes it again with its visibility alone:
-//! [`ProjectingStore`] writes `token.visible`, and no other column. A campaign's row is its table's over
-//! the engine's, and an archive is read from the tables ([`ProjectingStore::archived`]). Every
+//! inserts its `battlemap_instance` row ([`instances`]). A token dropped on
+//! a battlemap instance (`table.placeTokens`) writes its partition,
+//! `BattlemapInstance/<its id>`: [`ProjectingStore`] inserts its `token` row
+//! ([`tokens`]); a token hidden or revealed (`table.setTokenVisibility`)
+//! writes it again with its visibility alone: [`ProjectingStore`] writes
+//! `token.visible`, and no other column. A campaign's row is its table's over
+//! the engine's, and an archive is read from the tables
+//! ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
@@ -55,6 +59,7 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
+use crate::instances;
 use crate::tokens;
 use crate::versioning::{ENTITY, element_of};
 
@@ -296,8 +301,21 @@ impl ProjectingStore {
         self.repair_elements().await;
         self.repair_exports(None).await;
         let client = self.inner.client().lock().await;
+        instances::repair(&client).await;
         tokens::repair(&client).await;
         tokens::show(&client, None).await;
+    }
+
+    /// What the tables hold of the session, the scene and the battlemap a
+    /// creation of an instance names (`table.createBattlemapInstance`).
+    pub async fn placement(
+        &self,
+        session: &str,
+        scene: &str,
+        battlemap: &str,
+    ) -> std::result::Result<create_battlemap_instance::Placement, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        instances::placement(&client, session, scene, battlemap).await
     }
 
     /// What the tables hold of the instance and the character a drop of
@@ -720,7 +738,10 @@ impl Store for ProjectingStore {
         } else if element(write) {
             self.repair_elements().await;
         } else if !write.tombstone && tokens::of_aggregate(&write.partition) {
+            // An instance and its tokens share the aggregate's partitions:
+            // each projection inserts only the row whose id the partition names.
             let client = self.inner.client().lock().await;
+            instances::project(&client, &write.partition).await;
             tokens::project(&client, &write.partition).await;
             tokens::show(&client, Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
