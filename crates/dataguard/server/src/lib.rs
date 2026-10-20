@@ -30,7 +30,10 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. An upload of a media
+//! (`media.uploadMedia`) is prepared against its place, which [`Rows`] reads:
+//! a place that is no lieu of the media's campaign is refused before it is
+//! queued.
 
 use std::sync::Arc;
 
@@ -346,7 +349,13 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. An upload
+/// ([`uploaded`]) is made the media it writes on a new media's partition, a
+/// battlemap with its default grid; its place is read first
+/// ([`Rows::place`]), and an upload whose place is no lieu of its campaign
+/// is refused, 422, naming `media-place-is-lieu`, as is one the tables could
+/// never hold — neither is queued. Its replay, under an idempotency key
+/// already submitted, is answered as the upload was queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -500,6 +509,21 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if upload_media::names(&body.data_capability) {
+        // A replay is the engine's to answer, as the upload was queued: its
+        // place, since retyped, is not read again.
+        let replayed = match &body.idempotency_key {
+            Some(key) => match served.rows.replayed(&body.data_capability, key).await {
+                Ok(replayed) => replayed,
+                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+            },
+            None => false,
+        };
+        if !replayed {
+            let prepared = uploaded(&served.rows, &body.payload, &now()).await?;
+            body.payload = prepared.payload;
+            body.target_id = Some(prepared.target_id);
+        }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
@@ -509,6 +533,46 @@ async fn submit<L: Llm>(
         submitted
     });
     reply(axum::http::StatusCode::ACCEPTED, submitted)
+}
+
+/// An upload made the media it writes on a new media's partition
+/// (`upload_media`): checked first, then its campaign and its place read
+/// from [`Rows`]. What the tables could never hold, a campaign they do not
+/// hold, or a place that is no lieu of the campaign, is refused, 422; rows
+/// that cannot be read, 503.
+async fn uploaded(
+    rows: &Rows,
+    wire: &std::collections::BTreeMap<String, serde_json::Value>,
+    now: &str,
+) -> Result<upload_media::Prepared, (axum::http::StatusCode, Json<serde_json::Value>)> {
+    let refused = |refusal: upload_media::Refusal| {
+        (
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({ "error": refusal.to_string() })),
+        )
+    };
+    let unread = |e: Error| {
+        (
+            status_of(&e),
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    };
+    let upload = upload_media::checked(wire).map_err(refused)?;
+    if !rows
+        .holds_campaign(upload.campaign())
+        .await
+        .map_err(unread)?
+    {
+        return Err(refused(upload_media::Refusal::UnknownCampaign));
+    }
+    let place = match upload.place() {
+        Some(id) => rows.place(id).await.map_err(unread)?,
+        None => None,
+    };
+    let media =
+        fresh_uuid().map_err(|_| unread(Error::Store("no randomness for an id".to_string())))?;
+    let fresh = upload_media::Fresh { media: &media, now };
+    upload.prepare(place.as_ref(), fresh).map_err(refused)
 }
 
 /// A random (version 4) uuid: a new element's id, a version's.
