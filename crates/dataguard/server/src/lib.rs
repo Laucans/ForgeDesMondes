@@ -421,6 +421,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// it writes on the open combat's partition ([`ending`]).
 /// A participant taken out of the open combat is made the deletion of its
 /// entry's partition the same way ([`removal`]); its token stays.
+/// A reset of an instance is made the deletions of its tokens, its combats
+/// and their entries, one command each ([`resetting`]).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -558,6 +560,11 @@ async fn submit<L: Llm>(
     } else if end_combat::names(&body.data_capability) {
         let _ending = STARTING.lock().await;
         return ending(&served, body, &now()).await;
+    } else if reset_battlemap::names(&body.data_capability) {
+        // Neither a drop nor a start slips a row past the reset's read.
+        let _placing = PLACING.lock().await;
+        let _starting = STARTING.lock().await;
+        return resetting(&served, body, &now()).await;
     } else if set_token_visibility::names(&body.data_capability) {
         let unprocessable = |refusal: set_token_visibility::Refusal| {
             let status = if refusal == set_token_visibility::Refusal::UnknownToken {
@@ -1105,6 +1112,88 @@ async fn ending<L>(served: &Served<L>, mut body: Submission, now: &str) -> Reply
         body.target_id = Some(prepared.target_id);
     }
     reply(StatusCode::ACCEPTED, served.engine.submit(body).await)
+}
+
+/// `body`, a reset of an instance (`table.resetBattlemap`), made the
+/// deletions of what it holds, applied or queued (`reset_battlemap::prepare`)
+/// — the fixtures' slug it names read as the id the tables hold it by — and
+/// queued, one command per row on its own partition,
+/// `BattlemapInstance/<its id>`: its entries, its combats, then its tokens,
+/// each tombstoned (a soft delete) and carrying the instance and `now`, the
+/// stamp its row takes. The instance's own partition is never written. The
+/// answer is the last command's, queued after the others; with an
+/// idempotency key, the last one is queued under it and each other under it
+/// followed by `#<its row's id>`, so the reset sent again under its key is
+/// the engine's to replay, as it was. Refused, and nothing queued: an instance
+/// that is no uuid, 422; an instance the tables do not hold — over the
+/// engine's memory, every one —, 404; one holding no token, no combat and no
+/// entry, 409.
+async fn resetting<L>(served: &Served<L>, mut body: Submission, now: &str) -> Reply<Submitted> {
+    use axum::http::StatusCode;
+    use reset_battlemap::{DATA_CAPABILITY, Refusal};
+    let failed = |e: Error| refused(status_of(&e), &e);
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return reply(StatusCode::ACCEPTED, served.engine.submit(body).await);
+    }
+    let wire = served.reads.stored(&body.payload);
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = reset_battlemap::request(&wire, target.as_deref())
+        .map_err(|why| refused(StatusCode::UNPROCESSABLE_ENTITY, &why))?;
+    let map = served
+        .rows
+        .reset_map(&request.instance)
+        .await
+        .map_err(failed)?;
+    let deletions = reset_battlemap::prepare(&request, &map, now).map_err(|why| {
+        let status = match why {
+            Refusal::UnknownInstance => StatusCode::NOT_FOUND,
+            Refusal::NothingToReset => StatusCode::CONFLICT,
+            Refusal::NotAnId => StatusCode::UNPROCESSABLE_ENTITY,
+        };
+        refused(status, &why)
+    })?;
+    let key = body.idempotency_key.take();
+    let last = deletions.len();
+    let mut submitted: Option<Submitted> = None;
+    // What the engine said of each deletion queued before the last one.
+    let mut warnings = Vec::new();
+    for (place, (id, stamp)) in (1..).zip(deletions) {
+        // By the row, not its place: a reset half queued and sent again reads
+        // the rows it queued as none, and its places move.
+        let idempotency_key = key.as_ref().map(|key| {
+            if place == last {
+                key.clone()
+            } else {
+                format!("{key}#{id}")
+            }
+        });
+        let one = Submission {
+            data_capability: body.data_capability.clone(),
+            payload: stamp,
+            target_id: Some(id),
+            based_on: None,
+            idempotency_key,
+            caller: body.caller.clone(),
+        };
+        warnings.extend(submitted.take().into_iter().flat_map(|one| one.warnings));
+        submitted = Some(served.engine.submit(one).await.map_err(failed)?);
+    }
+    submitted
+        .map(|mut submitted| {
+            warnings.append(&mut submitted.warnings);
+            submitted.warnings = warnings;
+            (StatusCode::ACCEPTED, Json(submitted))
+        })
+        .ok_or_else(|| refused(StatusCode::CONFLICT, &Refusal::NothingToReset))
 }
 
 /// The dice a start throws (`start_combat::Dice`), thrown before it is

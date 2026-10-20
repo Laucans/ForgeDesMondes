@@ -493,13 +493,99 @@ impl Rows {
         self.first_open(combats).await
     }
 
+    /// What the instance a reset names (`table.resetBattlemap`) holds — in
+    /// the tables, in the engine's rows, or queued — as the commands queued
+    /// will leave it: its tokens, its combats, open or ended, and the
+    /// entries of either; a row whose deletion is queued is none, and an
+    /// instance whose creation is queued is one. Over the engine's memory,
+    /// which has no table, no instance.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn reset_map(&self, instance: &str) -> Result<reset_battlemap::Map> {
+        let Some(tables) = &self.tables else {
+            return Ok(reset_battlemap::Map::default());
+        };
+        let text = |entry: &Entry, field: &str| {
+            entry
+                .payload
+                .get(field)
+                .and_then(Value::as_str)
+                .map(str::to_ascii_lowercase)
+        };
+        let of =
+            |entry: &Entry, field: &str, id: &str| text(entry, field).is_some_and(|it| it == id);
+        // The queue before the tables, as a start reads them: a row applied
+        // between the two reads is then read twice, which the ids make one,
+        // rather than missed by both.
+        let pending = self.store.pending().await?;
+        let mut tokens: Vec<String> = pending
+            .iter()
+            .filter(|entry| of(entry, "tokenInstanceId", instance))
+            .filter_map(|entry| text(entry, "tokenId"))
+            .collect();
+        let mut combats: Vec<String> = pending
+            .iter()
+            .filter(|entry| of(entry, "combatInstanceId", instance))
+            .filter_map(|entry| text(entry, "combatId"))
+            .collect();
+        let mut map = tables
+            .reset_map(instance, &tokens, &combats)
+            .await
+            .map_err(|e| {
+                harness_dataguard::Error::Store(format!(
+                    "instance not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                ))
+            })?;
+        map.instance |= pending.iter().any(|entry| {
+            entry.effect == Effect::Insert
+                && entry.partition == format!("BattlemapInstance/{instance}")
+        });
+        tokens.append(&mut map.tokens);
+        combats.append(&mut map.combats);
+        let entries: Vec<String> = pending
+            .iter()
+            .filter(|entry| {
+                text(entry, "initiativeEntryCombatId").is_some_and(|id| combats.contains(&id))
+                    || text(entry, "initiativeEntryTokenId").is_some_and(|id| tokens.contains(&id))
+            })
+            .filter_map(|entry| text(entry, "initiativeEntryId"))
+            .chain(map.entries.drain(..))
+            .collect();
+        // A deletion queued is the tombstone of its partition.
+        let removed: Vec<String> = pending
+            .iter()
+            .filter(|entry| entry.effect == Effect::Delete)
+            .filter_map(|entry| entry.partition.strip_prefix("BattlemapInstance/"))
+            .map(str::to_ascii_lowercase)
+            .collect();
+        let standing = |ids: Vec<String>| -> Vec<String> {
+            ids.into_iter().filter(|id| !removed.contains(id)).collect()
+        };
+        map.tokens = standing(tokens);
+        map.combats = standing(combats);
+        map.entries = standing(entries);
+        Ok(map)
+    }
+
     /// The first of `combats`, by id, whose row has no end as the commands
-    /// queued on it will leave it (`one-active-combat`).
+    /// queued on it will leave it (`one-active-combat`) — none once its
+    /// deletion is queued (`table.resetBattlemap`), which no end is written
+    /// behind.
     async fn first_open(&self, mut combats: Vec<String>) -> Result<Option<String>> {
         combats.sort_unstable();
         combats.dedup();
         for combat in combats {
-            let row = self.projected(&start_combat::partition(&combat)).await?;
+            let (row, ahead) = self.ahead(&start_combat::partition(&combat)).await?;
+            if ahead.iter().any(|entry| entry.effect == Effect::Delete) {
+                continue;
+            }
+            let row = ahead
+                .iter()
+                .fold(row, |row, entry| guard::projected(&row, entry));
             if row.get("endedAt").is_none_or(Value::is_null) {
                 return Ok(Some(combat));
             }
