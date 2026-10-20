@@ -39,7 +39,11 @@
 //! [`Rows`] reads: its visibility, or its name, alone, on its partition. A
 //! change of an NPC's HP (`table.changeHitPoints`) is prepared the same way:
 //! the step of its current HP alone, cut so they land between 0 and its HP
-//! max.
+//! max. A participant joining a running combat (`table.addParticipant`) is
+//! prepared against what the tables, the engine's rows and the queue hold of
+//! the instance's open combat and of the token's character, which [`Rows`]
+//! reads: its entry, and a step of the rank of each entry it lands ahead of,
+//! one command each.
 
 use std::sync::Arc;
 
@@ -63,6 +67,7 @@ mod ai_settings;
 mod aliases;
 mod battlemap_instance;
 mod campaign;
+mod combats;
 mod diffusion;
 mod entity;
 mod exports;
@@ -399,6 +404,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// under the key of a removal the engine holds, the engine's to replay.
 /// The token commands judge the token's row as none once its removal is
 /// queued (`Rows::standing`).
+/// A participant joining a running combat is made its entry and the moves of
+/// the entries it lands ahead of, one command each ([`adding`]).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -530,6 +537,9 @@ async fn submit<L: Llm>(
     } else if place_tokens::names(&body.data_capability) {
         let _placing = PLACING.lock().await;
         return placing(&served, body).await;
+    } else if add_participant::names(&body.data_capability) {
+        let _adding = ADDING.lock().await;
+        return adding(&served, body).await;
     } else if set_token_visibility::names(&body.data_capability) {
         let unprocessable = |refusal: set_token_visibility::Refusal| {
             let status = if refusal == set_token_visibility::Refusal::UnknownToken {
@@ -741,6 +751,11 @@ static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// start from the same list, and none is lost.
 static MARKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// One participant joining at a time, from the read of the combat's entries
+/// until its commands are queued: two joining at once never take the same
+/// rank, and each moves the entries the other left.
+static ADDING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// A refusal before a command is queued: its status, and why in words.
 type Refused = (axum::http::StatusCode, Json<serde_json::Value>);
 
@@ -893,6 +908,113 @@ async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted
             (StatusCode::ACCEPTED, Json(submitted))
         })
         .ok_or_else(|| refused(StatusCode::UNPROCESSABLE_ENTITY, &Refusal::Count))
+}
+
+/// `body`, a token joining the instance's open combat
+/// (`table.addParticipant`), made its entry and the moves of the entries it
+/// lands ahead of (`add_participant::prepare`) — the fixtures' slugs it names
+/// read as the ids the tables hold them by — its roll and its draw from
+/// [`Fair`] dice, and queued, one command per entry on its own partition,
+/// `BattlemapInstance/<its id>`: the moves first, the newcomer's entry last,
+/// whose command is the answer. With an idempotency key, the entry is queued
+/// under it and each move under it followed by `#<its rank among them>`, so
+/// the joining sent again under its key is the engine's to replay, as it was.
+/// Refused, and nothing queued: ids that are none, or an initiative that is
+/// no whole number, 422; a token the engine does not hold on the instance
+/// targeted, or a character the tables do not hold, 404 — over the engine's
+/// memory, which reads no combat, an instance with none; an instance with no
+/// open combat, or a token in it already, applied or queued, 409; a PC sent
+/// with no initiative, an NPC with one, or an NPC whose sheet has no DEX, 422.
+async fn adding<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted> {
+    use add_participant::{DATA_CAPABILITY, Refusal};
+    use axum::http::StatusCode;
+    let failed = |e: Error| refused(status_of(&e), &e);
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return reply(StatusCode::ACCEPTED, served.engine.submit(body).await);
+    }
+    let unprocessable = |why: Refusal| {
+        let status = match why {
+            Refusal::UnknownToken | Refusal::UnknownCharacter => StatusCode::NOT_FOUND,
+            Refusal::NoOpenCombat | Refusal::AlreadyInCombat => StatusCode::CONFLICT,
+            Refusal::NoRandomness => StatusCode::SERVICE_UNAVAILABLE,
+            Refusal::NotAnId(_)
+            | Refusal::NotAnInitiative
+            | Refusal::PcInitiative
+            | Refusal::NpcRolls
+            | Refusal::NoDex => StatusCode::UNPROCESSABLE_ENTITY,
+        };
+        refused(status, &why)
+    };
+    let wire = served.reads.stored(&body.payload);
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = add_participant::request(&wire, target.as_deref()).map_err(unprocessable)?;
+    let base = served
+        .rows
+        .standing(&add_participant::partition(&request.token))
+        .await
+        .map_err(failed)?;
+    let token = add_participant::token(&request, &base).map_err(unprocessable)?;
+    let seating = served
+        .rows
+        .seating(&token.instance, &token.character)
+        .await
+        .map_err(failed)?;
+    let entry = fresh_uuid().map_err(|_| unprocessable(Refusal::NoRandomness))?;
+    let prepared = add_participant::prepare(&request, &token, &seating, &mut Fair, &entry)
+        .map_err(unprocessable)?;
+    let key = body.idempotency_key.take();
+    let mut warnings = Vec::new();
+    // The moves before the entry: one the store failed to queue leaves a gap
+    // in the ranks, which orders no one wrongly — never two at one rank.
+    for (rank, (id, moved)) in (1..).zip(prepared.moves) {
+        let one = Submission {
+            data_capability: body.data_capability.clone(),
+            payload: moved,
+            target_id: Some(id),
+            based_on: None,
+            idempotency_key: key.as_ref().map(|key| format!("{key}#{rank}")),
+            caller: body.caller.clone(),
+        };
+        warnings.extend(served.engine.submit(one).await.map_err(failed)?.warnings);
+    }
+    let (id, row) = prepared.entry;
+    body.payload = row;
+    body.target_id = Some(id);
+    body.idempotency_key = key;
+    let mut submitted = served.engine.submit(body).await.map_err(failed)?;
+    warnings.append(&mut submitted.warnings);
+    submitted.warnings = warnings;
+    Ok((StatusCode::ACCEPTED, Json(submitted)))
+}
+
+/// The dice of the operating system's randomness, each face as likely: a
+/// draw past the last whole run of `sides` faces is drawn again.
+struct Fair;
+
+impl add_participant::Dice for Fair {
+    fn roll(&mut self, sides: u32) -> Option<i64> {
+        if sides == 0 {
+            return None;
+        }
+        let fair = u32::MAX - u32::MAX % sides;
+        loop {
+            let mut bytes = [0_u8; 4];
+            getrandom::fill(&mut bytes).ok()?;
+            let drawn = u32::from_le_bytes(bytes);
+            if drawn < fair {
+                return Some(i64::from(drawn % sides) + 1);
+            }
+        }
+    }
 }
 
 /// A random (version 4) uuid: a new element's id, a version's.

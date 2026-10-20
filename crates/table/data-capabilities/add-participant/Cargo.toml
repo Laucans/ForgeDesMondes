@@ -1,0 +1,14 @@
+[package]
+name = "add-participant"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.addParticipant: a token of a battlemap instance joins its open combat (Initiative@1) — an NPC rolls d20 + DEX modifier, a PC takes the DM's figure — ranked by initiative, DEX, then a random draw among the others, the participants it lands ahead of moved down one rank each; the dice behind an injected source."
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+# The Concept's fixtures `initiative` and `order` are held to (Initiative@1).
+platform-conformance = { path = "../../../platform/conformance" }

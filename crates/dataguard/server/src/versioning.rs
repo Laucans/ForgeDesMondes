@@ -273,6 +273,114 @@ impl Rows {
         Ok(roster)
     }
 
+    /// What the tables, the engine's rows and the queue hold of the open
+    /// combat of the instance `instance`, its entries, and the character
+    /// `character` a participant joining is (`table.addParticipant`): each
+    /// combat and entry as the queue will leave it, the table's row under
+    /// the engine's. A combat is open when the engine's row of it says it
+    /// has no end — when it holds none, when the table says so; of two, the
+    /// first by id, which `one-active-combat` never lets be. An entry queued
+    /// and not applied yet is one of the combat too. Over the engine's
+    /// memory, which has no table, no combat.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read, or
+    /// an entry of the combat holds no token, initiative, draw or rank; the
+    /// store's.
+    pub async fn seating(
+        &self,
+        instance: &str,
+        character: &str,
+    ) -> Result<add_participant::Seating> {
+        let Some(tables) = &self.tables else {
+            return Ok(add_participant::Seating::default());
+        };
+        let text = |row: &BTreeMap<String, Value>, field: &str| {
+            row.get(field)
+                .and_then(Value::as_str)
+                .map(str::to_lowercase)
+        };
+        // The queue before the tables: an entry applied between the two reads
+        // is then read twice, as one id, rather than missed by both.
+        let queued: Vec<(String, String)> = self
+            .store
+            .pending()
+            .await?
+            .iter()
+            .filter_map(|entry| {
+                let id = text(&entry.payload, "initiativeEntryId")?;
+                let combat = text(&entry.payload, "initiativeEntryCombatId")?;
+                (entry.partition == add_participant::partition(&id)).then_some((combat, id))
+            })
+            .collect();
+        let tabled = tables.seating(instance, character).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "seating not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        let mut combat = None;
+        for (id, running) in &tabled.combats {
+            let row = self.projected(&add_participant::partition(id)).await?;
+            if row.get("endedAt").map_or(*running, Value::is_null) {
+                combat = Some(id.clone());
+                break;
+            }
+        }
+        let Some(combat) = combat else {
+            return Ok(add_participant::Seating {
+                character: tabled.character,
+                ..add_participant::Seating::default()
+            });
+        };
+        let mut rows: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
+        for (of, id, row) in tabled.entries {
+            if of == combat {
+                rows.entry(id).or_default().extend(row);
+            }
+        }
+        for (of, id) in queued {
+            if of == combat {
+                rows.entry(id).or_default();
+            }
+        }
+        let mut entries = Vec::new();
+        for (id, mut row) in rows {
+            let held = self.projected(&add_participant::partition(&id)).await?;
+            let is_held = !held.is_empty();
+            row.extend(held);
+            let number = |field: &str| row.get(field).and_then(Value::as_i64);
+            let (Some(token), Some(initiative), Some(tiebreak), Some(rank)) = (
+                text(&row, "initiativeEntryTokenId"),
+                number("initiative"),
+                row.get("tiebreak").and_then(Value::as_f64),
+                number("rank"),
+            ) else {
+                // A participant the seating cannot read is not ranked around
+                // blindly, nor let in twice: no joining until it reads.
+                return Err(harness_dataguard::Error::Store(format!(
+                    "initiative entry {id} not read"
+                )));
+            };
+            entries.push(add_participant::Seated {
+                id,
+                token,
+                roll: number("roll"),
+                initiative,
+                dex: number("dexScore"),
+                tiebreak,
+                rank,
+                held: is_held,
+            });
+        }
+        Ok(add_participant::Seating {
+            combat: Some(combat),
+            entries,
+            character: tabled.character,
+        })
+    }
+
     /// Whether the engine holds a command of `data_capability` under the
     /// idempotency key `key`: one it replays.
     ///

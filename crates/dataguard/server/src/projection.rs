@@ -35,6 +35,11 @@
 //! [`ProjectingStore`] deletes its `token` row, and the foreign keys follow
 //! the aggregate's relations (its initiative entry cascades, a turn on it is
 //! nullified).
+//! A participant joining a running combat (`table.addParticipant`) writes its
+//! entry's partition, `BattlemapInstance/<its id>`, and each partition of an
+//! entry it lands ahead of with a step of its rank: [`ProjectingStore`]
+//! inserts the entry's `initiative_entry` row, or writes the rank of one the
+//! table holds ([`combats`]).
 //! A campaign's row is its table's over the engine's, and an archive is read
 //! from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
@@ -68,6 +73,7 @@ use test_connection::NO_PROVIDER;
 
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
+use crate::combats;
 use crate::history::History;
 use crate::instances;
 use crate::tokens;
@@ -359,6 +365,7 @@ impl ProjectingStore {
             tokens::repair(&client).await;
             tokens::show(&client, None).await;
             tokens::hit_points(&client, None).await;
+            combats::repair(&client).await;
         }
         self.repair_names(None).await;
         self.repair_conditions(None).await;
@@ -417,6 +424,18 @@ impl ProjectingStore {
     ) -> std::result::Result<place_tokens::Roster, tokio_postgres::Error> {
         let client = self.inner.client().lock().await;
         tokens::roster(&client, instance, character).await
+    }
+
+    /// What the tables and the engine's rows hold of the combats of the
+    /// instance, and of the character, a participant joining names
+    /// (`table.addParticipant`).
+    pub async fn seating(
+        &self,
+        instance: &str,
+        character: &str,
+    ) -> std::result::Result<combats::Tabled, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        combats::seating(&client, instance, character).await
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -836,6 +855,7 @@ impl Store for ProjectingStore {
                 tokens::project(&client, &write.partition).await;
                 tokens::show(&client, Some(&write.partition)).await;
                 tokens::hit_points(&client, Some(&write.partition)).await;
+                combats::project(&client, &write.partition).await;
             }
             // A rename, a badge set, or any later write, makes the token's name
             // and conditions follow the engine's.
