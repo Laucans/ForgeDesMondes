@@ -543,6 +543,31 @@
       if (!scene.media.includes(map.id)) scene.media.push(map.id);
       return void 0;
     },
+    // table.placeTokens: a character dropped on an instance at a hex, « × count » (1 to 12). An NPC's tokens are
+    // numbered after the highest number it holds there and named with it (`multi-drop-numbering`), each with
+    // the sheet's HP max as its HP (`pj-hp-not-tracked`); a PC is dropped once, only when present at the
+    // session, and only when it has no token there yet (`token-roster`).
+    "table.placeTokens": async (server, { payload: payload2, targetId }) => {
+      const id = targetId || payload2.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const inst = id === fixture.id ? fixture : server.instances && server.instances.get(id);
+      const character = (await server.load("campaign.listCharacters")).find((c) => c.id === payload2.character);
+      if (!inst || !character) return ["not-found"];
+      const count = payload2.count ?? 1;
+      if (!Number.isInteger(count) || count < 1 || count > 12) return ["multi-drop-numbering"];
+      if (!Number.isInteger(payload2.q) || !Number.isInteger(payload2.r)) return ["single-position-source"];
+      const tokens = inst.state.tokens;
+      const mine = tokens.filter((t) => t.char === character.id);
+      const pc = character.kind === "pj";
+      if (pc && (count !== 1 || mine.length || !(await server.load("session.getSession")).present.includes(character.id))) return ["token-roster"];
+      const hp = pc ? null : character.pvMax ?? null;
+      let num = Math.max(0, ...mine.map((t) => t.num || 0));
+      for (let i = 0; i < count; i++) {
+        num += pc ? 0 : 1;
+        tokens.push({ id: server.uuid(), char: character.id, kind: character.kind, name: pc ? character.name : `${character.name} ${num}`, num: pc ? null : num, q: payload2.q, r: payload2.r, visible: true, hp, hpMax: hp, states: [], dead: false });
+      }
+      return void 0;
+    },
     // table.renameToken: one token renamed, `payload.token` on the instance `targetId` — or the token itself as
     // the target, or no target. Its number and the other tokens of its character are untouched
     // (`multi-drop-numbering`); a name of blanks alone is refused. Ids are compared in any case, as the server does.

@@ -48,4 +48,5 @@ test-connection = { path = "../../ai/data-capabilities/test-connection" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
+place-tokens = { path = "../../table/data-capabilities/place-tokens" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
