@@ -94,6 +94,9 @@ impl Scratch {
                  INSERT INTO character (entity_id, token_color) VALUES
                     ('{ELOWEN}', 'accent'), ('{KAEL}', 'accent'),
                     ('{MORLOX}', 'danger'), ('{VESNA}', 'accent');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff) VALUES
+                    ('{ELOWEN}', 1, 'dm', '{{}}', '[]'), ('{KAEL}', 1, 'dm', '{{}}', '[]'),
+                    ('{MORLOX}', 1, 'dm', '{{}}', '[]'), ('{VESNA}', 1, 'dm', '{{}}', '[]');
                  INSERT INTO session (campaign_id, position, title, status, microphone_on) VALUES
                     ('{VALOMBRE}', 1, 'L''arrivée', 'closed', false),
                     ('{VALOMBRE}', 2, 'La forêt', 'closed', false),
