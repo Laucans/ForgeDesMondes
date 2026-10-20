@@ -375,3 +375,65 @@ async fn an_element_applied_after_its_proposal_is_recorded_on_it_once_the_tables
     assert_eq!(created, [json!({ "name": "Mère Ombeline" })]);
     s.drop().await;
 }
+
+#[tokio::test]
+async fn an_element_the_dm_deleted_is_never_made_again_and_its_proposal_keeps_it() {
+    let s = Scratch::new("deleted").await;
+    let (engine, app) = s.serve().await;
+    let note = extract(&engine, &app).await;
+    let ombeline = s.proposal(&note, "Mère Ombeline").await;
+    validate(&engine, &app, &[&ombeline]).await;
+    let proposals = s.proposals(&note).await;
+    let element = proposals
+        .iter()
+        .find(|p| p["name"] == "Mère Ombeline")
+        .and_then(|p| p["created_entity_id"].as_str())
+        .expect("Mère Ombeline made")
+        .to_owned();
+    // The engine's tombstone, as a deletion of the element leaves it.
+    let deleted = s
+        .client
+        .execute(
+            "UPDATE dataguard_rows SET tombstoned = true WHERE lower(partition) = lower($1)",
+            &[&format!("Entity/{element}")],
+        )
+        .await
+        .expect("the element deleted");
+    assert_eq!(deleted, 1);
+    let tombstoned = format!(
+        "SELECT tombstoned FROM dataguard_rows WHERE lower(partition) = lower('Entity/{element}')"
+    );
+    let recorded = format!(
+        "SELECT fields -> 'checked' AS checked, fields -> 'createdEntityId' AS created \
+         FROM dataguard_rows WHERE lower(partition) = lower('NoteImport/{ombeline}')"
+    );
+    let live = "dataguard_rows WHERE partition LIKE 'Entity/%' AND NOT tombstoned";
+    let entities = s.count("entity").await;
+    let held = s.count(live).await;
+    let stamp = json!({ "checked": true, "created": element });
+
+    // Validated again: nothing is made, the proposal still records it.
+    validate(&engine, &app, &[&ombeline]).await;
+    assert_eq!(s.rows(&tombstoned).await, [json!({ "tombstoned": true })]);
+    assert_eq!(s.count("entity").await, entities);
+    assert_eq!(s.count(live).await, held);
+    assert_eq!(s.rows(&recorded).await, std::slice::from_ref(&stamp));
+    assert_eq!(s.proposals(&note).await, proposals);
+
+    // Its proposal's stamp lost, as a validation failing half-way leaves it:
+    // the element found deleted is recorded again, not made.
+    s.client
+        .execute(
+            "UPDATE dataguard_rows SET fields = fields - 'createdEntityId' \
+             WHERE lower(partition) = lower($1)",
+            &[&format!("NoteImport/{ombeline}")],
+        )
+        .await
+        .expect("the stamp lost");
+    validate(&engine, &app, &[&ombeline]).await;
+    assert_eq!(s.rows(&tombstoned).await, [json!({ "tombstoned": true })]);
+    assert_eq!(s.count("entity").await, entities);
+    assert_eq!(s.count(live).await, held);
+    assert_eq!(s.rows(&recorded).await, [stamp]);
+    s.drop().await;
+}

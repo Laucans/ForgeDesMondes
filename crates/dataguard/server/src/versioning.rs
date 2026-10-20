@@ -237,6 +237,25 @@ impl Rows {
         })
     }
 
+    /// Whether the engine deleted `partition`'s row — its tombstone — which
+    /// its rows read as empty, as one never written. Over the engine's memory
+    /// none is: its rows keep a deleted row's values.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn deleted(&self, partition: &str) -> Result<bool> {
+        let Some(tables) = &self.tables else {
+            return Ok(false);
+        };
+        tables.tombstoned(partition).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "tombstone not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
     /// The same, the elements' terms read from `aliases`.
     pub(crate) fn knowing(self, aliases: Arc<Aliases>) -> Self {
         Self { aliases, ..self }

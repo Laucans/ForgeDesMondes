@@ -329,6 +329,10 @@ const PROPOSALS: &str =
     WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned
         AND jsonb_typeof(r.fields -> 'noteId') = 'string'";
 
+/// Whether the row of the partition `$1` names is the engine's tombstone.
+const TOMBSTONED: &str =
+    "SELECT EXISTS (SELECT 1 FROM dataguard_rows WHERE partition = $1 AND tombstoned)";
+
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
@@ -460,6 +464,16 @@ impl ProjectingStore {
         let client = self.inner.client().lock().await;
         let row = client.query_opt(ARCHIVE, &[&id]).await?;
         Ok(row.and_then(|row| serde_json::from_str(row.get::<_, &str>(0)).ok()))
+    }
+
+    /// Whether the engine deleted `partition`'s row: its tombstone.
+    pub async fn tombstoned(
+        &self,
+        partition: &str,
+    ) -> std::result::Result<bool, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let row = client.query_one(TOMBSTONED, &[&partition]).await?;
+        Ok(row.get(0))
     }
 
     /// The campaign `partition` names as its table holds it, when it does.

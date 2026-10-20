@@ -6,7 +6,7 @@
 //! DataCapability of the product writes a note's proposals yet.
 
 use dataguard_server::{Engine, MEMORY, plant};
-use harness_dataguard::api::Submission;
+use harness_dataguard::api::{Submission, Submitted};
 use harness_dataguard::command::{CommandResult, State};
 use harness_dataguard::guard::Caller;
 use harness_dataguard::manifest::DataCapability;
@@ -40,6 +40,14 @@ async fn engine() -> Engine {
 
 /// What the single applier made of one command.
 async fn written(engine: &Engine, data_capability: &str, payload: Value) -> CommandResult {
+    queued(engine, data_capability, payload).await;
+    let mut applied = engine.run_once().await.expect("the applier ran");
+    assert_eq!(applied.len(), 1, "{applied:?}");
+    applied.remove(0)
+}
+
+/// One command, queued: what the engine answers.
+async fn queued(engine: &Engine, data_capability: &str, payload: Value) -> Submitted {
     let Value::Object(payload) = payload else {
         panic!("a payload is an object");
     };
@@ -59,10 +67,7 @@ async fn written(engine: &Engine, data_capability: &str, payload: Value) -> Comm
             },
         })
         .await
-        .expect("queued");
-    let mut applied = engine.run_once().await.expect("the applier ran");
-    assert_eq!(applied.len(), 1, "{applied:?}");
-    applied.remove(0)
+        .expect("queued")
 }
 
 fn rejected_by(result: &CommandResult, id: &str) {
@@ -249,6 +254,42 @@ async fn no_creation_before_validation_warns_no_validation_when_it_is_queued() {
     let mut applied_now = engine.run_once().await.expect("the applier ran");
     assert_eq!(applied_now.len(), 1, "{applied_now:?}");
     applied(&applied_now.remove(0));
+}
+
+#[tokio::test]
+async fn no_creation_before_validation_still_refuses_a_birth_or_a_second_element() {
+    let at_risk = ["invariant(s) at risk: no-creation-before-validation"];
+    let mut born = grimbald(true);
+    born["createdEntityId"] = json!(CREATED);
+    // An insert, and an upsert of a row the engine does not hold: born now.
+    for data_capability in ["test.proposeFromNotes", "test.upsertProposal"] {
+        let engine = engine().await;
+        let submitted = queued(&engine, data_capability, born.clone()).await;
+        assert_eq!(submitted.warnings, at_risk, "{data_capability}");
+        let mut applied_now = engine.run_once().await.expect("the applier ran");
+        assert_eq!(applied_now.len(), 1, "{applied_now:?}");
+        rejected_by(&applied_now.remove(0), "no-creation-before-validation");
+    }
+    // An update replacing the element a proposal created: queued, it reads
+    // no row; applied, it reads the element and is refused.
+    let engine = proposed(true).await;
+    applied(
+        &written(
+            &engine,
+            "test.updateProposal",
+            json!({ "id": GRIMBALD, "createdEntityId": CREATED }),
+        )
+        .await,
+    );
+    rejected_by(
+        &written(
+            &engine,
+            "test.updateProposal",
+            json!({ "id": GRIMBALD, "createdEntityId": OTHER }),
+        )
+        .await,
+        "no-creation-before-validation",
+    );
 }
 
 #[tokio::test]
