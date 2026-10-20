@@ -1,0 +1,10 @@
+[package]
+name = "set-master-volume"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.setMasterVolume: the campaign's master volume, given in percent by the DM's slider, written as a fraction from 0 to 1 on its Campaign partition (EffectiveVolume@1) — and nothing else of it; out of range, the campaign's own invariant refuses it (master-volume-range)."
+publish = false
+
+[dependencies]
+serde_json = "1"

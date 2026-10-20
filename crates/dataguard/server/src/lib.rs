@@ -30,12 +30,14 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied. An addition of a sound
-//! (`soundbox.addSound`) is prepared against the campaign it names, which
-//! [`Rows`] reads, and an edit of one (`soundbox.updateSound`) against the
-//! sound's row. A playback of a sound (`soundbox.playSound`) is prepared
-//! against what the tables hold of the sound and its campaign's sessions,
-//! which [`Rows`] reads: a new row of its own, beside whatever plays already.
+//! the command's result once its stamp is applied. A change of the master
+//! volume (`soundbox.setMasterVolume`) is made the fraction it writes on its
+//! campaign's partition. An addition of a sound (`soundbox.addSound`) is
+//! prepared against the campaign it names, which [`Rows`] reads, and an edit
+//! of one (`soundbox.updateSound`) against the sound's row. A playback of a
+//! sound (`soundbox.playSound`) is prepared against what the tables hold of
+//! the sound and its campaign's sessions, which [`Rows`] reads: a new row of
+//! its own, beside whatever plays already.
 
 use std::sync::Arc;
 
@@ -352,11 +354,15 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes. An addition of
-/// a sound (`add_sound::prepare`) is given its id and made the row it writes,
-/// its tags normalised and its volume a fraction of 1: one naming no campaign
-/// the engine holds is refused, 404, and one with no name or no file, 422.
-/// An edit of a sound (`update_sound::prepare`) is made the fields it
+/// an archive of, 422 — neither is queued, so nothing changes. A change of
+/// the master volume (`set_master_volume::prepare`) is made the fraction it
+/// writes on its campaign's partition, the percent divided by 100, which
+/// `master-volume-range` judges once it is processed: one naming no campaign,
+/// or one the tables do not hold, is refused, 404, before it is queued. An
+/// addition of a sound (`add_sound::prepare`) is given its id and made the row
+/// it writes, its tags normalised and its volume a fraction of 1: one naming no
+/// campaign the engine holds is refused, 404, and one with no name or no file,
+/// 422. An edit of a sound (`update_sound::prepare`) is made the fields it
 /// changes, its tags normalised and its volume a fraction of 1: one naming
 /// no sound the engine holds — a sound queued for addition is one — is
 /// refused, 404, and one with a blank name or file, or nothing to change,
@@ -523,6 +529,34 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if set_master_volume::names(&body.data_capability) {
+        let no_campaign = || {
+            Err((
+                axum::http::StatusCode::NOT_FOUND,
+                Json(
+                    serde_json::json!({ "error": set_master_volume::Refusal::NoCampaign.to_string() }),
+                ),
+            ))
+        };
+        let Ok(prepared) = set_master_volume::prepare(&body.payload, body.target_id.as_deref())
+        else {
+            return no_campaign();
+        };
+        let campaign = match served
+            .rows
+            .projected(&format!("Campaign/{}", prepared.target_id))
+            .await
+        {
+            Ok(campaign) => campaign,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        // A campaign is a campagne or a oneshot: a partition holding no kind
+        // is none the tables hold.
+        if !campaign.contains_key("kind") {
+            return no_campaign();
+        }
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     } else if add_sound::names(&body.data_capability) {
         let Ok(sound) = fresh_uuid() else {
             let e = Error::Store("no randomness for an id".to_string());
@@ -622,7 +656,8 @@ fn refused(status: axum::http::StatusCode, why: &impl std::fmt::Display) -> Refu
 /// partition, `SoundPlayback/<its id>`, the id fresh: it stops nothing that
 /// plays (`simultaneous-playback`). Its origin is the DataGuard's to judge
 /// (`dm-side-only`). Sent again under its idempotency key, it is the
-/// engine's to replay, as it was. Refused, and nothing queued: a sound or a
+/// engine's to replay, as it was. A caller that is not the DM is the player
+/// side, whatever its source. Refused, and nothing queued: a sound or a
 /// session that is no id, 422; a sound or a session named the tables do not
 /// hold, 404 — over the engine's memory, every sound; a session of another
 /// campaign, or a campaign with no session to play in, 422. It starts `now`.
@@ -648,7 +683,7 @@ async fn playing<L>(served: &Served<L>, mut body: Submission, now: &str) -> Repl
         .target_id
         .as_deref()
         .map(|id| served.reads.stored_id(id));
-    let request = play_sound::request(&wire, target.as_deref())
+    let request = play_sound::request(&wire, target.as_deref(), &body.caller.by)
         .map_err(|why| refused(StatusCode::UNPROCESSABLE_ENTITY, &why))?;
     let stage = served
         .rows
@@ -927,7 +962,7 @@ mod tests {
     /// the server prepares it, under the id `n` gives.
     fn playback(sound: &str, source: serde_json::Value, n: u8) -> (String, play_sound::Row) {
         let wire = play_sound::Row::from([("source".to_string(), source)]);
-        let request = play_sound::request(&wire, Some(sound)).expect("a request");
+        let request = play_sound::request(&wire, Some(sound), "dm").expect("a request");
         let stage = play_sound::Stage {
             campaign: Some("c1000000-0000-4000-8000-000000000001".to_string()),
             current: Some(SEANCE.to_string()),

@@ -16,7 +16,8 @@
 //! - its origin is the DM view's surface it was triggered from: `soundbox`
 //!   by default, `pastille` for a suggestion's; any other source, the player
 //!   view's, is carried as it is, for the DataGuard to refuse
-//!   (`dm-side-only`);
+//!   (`dm-side-only`); and a caller that is not the DM is the player side,
+//!   whatever source it declares;
 //! - its session is the one the payload names, of the sound's campaign —
 //!   else the campaign's live session, else its latest one not closed,
 //!   else its latest ([`Stage`]);
@@ -38,6 +39,12 @@ const SUGGESTION: &str = "suggestion";
 
 /// The origin the table and the DataGuard know the pastille's by.
 const PASTILLE: &str = "pastille";
+
+/// The author of a command from the DM view.
+const DM: &str = "dm";
+
+/// The origin of a trigger whose caller is not the DM: the player side's.
+const PLAYER: &str = "player";
 
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
@@ -110,12 +117,14 @@ impl std::fmt::Display for Refusal {
     }
 }
 
-/// The trigger `wire` asks for on `target`, the sound the command names.
+/// The trigger `wire` asks for on `target`, the sound the command names,
+/// from the caller `by`: one that is not the DM gets the player side's
+/// origin, whatever its source.
 ///
 /// # Errors
 ///
 /// [`Refusal::NotAnId`] for a sound, or a session named, that is no uuid.
-pub fn request(wire: &Row, target: Option<&str>) -> Result<Request, Refusal> {
+pub fn request(wire: &Row, target: Option<&str>, by: &str) -> Result<Request, Refusal> {
     let sound = target.and_then(uuid).ok_or(Refusal::NotAnId("sound"))?;
     let session = match wire.get("session") {
         None | Some(Value::Null) => None,
@@ -127,6 +136,7 @@ pub fn request(wire: &Row, target: Option<&str>) -> Result<Request, Refusal> {
         ),
     };
     let origin = match wire.get("source") {
+        _ if by != DM => json!(PLAYER),
         None | Some(Value::Null) => json!(SOUNDBOX),
         Some(Value::String(source)) if source == SUGGESTION => json!(PASTILLE),
         Some(source) => source.clone(),

@@ -33,7 +33,7 @@ fn valombre() -> Stage {
 }
 
 fn played(payload: Value) -> Request {
-    request(&wire(payload), Some(PORTE)).expect("a request")
+    request(&wire(payload), Some(PORTE), "dm").expect("a request")
 }
 
 #[test]
@@ -100,13 +100,25 @@ fn dm_side_only_a_source_of_the_player_view_is_carried_for_the_dataguard_to_refu
 }
 
 #[test]
+fn dm_side_only_a_caller_that_is_not_the_dm_is_the_player_side_whatever_its_source() {
+    for (source, by) in [
+        (json!({}), "player"),
+        (json!({ "source": "soundbox" }), "player"),
+        (json!({ "source": "suggestion" }), ""),
+    ] {
+        let request = request(&wire(source), Some(PORTE), by).expect("a request");
+        assert_eq!(request.origin, json!("player"), "from {by:?}");
+    }
+}
+
+#[test]
 fn the_sound_is_the_command_s_target_and_a_uuid() {
     assert_eq!(
-        request(&wire(json!({})), None),
+        request(&wire(json!({})), None, "dm"),
         Err(Refusal::NotAnId("sound"))
     );
     assert_eq!(
-        request(&wire(json!({})), Some("snd-porte")),
+        request(&wire(json!({})), Some("snd-porte"), "dm"),
         Err(Refusal::NotAnId("sound"))
     );
     // A uuid's shape at its every length: neither shorter, nor longer, nor
@@ -116,25 +128,25 @@ fn the_sound_is_the_command_s_target_and_a_uuid() {
     let not_hex = PORTE.replace('b', "g");
     for text in [shorter, &longer, &not_hex] {
         assert_eq!(
-            request(&wire(json!({})), Some(text)),
+            request(&wire(json!({})), Some(text), "dm"),
             Err(Refusal::NotAnId("sound")),
             "{text}"
         );
     }
     // Lowercase, as the tables write it.
     let upper = PORTE.to_ascii_uppercase();
-    let request = request(&wire(json!({})), Some(&upper)).expect("a request");
+    let request = request(&wire(json!({})), Some(&upper), "dm").expect("a request");
     assert_eq!(request.sound, PORTE);
 }
 
 #[test]
 fn a_session_named_is_a_uuid_of_the_sound_s_campaign() {
     assert_eq!(
-        request(&wire(json!({ "session": "seance-1" })), Some(PORTE)),
+        request(&wire(json!({ "session": "seance-1" })), Some(PORTE), "dm"),
         Err(Refusal::NotAnId("session"))
     );
     assert_eq!(
-        request(&wire(json!({ "session": 1 })), Some(PORTE)),
+        request(&wire(json!({ "session": 1 })), Some(PORTE), "dm"),
         Err(Refusal::NotAnId("session"))
     );
     let other = "5e000000-0000-4000-8000-000000000002";

@@ -1,0 +1,20 @@
+{
+  "dataCapability": "soundbox.setMasterVolume",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "upsert",
+  "target": {
+    "aggregate": "Campaign",
+    "id": "$campaign"
+  },
+  "touches": ["Campaign.soundMasterVolume"],
+  "payload": {
+    "campaign": "uuid — the campaign whose master slider the DM moved, when the command names no target",
+    "volume": "number — the master volume in percent, 0 to 100 (EffectiveVolume@1); stored divided by 100 as Campaign.soundMasterVolume, refused out of range by master-volume-range, never clamped"
+  },
+  "mode": "overwrite",
+  "invariants": ["master-volume-range"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

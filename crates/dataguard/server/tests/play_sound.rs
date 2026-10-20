@@ -2,7 +2,8 @@
 //! from the soundbox and another from the pill both reach `sound_playback`,
 //! playing together in the campaign's live session; a trigger with no
 //! session to play in, or naming another campaign's, is refused and nothing
-//! is written; a key submitted again replays its one playback; a playback
+//! is written; a trigger from the player side — its source, or its caller —
+//! is rejected; a key submitted again replays its one playback; a playback
 //! the table lost is projected again at a start.
 //! Each test works in a scratch database of its own, migrated by the Data
 //! layer, dropped when it ends.
@@ -172,6 +173,11 @@ async fn submit(
     if let Some(key) = key {
         body["idempotencyKey"] = json!(key);
     }
+    send(app, body).await
+}
+
+/// Posts `body` to the wire protocol: the status, and the answer.
+async fn send(app: &Router, body: Value) -> (StatusCode, Value) {
     let request = Request::post("/commands")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
@@ -224,6 +230,28 @@ async fn dm_side_only_a_trigger_from_the_player_side_is_rejected_and_writes_noth
     let scratch = Scratch::new("player_side").await;
     let (engine, app) = scratch.serve().await;
     let (status, answer) = trigger(&app, PORTE, json!({ "source": "player" })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    let applied = engine.run_once().await.expect("the applier ran");
+    let [result] = applied.as_slice() else {
+        panic!("one command: {applied:?}");
+    };
+    assert_eq!(result.status, State::Rejected, "{result:?}");
+    assert_eq!(result.violations, ["dm-side-only"], "{result:?}");
+    assert!(scratch.playbacks().await.is_empty());
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn dm_side_only_a_player_caller_with_no_source_is_rejected_and_writes_nothing() {
+    let scratch = Scratch::new("player_caller").await;
+    let (engine, app) = scratch.serve().await;
+    let body = json!({
+        "dataCapability": "soundbox.playSound@1",
+        "payload": {},
+        "target": { "id": PORTE },
+        "caller": { "by": "player", "from": "LiveSoundbox", "roles": ["role:approver"] },
+    });
+    let (status, answer) = send(&app, body).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
     let applied = engine.run_once().await.expect("the applier ran");
     let [result] = applied.as_slice() else {
