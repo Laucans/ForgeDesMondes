@@ -65,6 +65,19 @@ fn a_media_named_by_something_other_than_a_uuid_is_no_media() {
 }
 
 #[test]
+fn an_id_of_hex_digits_and_dashes_but_not_36_long_is_no_uuid() {
+    // Right characters at the right places, wrong length.
+    let short = &CARTE[..35];
+    let long = format!("{CARTE}0");
+    for id in [short, long.as_str(), "abc", "0"] {
+        let wire = row(json!({ "media": id, "place": TAVERNE }));
+        assert_eq!(asked(&wire, None), Err(Refusal::UnknownMedia), "{id}");
+        let wire = row(json!({ "media": CARTE, "place": id }));
+        assert_eq!(asked(&wire, None), Err(Refusal::InvalidPlace), "{id}");
+    }
+}
+
+#[test]
 fn a_null_place_detaches_the_media() {
     let wire = row(json!({ "media": CARTE, "place": null }));
     assert_eq!(
