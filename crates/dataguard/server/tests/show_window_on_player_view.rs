@@ -1,9 +1,10 @@
 //! live.showWindowOnPlayerView, judged by the DataGuard as `plant()` binds
 //! it over the in-memory store: what `prepare` makes of an opened window is
 //! written on its session's diffusion row — made when there was none, its
-//! window replaced otherwise, its base kept — by the DM with no approval,
-//! since a window touches no critical field; a media that is no illustration
-//! is rejected under window-proportional. The live session and the media the
+//! window replaced otherwise, its base kept — by the DM, approver of their
+//! own table: the manifest touches the session and the base kind, critical,
+//! so a caller with no approver role waits for a review; a media that is no
+//! illustration is rejected under window-proportional. The live session and the media the
 //! tables give are given here; the tables' own answer is
 //! `show_window_on_player_view_projection.rs`'s. Over memory, which has no
 //! table, the wire protocol refuses every window before it is queued.
@@ -43,9 +44,9 @@ fn object(value: Value) -> BTreeMap<String, Value> {
     value.into_iter().collect()
 }
 
-/// `state` written on the live session's row by the DM from the table
-/// sheet, with no role: no approval is asked of them.
-async fn submit(engine: &Engine, state: BTreeMap<String, Value>, roles: &[&str]) {
+/// `state` written on the live session's row from the table sheet by the
+/// DM holding `roles`: what the DataGuard answered.
+async fn submit(engine: &Engine, state: BTreeMap<String, Value>, roles: &[&str]) -> State {
     engine
         .submit(Submission {
             data_capability: "live.showWindowOnPlayerView@1".to_string(),
@@ -61,7 +62,9 @@ async fn submit(engine: &Engine, state: BTreeMap<String, Value>, roles: &[&str])
             },
         })
         .await
-        .expect("queued");
+        .expect("queued")
+        .result
+        .status
 }
 
 /// What the single applier made of what is queued, one command a partition.
@@ -102,7 +105,7 @@ async fn opened(engine: &Engine, rows: &Rows, media: &str, illustration: bool) -
     };
     let prepared = prepare(&named, &found(illustration), &row(rows).await, NOW).expect("prepared");
     assert_eq!(prepared.target_id, SEANCE);
-    submit(engine, prepared.payload, &[]).await;
+    submit(engine, prepared.payload, &["role:approver"]).await;
     let mut results = applied(engine).await;
     assert_eq!(results.len(), 1, "{results:?}");
     results.remove(0)
@@ -139,7 +142,6 @@ async fn an_illustration_opens_over_the_battlemap_and_the_base_is_unchanged() {
     showing_a_battlemap(&engine).await;
     let before = row(&rows).await;
     let result = opened(&engine, &rows, PORTRAIT, true).await;
-    // No critical field is touched: the DM's window needs no approval.
     assert_eq!(result.status, State::Applied, "{result:?}");
     let row = row(&rows).await;
     // window-fields-together: the media, x, y and the width all set.
@@ -184,6 +186,25 @@ async fn a_session_with_no_diffusion_row_gets_one_showing_the_cover_under_the_wi
             "updatedAt": NOW,
         }))
     );
+}
+
+#[tokio::test]
+async fn a_caller_with_no_approver_role_waits_for_a_review_of_the_critical_fields() {
+    let (engine, rows) = served().await;
+    showing_a_battlemap(&engine).await;
+    let before = row(&rows).await;
+    let named = Named {
+        campaign: VALOMBRE.to_string(),
+        media: PORTRAIT.to_string(),
+    };
+    let prepared = prepare(&named, &found(true), &before, NOW).expect("prepared");
+    // The manifest touches the session and the base kind, both critical.
+    assert_eq!(
+        submit(&engine, prepared.payload, &[]).await,
+        State::AwaitingReview
+    );
+    // Nothing is applied while the review waits.
+    assert!(applied(&engine).await.is_empty());
 }
 
 #[tokio::test]

@@ -193,13 +193,15 @@ impl Scratch {
     }
 }
 
-/// `POST /commands` of live.showWindowOnPlayerView by the DM, with no role
-/// — the rules' tests send none: the status and the answer.
+/// `POST /commands` of live.showWindowOnPlayerView by the DM, approver of
+/// their own table — the session and the base kind it touches are critical:
+/// the status and the answer.
 async fn post(app: &Router, payload: Value) -> (StatusCode, Value) {
     let body = json!({
         "dataCapability": "live.showWindowOnPlayerView@1",
         "target": { "aggregate": "Diffusion" },
         "payload": payload,
+        "caller": { "by": "dm", "from": "TableSheet", "roles": ["role:approver"] },
     });
     let request = Request::post("/commands")
         .header("content-type", "application/json")

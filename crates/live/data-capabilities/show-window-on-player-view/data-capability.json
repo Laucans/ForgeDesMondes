@@ -8,6 +8,10 @@
     "id": "$sessionId"
   },
   "touches": [
+    "Diffusion.sessionId",
+    "Diffusion.baseKind",
+    "Diffusion.baseMediaId",
+    "Diffusion.baseInstanceId",
     "Diffusion.windowMediaId",
     "Diffusion.windowX",
     "Diffusion.windowY",

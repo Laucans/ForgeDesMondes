@@ -17,7 +17,10 @@
 //! - the base is not written: it stays as the row holds it. A session whose
 //!   row holds no base yet takes the one its table row shows, else the
 //!   cover — what its player view shows before anything is sent
-//!   (base-coherent);
+//!   (base-coherent). The session and the base kind are critical fields,
+//!   which the manifest's `touches` declare with the base's media and
+//!   instance: the DataGuard asks an approver for every window, as for
+//!   every other writer of the row;
 //! - a media that is no illustration of the campaign, or one with no
 //!   proportions, gets no width its height could follow: it is queued all
 //!   the same, for the DataGuard to refuse under window-proportional, and a

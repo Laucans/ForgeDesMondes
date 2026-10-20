@@ -262,10 +262,8 @@ fn a_media_that_is_no_illustration_of_the_campaign_gets_no_width_and_a_warning()
     assert_eq!(prepared.warning, Some(NOT_AN_ILLUSTRATION));
 }
 
-#[test]
-fn an_open_row_writes_only_what_the_manifest_touches() {
-    let prepared =
-        prepare(&portrait(), &illustration(), &showing_a_battlemap(), NOW).expect("prepared");
+/// The Diffusion fields the manifest touches, sorted.
+fn touched() -> Vec<String> {
     let mut touched: Vec<String> = manifest()["touches"]
         .as_array()
         .expect("touches")
@@ -278,10 +276,37 @@ fn an_open_row_writes_only_what_the_manifest_touches() {
                 .to_string()
         })
         .collect();
-    let mut written: Vec<String> = prepared.payload.keys().cloned().collect();
     touched.sort();
-    written.sort();
-    assert_eq!(written, touched);
+    touched
+}
+
+#[test]
+fn an_open_row_writes_only_what_the_manifest_touches() {
+    let prepared =
+        prepare(&portrait(), &illustration(), &showing_a_battlemap(), NOW).expect("prepared");
+    let touched = touched();
+    for field in prepared.payload.keys() {
+        assert!(touched.contains(field), "{field} is not touched");
+    }
+    assert_eq!(
+        prepared.payload.keys().collect::<Vec<_>>(),
+        [
+            "updatedAt",
+            "windowMediaId",
+            "windowWidth",
+            "windowX",
+            "windowY"
+        ]
+    );
+}
+
+#[test]
+fn a_new_row_writes_every_field_the_manifest_touches_and_no_other() {
+    // The session and the base kind are critical: declared, the DataGuard
+    // asks an approver for them.
+    let prepared = prepare(&portrait(), &illustration(), &Row::new(), NOW).expect("prepared");
+    let written: Vec<String> = prepared.payload.keys().cloned().collect();
+    assert_eq!(written, touched());
 }
 
 #[test]
