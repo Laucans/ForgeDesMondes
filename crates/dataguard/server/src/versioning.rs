@@ -28,7 +28,7 @@ use serde_json::Value;
 use crate::aliases::Aliases;
 use crate::history::History;
 use crate::notes::Notes;
-use crate::projection::ProjectingStore;
+use crate::projection::{Placing, ProjectingStore};
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -181,7 +181,8 @@ impl Store for Versioning {
 }
 
 /// The rows the engine holds, as a command about to be submitted sees them,
-/// and — over a database — what its tables hold of a campaign.
+/// and — over a database — what its tables hold of a campaign, a media and
+/// its place.
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
@@ -256,6 +257,35 @@ impl Rows {
         })
     }
 
+    /// The element `id` names as a media's place reads it — its type and its
+    /// campaign — from the tables over a database, which hold the fixtures'
+    /// elements and every one applied; from the engine's row over its
+    /// memory. `None` when there is no such live element.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn place(&self, id: &str) -> Result<Option<upload_media::Place>> {
+        let Some(tables) = &self.tables else {
+            // The ids the server makes are lower case.
+            let row = self
+                .store
+                .row(&format!("{ENTITY}{}", id.to_ascii_lowercase()))
+                .await?;
+            let text = |field: &str| row.get(field).and_then(Value::as_str).map(str::to_owned);
+            return Ok(text("type")
+                .zip(text("entityCampaignId"))
+                .map(|(kind, campaign)| upload_media::Place { kind, campaign }));
+        };
+        tables.place(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "entity not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
     /// The same, the elements' terms read from `aliases`.
     pub(crate) fn knowing(self, aliases: Arc<Aliases>) -> Self {
         Self { aliases, ..self }
@@ -267,18 +297,80 @@ impl Rows {
         self.aliases.known(campaign)
     }
 
-    /// Whether the engine holds a command of `data_capability` under `key`,
-    /// its idempotency key.
+    /// Whether the tables hold the campaign `id` names, live — over the
+    /// engine's memory, which has no table, every campaign is held.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn holds_campaign(&self, id: &str) -> Result<bool> {
+        let Some(tables) = &self.tables else {
+            return Ok(true);
+        };
+        tables.holds_campaign(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether a command of `data_capability` was submitted under `key`
+    /// already: its replay is the engine's to answer, as it was queued.
     ///
     /// # Errors
     ///
     /// The store's.
-    pub async fn submitted(&self, data_capability: &str, key: &str) -> Result<bool> {
-        Ok(self
-            .store
-            .by_idempotency_key(data_capability, key)
-            .await?
-            .is_some())
+    pub async fn replayed(&self, data_capability: &str, key: &str) -> Result<bool> {
+        // The engine keeps a key under the id alone, its `@version` dropped.
+        let id = data_capability.split('@').next().unwrap_or_default();
+        self.store
+            .by_idempotency_key(id, key)
+            .await
+            .map(|command| command.is_some())
+    }
+
+    /// The media `media` names and the element `place` names, as a change of
+    /// place (`media.setMediaPlace`) is judged against them: over a database
+    /// the tables' rows, which hold the fixtures' and judge the place again,
+    /// under the engine's as the commands queued on them will leave them — a
+    /// lieu or a media created a moment ago is there, and a field the engine
+    /// holds wins. `None` when there is no such media, and the place `None`
+    /// when there is no such element — or none is named.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn placed(&self, media: &str, place: Option<&str>) -> Result<Option<Placing>> {
+        let held = |row: BTreeMap<String, Value>| Some(row).filter(|row| !row.is_empty());
+        let engine_media = held(self.projected(&format!("Media/{media}")).await?);
+        let engine_place = match place {
+            Some(place) => held(self.projected(&format!("{ENTITY}{place}")).await?),
+            None => None,
+        };
+        let Some(tables) = &self.tables else {
+            return Ok(engine_media.map(|media| (media, engine_place)));
+        };
+        let found = tables.placing(media, place).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "media not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        let (table_media, table_place) = found.unzip();
+        let over = |under: Option<BTreeMap<String, Value>>,
+                    row: Option<BTreeMap<String, Value>>| {
+            match (under, row) {
+                (Some(mut under), Some(row)) => {
+                    under.extend(row);
+                    Some(under)
+                }
+                (under, row) => under.or(row),
+            }
+        };
+        Ok(over(table_media, engine_media)
+            .map(|media| (media, over(table_place.flatten(), engine_place))))
     }
 
     /// The versions of `element` a restoration can name, oldest first.

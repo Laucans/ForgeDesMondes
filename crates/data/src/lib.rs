@@ -5,7 +5,9 @@
 //! - [`read_write`]: the connection `DATABASE_URL` names, the DataGuard's and
 //!   the migrations' — never a read's;
 //! - [`read_only`]: the connection `DATABASE_URL_READONLY` names, whose only
-//!   API is [`ReadOnly::query_json`];
+//!   API is [`ReadOnly::query_json`] — and [`read_only_at`], the same
+//!   connection on the URL a system's read crate reads from the variable
+//!   itself;
 //! - [`migrate`]: the applier of a folder's `*.sql` files, in path order, each
 //!   once;
 //! - [`insert_missing`]: the rows a table lacks, inserted whole in one
@@ -105,8 +107,20 @@ pub async fn read_write() -> Result<Client, Error> {
 /// [`Error::Unset`] without the variable, [`Error::Database`] when the
 /// database cannot be reached.
 pub async fn read_only() -> Result<ReadOnly, Error> {
+    read_only_at(&url_of(READ_ONLY_URL)?).await
+}
+
+/// The read-only connection `url` names: what a system's read crate opens
+/// when it reads `DATABASE_URL_READONLY` itself, as its binary gives the
+/// variable. The connection is the one [`read_only`] opens — its only API is
+/// [`ReadOnly::query_json`], every query in a `READ ONLY` transaction.
+///
+/// # Errors
+///
+/// [`Error::Database`] when the database cannot be reached.
+pub async fn read_only_at(url: &str) -> Result<ReadOnly, Error> {
     Ok(ReadOnly {
-        client: connect(&url_of(READ_ONLY_URL)?).await?,
+        client: connect(url).await?,
     })
 }
 

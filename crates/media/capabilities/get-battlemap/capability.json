@@ -1,0 +1,10 @@
+{
+  "capability": "media.getBattlemap",
+  "system": "media",
+  "version": "1.0.0",
+  "description": "One battlemap of a campaign's media library, by its id: its title, file, size, upload date, width and height in pixels, its place (a lieu's id, or none), and its hex grid as last saved — hex size in image pixels, horizontal and vertical offset, orientation (pointy or flat), colour, opacity and feet per hex. The grid is expressed as HexGrid@1 defines it: the opacity is a fraction of 1 (0.4 for 40 %, a screen that shows a percentage multiplies it by 100), and a hex is always 5 feet. The file's size and the drawn terrain, which no store holds, come back null and empty. An illustration's id, or an unknown id, answers null: there is no battlemap.",
+  "implements": "HexGrid@1",
+  "input": { "id": "string" },
+  "output": "{ id, title, file, size, uploadedAt, width, height, grid: { size, ox, oy, orient, color, opacity (fraction of 1), feetPerHex (always 5) }, terrain, place } | null",
+  "reads": ["queries/getBattlemap.graphql"]
+}

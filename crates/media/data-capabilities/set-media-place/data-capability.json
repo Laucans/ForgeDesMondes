@@ -1,0 +1,24 @@
+{
+  "dataCapability": "media.setMediaPlace",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Media",
+    "id": "$media"
+  },
+  "touches": [
+    "Media.placeId"
+  ],
+  "payload": {
+    "media": "uuid — the media, when the command names no target; never written",
+    "place": "uuid | null — the place it is attached to, an element of type « lieu » of the media's campaign (media-place-is-lieu); null detaches it, and the media stays valid"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "media-place-is-lieu"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

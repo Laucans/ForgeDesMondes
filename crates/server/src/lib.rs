@@ -21,9 +21,13 @@
 //!
 //! The server adds no read and no write path of its own: a read is served
 //! only when the engine's registry holds its persisted query, a write only
-//! through a DataCapability the engine registers. The fixtures are the one
-//! exception on the write side: rows the mock-up's data describes, inserted
-//! as the tables' own constraints and triggers judge them.
+//! through a DataCapability the engine registers. Both are by identifier, so
+//! the media system is served the way the ai system is: `media.*` reads
+//! through `POST /capabilities/<id>` once a media Capability's query is
+//! registered, media writes through `POST /commands` once a media
+//! DataCapability is — each slice by its folder, no route to add here. The
+//! fixtures are the one exception on the write side: rows the mock-up's data
+//! describes, inserted as the tables' own constraints and triggers judge them.
 
 mod fixtures;
 
@@ -536,5 +540,61 @@ mod tests {
                 .is_some_and(|e| e.contains("no DataCapability named campaign.createCampaign")),
             "{body}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_media_read_under_a_hash_nobody_registered_is_404_as_the_ai_routes_say() {
+        let unregistered = json!({ "sha256": "0".repeat(64), "variables": {} });
+        let (media_status, media) = answer(
+            Method::POST,
+            "/capabilities/media.anything",
+            Some(unregistered.clone()),
+        )
+        .await;
+        let (ai_status, ai) = answer(
+            Method::POST,
+            "/capabilities/ai.getSettings",
+            Some(unregistered),
+        )
+        .await;
+        assert_eq!(media_status, StatusCode::NOT_FOUND, "{media}");
+        assert_eq!(media_status, ai_status);
+        let said = |body: &Value| body["error"].as_str().unwrap_or_default().to_string();
+        assert!(
+            said(&media).contains("not a registered persisted query"),
+            "{media}"
+        );
+        assert!(said(&ai).contains("not a registered persisted query"));
+    }
+
+    #[tokio::test]
+    async fn a_media_data_capability_reaches_the_dataguard_submit_path() {
+        let (status, body) = answer(
+            Method::POST,
+            "/commands",
+            Some(json!({ "dataCapability": "media.anything", "payload": {} })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        // The engine's own refusal, not the router's: a missing route has no body.
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("no DataCapability named media.anything")),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn the_mock_ups_media_fixtures_are_in_the_folder_the_server_loads() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        assert!(fixtures(&dir).is_ok(), "the server lists {dir:?}");
+        for media in [
+            "media.json",
+            "media.listMedia.json",
+            "media.getBattlemap.json",
+        ] {
+            assert!(dir.join(media).is_file(), "{media} in {dir:?}");
+        }
     }
 }

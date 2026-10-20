@@ -1,66 +1,36 @@
 <section class="panel mf-grid" id="grid-settings" aria-labelledby="grid-title">
   <div class="panel__head">
     <h2 id="grid-title">Réglage de la grille</h2>
-    <span class="small muted">1 hex = 5 pieds · cliquez deux hex de l’aperçu pour vérifier une distance</span>
+    <span class="small muted" id="grid-scale">1 hex = 5 pieds · cliquez deux hex de l’aperçu pour vérifier une distance</span>
   </div>
   <div class="mf-grid__layout">
-    <form class="stack" id="grid-form" onsubmit="return false"></form>
-    <div id="grid-preview" data-reads="media.getBattlemap"></div>
+    <form class="stack" id="grid-form" onsubmit="return false">
+      <div class="stack" id="grid-fields" data-reads="media.getBattlemap">
+        <div data-kit="Slider" data-props='{"bare":true,"fields":[{"id":"grid-size","name":"size","label":"Taille d’un hex","value":30,"min":16,"max":60,"unit":"px"},{"id":"grid-ox","name":"ox","label":"Décalage horizontal","value":12,"min":-30,"max":60,"unit":"px"},{"id":"grid-oy","name":"oy","label":"Décalage vertical","value":8,"min":-30,"max":60,"unit":"px"},{"id":"grid-opacity","name":"opacity","label":"Opacité","value":40,"min":5,"max":100,"unit":"%"}]}'></div>
+        <div data-kit="Radio" data-props='{"id":"grid-orient","legend":"Orientation","name":"grid-orient","options":[{"label":"Pointe en haut","value":"pointy","checked":true},{"label":"Côté plat en haut","value":"flat"}]}'></div>
+        <div data-kit="Select" data-props='{"id":"grid-color","label":"Couleur de la grille","value":"text","options":[{"value":"text","label":"Ivoire"},{"value":"accent","label":"Ambre"},{"value":"primary","label":"Orange"},{"value":"secondary","label":"Violet"},{"value":"success","label":"Vert"}]}'></div>
+      </div>
+      <div id="grid-actions" data-kit="Button" data-props='{"items":[{"id":"grid-save","label":"Enregistrer le réglage","variant":"primary","data-writes":"media.saveGridSettings"},{"id":"grid-reset","label":"Annuler les changements","variant":"ghost"}]}'></div>
+      <div class="mf-grid__result" id="grid-result" aria-live="polite"></div>
+    </form>
+    <div id="grid-preview" data-reads="media.getBattlemap" data-kit="HexMap" data-props='{"id":"grid-preview-map","measure":true,"grid":{"size":30,"ox":12,"oy":8,"orient":"pointy","color":"text","opacity":40},"hint":"Glisser pour déplacer · molette pour zoomer · cliquer deux hex pour mesurer"}'></div>
   </div>
 </section>
 <style>
   .mf-grid__layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
   .mf-grid .kit-hexmap .hm-view { height: auto; min-height: calc(var(--space-5) * 11); }
+  .mf-grid__result { min-height: var(--space-4); }
+  .mf-grid__result p { padding: var(--space-2) var(--space-3); border-radius: var(--radius-medium); background: var(--color-surface); border: var(--border-width) solid var(--color-border); }
+  .mf-grid__result .is-ok { border-color: var(--color-success); color: var(--color-success); }
+  .mf-grid__result .is-error { border-color: var(--color-danger); color: var(--color-danger); }
   @media (max-width: 960px) { .mf-grid__layout { grid-template-columns: minmax(0, 1fr); } }
 </style>
 <script>
+// The Micro-UI's real code (apps/media/grid-settings), bundled by mock/build.sh: it fills this panel on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const props = Mock.props(root);
-  const $ = s => root.querySelector(s);
-  const COLORS = [{ value: 'text', label: 'Ivoire' }, { value: 'accent', label: 'Ambre' }, { value: 'primary', label: 'Orange' }, { value: 'secondary', label: 'Violet' }, { value: 'success', label: 'Vert' }];
-  let media, map, hx;
-
-  function load(m) {
-    map = m;
-    const g = map.grid;
-    $('#grid-title').textContent = 'Réglage de la grille — ' + map.title;
-    $('#grid-form').innerHTML =
-      Mock.kitHTML('Slider', { bare: true, fields: [
-        { id: 'grid-size', name: 'size', label: 'Taille d’un hex', value: g.size, min: 16, max: 60, unit: 'px' },
-        { id: 'grid-ox', name: 'ox', label: 'Décalage horizontal', value: g.ox, min: -30, max: 60, unit: 'px' },
-        { id: 'grid-oy', name: 'oy', label: 'Décalage vertical', value: g.oy, min: -30, max: 60, unit: 'px' },
-        { id: 'grid-opacity', name: 'opacity', label: 'Opacité', value: g.opacity, min: 5, max: 100, unit: '%' }] }) +
-      Mock.kitHTML('Radio', { id: 'grid-orient', legend: 'Orientation', name: 'grid-orient', options: [
-        { label: 'Pointe en haut', value: 'pointy', checked: g.orient === 'pointy' }, { label: 'Côté plat en haut', value: 'flat', checked: g.orient === 'flat' }] }) +
-      Mock.kitHTML('Select', { id: 'grid-color', label: 'Couleur de la grille', value: g.color, options: COLORS }) +
-      Mock.kitHTML('Button', { items: [{ id: 'grid-save', label: 'Enregistrer le réglage', variant: 'primary', 'data-writes': 'media.saveGridSettings' }, { id: 'grid-reset', label: 'Annuler les changements', variant: 'ghost' }] });
-    $('#grid-preview').innerHTML = Mock.kitHTML('HexMap', { id: 'grid-preview-map', map, grid: Mock.clone(g), measure: true, hint: 'Glisser pour déplacer · molette pour zoomer · cliquer deux hex pour mesurer' });
-    Mock.mount(root);
-    hx = $('#grid-preview [data-kit]').hexmap;
-  }
-
-  root.addEventListener('input', e => {
-    const n = e.target.name;
-    if (hx && ['size', 'ox', 'oy', 'opacity'].includes(n)) hx.setGrid({ [n]: +e.target.value });
-  });
-  root.addEventListener('change', e => { if (hx && e.target.name === 'grid-orient') hx.setGrid({ orient: e.target.value }); });
-  root.addEventListener('kit:change', e => { if (hx && e.target.querySelector('#grid-color')) hx.setGrid({ color: e.detail.value }); });
-  root.addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.id === 'grid-save') {
-      const g = hx.grid;
-      Mock.command('media.saveGridSettings', { battlemap: map.id, grid: g }, { label: 'Enregistrer la grille de « ' + map.title + ' » (' + g.size + ' px, ' + (g.orient === 'pointy' ? 'pointe' : 'côté plat') + ', ' + g.opacity + ' %)' })
-        .then(() => { map.grid = Mock.clone(g); });
-    }
-    if (b.id === 'grid-reset') load(map);
-  });
-  Mock.on('grid-edit', d => { const m = d.map || media.battlemaps.find(x => x.id === d.id); if (m) load(m); });
-
-  Mock.fixture('fixtures/media.json').then(m => {
-    media = m;
-    load(m.battlemaps.find(x => x.id === props.battlemap) || m.battlemaps[0]);
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/GridSettings.js';
+  root.appendChild(bundle);
 })();
 </script>
