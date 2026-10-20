@@ -157,24 +157,30 @@ impl Scratch {
     }
 
     /// The engine as the server plants it over this database, with the
-    /// test-only DataCapability that ends a combat — table.endCombat's
-    /// stand-in —, and its wire protocol.
+    /// test-only DataCapabilities that end a combat and remove a token —
+    /// table.endCombat's and table.removeToken's stand-ins —, and its wire
+    /// protocol.
     async fn serve(&self) -> (Arc<Engine>, Router) {
         let Planted { engine, rows } = planted(&self.url)
             .await
             .expect("the engine over PostgreSQL");
-        let manifest = json!({
-            "dataCapability": "test.endCombat",
-            "owner": "dataguard",
-            "version": 1,
-            "effect": "update",
-            "target": { "aggregate": "BattlemapInstance", "id": "$combatId" },
-            "mode": "overwrite",
-            "callableBy": ["*"],
-        });
-        let engine = Arc::new(engine.with_data_capability(
-            DataCapability::parse(&manifest.to_string()).expect("contract F"),
-        ));
+        let stand_in = |name: &str, effect: &str, id: &str| {
+            let manifest = json!({
+                "dataCapability": name,
+                "owner": "dataguard",
+                "version": 1,
+                "effect": effect,
+                "target": { "aggregate": "BattlemapInstance", "id": id },
+                "mode": "overwrite",
+                "callableBy": ["*"],
+            });
+            DataCapability::parse(&manifest.to_string()).expect("contract F")
+        };
+        let engine = Arc::new(
+            engine
+                .with_data_capability(stand_in("test.endCombat", "update", "$combatId"))
+                .with_data_capability(stand_in("test.removeToken", "delete", "$tokenId")),
+        );
         let app = router(
             engine.clone(),
             rows,
@@ -453,6 +459,23 @@ async fn a_token_still_queued_joins_the_combat() {
     assert_eq!(entries[0]["initiative"], 25);
     assert_eq!(entries[0]["dex"], Value::Null);
     assert_eq!(s.combats().await[0]["current"], entries[0]["id"]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_token_whose_removal_is_queued_does_not_join() {
+    let s = Scratch::new("removed").await;
+    let (engine, app) = s.serve().await;
+    let (status, body) = send(&app, "test.removeToken", T_BANDIT, json!({}), None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let (status, body) = start(&app, INSTANCE, json!({ "initiative": { ELOWEN: 18 } })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // The removal, two entries and the combat.
+    assert_eq!(applied(&engine).await, 4);
+    let entries = s.entries().await;
+    let mut tokens = tokens_of(&entries);
+    tokens.sort_unstable();
+    assert_eq!(tokens, [T_ELOWEN, T_VESNA]);
     s.drop().await;
 }
 
