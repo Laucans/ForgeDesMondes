@@ -1,0 +1,43 @@
+{
+  "dataCapability": "table.startCombat",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": [
+    "BattlemapInstance.combatId",
+    "BattlemapInstance.combatInstanceId",
+    "BattlemapInstance.round",
+    "BattlemapInstance.currentEntryId",
+    "BattlemapInstance.startedAt",
+    "BattlemapInstance.initiativeEntryId",
+    "BattlemapInstance.initiativeEntryCombatId",
+    "BattlemapInstance.initiativeEntryTokenId",
+    "BattlemapInstance.roll",
+    "BattlemapInstance.initiative",
+    "BattlemapInstance.dexScore",
+    "BattlemapInstance.tiebreak",
+    "BattlemapInstance.rank"
+  ],
+  "payload": {
+    "instance": "uuid — the battlemap instance whose combat starts, when the command names no target",
+    "initiative": "object — { <PC character id>: integer }: the initiative the DM enters for each PC with a token on the instance; one missing is refused, one of a PC with no token is ignored",
+    "rolls": "object — optional, { <NPC token id>: integer from 1 to 20 }: the d20 an NPC token rolled at the table; a token with none rolls at random. Each NPC's initiative is its roll plus its DEX modifier (Initiative@1)"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": [
+    "instance-isolated",
+    "npc-initiative-bounds",
+    "initiative-tiebreak",
+    "hidden-keeps-rank",
+    "next-turn",
+    "one-active-combat",
+    "state-persisted-reset"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
