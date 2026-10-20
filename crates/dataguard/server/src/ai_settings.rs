@@ -277,6 +277,7 @@ mod tests {
                 Arc::new(FixedClock::at(1000)),
             ),
             Arc::default(),
+            Arc::default(),
         )
         .expect("the product's manifests parse");
         for manifest in [

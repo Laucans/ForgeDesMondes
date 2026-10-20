@@ -22,7 +22,14 @@
 //! oneshot's single `session`, in one statement, once — a row the table
 //! holds already is never written over. A campaign's row is its table's
 //! over the engine's, and
-//! an archive is read from the tables ([`ProjectingStore::archived`]). Every
+//! an archive is read from the tables ([`ProjectingStore::archived`]). A
+//! place put in a scene (`session.addPlaceToSession`) writes its link's
+//! partition, `Session/<session>:<scene>:<place>`: [`ProjectingStore`] adds
+//! its `scene_entity` row, ranked after the scene's last element as the table
+//! holds it then, once — a link the table holds already keeps its rank. The
+//! media of the place follow through `session_media_view`, never written.
+//! What the tables hold of a link's session, scene and place is read for
+//! `scene-links-same-campaign` ([`ProjectingStore::place_facts`]). Every
 //! other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
@@ -37,11 +44,13 @@
 //! tables' aliases are the ones `alias-unique-in-campaign` judges against.
 //! So do its versions reach [`History`], as `entity_version` numbers them:
 //! the ones a restoration names. A stamp the table lost is written again at
-//! the next start, never over a later one.
+//! the next start, never over a later one, and a link the table lost is
+//! added again then.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use add_place_to_session::{Asked, Scene, link_of};
 use async_trait::async_trait;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
@@ -55,7 +64,8 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
-use crate::versioning::{ENTITY, element_of};
+use crate::scene_places::Facts;
+use crate::versioning::{ENTITY, SESSION, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
 pub const AI_SETTINGS: &str = "AiSettings/1";
@@ -293,6 +303,57 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
+/// What the tables hold of a link asked for — the session `$1`, the scene
+/// `$2` or, null, the session's first, the place `$3`, in whatever case — in
+/// one row: the session's campaign, the scene and its session, the elements
+/// the scene links with their rank (a JSON object), the place's campaign and
+/// type. Each is null when the tables do not hold it.
+const PLACE_FACTS: &str = "WITH asked AS (
+        SELECT CASE WHEN pg_input_is_valid($1::text, 'uuid') THEN ($1::text)::uuid END AS session,
+            lower($2::text) AS scene,
+            CASE WHEN pg_input_is_valid($3::text, 'uuid') THEN ($3::text)::uuid END AS place
+    ), chosen AS (
+        SELECT a.session, a.place, coalesce(a.scene, (SELECT sc.id::text FROM scene sc
+            WHERE sc.session_id = a.session ORDER BY sc.position, sc.id LIMIT 1)) AS scene
+        FROM asked a
+    ), named AS (
+        SELECT c.*, CASE WHEN pg_input_is_valid(c.scene, 'uuid') THEN c.scene::uuid END AS id
+        FROM chosen c
+    )
+    SELECT (SELECT s.campaign_id::text FROM session s WHERE s.id = n.session),
+        n.scene,
+        (SELECT sc.session_id::text FROM scene sc WHERE sc.id = n.id),
+        coalesce((SELECT jsonb_object_agg(l.entity_id::text, l.position)
+            FROM scene_entity l WHERE l.scene_id = n.id), '{}')::text,
+        (SELECT e.campaign_id::text FROM entity e WHERE e.id = n.place),
+        (SELECT e.type FROM entity e WHERE e.id = n.place)
+    FROM named n";
+
+/// The links of places to scenes the engine holds and the table does not —
+/// on the partition `$1` names, on every one when it is null: a projection
+/// that failed after its apply — its scene or its place not in the tables
+/// yet — or was lost since.
+const UNLINKED: &str = "SELECT r.partition FROM dataguard_rows r
+    WHERE r.partition LIKE 'Session/%:%:%' AND NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND pg_input_is_valid(r.fields ->> 'sceneEntitySceneId', 'uuid')
+        AND pg_input_is_valid(r.fields ->> 'entityId', 'uuid')
+        AND NOT EXISTS (SELECT 1 FROM scene_entity l
+            WHERE l.scene_id = CASE WHEN pg_input_is_valid(r.fields ->> 'sceneEntitySceneId', 'uuid')
+                    THEN (r.fields ->> 'sceneEntitySceneId')::uuid END
+                AND l.entity_id = CASE WHEN pg_input_is_valid(r.fields ->> 'entityId', 'uuid')
+                    THEN (r.fields ->> 'entityId')::uuid END)
+    ORDER BY r.partition";
+
+/// The link the partition `$1` holds, ranked after its scene's last element
+/// as the table holds it now; one the table holds already keeps its own.
+const ADD_LINK: &str = "INSERT INTO scene_entity (scene_id, entity_id, position)
+    SELECT (r.fields ->> 'sceneEntitySceneId')::uuid, (r.fields ->> 'entityId')::uuid,
+        coalesce((SELECT max(l.position) FROM scene_entity l
+            WHERE l.scene_id = (r.fields ->> 'sceneEntitySceneId')::uuid), 0) + 1
+    FROM dataguard_rows r WHERE r.partition = $1::text AND NOT r.tombstoned
+    ON CONFLICT (scene_id, entity_id) DO NOTHING";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -334,6 +395,67 @@ impl ProjectingStore {
         self.repair_elements().await;
         self.repair_campaigns(None).await;
         self.repair_exports(None).await;
+        self.repair_links(None).await;
+    }
+
+    /// Adds the links of places to scenes the engine holds on the partition
+    /// `partition` names — on every one, `None` — that the table does not
+    /// hold yet, one a statement, logging a failure: after each apply of a
+    /// link, and at a start. A link the table refuses leaves the others to be
+    /// added. Tables not migrated yet hold none.
+    async fn repair_links(&self, partition: Option<&str>) {
+        let client = self.inner.client().lock().await;
+        let partitions = match client.query(UNLINKED, &[&partition]).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                eprintln!(
+                    "projection: scene_entity not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                );
+                return;
+            }
+        };
+        for partition in partitions {
+            let partition: String = partition.get(0);
+            if let Err(e) = client.execute(ADD_LINK, &[&partition]).await {
+                let db = e.as_db_error();
+                eprintln!(
+                    "projection: {partition} not linked: {} {}",
+                    db.map_or("-", |db| db.code().code()),
+                    db.and_then(|db| db.constraint()).unwrap_or_default()
+                );
+            }
+        }
+    }
+
+    /// What the tables hold of the session, the scene and the place `asked`
+    /// names ([`PLACE_FACTS`]): the scene the one named, else the session's
+    /// first.
+    pub async fn place_facts(
+        &self,
+        asked: &Asked,
+    ) -> std::result::Result<Facts, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let row = client
+            .query_one(PLACE_FACTS, &[&asked.session, &asked.scene, &asked.place])
+            .await?;
+        // Each rank on its own: one that is no whole number from 0 is none.
+        let links: BTreeMap<String, u64> = match serde_json::from_str(row.get::<_, &str>(3)) {
+            Ok(Value::Object(links)) => links
+                .into_iter()
+                .filter_map(|(place, rank)| rank.as_u64().map(|rank| (place, rank)))
+                .collect(),
+            _ => BTreeMap::new(),
+        };
+        Ok(Facts {
+            session_campaign: row.get(0),
+            scene: row
+                .get::<_, Option<String>>(1)
+                .map(|id| Scene { id, links }),
+            scene_session: row.get(2),
+            place_campaign: row.get(4),
+            place_type: row.get(5),
+        })
     }
 
     /// Writes the campaigns the engine created on the partition `partition`
@@ -696,6 +818,17 @@ fn element(write: &Write) -> bool {
     !write.tombstone && element_of(write).is_some()
 }
 
+/// Whether `write` links a place to a scene: a live write of a link's
+/// partition, `Session/<session>:<scene>:<place>`.
+fn linked(write: &Write) -> bool {
+    !write.tombstone
+        && write
+            .partition
+            .strip_prefix(SESSION)
+            .and_then(link_of)
+            .is_some()
+}
+
 /// The provider whose last test `write` records: a live write of a
 /// provider's partition, `AiSettings/<uuid>`.
 fn tested(write: &Write) -> Option<&str> {
@@ -780,6 +913,8 @@ impl Store for ProjectingStore {
             // UNCREATED and STAMP_EXPORTS skip it.
             self.repair_campaigns(Some(&write.partition)).await;
             self.repair_exports(Some(&write.partition)).await;
+        } else if linked(write) {
+            self.repair_links(Some(&write.partition)).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.
@@ -871,6 +1006,28 @@ mod tests {
         assert!(!element(&write(morlox, true)));
         assert!(!element(&write(AI_SETTINGS, false)));
         assert!(!element(&write(AI_SETTINGS, true)));
+    }
+
+    #[test]
+    fn only_a_live_write_of_a_link_s_partition_links_a_place_to_a_scene() {
+        let write = |partition: &str, tombstone| Write {
+            partition: partition.to_string(),
+            values: BTreeMap::new(),
+            tombstone,
+        };
+        let session = "51000000-0000-4000-8000-000000000004";
+        let link = format!(
+            "{SESSION}{}",
+            add_place_to_session::link_id(
+                session,
+                "5c000000-0000-4000-8000-000000000001",
+                "e1000000-0000-4000-8000-000000000003",
+            )
+        );
+        assert!(linked(&write(&link, false)));
+        assert!(!linked(&write(&link, true)));
+        assert!(!linked(&write(&format!("{SESSION}{session}"), false)));
+        assert!(!linked(&write(AI_SETTINGS, false)));
     }
 
     async fn connect(url: &str) -> Client {
@@ -994,6 +1151,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(SystemClock),
             ),
+            Arc::default(),
             Arc::default(),
         )
         .expect("the product's manifests parse");
@@ -1146,6 +1304,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(SystemClock),
             ),
+            Arc::default(),
             Arc::default(),
         )
         .expect("the product's manifests parse");
