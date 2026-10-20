@@ -32,11 +32,15 @@
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
 //! the command's result once its stamp is applied. A creation of a campaign
 //! (`campaign.createCampaign`) is prepared with the ids the server gives it
-//! and its oneshot's session. A new scene (`session.addScene`) is prepared
-//! at the rank after its session's last, against what the engine holds of
-//! the session and — over a database — what its tables hold
-//! ([`Rows::refresh_session`]): the places it links are judged against the
-//! same.
+//! and its oneshot's session. A place put in a scene
+//! (`session.addPlaceToSession`) is prepared against what the tables and the
+//! engine's rows hold of its session, its scene and its place, which [`Rows`]
+//! reads: its verdict on `scene-links-same-campaign` is kept for the judge.
+//! A new scene (`session.addScene`) is prepared at the rank after its
+//! session's last, against what the engine holds of the session and — over
+//! a database — what its tables hold ([`Rows::refresh_session`]): the places
+//! it links are judged as a place put in a scene is, their verdict kept for
+//! the same judge.
 
 use std::sync::Arc;
 
@@ -69,6 +73,7 @@ mod note_import;
 mod player;
 mod projection;
 mod reads;
+mod scene_places;
 mod scenes;
 mod session;
 mod sound;
@@ -171,6 +176,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     let aliases = Arc::new(aliases::Aliases::default());
     let history = Arc::new(history::History::default());
     let scenes = Arc::new(scenes::Scenes::default());
+    let links = Arc::new(scene_places::Links::default());
     let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
@@ -208,25 +214,25 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
             Arc::new(SystemClock),
         ),
         aliases,
-        scenes.clone(),
+        links.clone(),
     )?;
     engine.load().await?;
-    Ok(Planted {
-        engine,
-        rows: Rows::keeping(store, history)
-            .reading(tables)
-            .following(scenes),
-    })
+    let rows = Rows::keeping(store, history)
+        .reading(tables)
+        .following(scenes)
+        .linking(links);
+    rows.rejudge_links().await?;
+    Ok(Planted { engine, rows })
 }
 
 /// `engine` bound to what the checkout holds: the registry, every
 /// aggregate and DataCapability, and the invariants the product executes —
 /// `alias-unique-in-campaign` reading `aliases`, `scene-links-same-campaign`
-/// reading `scenes`.
+/// the verdicts of `links`.
 fn bound(
     engine: Engine,
     aliases: Arc<aliases::Aliases>,
-    scenes: Arc<scenes::Scenes>,
+    links: Arc<scene_places::Links>,
 ) -> Result<Engine, PlantError> {
     let mut engine = engine.with_registry(Registry::parse(registry::REGISTRY)?);
     for text in registry::AGGREGATES {
@@ -237,7 +243,7 @@ fn bound(
     }
     engine = engine.with_invariants(Arc::new(Product {
         entity: entity::Entity::new(aliases),
-        session: session::Session::new(scenes),
+        scene_places: scene_places::ScenePlaces::new(links),
     }));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
     Ok(engine)
@@ -247,7 +253,7 @@ fn bound(
 /// one judge, and each aggregate's own judges its rows alone.
 struct Product {
     entity: entity::Entity,
-    session: session::Session,
+    scene_places: scene_places::ScenePlaces,
 }
 
 impl Invariants for Product {
@@ -257,14 +263,15 @@ impl Invariants for Product {
         state: &std::collections::BTreeMap<String, serde_json::Value>,
         entry: &Entry,
     ) -> Vec<String> {
-        let judges: [&dyn Invariants; 12] = [
+        let judges: [&dyn Invariants; 13] = [
             &ai_settings::AiSettings,
             &campaign::Campaign,
             &player::Player,
             &self.entity,
             &media::Media,
             &note_import::NoteImport,
-            &self.session,
+            &session::Session,
+            &self.scene_places,
             &sound::Sound,
             &battlemap_instance::BattlemapInstance,
             &diffusion::Diffusion,
@@ -372,13 +379,19 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// of a campaign (`create_campaign::prepare`) is given its id — and a
 /// oneshot's session its own — and written whole on its new partition, the
 /// command's target whatever the request named: one with no name, or of a
-/// kind there is not, is refused, 422, and not queued. A new scene
+/// kind there is not, is refused, 422, and not queued. A place put in a
+/// scene (`add_place_to_session::prepare`) is made the link it writes on its
+/// own partition, in the scene named or the session's first, after the
+/// scene's last element — or at its rank when the scene links it already —
+/// its verdict on `scene-links-same-campaign` kept for the judge: one naming
+/// no session or no place, of a session with no scene, or of an element that
+/// is no place, is refused, 422, and not queued. A new scene
 /// (`add_scene::prepare`) is given its id and the rank after its session's
-/// last, what the tables hold of the session and its places read first: one
-/// of a session neither the engine nor the tables hold is refused, 404, and
-/// one the tables could never hold, 422 — neither is queued. Its replay —
-/// its idempotency key known already — is not prepared again: the engine
-/// answers it with the first.
+/// last, what the tables hold of the session read first, and the verdict on
+/// its places kept for the same judge: one of a session neither the engine
+/// nor the tables hold is refused, 404, and one the tables could never hold,
+/// 422 — neither is queued. Its replay — its idempotency key known already —
+/// is not prepared again: the engine answers it with the first.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -590,7 +603,7 @@ async fn submit<L: Llm>(
             }
         };
         let places = add_scene::places_of(&body.payload).unwrap_or_default();
-        if let Err(e) = served.rows.refresh_session(&session, &places).await {
+        if let Err(e) = served.rows.refresh_session(&session).await {
             return reply(axum::http::StatusCode::ACCEPTED, Err(e));
         }
         if !served.rows.knows_session(&session) {
@@ -603,10 +616,41 @@ async fn submit<L: Llm>(
         };
         match add_scene::prepare(&body.payload, fresh) {
             Ok(prepared) => {
+                let judged = served
+                    .rows
+                    .judge_scene(&prepared.target_id, &session, &places);
+                if let Err(e) = judged.await {
+                    return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+                }
                 body.payload = prepared.payload;
                 body.target_id = Some(prepared.target_id);
             }
             Err(refusal) => return refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, refusal),
+        }
+    } else if add_place_to_session::names(&body.data_capability) {
+        let refused = |refusal: add_place_to_session::Refusal| {
+            Err((
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            ))
+        };
+        let asked = match add_place_to_session::asked(&body.payload) {
+            Ok(asked) => asked,
+            Err(refusal) => return refused(refusal),
+        };
+        let facts = match served.rows.place_facts(&asked).await {
+            Ok(facts) => facts,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let kind = facts.place_type.as_deref();
+        match add_place_to_session::prepare(&asked, facts.scene.as_ref(), kind) {
+            Ok(prepared) => {
+                let same = facts.same_campaign(&asked.session);
+                served.rows.judged(&prepared.target_id, same);
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => return refused(refusal),
         }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {

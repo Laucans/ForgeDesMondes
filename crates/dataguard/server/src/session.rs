@@ -11,23 +11,22 @@
 //! the Entity aggregate: here, the roster and the media of a session are
 //! never stored — the views compute them, so they follow every later
 //! presence and every change of place. `scene-links-same-campaign` reads the
-//! campaign of a scene's session and of each element it links, which
-//! [`Scenes`] keeps. `scene-order-contiguous` reads the session's other
+//! campaign of a scene's session and of each element it links: its judge is
+//! `crate::scene_places`, for a place put in a scene and a new scene alike.
+//! `scene-order-contiguous` reads the session's other
 //! scenes: here, a scene's rank is one of 1 to n, and a new scene's is
 //! settled after the session's last when it is applied
 //! (`crate::versioning::Versioning`). `previous-summary-visible` is a read:
 //! the tables keep a closed session's summary and journal for the next one.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
-use add_scene::{LINKED, SESSION as SCENE_SESSION};
+use add_scene::{LINKED, POSITION as SCENE_POSITION};
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
-
-use crate::scenes::Scenes;
 
 const AGGREGATE: &str = "Session";
 
@@ -51,9 +50,6 @@ const MICROPHONE: &str = "microphoneOn";
 const CLOSED_AT: &str = "closedAt";
 const SUMMARY: &str = "summary";
 const SUMMARY_MODEL: &str = "summaryModel";
-
-/// A scene's rank in its session.
-const SCENE_POSITION: &str = "scenePosition";
 
 /// An entry of the « à créer » list: its id and status, which say a row is
 /// one; the element it created; what the analysis of a brief writes it with.
@@ -97,9 +93,6 @@ static DECLARED: LazyLock<Vec<String>> = LazyLock::new(|| {
 /// leaves.
 type Check = (&'static str, fn(&BTreeMap<String, Value>, &Entry) -> bool);
 
-/// The invariant [`Session`] judges with what [`Scenes`] keeps.
-const SAME_CAMPAIGN: &str = "scene-links-same-campaign";
-
 const CHECKS: [Check; 8] = [
     ("present-only-pj", present_only_pj),
     ("scene-order-contiguous", scene_order_contiguous),
@@ -114,35 +107,8 @@ const CHECKS: [Check; 8] = [
     ("text-only-no-audio", text_only_no_audio),
 ];
 
-/// The invariants `plant()` binds the engine with, `scene-links-same-campaign`
-/// reading `scenes`.
-pub struct Session {
-    scenes: Arc<Scenes>,
-}
-
-impl Session {
-    /// The judge of the Session aggregate, reading `scenes`.
-    pub fn new(scenes: Arc<Scenes>) -> Self {
-        Self { scenes }
-    }
-
-    /// The elements a scene links belong to its session's campaign: judged
-    /// when the command writes the links or the session of a scene.
-    fn links_same_campaign(&self, state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-        let Some(session) = value(state, SCENE_SESSION).as_str() else {
-            return true;
-        };
-        if !written(entry).any(|field| field == LINKED || field == SCENE_SESSION) {
-            return true;
-        }
-        let linked: Vec<&str> = match value(state, LINKED) {
-            Value::Array(ids) => ids.iter().filter_map(Value::as_str).collect(),
-            Value::String(id) => vec![id.as_str()],
-            _ => Vec::new(),
-        };
-        self.scenes.same_campaign(session, linked.into_iter())
-    }
-}
+/// The invariants `plant()` binds the engine with.
+pub struct Session;
 
 impl Invariants for Session {
     fn violated(
@@ -156,15 +122,11 @@ impl Invariants for Session {
         if aggregate != AGGREGATE || entry.effect == Effect::Delete {
             return Vec::new();
         }
-        let mut violated: Vec<String> = CHECKS
+        CHECKS
             .iter()
             .filter(|(_, holds)| !holds(state, entry))
             .map(|(id, _)| (*id).to_string())
-            .collect();
-        if !self.links_same_campaign(state, entry) {
-            violated.push(SAME_CAMPAIGN.to_string());
-        }
-        violated
+            .collect()
     }
 }
 
@@ -284,16 +246,16 @@ fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::sync::Arc;
 
+    use add_scene::SESSION as SCENE_SESSION;
     use harness_dataguard::command::Entry;
     use harness_dataguard::guard::Invariants;
     use serde_json::{Value, json};
 
     use super::{
         CHECKS, CLOSED_AT, CREATED, DECLARED, EXCERPT, JOURNAL, LINKED, MICROPHONE, ROSTER,
-        SAME_CAMPAIGN, SCENE_POSITION, SCENE_SESSION, SESSION_MEDIA, STATUS, SUMMARY,
-        SUMMARY_MODEL, Session, TO_CREATE, TYPE,
+        SCENE_POSITION, SESSION_MEDIA, STATUS, SUMMARY, SUMMARY_MODEL, Session, TO_CREATE, TYPE,
+        text_only_no_audio,
     };
 
     /// A command of `effect` on `aggregate`'s row.
@@ -326,18 +288,17 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let judge = Session::new(Arc::default());
         assert_eq!(
-            judge.violated("Session", &state, &entry("Session", "update")),
+            Session.violated("Session", &state, &entry("Session", "update")),
             ["scene-order-contiguous", "close-session"]
         );
         assert!(
-            judge
+            Session
                 .violated("Campaign", &state, &entry("Campaign", "update"))
                 .is_empty()
         );
         assert!(
-            judge
+            Session
                 .violated("Session", &state, &entry("Session", "delete"))
                 .is_empty()
         );
@@ -381,8 +342,35 @@ mod tests {
             .iter()
             .map(|invariant| invariant["id"].as_str().expect("an id"))
             .collect();
-        for id in CHECKS.iter().map(|(id, _)| *id).chain([SAME_CAMPAIGN]) {
+        for (id, _) in CHECKS {
             assert!(declared.contains(&id), "{id} is not declared");
+        }
+    }
+
+    #[test]
+    fn text_only_no_audio_admits_a_list_of_ids_in_the_links_a_scene_holds_alone() {
+        let writing = |field: &str, value: Value| {
+            let mut entry = entry("Session", "insert");
+            entry.payload.insert(field.to_string(), value);
+            entry
+        };
+        let state = BTreeMap::new();
+        assert!(text_only_no_audio(
+            &state,
+            &writing(LINKED, json!(["e1000000-0000-4000-8000-000000000003"]))
+        ));
+        assert!(text_only_no_audio(&state, &writing(LINKED, json!([]))));
+        // A list of anything but ids, a list in any other field, an object.
+        for (field, value) in [
+            (LINKED, json!([3])),
+            (LINKED, json!(["e1", { "audio": "x" }])),
+            (SUMMARY, json!(["Le gué"])),
+            (LINKED, json!({ "id": "e1" })),
+        ] {
+            assert!(
+                !text_only_no_audio(&state, &writing(field, value.clone())),
+                "{field} {value}"
+            );
         }
     }
 }

@@ -197,6 +197,21 @@ async fn a_scene_lands_after_the_session_s_last_so_the_ranks_stay_one_to_n() {
 }
 
 #[tokio::test]
+async fn a_scene_is_submitted_at_the_rank_after_the_session_s_last() {
+    let served = Served::new().await;
+    for name in ["La taverne", "La route"] {
+        applied(&served.scene(title(name)).await.1);
+    }
+    let (status, answer) = served.add(title("Le gué"), None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    let scene = partition_id(&answer, "Session");
+    // Queued, not applied yet: the rank it was submitted with.
+    assert_eq!(served.row(&scene).await["scenePosition"], 3);
+    applied(&served.settled().await);
+    assert_eq!(served.row(&scene).await["scenePosition"], 3);
+}
+
+#[tokio::test]
 async fn scenes_queued_side_by_side_are_ranked_one_after_the_other_and_none_is_rejected() {
     let served = Served::new().await;
     let mut scenes = Vec::new();
@@ -341,11 +356,20 @@ async fn a_scene_lands_first_in_the_session_a_oneshot_was_created_with() {
         .as_str()
         .expect("a oneshot's session")
         .to_owned();
+    let salle = served.place(&campaign, "La salle de bal").await;
     let (scene, result) = served
-        .scene(json!({ "session": session, "title": "Le bal" }))
+        .scene(json!({ "session": session, "title": "Le bal", "places": [salle] }))
         .await;
     applied(&result);
     let row = served.row(&scene).await;
     assert_eq!(row["sceneSessionId"], session);
     assert_eq!(row["scenePosition"], 1);
+    assert_eq!(row["entityId"], json!([salle]));
+    // A place of another campaign is none of the oneshot's.
+    let taverne = served.place(VALOMBRE, "La Taverne du Sanglier").await;
+    let (_, result) = served
+        .scene(json!({ "session": session, "title": "La taverne", "places": [taverne] }))
+        .await;
+    assert_eq!(result.status, State::Rejected, "{result:?}");
+    assert_eq!(result.violations, ["scene-links-same-campaign"]);
 }

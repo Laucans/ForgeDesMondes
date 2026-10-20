@@ -1,17 +1,18 @@
-//! What a scene is judged against beyond its own row: each session's
-//! campaign, each element's campaign, and each scene's session and rank —
-//! what `scene-links-same-campaign` reads, and where a session's next scene
-//! goes (`scene-order-contiguous`). The engine judges a row alone, and this
-//! is the rest of its session.
+//! What a new scene is prepared against beyond its own row: each session's
+//! campaign, and each scene's session and rank — whether its session is one
+//! the product holds, and where its next scene goes
+//! (`scene-order-contiguous`). The engine judges a row alone, and this is
+//! the rest of its session. The places it links are judged as a place put in
+//! a scene is (`crate::scene_places`).
 //!
 //! It follows what the engine applies: [`crate::versioning::Versioning`]
-//! records each write of a session, a scene or an element once it is
-//! applied, over the engine's memory and over a database alike, and forgets
-//! one when it is removed. Over a database it also takes what the tables
-//! hold — the fixtures' rows, which no command wrote — at a start, and of a
-//! session each time a scene of it is prepared ([`crate::Rows::refresh_session`]).
-//! Sessions, scenes and elements are told apart by their id parsed as a
-//! uuid: the same id in another case is the same one.
+//! records each write of a session or a scene once it is applied, over the
+//! engine's memory and over a database alike, and forgets one when it is
+//! removed. Over a database it also takes what the tables hold — the
+//! fixtures' rows, which no command wrote — at a start, and of a session
+//! each time a scene of it is prepared ([`crate::Rows::refresh_session`]).
+//! Sessions and scenes are told apart by their id parsed as a uuid: the
+//! same id in another case is the same one.
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
@@ -24,22 +25,17 @@ use crate::aliases::parsed;
 /// A session's row: the campaign it is of.
 const SESSION_CAMPAIGN: &str = "sessionCampaignId";
 
-/// An element's row: the campaign it is of.
-const ELEMENT_CAMPAIGN: &str = "entityCampaignId";
-
 /// What is known of the sessions, by id.
 #[derive(Debug, Default)]
 struct Facts {
-    /// A session's campaign.
-    sessions: BTreeMap<u128, u128>,
-    /// An element's campaign.
-    elements: BTreeMap<u128, u128>,
+    /// A session's campaign, in lower case.
+    sessions: BTreeMap<u128, String>,
     /// A scene's session and rank.
     scenes: BTreeMap<u128, (u128, u64)>,
 }
 
-/// The sessions, elements and scenes the engine has applied, and those the
-/// tables hold.
+/// The sessions and scenes the engine has applied, and those the tables
+/// hold.
 #[derive(Debug, Default)]
 pub struct Scenes {
     facts: RwLock<Facts>,
@@ -52,68 +48,41 @@ fn uuid_in(row: &BTreeMap<String, Value>, field: &str) -> Option<u128> {
 
 impl Scenes {
     /// Records what the row `id` names of `aggregate` says: a session's
-    /// campaign, a scene's session and rank, an element's campaign. A
-    /// session's row may hold none of them: a write of its status alone.
+    /// campaign, a scene's session and rank. A session's row may hold none
+    /// of them: a write of its status alone.
     pub fn record(&self, aggregate: &str, id: &str, row: &BTreeMap<String, Value>) {
-        let Some(key) = parsed(id) else {
+        let Some(key) = parsed(id).filter(|_| aggregate == "Session") else {
             return;
         };
         let mut facts = self.facts.write().unwrap_or_else(|e| e.into_inner());
-        match aggregate {
-            "Session" => {
-                if let Some(campaign) = uuid_in(row, SESSION_CAMPAIGN) {
-                    facts.sessions.insert(key, campaign);
-                }
-                if let Some(session) = uuid_in(row, SESSION) {
-                    let rank = row.get(POSITION).and_then(Value::as_u64).unwrap_or(0);
-                    facts.scenes.insert(key, (session, rank));
-                }
-            }
-            "Entity" => {
-                if let Some(campaign) = uuid_in(row, ELEMENT_CAMPAIGN) {
-                    facts.elements.insert(key, campaign);
-                }
-            }
-            _ => {}
+        if let Some(campaign) = row
+            .get(SESSION_CAMPAIGN)
+            .and_then(Value::as_str)
+            .filter(|campaign| parsed(campaign).is_some())
+        {
+            facts.sessions.insert(key, campaign.to_lowercase());
+        }
+        if let Some(session) = uuid_in(row, SESSION) {
+            let rank = row.get(POSITION).and_then(Value::as_u64).unwrap_or(0);
+            facts.scenes.insert(key, (session, rank));
         }
     }
 
-    /// The session, scene or element `id` is no more.
+    /// The session or scene `id` is no more.
     pub fn forget(&self, id: &str) {
         if let Some(id) = parsed(id) {
             let mut facts = self.facts.write().unwrap_or_else(|e| e.into_inner());
             facts.sessions.remove(&id);
-            facts.elements.remove(&id);
             facts.scenes.remove(&id);
         }
     }
 
-    /// Whether `session` is one whose campaign is known: a session the
-    /// engine or the tables hold.
-    pub fn knows(&self, session: &str) -> bool {
-        self.campaign_of(session).is_some()
-    }
-
-    /// The campaign of `session`, when it is known.
-    fn campaign_of(&self, session: &str) -> Option<u128> {
+    /// The campaign of `session`, in lower case, when it is known: a session
+    /// the engine or the tables hold.
+    pub fn campaign_of(&self, session: &str) -> Option<String> {
         let session = parsed(session)?;
         let facts = self.facts.read().unwrap_or_else(|e| e.into_inner());
-        facts.sessions.get(&session).copied()
-    }
-
-    /// Whether every one of `elements` is an element of `session`'s
-    /// campaign: an element, or a session, nobody knows is none.
-    pub fn same_campaign<'a>(
-        &self,
-        session: &str,
-        mut elements: impl Iterator<Item = &'a str>,
-    ) -> bool {
-        let campaign = self.campaign_of(session);
-        let facts = self.facts.read().unwrap_or_else(|e| e.into_inner());
-        elements.all(|element| {
-            campaign.is_some()
-                && parsed(element).and_then(|e| facts.elements.get(&e).copied()) == campaign
-        })
+        facts.sessions.get(&session).cloned()
     }
 
     /// The rank after the last of `session`'s scenes besides `scene`: 1 for
@@ -143,8 +112,6 @@ mod tests {
     const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
     const BRUME: &str = "c1000000-0000-4000-8000-000000000002";
     const SEANCE: &str = "51000000-0000-4000-8000-000000000001";
-    const TAVERNE: &str = "e1000000-0000-4000-8000-000000000003";
-    const PHARE: &str = "e1000000-0000-4000-8000-000000000009";
     const ARRIVEE: &str = "5c000000-0000-4000-8000-000000000001";
     const ROUTE: &str = "5c000000-0000-4000-8000-000000000002";
 
@@ -156,37 +123,31 @@ mod tests {
     }
 
     #[test]
-    fn an_element_links_a_scene_of_its_own_campaign_only_whatever_the_case_of_its_id() {
+    fn a_session_s_campaign_is_known_whatever_the_case_of_its_id() {
         let scenes = Scenes::default();
         scenes.record(
             "Session",
             SEANCE,
-            &row(json!({ "sessionCampaignId": VALOMBRE })),
+            &row(json!({ "sessionCampaignId": VALOMBRE.to_uppercase() })),
         );
+        assert_eq!(
+            scenes.campaign_of(&SEANCE.to_uppercase()).as_deref(),
+            Some(VALOMBRE)
+        );
+        assert_eq!(scenes.campaign_of(ROUTE), None);
+        assert_eq!(scenes.campaign_of("seance-4"), None);
+        // A campaign that is no id, or another aggregate's row, is no
+        // session's campaign.
         scenes.record(
-            "Entity",
-            TAVERNE,
-            &row(json!({ "entityCampaignId": VALOMBRE })),
+            "Session",
+            ROUTE,
+            &row(json!({ "sessionCampaignId": "valombre" })),
         );
-        scenes.record("Entity", PHARE, &row(json!({ "entityCampaignId": BRUME })));
-        assert!(scenes.knows(&SEANCE.to_uppercase()));
-        assert!(scenes.same_campaign(SEANCE, [TAVERNE.to_uppercase().as_str()].into_iter()));
-        assert!(scenes.same_campaign(SEANCE, std::iter::empty()));
-        assert!(!scenes.same_campaign(SEANCE, [TAVERNE, PHARE].into_iter()));
-        // An element, or a session, nobody knows is none of the campaign's.
-        assert!(!scenes.same_campaign(SEANCE, ["taverne-sanglier"].into_iter()));
-        assert!(!scenes.same_campaign(ROUTE, [TAVERNE].into_iter()));
-        // What another aggregate's row says is no element's campaign.
-        scenes.record(
-            "Media",
-            PHARE,
-            &row(json!({ "entityCampaignId": VALOMBRE })),
-        );
-        assert!(!scenes.same_campaign(SEANCE, [PHARE].into_iter()));
-        scenes.forget(TAVERNE);
-        assert!(!scenes.same_campaign(SEANCE, [TAVERNE].into_iter()));
+        assert_eq!(scenes.campaign_of(ROUTE), None);
+        scenes.record("Media", ROUTE, &row(json!({ "sessionCampaignId": BRUME })));
+        assert_eq!(scenes.campaign_of(ROUTE), None);
         scenes.forget(SEANCE);
-        assert!(!scenes.knows(SEANCE));
+        assert_eq!(scenes.campaign_of(SEANCE), None);
     }
 
     #[test]

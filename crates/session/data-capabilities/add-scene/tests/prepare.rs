@@ -135,6 +135,18 @@ fn the_session_and_the_places_are_read_off_the_wire_payload() {
         Some(SEANCE.to_owned())
     );
     assert_eq!(session_of(&wire(json!({ "session": 4 }))), None);
+    // A uuid is 36 characters, 8-4-4-4-12 hex digits: neither alone is one.
+    for not_uuid in [
+        "51000000",
+        "51000000-0000-4000-8000-00000000000z",
+        "5100000000000-4000-8000-000000000001",
+    ] {
+        assert_eq!(
+            session_of(&wire(json!({ "session": not_uuid }))),
+            None,
+            "{not_uuid}"
+        );
+    }
     assert_eq!(places_of(&wire(json!({}))), Ok(Vec::new()));
     assert!(names("session.addScene@1"));
     assert!(names("session.addScene"));

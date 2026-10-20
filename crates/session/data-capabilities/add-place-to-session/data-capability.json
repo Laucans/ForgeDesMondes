@@ -1,0 +1,29 @@
+{
+  "dataCapability": "session.addPlaceToSession",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "Session",
+    "id": "$session:$scene:$place"
+  },
+  "touches": [
+    "Session.sceneEntitySceneId",
+    "Session.entityId",
+    "Session.sceneEntityPosition"
+  ],
+  "payload": {
+    "session": "uuid — the session the place joins",
+    "scene": "uuid | null — the scene of that session the place joins; absent, the session's first scene",
+    "place": "uuid — the place, an element of type lieu of the session's campaign (scene-links-same-campaign); linked already to the scene, the one link stays; its media follow through session_media_view, never stored (session-media-by-place)"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "scene-links-same-campaign",
+    "session-media-by-place",
+    "text-only-no-audio"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

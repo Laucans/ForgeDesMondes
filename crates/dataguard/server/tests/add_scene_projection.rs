@@ -2,8 +2,10 @@
 //! applies on `Session/<scene id>` reaches `scene` and `scene_entity`,
 //! ranked after the scenes the tables already hold; the media of a place it
 //! links follow it to the session through `session_media_view`, never
-//! written; a place of another campaign is rejected and reaches nothing; and
-//! a start adds a scene the tables lost. Each test works in a scratch
+//! written; a place of another campaign is rejected and reaches nothing; a
+//! start adds a scene the tables lost, knows a session only the engine
+//! holds, and judges again a scene queued before it; and a session the
+//! tables take after the start takes scenes. Each test works in a scratch
 //! database of its own, migrated as the server migrates it, dropped when it
 //! ends.
 
@@ -13,7 +15,10 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use dataguard_server::{Engine, Planted, planted, router};
+use harness_dataguard::api::Submission;
 use harness_dataguard::command::{CommandResult, State};
+use harness_dataguard::guard::Caller;
+use harness_dataguard::manifest::DataCapability;
 use serde_json::{Value, json};
 use tokio_postgres::{Client, NoTls};
 use tower::ServiceExt;
@@ -34,6 +39,8 @@ const TOUR: &str = "e1000000-0000-4000-8000-000000000004";
 const PHARE: &str = "e1000000-0000-4000-8000-000000000009";
 /// Valombre's session 4, and the two scenes the tables hold of it.
 const SEANCE: &str = "51000000-0000-4000-8000-000000000004";
+/// Valombre's session 5, which no fixture writes.
+const SEANCE_5: &str = "51000000-0000-4000-8000-000000000005";
 const ARRIVEE: &str = "5c000000-0000-4000-8000-000000000001";
 const ROUTE: &str = "5c000000-0000-4000-8000-000000000002";
 /// Two illustrations of the tavern, one of the tower, one at no place.
@@ -41,6 +48,10 @@ const SALLE: &str = "d1000000-0000-4000-8000-000000000001";
 const GASPARD: &str = "d1000000-0000-4000-8000-000000000002";
 const DONJON: &str = "d1000000-0000-4000-8000-000000000003";
 const BLASON: &str = "d1000000-0000-4000-8000-000000000004";
+
+/// A session written whole: a stand-in for session.createSession, which no
+/// DataCapability of this branch is yet, and whose row no projection writes.
+const CREATE_SESSION: &str = r#"{"dataCapability":"test.createSession","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"Session","id":"$sessionId"},"mode":"overwrite","callableBy":["*"]}"#;
 
 fn url() -> String {
     std::env::var("DATABASE_URL").expect("DATABASE_URL names the harness's PostgreSQL")
@@ -126,7 +137,8 @@ impl Scratch {
         let Planted { engine, rows } = planted(&self.url)
             .await
             .expect("the engine over PostgreSQL");
-        let engine = Arc::new(engine);
+        let manifest = DataCapability::parse(CREATE_SESSION).expect("contract F");
+        let engine = Arc::new(engine.with_data_capability(manifest));
         let app = router(
             engine.clone(),
             rows,
@@ -144,6 +156,19 @@ impl Scratch {
             .iter()
             .map(|row| serde_json::from_str(row.get::<_, &str>(0)).expect("JSON"))
             .collect()
+    }
+
+    /// The rank the engine's row of `scene` holds.
+    async fn rank(&self, scene: &str) -> Value {
+        let ranks = self
+            .rows(&format!(
+                "SELECT fields -> 'scenePosition' AS rank FROM dataguard_rows
+                    WHERE partition = 'Session/{scene}'"
+            ))
+            .await;
+        ranks
+            .first()
+            .map_or(Value::Null, |rank| rank["rank"].clone())
     }
 
     /// Session 4's scenes, by rank.
@@ -165,9 +190,9 @@ impl Scratch {
     }
 }
 
-/// Adds a scene of `payload` as the DM, approver of their own campaign: the
-/// scene's id, and what the applier made of it.
-async fn add(engine: &Engine, app: &Router, payload: Value) -> (String, CommandResult) {
+/// Submits a scene of `payload` as the DM, approver of their own campaign:
+/// the scene's id and its command's, queued.
+async fn submit(app: &Router, payload: Value) -> (String, String) {
     let body = json!({
         "dataCapability": "session.addScene@1",
         "payload": payload,
@@ -188,6 +213,17 @@ async fn add(engine: &Engine, app: &Router, payload: Value) -> (String, CommandR
         .and_then(|p| p.strip_prefix("Session/"))
         .unwrap_or_else(|| panic!("a Session partition: {answer}"))
         .to_owned();
+    let command = answer["commandId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a command: {answer}"))
+        .to_owned();
+    (scene, command)
+}
+
+/// Adds a scene of `payload` as the DM: the scene's id, and what the
+/// applier made of it.
+async fn add(engine: &Engine, app: &Router, payload: Value) -> (String, CommandResult) {
+    let (scene, _) = submit(app, payload).await;
     let mut settled = engine.run_once().await.expect("the applier ran");
     assert_eq!(settled.len(), 1, "{settled:?}");
     (scene, settled.remove(0))
@@ -313,5 +349,149 @@ async fn a_start_adds_a_scene_the_tables_lost_with_its_places() {
     .await;
     applied(&result);
     assert_eq!(scratch.scenes().await[3]["position"], 4);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_session_the_tables_take_after_the_start_takes_scenes_after_its_last() {
+    let scratch = Scratch::new("later").await;
+    let (engine, app) = scratch.serve().await;
+    // Written by no command, after the server started: the fixtures'.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO session (id, campaign_id, position, title, status, microphone_on)
+                VALUES ('{SEANCE_5}', '{VALOMBRE}', 5, 'La forêt', 'prep', false);
+             INSERT INTO scene (id, session_id, position, title)
+                VALUES ('5c000000-0000-4000-8000-000000000005', '{SEANCE_5}', 1, 'L''orée');"
+        ))
+        .await
+        .expect("session 5");
+    let (scene, result) = add(
+        &engine,
+        &app,
+        json!({ "session": SEANCE_5, "title": "La clairière", "places": [TAVERNE] }),
+    )
+    .await;
+    applied(&result);
+    assert_eq!(scratch.rank(&scene).await, 2);
+    assert_eq!(
+        scratch
+            .rows(&format!("SELECT position FROM scene WHERE id = '{scene}'"))
+            .await,
+        [json!({ "position": 2 })]
+    );
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_session_only_the_engine_holds_takes_scenes_after_its_last_across_a_start() {
+    let scratch = Scratch::new("engine").await;
+    let first = {
+        let (engine, app) = scratch.serve().await;
+        let Value::Object(payload) = json!({
+            "sessionId": SEANCE_5,
+            "sessionCampaignId": VALOMBRE,
+            "sessionPosition": 5,
+            "sessionTitle": "La forêt",
+            "sessionStatus": "prep",
+            "microphoneOn": false,
+        }) else {
+            unreachable!()
+        };
+        engine
+            .submit(Submission {
+                data_capability: "test.createSession".to_string(),
+                payload: payload.into_iter().collect(),
+                target_id: None,
+                based_on: None,
+                idempotency_key: None,
+                caller: Caller {
+                    by: "dm".to_string(),
+                    from: "session.SessionList".to_string(),
+                    permissions: Vec::new(),
+                    roles: vec!["role:approver".to_string()],
+                },
+            })
+            .await
+            .expect("queued");
+        let settled = engine.run_once().await.expect("the applier ran");
+        assert_eq!(settled.len(), 1, "{settled:?}");
+        applied(&settled[0]);
+        let (scene, result) = add(
+            &engine,
+            &app,
+            json!({ "session": SEANCE_5, "title": "L'orée" }),
+        )
+        .await;
+        applied(&result);
+        scene
+    };
+    // Neither the session nor its scene is in the tables: the engine alone
+    // holds them.
+    assert!(
+        scratch
+            .rows(&format!("SELECT id FROM session WHERE id = '{SEANCE_5}'"))
+            .await
+            .is_empty()
+    );
+    assert_eq!(scratch.rank(&first).await, 1);
+    let (engine, app) = scratch.serve().await;
+    let (scene, result) = add(
+        &engine,
+        &app,
+        json!({ "session": SEANCE_5, "title": "La clairière" }),
+    )
+    .await;
+    applied(&result);
+    assert_eq!(scratch.rank(&scene).await, 2);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_scene_queued_before_a_start_is_judged_again_on_its_places() {
+    let scratch = Scratch::new("queued").await;
+    let (ours, theirs) = {
+        let (_engine, app) = scratch.serve().await;
+        let ours = submit(
+            &app,
+            json!({ "session": SEANCE, "title": "La tour", "places": [TOUR] }),
+        )
+        .await;
+        let theirs = submit(
+            &app,
+            json!({ "session": SEANCE, "title": "Le phare", "places": [PHARE] }),
+        )
+        .await;
+        // The server stops before its applier runs.
+        (ours, theirs)
+    };
+    let (engine, _app) = scratch.serve().await;
+    let settled = engine.run_once().await.expect("the applier ran");
+    assert_eq!(settled.len(), 2, "{settled:?}");
+    let status = |(_, command): &(String, String)| {
+        settled
+            .iter()
+            .find(|result| &result.command_id == command)
+            .map(|result| (result.status, result.violations.clone()))
+    };
+    assert_eq!(status(&ours), Some((State::Applied, Vec::new())));
+    assert_eq!(
+        status(&theirs),
+        Some((
+            State::Rejected,
+            vec!["scene-links-same-campaign".to_string()]
+        ))
+    );
+    assert_eq!(
+        scratch
+            .rows(&format!(
+                "SELECT entity_id::text FROM scene_entity WHERE scene_id = '{}'",
+                ours.0
+            ))
+            .await,
+        [json!({ "entity_id": TOUR })]
+    );
+    assert_eq!(scratch.scenes().await.len(), 3);
     scratch.drop().await;
 }
