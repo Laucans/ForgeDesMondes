@@ -1,0 +1,31 @@
+{
+  "dataCapability": "soundbox.addSound",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "Sound",
+    "id": "$id"
+  },
+  "touches": [
+    "Sound.id",
+    "Sound.campaignId",
+    "Sound.name",
+    "Sound.filePath",
+    "Sound.tags",
+    "Sound.volume",
+    "Sound.createdAt"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign whose library takes the sound; one the product does not hold is refused, 404",
+    "name": "string — the sound's name, trimmed; required",
+    "tags": "string[] — normalised per SoundTag@1: trimmed, lowercased, blanks and duplicates dropped, order kept",
+    "volume": "number — the sound's own volume in percent, 0 to 100, stored as a fraction of 1; absent, full volume (100)",
+    "file": "string — the sound file's path; required"
+  },
+  "mode": "overwrite",
+  "invariants": ["sound-volume-range", "tags-normalized"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
