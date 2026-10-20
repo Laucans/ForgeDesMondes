@@ -52,4 +52,5 @@ show-cover = { path = "../../live/data-capabilities/show-cover" }
 show-on-player-view = { path = "../../live/data-capabilities/show-on-player-view" }
 show-window-on-player-view = { path = "../../live/data-capabilities/show-window-on-player-view" }
 move-window = { path = "../../live/data-capabilities/move-window" }
+resize-window = { path = "../../live/data-capabilities/resize-window" }
 close-window = { path = "../../live/data-capabilities/close-window" }

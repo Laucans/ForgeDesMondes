@@ -20,6 +20,7 @@ use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
+use resize_window::Proportions;
 use restore_entity_version::Kept;
 use save_entity::{stamp, versioned};
 use serde_json::Value;
@@ -220,8 +221,9 @@ impl Rows {
     }
 
     /// The live session of the campaign the uuid `campaign` names, whose
-    /// diffusion row a return to its cover (`live.showCover`), a move of its
-    /// window (`live.moveWindow`) or a close of it (`live.closeWindow`)
+    /// diffusion row a return to its cover (`live.showCover`), a move of
+    /// its window (`live.moveWindow`), a resize (`live.resizeWindow`) or a
+    /// close of it (`live.closeWindow`)
     /// writes: `None` when it has none — and
     /// over the engine's memory, which has no table.
     ///
@@ -235,6 +237,27 @@ impl Rows {
         tables.live_session(campaign).await.map_err(|e| {
             harness_dataguard::Error::Store(format!(
                 "session not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// The size of the illustration `media` names, whose ratio a resize of
+    /// the window showing it (`live.resizeWindow`) keeps: `None` when the
+    /// tables hold no such illustration of the campaign the uuid `campaign`
+    /// names with a width and a height — and over the engine's memory, which
+    /// has no table.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn proportions(&self, campaign: &str, media: &str) -> Result<Option<Proportions>> {
+        let Some(tables) = &self.tables else {
+            return Ok(None);
+        };
+        tables.proportions(campaign, media).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "media not read: {}",
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })

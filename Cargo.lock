@@ -284,6 +284,7 @@ dependencies = [
  "move-window",
  "platform-conformance",
  "ports-llm",
+ "resize-window",
  "restore-entity-version",
  "save-entity",
  "save-settings",
@@ -1245,6 +1246,13 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "resize-window"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

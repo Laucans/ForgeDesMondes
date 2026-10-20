@@ -39,9 +39,13 @@
 //! the media the tables hold, which [`Rows`] reads, and the session's
 //! diffusion row as the queue will leave it. A move of that window
 //! (`live.moveWindow`) is prepared against the campaign's live session,
-//! which [`Rows`] reads. A close of that window (`live.closeWindow`) is
-//! prepared against the campaign's live session, which [`Rows`] reads, and
-//! the session's diffusion row as the queue will leave it.
+//! which [`Rows`] reads. A resize of it (`live.resizeWindow`) is prepared
+//! against the live session, the window its diffusion row shows as the queue
+//! will leave it, and the proportions of its illustration, which [`Rows`]
+//! reads from the tables.
+//! A close of that window (`live.closeWindow`) is prepared against the
+//! campaign's live session, which [`Rows`] reads, and the session's diffusion
+//! row as the queue will leave it.
 
 use std::sync::Arc;
 
@@ -379,12 +383,21 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// row, brought onto the screen: one naming no campaign or no position, or
 /// with no live session, is refused, 422, before it is queued; one of a
 /// window that is not open is queued, for the DataGuard to refuse under
-/// window-fields-together. A close of the window (`close_window::prepare`)
-/// is made its fields emptied together on its campaign's live session's
-/// diffusion row: one naming no campaign, with no live session, or of a
-/// session with no diffusion row — nothing shown, so no window — is refused,
-/// 422, before it is queued; one of a window already closed is applied, the
-/// row unchanged but its stamp.
+/// window-fields-together. A resize of the window (`resize_window::prepare`)
+/// is made the width it writes on that row: the largest the box drawn holds
+/// at the ratio of the illustration the row's window shows, as the commands
+/// queued there will leave it. One naming no campaign or no width, or with
+/// no live session, is refused, 422, before it is queued; one of a window
+/// that is not open is queued, for the DataGuard to refuse under
+/// window-fields-together, and one of a window whose illustration the tables
+/// give no proportions of, under window-proportional, told among the
+/// warnings.
+/// A close of the window (`close_window::prepare`) is made its fields
+/// emptied together on its campaign's live session's diffusion row: one
+/// naming no campaign, with no live session, or of a session with no
+/// diffusion row — nothing shown, so no window — is refused, 422, before it
+/// is queued; one of a window already closed is applied, the row unchanged
+/// but its stamp.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -613,6 +626,41 @@ async fn submit<L: Llm>(
         let prepared = move_window::prepare(&named, session, &now()).map_err(refused)?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
+    } else if resize_window::names(&body.data_capability) {
+        let refused = |refusal: resize_window::Refusal| {
+            (
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            )
+        };
+        let named = resize_window::named(&body.payload).map_err(refused)?;
+        let session = match served.rows.live_session(&named.campaign).await {
+            Ok(session) => session,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        // The window as the commands queued on the session's row will leave
+        // it, and the proportions of the illustration it shows.
+        let media = match &session {
+            Some(session) => match served.rows.projected(&format!("Diffusion/{session}")).await {
+                Ok(row) => row
+                    .get("windowMediaId")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+            },
+            None => None,
+        };
+        let window = match media {
+            Some(media) => match served.rows.proportions(&named.campaign, &media).await {
+                Ok(proportions) => resize_window::Window::Open(proportions),
+                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+            },
+            None => resize_window::Window::Closed,
+        };
+        let prepared = resize_window::prepare(&named, session, window, &now()).map_err(refused)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+        refusal = prepared.warning;
     } else if close_window::names(&body.data_capability) {
         let refused = |refusal: close_window::Refusal| {
             (
