@@ -1008,6 +1008,28 @@ mod tests {
         assert!(!element(&write(AI_SETTINGS, true)));
     }
 
+    #[test]
+    fn only_a_live_write_of_a_link_s_partition_links_a_place_to_a_scene() {
+        let write = |partition: &str, tombstone| Write {
+            partition: partition.to_string(),
+            values: BTreeMap::new(),
+            tombstone,
+        };
+        let session = "51000000-0000-4000-8000-000000000004";
+        let link = format!(
+            "{SESSION}{}",
+            add_place_to_session::link_id(
+                session,
+                "5c000000-0000-4000-8000-000000000001",
+                "e1000000-0000-4000-8000-000000000003",
+            )
+        );
+        assert!(linked(&write(&link, false)));
+        assert!(!linked(&write(&link, true)));
+        assert!(!linked(&write(&format!("{SESSION}{session}"), false)));
+        assert!(!linked(&write(AI_SETTINGS, false)));
+    }
+
     async fn connect(url: &str) -> Client {
         let (client, connection) = tokio_postgres::connect(url, NoTls)
             .await
