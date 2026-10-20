@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "cd2bb3d5b0567540"
+      "builtFrom": "09d716f4a7b16957"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "8af607c811c48fc2"
+      "builtFrom": "6e34be570e277a25"
     },
     {
       "name": "SessionList",
@@ -274,7 +274,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "b3b7989b7208bb36"
+      "builtFrom": "75c281b52e773c91"
     },
     {
       "name": "PreviousSummary",
@@ -292,7 +292,7 @@
       "actions": [],
       "props": {},
       "source": "apps/session/previous-summary",
-      "builtFrom": "11b699a495d3d540"
+      "builtFrom": "9a3b080ebef88957"
     },
     {
       "name": "OralBrief",
@@ -459,7 +459,7 @@
       ],
       "props": {},
       "source": "apps/session/live-session-bar",
-      "builtFrom": "0fb677d793c4dc7c"
+      "builtFrom": "281f74d4e2c6225b"
     },
     {
       "name": "ElementsPanel",

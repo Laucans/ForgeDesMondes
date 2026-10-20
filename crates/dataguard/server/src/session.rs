@@ -28,8 +28,9 @@ const AGGREGATE: &str = "Session";
 
 /// A session's status, in the order it passes through them.
 const STATUS: &str = "sessionStatus";
+const LIVE: &str = "live";
 const CLOSED: &str = "closed";
-const LIFECYCLE: [&str; 3] = ["prep", "live", CLOSED];
+const LIFECYCLE: [&str; 3] = ["prep", LIVE, CLOSED];
 
 /// The fields of a journal line, which a closed session no longer takes.
 const JOURNAL: [&str; 5] = [
@@ -205,7 +206,9 @@ fn rank(status: &Value) -> Option<usize> {
 }
 
 /// A session goes from prep to live, then to closed, one step at a time and
-/// never back; once closed, it takes no journal line.
+/// never back; once closed, it takes no journal line. A close — a command
+/// setting the status to closed and dating it — closes a live session only:
+/// one already closed is not closed again, though its summary may be edited.
 fn status_lifecycle(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let status = value(state, STATUS);
     let before = value(&entry.projection.confirmed, STATUS);
@@ -216,7 +219,9 @@ fn status_lifecycle(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     };
     let journal = before.as_str() == Some(CLOSED)
         && written(entry).any(|field| JOURNAL.contains(&field.as_str()));
-    forward && !journal
+    let closes = entry.payload.get(STATUS).and_then(Value::as_str) == Some(CLOSED)
+        && entry.payload.contains_key(CLOSED_AT);
+    forward && !journal && (!closes || before.is_null() || before.as_str() == Some(LIVE))
 }
 
 /// A closed session has its microphone off and its close dated; a summary

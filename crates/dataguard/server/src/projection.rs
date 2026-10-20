@@ -18,8 +18,15 @@
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
 //! column. A campaign's row is its table's over the engine's, and
-//! an archive is read from the tables ([`ProjectingStore::archived`]). Every
-//! other method is the inner store's.
+//! an archive is read from the tables ([`ProjectingStore::archived`]). A
+//! close of a session (`session.closeSession`) writes its partition,
+//! `Session/<its id>`: [`ProjectingStore`] writes the session's status, its
+//! close, its microphone and its summary, and stops every playback of the
+//! session still running (`stop-all`), in one statement — its journal lines
+//! are left as they are. A session's row is its table's over the engine's,
+//! as a campaign's; its journal and the active provider a close summarises
+//! it with are read from the tables. Every other method is the inner
+//! store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -39,6 +46,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use close_session::Line;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::postgres::PgStore;
@@ -250,6 +258,64 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
+/// The partitions of the Session aggregate: `Session/<session id>`.
+const SESSION: &str = "Session/";
+
+/// A session as its table holds it, under the Session aggregate's fields,
+/// `$1` its id in whatever case: what the engine judges a close against —
+/// every session no command of the engine wrote yet. A session the engine
+/// deleted (its tombstone) is none.
+const SESSION_ROW: &str = "SELECT jsonb_strip_nulls(jsonb_build_object(
+        'sessionId', id, 'sessionCampaignId', campaign_id, 'sessionPosition', position,
+        'sessionTitle', title, 'plannedOn', planned_on, 'sessionStatus', status,
+        'startedAt', started_at, 'closedAt', closed_at, 'microphoneOn', microphone_on,
+        'summary', summary, 'summaryModel', summary_model, 'summaryEditedAt', summary_edited_at
+    ))::text
+    FROM session s WHERE s.id::text = lower($1)
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+            WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned)";
+
+/// The journal of the session `$1` names, in whatever case: each line's
+/// time and text, in the order they were spoken.
+const JOURNAL_LINES: &str = "SELECT to_char(spoken_at, 'HH24:MI:SS'), text
+    FROM session_journal_line WHERE session_id::text = lower($1)
+    ORDER BY spoken_at, id";
+
+/// The active provider, under the AiSettings aggregate's fields: what a
+/// close summarises the journal with.
+const ACTIVE_PROVIDER: &str = r#"SELECT jsonb_strip_nulls(jsonb_build_object(
+        'mode', p.mode, 'url', p.url, 'detectedApiType', p.detected_api_type,
+        'apiKey', p.api_key, 'binary', p."binary",
+        'generationModel', p.generation_model, 'summaryModel', p.summary_model
+    ))::text
+    FROM ai_settings s JOIN ai_provider p ON p.id = s.active_provider_id
+    WHERE s.id = 1"#;
+
+/// The close the engine applied on the session partition `$1` names — on
+/// every one when it is null — written on its row: its status, its close,
+/// its microphone, its summary and the model that wrote it; then every
+/// playback of the session with no `stopped_at` is stopped at the close
+/// (`stop-all`), in the same statement. A row the tables already hold
+/// closed is left as it is, so a start never stops a playback again. A
+/// close that is no time is left aside.
+const PROJECT_CLOSES: &str = "WITH closed AS (
+        UPDATE session s
+        SET status = 'closed',
+            closed_at = (r.fields ->> 'closedAt')::timestamptz,
+            microphone_on = coalesce((r.fields ->> 'microphoneOn')::boolean, false),
+            summary = coalesce(r.fields ->> 'summary', s.summary),
+            summary_model = coalesce(r.fields ->> 'summaryModel', s.summary_model)
+        FROM dataguard_rows r
+        WHERE r.partition = 'Session/' || s.id::text AND NOT r.tombstoned
+            AND ($1::text IS NULL OR r.partition = $1::text)
+            AND r.fields ->> 'sessionStatus' = 'closed'
+            AND pg_input_is_valid(r.fields ->> 'closedAt', 'timestamptz')
+            AND s.status <> 'closed'
+        RETURNING s.id, s.closed_at)
+    UPDATE sound_playback p SET stopped_at = c.closed_at
+    FROM closed c
+    WHERE p.session_id = c.id AND p.stopped_at IS NULL";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -290,6 +356,66 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_closes(None).await;
+    }
+
+    /// Writes the close the engine applied on the session `partition`
+    /// names — of every session, `None` — and stops its running playbacks,
+    /// logging a failure: after each apply of a session, and at a start.
+    async fn repair_closes(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(PROJECT_CLOSES, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: session not closed: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
+    }
+
+    /// The session `partition` names as its table holds it, when it does.
+    async fn session_row(
+        &self,
+        partition: &str,
+    ) -> std::result::Result<BTreeMap<String, Value>, tokio_postgres::Error> {
+        let Some(id) = partition.strip_prefix(SESSION) else {
+            return Ok(BTreeMap::new());
+        };
+        let client = self.inner.client().lock().await;
+        let row = client.query_opt(SESSION_ROW, &[&id]).await?;
+        Ok(row
+            .and_then(|row| object(row.get::<_, &str>(0)))
+            .unwrap_or_default())
+    }
+
+    /// The journal of the session `id` names, as its table holds it, in the
+    /// order it was spoken.
+    pub async fn journal_lines(
+        &self,
+        id: &str,
+    ) -> std::result::Result<Vec<Line>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let rows = client.query(JOURNAL_LINES, &[&id]).await?;
+        Ok(rows
+            .iter()
+            .map(|row| Line {
+                at: row.get(0),
+                text: row.get(1),
+            })
+            .collect())
+    }
+
+    /// The active provider as the tables hold it: empty when they hold none.
+    pub async fn active_provider(
+        &self,
+    ) -> std::result::Result<BTreeMap<String, Value>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let row = client.query_opt(ACTIVE_PROVIDER, &[]).await?;
+        Ok(row
+            .and_then(|row| object(row.get::<_, &str>(0)))
+            .unwrap_or_default())
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -633,6 +759,14 @@ fn tested(write: &Write) -> Option<&str> {
         .filter(|id| uuid(id))
 }
 
+/// A JSON object's text as a row; `None` when it is not one.
+fn object(json: &str) -> Option<BTreeMap<String, Value>> {
+    match serde_json::from_str(json).ok()? {
+        Value::Object(row) => Some(row.into_iter().collect()),
+        _ => None,
+    }
+}
+
 /// A field as text; `None` when absent, `null` or not a string.
 fn text<'a>(row: &'a BTreeMap<String, Value>, field: &str) -> Option<&'a str> {
     row.get(field).and_then(Value::as_str)
@@ -663,24 +797,37 @@ impl Store for ProjectingStore {
     /// A campaign's row is its table's over the engine's own: a campaign the
     /// fixtures hold exists for the engine before any command wrote it, and
     /// what the engine copied of it when it applied a command is never
-    /// judged over what the table holds now. Tables not migrated yet hold
-    /// none.
+    /// judged over what the table holds now. So is a session's: its status
+    /// is the one a close is judged against (`status-lifecycle`) — but a
+    /// session the engine closed is closed, whatever its table still says.
+    /// Tables not migrated yet hold none.
     async fn row(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
         let mut row = self.inner.row(partition).await?;
-        if !partition.starts_with(CAMPAIGN) {
+        let (table, name) = if partition.starts_with(CAMPAIGN) {
+            (self.campaign_row(partition).await, "campaign")
+        } else if partition.starts_with(SESSION) {
+            (self.session_row(partition).await, "session")
+        } else {
             return Ok(row);
-        }
-        let table = match self.campaign_row(partition).await {
+        };
+        let table = match table {
             Ok(row) => row,
             Err(e) => {
                 eprintln!(
-                    "projection: campaign not read: {}",
+                    "projection: {name} not read: {}",
                     e.as_db_error().map_or("-", |db| db.code().code())
                 );
                 BTreeMap::new()
             }
         };
+        // A close is never undone: a session the engine closed stays closed,
+        // its table lagging behind until its projection is made again.
+        let closed = partition.starts_with(SESSION)
+            && row.get("sessionStatus").and_then(Value::as_str) == Some("closed");
         row.extend(table);
+        if closed {
+            row.insert("sessionStatus".to_owned(), "closed".into());
+        }
         Ok(row)
     }
 
@@ -703,6 +850,9 @@ impl Store for ProjectingStore {
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
+        } else if write.partition.starts_with(SESSION) {
+            // A session's tombstone closes nothing: PROJECT_CLOSES skips it.
+            self.repair_closes(Some(&write.partition)).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.

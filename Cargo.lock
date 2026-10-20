@@ -171,6 +171,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "close-session"
+version = "0.1.0"
+dependencies = [
+ "ports-llm",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,6 +269,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "close-session",
  "data",
  "export-campaign",
  "get-campaign",

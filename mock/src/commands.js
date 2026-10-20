@@ -52,11 +52,14 @@ export const COMMANDS = {
     (await server.load('live.getDiffusion')).window = null;
     return undefined;
   },
-  // session.closeSession: the
-  // microphone is paused (`stop-all`); the journal and the summary are the
-  // fixtures' own, which the recap reads.
+  // session.closeSession (crates/session/data-capabilities/close-session):
+  // the live session is closed and its microphone paused (`close-session`);
+  // a session already closed is not closed again (`status-lifecycle`). The
+  // journal and the summary are the fixtures' own, which the recap reads.
   'session.closeSession': async (server) => {
-    (await server.load('session.getLiveSession')).microphone = { on: false };
+    const live = await server.load('session.getLiveSession');
+    if (live.status === 'closed') return ['status-lifecycle'];
+    Object.assign(live, { status: 'closed', microphone: { on: false } });
     return undefined;
   },
   // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly

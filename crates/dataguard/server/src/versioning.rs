@@ -197,6 +197,45 @@ impl Rows {
         })
     }
 
+    /// The journal of the session `id` names, as the tables hold it, in the
+    /// order it was spoken: none over the engine's memory, which has no
+    /// table.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn journal(&self, id: &str) -> Result<Vec<close_session::Line>> {
+        let Some(tables) = &self.tables else {
+            return Ok(Vec::new());
+        };
+        tables.journal_lines(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "journal not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// The active provider, under the AiSettings aggregate's fields: the
+    /// tables' — over the engine's memory, which has no table, the
+    /// settings row as the commands queued on it will leave it.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn settings(&self) -> Result<BTreeMap<String, Value>> {
+        let Some(tables) = &self.tables else {
+            return self.projected(crate::projection::AI_SETTINGS).await;
+        };
+        tables.active_provider().await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "settings not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
     /// The versions of `element` a restoration can name, oldest first.
     pub fn versions(&self, element: &str) -> Vec<Kept> {
         self.history.of(element)
