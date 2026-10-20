@@ -20,7 +20,7 @@ fn r111_simultaneous_sounds_and_volumes() {
             "data-capability:campaign.createCampaign",
         ],
         |s| {
-            let campaign = new_campaign(s, "campagne")?;
+            let campaign = new_campaign(s, "oneshot")?;
             let mut ids = Vec::new();
             for (name, volume) in [("Bruit de foule", 55), ("Porte qui grince", 80)] {
                 let name = unique(name);
