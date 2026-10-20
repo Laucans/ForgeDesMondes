@@ -17,6 +17,9 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
+//! column. A change of the master volume (`soundbox.setMasterVolume`) writes
+//! that partition with the volume alone: [`ProjectingStore`] writes
+//! `campaign.sound_master_volume` as the engine holds it, and no other
 //! column. An addition of a sound (`soundbox.addSound`) writes its
 //! partition, `Sound/<its id>`, whole, and an edit (`soundbox.updateSound`)
 //! the fields it changes on it: [`ProjectingStore`] adds the sound's `sound`
@@ -41,8 +44,8 @@
 //! tables' aliases are the ones `alias-unique-in-campaign` judges against.
 //! So do its versions reach [`History`], as `entity_version` numbers them:
 //! the ones a restoration names. A stamp the table lost is written again at
-//! the next start, never over a later one, and so is a sound, or its edit,
-//! the table lost.
+//! the next start, never over a later one, and so is a master volume, and a
+//! sound, or its edit, the table lost.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -235,6 +238,23 @@ const STAMP_EXPORTS: &str = "UPDATE campaign c
         AND (c.last_exported_at IS NULL
             OR c.last_exported_at < (r.fields ->> 'lastExportedAt')::timestamptz)";
 
+/// The master volume the engine holds on the campaign partition `$1`
+/// names — on every one when it is null — written on its row when it is not
+/// that already: the one column a change of it writes. After each apply of a
+/// campaign, and at a start, so a volume whose projection failed after its
+/// apply is written again. A volume the column could not hold, or outside
+/// `master-volume-range`, is left aside, so it keeps no other campaign's from
+/// its row.
+const MASTER_VOLUMES: &str = "UPDATE campaign c
+    SET sound_master_volume = (r.fields ->> 'soundMasterVolume')::numeric(3, 2)
+    FROM dataguard_rows r
+    WHERE r.partition = 'Campaign/' || c.id::text AND NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND pg_input_is_valid(r.fields ->> 'soundMasterVolume', 'numeric(3, 2)')
+        AND (r.fields ->> 'soundMasterVolume')::numeric(3, 2) BETWEEN 0 AND 1
+        AND c.sound_master_volume IS DISTINCT FROM
+            (r.fields ->> 'soundMasterVolume')::numeric(3, 2)";
+
 /// What an archive holds of the campaign `$1` names, in whatever case, as
 /// the tables hold it — the campaign, its players, its elements each with
 /// its sheet, its aliases and its versions — in one statement, so one
@@ -338,6 +358,7 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_master_volumes(None).await;
         self.repair_sounds().await;
         self.repair_stops(None).await;
     }
@@ -424,6 +445,22 @@ impl ProjectingStore {
         if let Err(e) = written {
             eprintln!(
                 "projection: campaign not stamped: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
+    }
+
+    /// Writes the master volume the engine holds on the row of the campaign
+    /// `partition` names — of every campaign, `None` — logging a failure:
+    /// after each apply of a campaign, and at a start.
+    async fn repair_master_volumes(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(MASTER_VOLUMES, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: master volume not written: {}",
                 e.as_db_error().map_or("-", |db| db.code().code())
             );
         }
@@ -830,8 +867,10 @@ impl Store for ProjectingStore {
         } else if !write.tombstone && write.partition.starts_with(stops::PLAYBACK) {
             self.repair_stops(Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
-            // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
+            // A campaign's tombstone stamps nothing, and sets no volume:
+            // STAMP_EXPORTS and MASTER_VOLUMES skip it.
             self.repair_exports(Some(&write.partition)).await;
+            self.repair_master_volumes(Some(&write.partition)).await;
         } else if sound(write) {
             self.write_sound(&write.partition).await;
         } else if let Some(element) = element_of(write) {

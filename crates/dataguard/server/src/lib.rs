@@ -30,10 +30,11 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied. An addition of a sound
-//! (`soundbox.addSound`) is prepared against the campaign it names, which
-//! [`Rows`] reads, and an edit of one (`soundbox.updateSound`) against the
-//! sound's row. A stop-all
+//! the command's result once its stamp is applied. A change of the master
+//! volume (`soundbox.setMasterVolume`) is made the fraction it writes on its
+//! campaign's partition. An addition of a sound (`soundbox.addSound`) is
+//! prepared against the campaign it names, which [`Rows`] reads, and an edit
+//! of one (`soundbox.updateSound`) against the sound's row. A stop-all
 //! (`soundbox.stopAll`) is prepared against the playbacks the tables hold
 //! still playing, each with its row as the queue will leave it, which
 //! [`Rows`] reads: one command per playback.
@@ -362,11 +363,15 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes. An addition of
-/// a sound (`add_sound::prepare`) is given its id and made the row it writes,
-/// its tags normalised and its volume a fraction of 1: one naming no campaign
-/// the engine holds is refused, 404, and one with no name or no file, 422.
-/// An edit of a sound (`update_sound::prepare`) is made the fields it
+/// an archive of, 422 — neither is queued, so nothing changes. A change of
+/// the master volume (`set_master_volume::prepare`) is made the fraction it
+/// writes on its campaign's partition, the percent divided by 100, which
+/// `master-volume-range` judges once it is processed: one naming no campaign,
+/// or one the tables do not hold, is refused, 404, before it is queued. An
+/// addition of a sound (`add_sound::prepare`) is given its id and made the row
+/// it writes, its tags normalised and its volume a fraction of 1: one naming no
+/// campaign the engine holds is refused, 404, and one with no name or no file,
+/// 422. An edit of a sound (`update_sound::prepare`) is made the fields it
 /// changes, its tags normalised and its volume a fraction of 1: one naming
 /// no sound the engine holds — a sound queued for addition is one — is
 /// refused, 404, and one with a blank name or file, or nothing to change,
@@ -529,6 +534,34 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if set_master_volume::names(&body.data_capability) {
+        let no_campaign = || {
+            Err((
+                axum::http::StatusCode::NOT_FOUND,
+                Json(
+                    serde_json::json!({ "error": set_master_volume::Refusal::NoCampaign.to_string() }),
+                ),
+            ))
+        };
+        let Ok(prepared) = set_master_volume::prepare(&body.payload, body.target_id.as_deref())
+        else {
+            return no_campaign();
+        };
+        let campaign = match served
+            .rows
+            .projected(&format!("Campaign/{}", prepared.target_id))
+            .await
+        {
+            Ok(campaign) => campaign,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        // A campaign is a campagne or a oneshot: a partition holding no kind
+        // is none the tables hold.
+        if !campaign.contains_key("kind") {
+            return no_campaign();
+        }
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     } else if add_sound::names(&body.data_capability) {
         let Ok(sound) = fresh_uuid() else {
             let e = Error::Store("no randomness for an id".to_string());
