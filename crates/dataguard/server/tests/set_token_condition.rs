@@ -12,7 +12,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use dataguard_server::{Engine, MEMORY, Planted, Rows, planted, router};
+use dataguard_server::{Engine, MEMORY, Planted, Reads, Rows, planted, router_reading};
 use harness_dataguard::api::Submission;
 use harness_dataguard::command::{CommandResult, State};
 use harness_dataguard::guard::Caller;
@@ -30,6 +30,8 @@ const BANDITS: [&str; 3] = [
 ];
 /// A token of the ambush's instance.
 const AILLEURS: &str = "70000000-0000-4000-8000-000000000004";
+/// The tavern's instance, and Bandit 3, as the mock-up's fixtures name them.
+const SLUGS: [(&str, &str); 2] = [("taverne-arrivee", INSTANCE), ("t-bandit-3", BANDITS[2])];
 
 /// The test-only drop: a token inserted whole on its own partition.
 const DROP_TOKEN: &str = r#"{"dataCapability":"test.dropToken","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$tokenId"},"mode":"overwrite","callableBy":["*"]}"#;
@@ -42,16 +44,22 @@ struct Served {
 }
 
 /// The server, Bandit 1 to 3 dropped on the tavern's instance and one token
-/// on the ambush's.
+/// on the ambush's; the fixtures' slugs of [`SLUGS`] name their ids.
 async fn tavern() -> Served {
     let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
     let engine = Arc::new(
         engine.with_data_capability(DataCapability::parse(DROP_TOKEN).expect("contract F")),
     );
-    let app = router(
+    let reads = Reads::none().named(
+        SLUGS
+            .into_iter()
+            .map(|(wire, stored)| (wire.to_string(), stored.to_string())),
+    );
+    let app = router_reading(
         engine.clone(),
         rows.clone(),
         Arc::new(ports_llm::fake::FakeLlm::new()),
+        Arc::new(reads),
     );
     let served = Served { engine, rows, app };
     for (number, id) in (1..).zip(BANDITS) {
@@ -109,7 +117,12 @@ impl Served {
         if let Some(target) = target {
             body["target"] = json!({ "id": target });
         }
-        let request = Request::post("/commands")
+        self.post("/commands", body).await
+    }
+
+    /// `POST uri` with `body`: its status and its answer.
+    async fn post(&self, uri: &str, body: Value) -> (StatusCode, Value) {
+        let request = Request::post(uri)
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))
             .expect("a request");
@@ -284,4 +297,67 @@ async fn a_token_that_is_not_on_the_targeted_instance_is_not_found() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(served.idle().await);
     assert_eq!(served.tokens().await, before);
+}
+
+#[tokio::test]
+async fn an_instance_and_a_token_named_by_their_slugs_are_marked_on_their_stored_ids() {
+    let served = tavern().await;
+    let (status, answer) = served
+        .mark(
+            Some("taverne-arrivee"),
+            json!({ "token": "t-bandit-3", "state": "À terre", "on": true }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    assert_eq!(
+        answer["partition"],
+        format!("BattlemapInstance/{}", BANDITS[2])
+    );
+    assert_eq!(served.settled().await.status, State::Applied);
+    assert_eq!(
+        served.token(BANDITS[2]).await["conditions"],
+        json!(["À terre"])
+    );
+}
+
+#[tokio::test]
+async fn two_badges_set_at_once_on_a_token_are_both_kept() {
+    let served = tavern().await;
+    let poisoned = json!({ "token": BANDITS[1], "state": "Empoisonné", "on": true });
+    let prone = json!({ "token": BANDITS[1], "state": "À terre", "on": true });
+    let ((first, a), (second, b)) = tokio::join!(
+        served.mark(Some(INSTANCE), poisoned),
+        served.mark(Some(INSTANCE), prone),
+    );
+    assert_eq!(
+        (first, second),
+        (StatusCode::ACCEPTED, StatusCode::ACCEPTED)
+    );
+    // The one judged second started from the list the first leaves: its
+    // author confirms it, and neither badge is lost.
+    let (ahead, behind) = if a["result"]["status"] == "queued" {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    assert_eq!(ahead["result"]["status"], "queued", "{ahead}");
+    assert_eq!(
+        behind["result"]["status"], "awaiting_confirmation",
+        "{behind}"
+    );
+    assert_eq!(served.settled().await.status, State::Applied);
+    let command = behind["commandId"].as_str().expect("an id");
+    let (status, confirmed) = served
+        .post(
+            &format!("/commands/{command}/confirm"),
+            json!({ "by": "dm" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+    assert_eq!(served.settled().await.status, State::Applied);
+    let mut conditions: Vec<String> =
+        serde_json::from_value(served.token(BANDITS[1]).await["conditions"].clone())
+            .expect("a list of conditions");
+    conditions.sort();
+    assert_eq!(conditions, ["Empoisonné", "À terre"]);
 }
