@@ -403,6 +403,12 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// ([`TURNING`]): one naming no uuid, 422; an instance with no open combat —
 /// over the engine's memory, every one — or none of whose participants is
 /// alive, 409 — neither is queued.
+/// A token taken off the map (`remove_token::prepare`) is made the deletion
+/// of the token's partition, which writes no field, the same way: one naming
+/// no uuid, 422; one of a token not on the instance, 404; one sent again
+/// under the key of a removal the engine holds, the engine's to replay.
+/// The token commands judge the token's row as none once its removal is
+/// queued (`Rows::standing`).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -552,7 +558,7 @@ async fn submit<L: Llm>(
             set_token_visibility::request(&wire, target.as_deref()).map_err(unprocessable)?;
         let base = match served
             .rows
-            .projected(&set_token_visibility::partition(&request.token))
+            .standing(&set_token_visibility::partition(&request.token))
             .await
         {
             Ok(base) => base,
@@ -580,7 +586,7 @@ async fn submit<L: Llm>(
         holding = Some(CHANGING_HP.lock().await);
         let base = match served
             .rows
-            .projected(&change_hit_points::partition(&request.token))
+            .standing(&change_hit_points::partition(&request.token))
             .await
         {
             Ok(base) => base,
@@ -653,7 +659,7 @@ async fn submit<L: Llm>(
             .map_err(unprocessable)?;
         let base = match served
             .rows
-            .projected(&rename_token::partition(&request.token))
+            .standing(&rename_token::partition(&request.token))
             .await
         {
             Ok(base) => base,
@@ -681,7 +687,7 @@ async fn submit<L: Llm>(
         holding = Some(MARKING.lock().await);
         let base = match served
             .rows
-            .projected(&set_token_condition::partition(&request.token))
+            .standing(&set_token_condition::partition(&request.token))
             .await
         {
             Ok(base) => base,
@@ -690,6 +696,47 @@ async fn submit<L: Llm>(
         let prepared = set_token_condition::prepare(&request, &base).map_err(unprocessable)?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
+    } else if remove_token::names(&body.data_capability) {
+        let unprocessable = |refusal: remove_token::Refusal| {
+            let status = if refusal == remove_token::Refusal::UnknownToken {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            refused(status, &refusal)
+        };
+        // Sent again under its key, it is the engine's to replay, as it
+        // was: its token reads as none once its removal is queued.
+        let replayed = match &body.idempotency_key {
+            Some(key) => match served
+                .rows
+                .replays(remove_token::DATA_CAPABILITY, key)
+                .await
+            {
+                Ok(replayed) => replayed,
+                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+            },
+            None => false,
+        };
+        if !replayed {
+            let wire = served.reads.stored(&body.payload);
+            let target = body
+                .target_id
+                .as_deref()
+                .map(|id| served.reads.stored_id(id));
+            let request = remove_token::request(&wire, target.as_deref()).map_err(unprocessable)?;
+            let base = match served
+                .rows
+                .standing(&remove_token::partition(&request.token))
+                .await
+            {
+                Ok(base) => base,
+                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+            };
+            let prepared = remove_token::prepare(&request, &base).map_err(unprocessable)?;
+            body.payload = prepared.payload;
+            body.target_id = Some(prepared.target_id);
+        }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
