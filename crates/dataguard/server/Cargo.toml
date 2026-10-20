@@ -61,3 +61,6 @@ reorder-initiative = { path = "../../table/data-capabilities/reorder-initiative"
 end-combat = { path = "../../table/data-capabilities/end-combat" }
 remove-participant = { path = "../../table/data-capabilities/remove-participant" }
 reset-battlemap = { path = "../../table/data-capabilities/reset-battlemap" }
+save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
+set-media-place = { path = "../../media/data-capabilities/set-media-place" }
+upload-media = { path = "../../media/data-capabilities/upload-media" }

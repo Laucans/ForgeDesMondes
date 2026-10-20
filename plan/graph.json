@@ -544,7 +544,7 @@
     "GridSettings": {
       "kind": "micro-ui",
       "producer": 19,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "HealthBand@1": {
@@ -922,31 +922,31 @@
     "media.getBattlemap": {
       "kind": "capability",
       "producer": 19,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "media.listMedia": {
       "kind": "capability",
       "producer": 19,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "media.saveGridSettings": {
       "kind": "data-capability",
       "producer": 19,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "media.setMediaPlace": {
       "kind": "data-capability",
       "producer": 19,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "media.uploadMedia": {
       "kind": "data-capability",
       "producer": 19,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "session.addPlaceToSession": {

@@ -1,0 +1,131 @@
+{
+  "concept": "HexGrid",
+  "version": 1,
+  "cases": [
+    {
+      "name": "the grid of the mock-up's battlemap is valid and 6 hexes read 30 feet",
+      "input": { "size": 30, "ox": 12, "oy": 8, "orient": "pointy", "color": "text", "opacity": 0.4, "hexes": 6 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": 30 }
+    },
+    {
+      "name": "a flat-top grid of another size and offset is still 5 feet a hex",
+      "input": { "size": 64, "ox": 0, "oy": 0, "orient": "flat", "color": "accent", "opacity": 0.75 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a huge hex and a negative offset are still 5 feet a hex",
+      "input": { "size": 480.5, "ox": -37, "oy": -12.5, "orient": "pointy", "color": "text", "opacity": 0.1, "hexes": 1 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": 5 }
+    },
+    {
+      "name": "a tiny hex is valid while it is above 0",
+      "input": { "size": 0.5, "ox": 0, "oy": 0, "orient": "flat", "color": "text", "opacity": 0.5, "hexes": 12 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": 60 }
+    },
+    {
+      "name": "a distance of 0 hexes reads 0 feet",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0.4, "hexes": 0 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": 0 }
+    },
+    {
+      "name": "the opacity bound 0 is valid",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0, "hexes": 2 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": 10 }
+    },
+    {
+      "name": "the opacity bound 1 is valid",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 1 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a hex size of 0 is not valid",
+      "input": { "size": 0, "ox": 12, "oy": 8, "orient": "pointy", "color": "text", "opacity": 0.4 },
+      "output": { "valid": false, "problems": ["size"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a negative hex size is not valid, and a hex is still 5 feet",
+      "input": { "size": -30, "ox": 12, "oy": 8, "orient": "flat", "color": "text", "opacity": 0.4, "hexes": 6 },
+      "output": { "valid": false, "problems": ["size"], "feetPerHex": 5, "feet": 30 }
+    },
+    {
+      "name": "an opacity above 1 is not valid, a percentage is not a fraction",
+      "input": { "size": 30, "ox": 12, "oy": 8, "orient": "pointy", "color": "text", "opacity": 40 },
+      "output": { "valid": false, "problems": ["opacity"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "an opacity below 0 is not valid",
+      "input": { "size": 30, "ox": 12, "oy": 8, "orient": "pointy", "color": "text", "opacity": -0.1 },
+      "output": { "valid": false, "problems": ["opacity"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "an orientation other than pointy or flat is not valid",
+      "input": { "size": 30, "ox": 12, "oy": 8, "orient": "square", "color": "text", "opacity": 0.4 },
+      "output": { "valid": false, "problems": ["orient"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "an empty colour is not valid",
+      "input": { "size": 30, "ox": 12, "oy": 8, "orient": "pointy", "color": "", "opacity": 0.4 },
+      "output": { "valid": false, "problems": ["color"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a horizontal offset that is not a number is not valid",
+      "input": { "size": 30, "ox": "12", "oy": 8, "orient": "pointy", "color": "text", "opacity": 0.4 },
+      "output": { "valid": false, "problems": ["ox"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a vertical offset that is null is not valid",
+      "input": { "size": 30, "ox": 12, "oy": null, "orient": "pointy", "color": "text", "opacity": 0.4 },
+      "output": { "valid": false, "problems": ["oy"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a missing field is not valid, and every problem is listed in order",
+      "input": { "size": 0, "ox": 0, "oy": 0, "orient": "flat", "opacity": 2, "hexes": 3 },
+      "output": { "valid": false, "problems": ["size", "color", "opacity"], "feetPerHex": 5, "feet": 15 }
+    },
+    {
+      "name": "a negative distance reads no feet",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0.4, "hexes": -2 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a distance that is not a whole number of hexes reads no feet",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0.4, "hexes": 2.5 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a whole number written with a decimal point is a whole number of hexes",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0.4, "hexes": 2.0 },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": 10 }
+    },
+    {
+      "name": "a distance given as a string reads no feet",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0.4, "hexes": "6" },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a distance that is null reads no feet",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0.4, "hexes": null },
+      "output": { "valid": true, "problems": [], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a hex size given as a string is not valid",
+      "input": { "size": "30", "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0.4 },
+      "output": { "valid": false, "problems": ["size"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "a missing hex size is not valid",
+      "input": { "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": 0.4 },
+      "output": { "valid": false, "problems": ["size"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "an orientation that is null is not valid",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": null, "color": "text", "opacity": 0.4 },
+      "output": { "valid": false, "problems": ["orient"], "feetPerHex": 5, "feet": null }
+    },
+    {
+      "name": "an opacity given as a string is not valid",
+      "input": { "size": 30, "ox": 0, "oy": 0, "orient": "pointy", "color": "text", "opacity": "0.4" },
+      "output": { "valid": false, "problems": ["opacity"], "feetPerHex": 5, "feet": null }
+    }
+  ]
+}
