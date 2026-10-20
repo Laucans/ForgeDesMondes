@@ -14,6 +14,9 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use dataguard_server::{Engine, Planted, planted, router};
+use harness_dataguard::api::Submission;
+use harness_dataguard::guard::Caller;
+use harness_dataguard::manifest::DataCapability;
 use serde_json::{Value, json};
 use tokio_postgres::{Client, NoTls};
 use tower::ServiceExt;
@@ -35,6 +38,11 @@ const P_FOULE: &str = "a0000000-0000-4000-8000-000000000001";
 const P_PORTE: &str = "a0000000-0000-4000-8000-000000000002";
 const P_CRYPTE: &str = "a0000000-0000-4000-8000-000000000003";
 const P_VENT: &str = "a0000000-0000-4000-8000-000000000004";
+/// A playback the DM started, still queued.
+const P_QUEUED: &str = "a0000000-0000-4000-8000-000000000005";
+/// A playback started, test-only: the engine's insert on its partition, as
+/// soundbox.playSound queues it.
+const START: &str = r#"{"dataCapability":"test.startPlayback","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"SoundPlayback","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 /// When the door stopped, before any « Tout arrêter ».
 const EARLIER: &str = "2026-10-20 09:00:00+00";
 
@@ -144,13 +152,27 @@ impl Scratch {
             .collect()
     }
 
-    /// The engine as the server plants it over this database, and its wire
-    /// protocol.
+    /// The stop the engine's row of `playback` holds, if any.
+    async fn engine_stop_of(&self, playback: &str) -> Option<String> {
+        self.client
+            .query_opt(
+                "SELECT fields ->> 'stoppedAt' FROM dataguard_rows WHERE partition = $1",
+                &[&format!("SoundPlayback/{playback}")],
+            )
+            .await
+            .expect("the engine's row read")
+            .and_then(|row| row.get(0))
+    }
+
+    /// The engine as the server plants it over this database — with the
+    /// test-only start of a playback — and its wire protocol.
     async fn serve(&self) -> (Arc<Engine>, Router) {
         let Planted { engine, rows } = planted(&self.url)
             .await
             .expect("the engine over PostgreSQL");
-        let engine = Arc::new(engine);
+        let engine = Arc::new(
+            engine.with_data_capability(DataCapability::parse(START).expect("contract F")),
+        );
         let app = router(
             engine.clone(),
             rows,
@@ -301,6 +323,70 @@ async fn a_playback_the_table_stopped_while_the_stop_was_queued_keeps_its_own_st
         scratch.stop_of(P_FOULE).await.as_deref(),
         Some("2026-10-20 09:00:00")
     );
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_playback_still_queued_when_stop_all_is_clicked_is_stopped_too() {
+    let scratch = Scratch::new("queued").await;
+    scratch.play(P_FOULE, SEANCE, FOULE).await;
+    let (engine, app) = scratch.serve().await;
+    let started = |id: &str, session: &str| {
+        let payload = json!({ "id": id, "sessionId": session, "soundId": PORTE,
+                              "origin": "soundbox", "startedAt": "2026-10-20T09:59:00Z" });
+        Submission {
+            data_capability: "test.startPlayback@1".to_string(),
+            payload: serde_json::from_value(payload).expect("a payload"),
+            target_id: Some(id.to_string()),
+            based_on: None,
+            idempotency_key: None,
+            caller: Caller {
+                by: "dm".to_string(),
+                from: "LiveSoundbox".to_string(),
+                permissions: Vec::new(),
+                roles: vec!["role:approver".to_string()],
+            },
+        }
+    };
+    engine
+        .submit(started(P_QUEUED, &SEANCE.to_uppercase()))
+        .await
+        .expect("a play queued");
+    // Brume's play, queued too, plays on.
+    engine
+        .submit(started(P_VENT, BRUME_SEANCE))
+        .await
+        .expect("a play queued");
+
+    let (status, answer) = stop_all(&app, json!({ "campaign": VALOMBRE })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    assert_ne!(result(&app, &answer).await["status"], "applied");
+    // The two plays, the crowd's stop, and the queued play's stop behind it
+    // on its partition.
+    assert_eq!(engine.run_once().await.expect("the applier ran").len(), 4);
+    assert_eq!(result(&app, &answer).await["status"], "applied");
+    assert!(scratch.engine_stop_of(P_QUEUED).await.is_some());
+    assert!(scratch.engine_stop_of(P_FOULE).await.is_some());
+    assert_eq!(scratch.engine_stop_of(P_VENT).await, None);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn two_clicks_at_once_queue_one_stop_per_playback() {
+    let scratch = Scratch::new("at_once").await;
+    scratch.play(P_FOULE, SEANCE, FOULE).await;
+    scratch.play(P_PORTE, SEANCE, PORTE).await;
+    scratch.play(P_CRYPTE, CRYPTE, FOULE).await;
+    let (engine, app) = scratch.serve().await;
+    let (first, second) = tokio::join!(
+        stop_all(&app, json!({ "campaign": VALOMBRE })),
+        stop_all(&app, json!({ "campaign": VALOMBRE })),
+    );
+    assert_eq!(first.0, StatusCode::ACCEPTED, "{}", first.1);
+    assert_eq!(second.0, StatusCode::ACCEPTED, "{}", second.1);
+    let settled = engine.run_once().await.expect("the applier ran");
+    assert_eq!(settled.len(), 3, "{settled:?}");
+    assert!(engine.run_once().await.expect("the applier ran").is_empty());
     scratch.drop().await;
 }
 

@@ -342,17 +342,21 @@ impl ProjectingStore {
         self.repair_stops(None).await;
     }
 
-    /// The playbacks still playing in the campaign `scope` names — in its
-    /// session only, when it names one (`soundbox.stopAll`).
+    /// The playbacks the tables hold still playing in the campaign `scope`
+    /// names — in its session only, when it names one — and the sessions it
+    /// names (`soundbox.stopAll`).
     pub async fn running(
         &self,
         scope: &stop_all::Scope,
-    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+    ) -> std::result::Result<(Vec<String>, Vec<String>), tokio_postgres::Error> {
         let client = self.inner.client().lock().await;
-        let rows = client
-            .query(stops::RUNNING, &[&scope.campaign, &scope.session])
-            .await?;
-        Ok(rows.iter().map(|row| row.get(0)).collect())
+        let params: [&(dyn tokio_postgres::types::ToSql + Sync); 2] =
+            [&scope.campaign, &scope.session];
+        let ids = |rows: Vec<tokio_postgres::Row>| rows.iter().map(|row| row.get(0)).collect();
+        Ok((
+            ids(client.query(stops::RUNNING, &params).await?),
+            ids(client.query(stops::SESSIONS, &params).await?),
+        ))
     }
 
     /// Writes the stop the engine applied on the playback `partition` names —

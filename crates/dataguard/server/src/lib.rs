@@ -623,6 +623,7 @@ async fn stop_all_submitted<L>(
     now: &str,
 ) -> Reply<harness_dataguard::api::Submitted> {
     use axum::http::StatusCode;
+    let _turn = served.stops.turn.lock().await;
     if let Some(key) = body.idempotency_key.as_deref() {
         match served.rows.replays(stop_all::DATA_CAPABILITY, key).await {
             Ok(true) => return reply(StatusCode::ACCEPTED, served.engine.submit(body).await),
@@ -718,12 +719,11 @@ async fn status(
     State(stops): State<Arc<stops::Stops>>,
     Path(id): Path<String>,
 ) -> Reply<serde_json::Value> {
-    // A stop-all's: as its every command stands.
+    // A stop-all's: as its every command stands — those the engine answers.
     let mut others = Vec::new();
     for other in stops.of(&id) {
-        match engine.status(&other).await {
-            Ok(result) => others.push(serde_json::json!(result)),
-            Err(e) => return reply(axum::http::StatusCode::OK, Err(e)),
+        if let Ok(result) = engine.status(&other).await {
+            others.push(serde_json::json!(result));
         }
     }
     reply(

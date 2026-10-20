@@ -4,14 +4,17 @@
 //! A stop-all is judged against what the tables hold before it is queued
 //! ([`RUNNING`]): the playbacks still playing in the campaign, or in one of
 //! its sessions — the engine judges a row alone, and cannot see which
-//! playbacks a campaign has. It is queued as one command per playback, on
+//! playbacks a campaign has — and the playbacks still queued in one of those
+//! sessions ([`SESSIONS`]), which the DM started before « Tout arrêter ». It is queued as one command per playback, on
 //! `SoundPlayback/<its id>`; once the engine applied one, [`PROJECT`] writes
 //! its stop time on the playback's row, never over one it has: a playback
 //! stopped keeps the instant it stopped at (`stop-all`).
 //!
 //! The DM follows one command, the first; [`Stops`] keeps the others under
 //! its id, so that its result says the stop-all applied once every one of
-//! them is, and rejected when one is.
+//! them is, and rejected when one is. Stop-alls are prepared and queued one
+//! at a time ([`Stops::turn`]): two clicks at once in two tabs never queue
+//! two stops on one playback, the second seeing the first's queued.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -27,6 +30,12 @@ pub const RUNNING: &str = "SELECT p.id::text FROM sound_playback p
         AND ($2::text IS NULL OR p.session_id = $2::text::uuid)
         AND p.stopped_at IS NULL
     ORDER BY p.started_at, p.id";
+
+/// The sessions of the campaign `$1` — the one `$2` names only, when it is
+/// not null — whose playbacks a stop-all stops, the ones still queued among
+/// them.
+pub const SESSIONS: &str = "SELECT id::text FROM session
+    WHERE campaign_id = $1::text::uuid AND ($2::text IS NULL OR id = $2::text::uuid)";
 
 /// The stop the engine applied on the playback partition `$1` names — on
 /// every one when it is null — written on its row when it has none: after
@@ -49,6 +58,8 @@ pub const KEPT: usize = 16;
 #[derive(Default)]
 pub struct Stops {
     kept: Mutex<VecDeque<(String, Vec<String>)>>,
+    /// Held while a stop-all reads what plays and queues its stops.
+    pub turn: tokio::sync::Mutex<()>,
 }
 
 impl Stops {
