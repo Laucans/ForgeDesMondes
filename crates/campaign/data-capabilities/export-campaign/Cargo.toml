@@ -1,0 +1,10 @@
+[package]
+name = "export-campaign"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability campaign.exportCampaign: a campaign, its players, its elements with their sheets, aliases and versions, as the tables hold them, made one self-contained JSON archive — and the stamp of its last export, the one field the command writes on its Campaign partition (export-stamps-date)."
+publish = false
+
+[dependencies]
+serde_json = "1"

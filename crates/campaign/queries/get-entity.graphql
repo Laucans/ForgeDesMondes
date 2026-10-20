@@ -1,0 +1,39 @@
+# fields: entity.id, entity.campaignId, entity.type, entity.name, entity.description, entity.notes, character.playerId, character.initialPrompt, character.background, character.behavior, character.strength, character.dexterity, character.constitution, character.intelligence, character.wisdom, character.charisma, character.armorClass, character.hpMax, character.spells, character.actions, character.portraitMediaId, character.tokenMediaId, character.tokenCrop, character.tokenColor, character.dndbeyondId, character.dndbeyondSyncedAt, entityAlias.alias
+# One element's full sheet: a PC or an NPC with its stats, armour class, hit
+# points, spells and actions, token and notes; a place or an event with its
+# name, aliases, description and notes. The DEX modifier is not read: it is
+# derived from the score (dex-modifier-derived, AbilityModifier@1). The
+# campaign's lists are other reads.
+query GetEntity($id: ID!) {
+  entity(id: $id) {
+    id
+    campaignId
+    type
+    name
+    aliases {
+      alias
+    }
+    description
+    notes
+    playerId
+    initialPrompt
+    background
+    behavior
+    strength
+    dexterity
+    constitution
+    intelligence
+    wisdom
+    charisma
+    armorClass
+    hpMax
+    spells
+    actions
+    portraitMediaId
+    tokenMediaId
+    tokenCrop
+    tokenColor
+    dndbeyondId
+    dndbeyondSyncedAt
+  }
+}

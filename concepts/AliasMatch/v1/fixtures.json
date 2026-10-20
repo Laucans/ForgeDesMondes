@@ -1,0 +1,331 @@
+{
+  "concept": "AliasMatch",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a term with a capital and an accent is lowercased and unaccented",
+      "input": {
+        "term": "la Rôdeuse"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": null
+      }
+    },
+    {
+      "name": "the whole term in capitals",
+      "input": {
+        "term": "LA RÔDEUSE"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": null
+      }
+    },
+    {
+      "name": "a term already normalised is unchanged",
+      "input": {
+        "term": "la rodeuse"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": null
+      }
+    },
+    {
+      "name": "spaces around the term are trimmed",
+      "input": {
+        "term": "  la rodeuse \t"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": null
+      }
+    },
+    {
+      "name": "« La Rôdeuse » and « la rodeuse » match",
+      "input": {
+        "term": "La Rôdeuse",
+        "other": "la rodeuse"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": true
+      }
+    },
+    {
+      "name": "« LA RÔDEUSE » and « la rodeuse » match",
+      "input": {
+        "term": "LA RÔDEUSE",
+        "other": "la rodeuse"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": true
+      }
+    },
+    {
+      "name": "terms differing only by surrounding spaces match",
+      "input": {
+        "term": "  la rodeuse",
+        "other": "la rodeuse  "
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": true
+      }
+    },
+    {
+      "name": "terms differing by case, accents and spaces at once match",
+      "input": {
+        "term": " LA RÔDEUSE ",
+        "other": "la Rodeuse"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": true
+      }
+    },
+    {
+      "name": "two different terms do not match",
+      "input": {
+        "term": "la rodeuse",
+        "other": "la taverne"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": false
+      }
+    },
+    {
+      "name": "a term that is a prefix of the other does not match",
+      "input": {
+        "term": "rodeuse",
+        "other": "la rodeuse"
+      },
+      "output": {
+        "normalized_term": "rodeuse",
+        "match": false
+      }
+    },
+    {
+      "name": "a term that stops short of the other's article or tail does not match",
+      "input": {
+        "term": "La Taverne du Sanglier",
+        "other": "la taverne"
+      },
+      "output": {
+        "normalized_term": "la taverne du sanglier",
+        "match": false
+      }
+    },
+    {
+      "name": "every French accent is removed",
+      "input": {
+        "term": "Élève Çà Où Noël Hôtel Naïf Müller Âne Être"
+      },
+      "output": {
+        "normalized_term": "eleve ca ou noel hotel naif muller ane etre",
+        "match": null
+      }
+    },
+    {
+      "name": "an accent written as a letter and a combining mark is removed too",
+      "input": {
+        "term": "Rode\u0301use"
+      },
+      "output": {
+        "normalized_term": "rodeuse",
+        "match": null
+      }
+    },
+    {
+      "name": "a precomposed and a decomposed accent match",
+      "input": {
+        "term": "Rôdeuse",
+        "other": "Ro\u0302deuse"
+      },
+      "output": {
+        "normalized_term": "rodeuse",
+        "match": true
+      }
+    },
+    {
+      "name": "a letter that does not decompose is kept",
+      "input": {
+        "term": "Œuvre Æther Straße"
+      },
+      "output": {
+        "normalized_term": "œuvre æther straße",
+        "match": null
+      }
+    },
+    {
+      "name": "œ is not oe: the two terms do not match",
+      "input": {
+        "term": "cœur",
+        "other": "coeur"
+      },
+      "output": {
+        "normalized_term": "cœur",
+        "match": false
+      }
+    },
+    {
+      "name": "the spaces inside the term are kept",
+      "input": {
+        "term": "la  rodeuse"
+      },
+      "output": {
+        "normalized_term": "la  rodeuse",
+        "match": null
+      }
+    },
+    {
+      "name": "a term with a single and a double inner space do not match",
+      "input": {
+        "term": "la rodeuse",
+        "other": "la  rodeuse"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": false
+      }
+    },
+    {
+      "name": "punctuation and digits are kept",
+      "input": {
+        "term": "L'Ogre-Mage n°2"
+      },
+      "output": {
+        "normalized_term": "l'ogre-mage n°2",
+        "match": null
+      }
+    },
+    {
+      "name": "an apostrophe is not an accent",
+      "input": {
+        "term": "l'Épée",
+        "other": "L'EPEE"
+      },
+      "output": {
+        "normalized_term": "l'epee",
+        "match": true
+      }
+    },
+    {
+      "name": "a blank term normalises to the empty term",
+      "input": {
+        "term": "   "
+      },
+      "output": {
+        "normalized_term": "",
+        "match": null
+      }
+    },
+    {
+      "name": "an empty term normalises to the empty term",
+      "input": {
+        "term": ""
+      },
+      "output": {
+        "normalized_term": "",
+        "match": null
+      }
+    },
+    {
+      "name": "a blank term matches nothing, not even another blank one",
+      "input": {
+        "term": "  ",
+        "other": ""
+      },
+      "output": {
+        "normalized_term": "",
+        "match": false
+      }
+    },
+    {
+      "name": "a blank term does not match a named one",
+      "input": {
+        "term": "",
+        "other": "la rodeuse"
+      },
+      "output": {
+        "normalized_term": "",
+        "match": false
+      }
+    },
+    {
+      "name": "a named term does not match a blank one",
+      "input": {
+        "term": "la rodeuse",
+        "other": " "
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": false
+      }
+    },
+    {
+      "name": "letters of another script are lowercased and kept",
+      "input": {
+        "term": "ÉLÉNA Привет"
+      },
+      "output": {
+        "normalized_term": "elena привет",
+        "match": null
+      }
+    },
+    {
+      "name": "a non-breaking space around the term is trimmed",
+      "input": {
+        "term": "\u00a0la rodeuse\u00a0"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": null
+      }
+    },
+    {
+      "name": "a non-breaking space around a term does not break the match",
+      "input": {
+        "term": "La Rôdeuse\u00a0",
+        "other": "\u00a0la rodeuse"
+      },
+      "output": {
+        "normalized_term": "la rodeuse",
+        "match": true
+      }
+    },
+    {
+      "name": "a mark of any letter is removed: the breve of й",
+      "input": {
+        "term": "Йога"
+      },
+      "output": {
+        "normalized_term": "иога",
+        "match": null
+      }
+    },
+    {
+      "name": "what is not an accent stays as written: kana with a dakuten",
+      "input": {
+        "term": "がっこう"
+      },
+      "output": {
+        "normalized_term": "がっこう",
+        "match": null
+      }
+    },
+    {
+      "name": "a Hangul syllable stays as written",
+      "input": {
+        "term": "한글"
+      },
+      "output": {
+        "normalized_term": "한글",
+        "match": null
+      }
+    }
+  ]
+}

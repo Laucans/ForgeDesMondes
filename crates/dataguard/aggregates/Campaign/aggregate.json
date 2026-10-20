@@ -1,0 +1,106 @@
+{
+  "aggregate": "Campaign",
+  "fields": {
+    "art": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "campaignId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "coverMediaId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "createdAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "entityCounts": {
+      "criticality": "low",
+      "kind": "derived"
+    },
+    "glyph": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "id": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "importedAt": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "kind": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "lastExportedAt": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "lastPlayedOn": {
+      "criticality": "low",
+      "kind": "derived"
+    },
+    "name": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "nextSessionOn": {
+      "criticality": "low",
+      "kind": "derived"
+    },
+    "originCampaignId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "pitch": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "sessionCount": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "soundMasterVolume": {
+      "criticality": "low",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "oneshot-single-session",
+      "onViolation": "reject",
+      "rule": "Un oneshot a exactement une séance : sa création crée cette séance, et on ne peut pas en ajouter une autre."
+    },
+    {
+      "id": "import-creates-copy",
+      "onViolation": "reject",
+      "rule": "Un import crée toujours une nouvelle campagne avec de nouveaux identifiants, même si origin_campaign_id correspond à une campagne existante. L'originale n'est jamais modifiée."
+    },
+    {
+      "id": "export-stamps-date",
+      "onViolation": "reject",
+      "rule": "Un export réussi met à jour last_exported_at et ne modifie rien d'autre."
+    },
+    {
+      "id": "master-volume-range",
+      "onViolation": "reject",
+      "rule": "Le volume global reste entre 0 et 1, et il multiplie le volume propre de chaque son."
+    }
+  ],
+  "relations": [
+    {
+      "from": "Campaign.coverMediaId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    }
+  ]
+}

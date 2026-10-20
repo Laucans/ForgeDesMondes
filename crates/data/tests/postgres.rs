@@ -340,3 +340,203 @@ async fn a_failing_read_is_a_query_error() {
         .expect_err("no such table");
     assert!(matches!(error, Error::Query(_)), "{error:?}");
 }
+
+/// A scratch table whose BEFORE INSERT trigger refuses a key it already holds,
+/// as the Entity aggregate's version trigger does.
+const SEEN: &str = "CREATE TABLE seen (
+    n int PRIMARY KEY,
+    label text NOT NULL DEFAULT 'default',
+    CHECK (n > 0)
+);
+CREATE FUNCTION seen_once() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM seen WHERE n = NEW.n) THEN
+        RAISE EXCEPTION 'seen again';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER seen_once BEFORE INSERT ON seen FOR EACH ROW EXECUTE FUNCTION seen_once();";
+
+fn seen(rows: serde_json::Value) -> data::Table {
+    data::Table {
+        name: "seen",
+        key: "n",
+        columns: &["n", "label"],
+        rows: rows.as_array().expect("rows").clone(),
+    }
+}
+
+#[tokio::test]
+async fn rows_are_inserted_once_and_a_second_load_inserts_none() {
+    let mut s = Scratch::new("insert").await;
+    s.file("01_seen.sql", SEEN);
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    let rows = json!([{ "n": 1, "label": "one" }, { "n": 2, "label": "two" }]);
+
+    let first = data::insert_missing(&mut s.client, &[seen(rows.clone())])
+        .await
+        .expect("inserted");
+    assert_eq!(first, 2);
+    // The second load tries no row again: the trigger would refuse it.
+    let second = data::insert_missing(&mut s.client, &[seen(rows)])
+        .await
+        .expect("nothing to insert");
+    assert_eq!(second, 0);
+
+    let labels: Vec<String> = s
+        .client
+        .query("SELECT label FROM seen ORDER BY n", &[])
+        .await
+        .expect("a read")
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    assert_eq!(labels, ["one", "two"]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_column_the_table_is_not_given_takes_its_default() {
+    let mut s = Scratch::new("default").await;
+    s.file("01_seen.sql", SEEN);
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    let table = data::Table {
+        columns: &["n"],
+        ..seen(json!([{ "n": 7 }]))
+    };
+    data::insert_missing(&mut s.client, &[table])
+        .await
+        .expect("inserted");
+    let labels: Vec<String> = s
+        .client
+        .query("SELECT label FROM seen", &[])
+        .await
+        .expect("a read")
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    assert_eq!(labels, ["default"]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_row_the_table_holds_is_left_as_it_is() {
+    let mut s = Scratch::new("kept").await;
+    s.file("01_seen.sql", SEEN);
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    data::insert_missing(&mut s.client, &[seen(json!([{ "n": 1, "label": "mine" }]))])
+        .await
+        .expect("inserted");
+    let added = data::insert_missing(
+        &mut s.client,
+        &[seen(
+            json!([{ "n": 1, "label": "theirs" }, { "n": 2, "label": "new" }]),
+        )],
+    )
+    .await
+    .expect("inserted");
+    assert_eq!(added, 1);
+    let labels: Vec<String> = s
+        .client
+        .query("SELECT label FROM seen ORDER BY n", &[])
+        .await
+        .expect("a read")
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    assert_eq!(labels, ["mine", "new"]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_refused_row_rolls_the_whole_load_back() {
+    let mut s = Scratch::new("rollback").await;
+    s.file("01_seen.sql", SEEN);
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    // The second row breaks the CHECK: the first goes with it.
+    let refused = data::insert_missing(&mut s.client, &[seen(json!([{ "n": 1 }, { "n": -1 }]))])
+        .await
+        .expect_err("n > 0 is checked");
+    assert!(matches!(refused, Error::Database(_)), "{refused:?}");
+    assert_eq!(s.ints("SELECT count(*)::int FROM seen").await, [0]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_name_that_is_not_a_plain_identifier_is_refused() {
+    let mut client = admin().await;
+    let table = data::Table {
+        name: "seen\" CASCADE; --",
+        key: "n",
+        columns: &["n"],
+        rows: Vec::new(),
+    };
+    let refused = data::insert_missing(&mut client, &[table])
+        .await
+        .expect_err("a quote is not an identifier");
+    assert!(matches!(refused, Error::Identifier(_)), "{refused:?}");
+}
+
+#[tokio::test]
+async fn of_rows_sharing_a_key_the_first_is_inserted() {
+    let mut s = Scratch::new("twice").await;
+    s.file("01_seen.sql", SEEN);
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    let added = data::insert_missing(
+        &mut s.client,
+        &[seen(json!([
+            { "n": 1, "label": "first" },
+            { "n": 1, "label": "second" },
+        ]))],
+    )
+    .await
+    .expect("the load is not refused for a repeated key");
+    assert_eq!(added, 1);
+    let labels: Vec<String> = s
+        .client
+        .query("SELECT label FROM seen", &[])
+        .await
+        .expect("a read")
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    assert_eq!(labels, ["first"]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn an_identifier_may_hold_digits_and_underscores_and_nothing_else() {
+    let mut s = Scratch::new("names").await;
+    s.file(
+        "01_names.sql",
+        "CREATE TABLE seen_2 (id_1 int PRIMARY KEY, label_a text NOT NULL);",
+    );
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    let table = data::Table {
+        name: "seen_2",
+        key: "id_1",
+        columns: &["id_1", "label_a"],
+        rows: vec![json!({ "id_1": 1, "label_a": "one" })],
+    };
+    let added = data::insert_missing(&mut s.client, &[table])
+        .await
+        .expect("digits and underscores are plain");
+    assert_eq!(added, 1);
+
+    for refused in ["", "Seen", "seen-2", "seen 2", "sé"] {
+        let table = data::Table {
+            name: refused,
+            key: "id_1",
+            columns: &["id_1"],
+            rows: Vec::new(),
+        };
+        let error = data::insert_missing(&mut s.client, &[table])
+            .await
+            .expect_err("not a plain identifier");
+        assert!(
+            matches!(error, Error::Identifier(_)),
+            "{refused:?}: {error:?}"
+        );
+    }
+    s.drop().await;
+}

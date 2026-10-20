@@ -18,11 +18,19 @@
 //! product that [`Reads`] serves, over the connection of its own that
 //! [`router_reading`] is given; [`router`] serves none.
 //!
-//! Over a database, the engine's writes of the AI settings reach the
-//! product's tables through [`projection::ProjectingStore`]; a save of them
+//! Over a database, the engine's writes of the AI settings and of the
+//! campaign's elements reach the product's tables through
+//! [`projection::ProjectingStore`]; a save of the AI settings
 //! (`ai.saveSettings`) and a connection test (`ai.testConnection`) are
 //! prepared before they are submitted, with the `llm` port [`router`] is
-//! given.
+//! given. A save of an element (`campaign.saveEntity`) is prepared against
+//! the element's row as the queue will leave it, which [`Rows`] reads, and
+//! its version is settled when it is applied ([`versioning::Versioning`]). A
+//! restoration of an element (`campaign.restoreEntityVersion`) is prepared
+//! so too, against the versions the element has, which [`Rows`] keeps. An
+//! export of a campaign (`campaign.exportCampaign`) is prepared against what
+//! the tables hold of it, which [`Rows`] reads: its archive is answered with
+//! the command's result once its stamp is applied.
 
 use std::sync::Arc;
 
@@ -32,7 +40,9 @@ use axum::{Json, Router};
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::api::{HoldRequest, ReadResponse, ReviewDecision, Submission};
+use harness_dataguard::command::Entry;
 pub use harness_dataguard::engine::Engine;
+use harness_dataguard::guard::Invariants;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::postgres::{PgStore, SystemClock};
@@ -41,10 +51,26 @@ use harness_dataguard::store::Store;
 use ports_llm::Llm;
 
 mod ai_settings;
+mod aliases;
+mod battlemap_instance;
+mod campaign;
+mod diffusion;
+mod entity;
+mod exports;
+mod history;
+mod media;
+mod note_import;
+mod player;
 mod projection;
 mod reads;
+mod session;
+mod sound;
+mod sound_playback;
+mod suggestion;
+mod versioning;
 
 pub use reads::Reads;
+pub use versioning::Rows;
 
 /// The `DATABASE_URL` that means no database: the in-memory store.
 pub const MEMORY: &str = "memory";
@@ -55,21 +81,32 @@ mod registry {
 
 type Shared = Arc<Engine>;
 
-/// What the wire protocol is served with: the engine, the `llm` port a
-/// save of the AI settings detects its API type through, and the reads.
+/// What the wire protocol is served with: the engine and its rows, the
+/// `llm` port a save of the AI settings detects its API type through, and the
+/// reads.
 struct Served<L> {
     engine: Shared,
+    rows: Rows,
     llm: Arc<L>,
     reads: Arc<Reads>,
+    exports: Arc<exports::Exports>,
 }
 
 impl<L> Clone for Served<L> {
     fn clone(&self) -> Self {
         Self {
             engine: self.engine.clone(),
+            rows: self.rows.clone(),
             llm: self.llm.clone(),
             reads: self.reads.clone(),
+            exports: self.exports.clone(),
         }
+    }
+}
+
+impl<L> FromRef<Served<L>> for Arc<exports::Exports> {
+    fn from_ref(served: &Served<L>) -> Self {
+        served.exports.clone()
     }
 }
 
@@ -106,6 +143,27 @@ pub enum PlantError {
 /// [`PlantError`] when the database cannot be reached, a manifest does not
 /// parse, or the engine cannot load its queue.
 pub async fn plant(url: &str) -> Result<Engine, PlantError> {
+    Ok(planted(url).await?.engine)
+}
+
+/// What [`planted`] answers: the engine, and the rows it holds, which the
+/// wire protocol prepares a save of an element against.
+pub struct Planted {
+    /// The engine.
+    pub engine: Engine,
+    /// Its rows.
+    pub rows: Rows,
+}
+
+/// [`plant`], with the engine's rows.
+///
+/// # Errors
+///
+/// As [`plant`].
+pub async fn planted(url: &str) -> Result<Planted, PlantError> {
+    let aliases = Arc::new(aliases::Aliases::default());
+    let history = Arc::new(history::History::default());
+    let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
     } else {
@@ -115,23 +173,41 @@ pub async fn plant(url: &str) -> Result<Engine, PlantError> {
                 eprintln!("postgres: {e}");
             }
         });
-        let store = projection::ProjectingStore::new(PgStore::open(client).await?);
+        let store = projection::ProjectingStore::new(PgStore::open(client).await?, aliases.clone())
+            .keeping(history.clone());
         store.repair().await;
         store.repair_tests().await;
-        Arc::new(store)
+        store.elements().await;
+        store.versions(None).await;
+        let store = Arc::new(store);
+        tables = Some(store.clone());
+        store
     };
-    let engine = bound(Engine::new(
-        store,
-        Arc::new(MemoryNotifier::default()),
-        Arc::new(SystemClock),
-    ))?;
+    // Over memory, the engine's rows are the tables: they keep the terms and
+    // the versions.
+    let kept = (url == MEMORY).then(|| aliases.clone());
+    let versions = (url == MEMORY).then(|| history.clone());
+    let store: Arc<dyn Store> =
+        Arc::new(versioning::Versioning::new(store, kept).keeping(versions));
+    let engine = bound(
+        Engine::new(
+            store.clone(),
+            Arc::new(MemoryNotifier::default()),
+            Arc::new(SystemClock),
+        ),
+        aliases,
+    )?;
     engine.load().await?;
-    Ok(engine)
+    Ok(Planted {
+        engine,
+        rows: Rows::keeping(store, history).reading(tables),
+    })
 }
 
 /// `engine` bound to what the checkout holds: the registry, every
-/// aggregate and DataCapability, and the invariants the product executes.
-fn bound(engine: Engine) -> Result<Engine, PlantError> {
+/// aggregate and DataCapability, and the invariants the product executes —
+/// `alias-unique-in-campaign` reading `aliases`.
+fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, PlantError> {
     let mut engine = engine.with_registry(Registry::parse(registry::REGISTRY)?);
     for text in registry::AGGREGATES {
         engine = engine.with_aggregate(Aggregate::parse(text)?);
@@ -139,21 +215,58 @@ fn bound(engine: Engine) -> Result<Engine, PlantError> {
     for text in registry::DATA_CAPABILITIES {
         engine = engine.with_data_capability(DataCapability::parse(text)?);
     }
-    engine = engine.with_invariants(Arc::new(ai_settings::AiSettings));
+    engine = engine.with_invariants(Arc::new(Product {
+        entity: entity::Entity::new(aliases),
+    }));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
     Ok(engine)
 }
 
-/// The shell's wire protocol, answered by `engine`; `llm` is the port a
-/// save of the AI settings reaches (a generic: [`Llm`] is not dyn-compatible).
-/// No Capability reads a row: see [`router_reading`].
-pub fn router<L: Llm + 'static>(engine: Arc<Engine>, llm: Arc<L>) -> Router {
-    router_reading(engine, llm, Arc::new(Reads::none()))
+/// The invariants of every aggregate the product executes: the engine holds
+/// one judge, and each aggregate's own judges its rows alone.
+struct Product {
+    entity: entity::Entity,
+}
+
+impl Invariants for Product {
+    fn violated(
+        &self,
+        aggregate: &str,
+        state: &std::collections::BTreeMap<String, serde_json::Value>,
+        entry: &Entry,
+    ) -> Vec<String> {
+        let judges: [&dyn Invariants; 12] = [
+            &ai_settings::AiSettings,
+            &campaign::Campaign,
+            &player::Player,
+            &self.entity,
+            &media::Media,
+            &note_import::NoteImport,
+            &session::Session,
+            &sound::Sound,
+            &battlemap_instance::BattlemapInstance,
+            &diffusion::Diffusion,
+            &sound_playback::SoundPlayback,
+            &suggestion::Suggestion,
+        ];
+        judges
+            .iter()
+            .flat_map(|judge| judge.violated(aggregate, state, entry))
+            .collect()
+    }
+}
+
+/// The shell's wire protocol, answered by `engine`, whose rows are `rows`;
+/// `llm` is the port a save of the AI settings reaches (a generic: [`Llm`] is
+/// not dyn-compatible). No Capability reads a row: see [`router_reading`].
+pub fn router<L: Llm + 'static>(engine: Arc<Engine>, rows: Rows, llm: Arc<L>) -> Router {
+    router_reading(engine, rows, llm, Arc::new(Reads::none()))
 }
 
 /// [`router`], its reads answered through `reads`.
 pub fn router_reading<L: Llm + 'static>(
     engine: Arc<Engine>,
+    rows: Rows,
     llm: Arc<L>,
     reads: Arc<Reads>,
 ) -> Router {
@@ -169,7 +282,13 @@ pub fn router_reading<L: Llm + 'static>(
         .route("/holds/{id}/release", post(release))
         .route("/reviews/{id}", post(decide))
         .route("/dataVersion", get(version))
-        .with_state(Served { engine, llm, reads })
+        .with_state(Served {
+            engine,
+            rows,
+            llm,
+            reads,
+            exports: Arc::default(),
+        })
 }
 
 /// The single applier: every second, each partition's head. It runs until
@@ -213,12 +332,47 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// state it writes (`save_settings::prepare`), and its refusal, when its URL
 /// is not recognised, is told among the warnings. A connection test is first
 /// run through the port, and only its outcome is submitted
-/// (`test_connection::prepare`): the configuration it tested never is.
+/// (`test_connection::prepare`): the configuration it tested never is. A
+/// save of an element is made the state and the version it writes on the
+/// element's partition (`save_entity::prepare`), against the row the
+/// commands queued there will leave; a new element is given its id, and a
+/// save the tables could never hold is refused, 422, before it is queued. A
+/// restoration is made so the state and the version it writes
+/// (`restore_entity_version::prepare`), against the element's row and its
+/// versions: one naming a version the element does not have — or any of an
+/// element the engine does not hold — is refused, 404, and one naming no
+/// element, no version or a change there is not, 422. An export
+/// (`export_campaign::prepare`) is made the stamp it writes on its campaign's
+/// partition, and its archive is built from what the tables hold of the
+/// campaign now and kept until the command is applied ([`status`]): one of a
+/// campaign the tables do not hold is refused, 404, and one they cannot make
+/// an archive of, 422 — neither is queued, so nothing changes.
+///
+/// The element a command targets is its `targetId`, or the `id` of its
+/// `target`, as the Micro-UIs and the rules' tests name it.
 async fn submit<L: Llm>(
     State(served): State<Served<L>>,
-    Json(mut body): Json<Submission>,
+    Json(raw): Json<serde_json::Value>,
 ) -> Reply<harness_dataguard::api::Submitted> {
+    let target = raw
+        .get("target")
+        .and_then(|target| target.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let mut body: Submission = match serde_json::from_value(raw) {
+        Ok(body) => body,
+        Err(e) => {
+            return Err((
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            ));
+        }
+    };
+    if body.target_id.is_none() {
+        body.target_id = target;
+    }
     let mut refusal = None;
+    let mut archive = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
     let now = || {
@@ -241,21 +395,160 @@ async fn submit<L: Llm>(
         let prepared = test_connection::prepare(served.llm.as_ref(), &body.payload, &now()).await;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
+    } else if save_entity::names(&body.data_capability) {
+        let unrandom = |_| Error::Store("no randomness for an id".to_string());
+        let named = save_entity::element_id(&body.payload).or_else(|| body.target_id.clone());
+        let ids = match named {
+            Some(id) => fresh_uuid().map(|version| (id, version)),
+            None => fresh_uuid().and_then(|id| fresh_uuid().map(|version| (id, version))),
+        };
+        let (id, version) = match ids.map_err(unrandom) {
+            Ok(ids) => ids,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let base = match served.rows.projected(&format!("Entity/{id}")).await {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let now = now();
+        let fresh = save_entity::Fresh {
+            entity: &id,
+            version: &version,
+            now: &now,
+        };
+        match save_entity::prepare(&body.payload, &base, fresh) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            // What the tables could never hold is not queued.
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
+    } else if restore_entity_version::names(&body.data_capability) {
+        let id = body
+            .target_id
+            .clone()
+            .or_else(|| restore_entity_version::element_id(&body.payload))
+            .unwrap_or_default();
+        let version = match fresh_uuid() {
+            Ok(version) => version,
+            Err(_) => {
+                let e = Error::Store("no randomness for an id".to_string());
+                return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+            }
+        };
+        let base = match served.rows.projected(&format!("Entity/{id}")).await {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let now = now();
+        let fresh = restore_entity_version::Fresh {
+            version: &version,
+            now: &now,
+        };
+        let history = served.rows.versions(&id);
+        match restore_entity_version::prepare(&body.payload, &base, &history, &id, fresh) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(id);
+            }
+            Err(refusal) => {
+                let status = if refusal == restore_entity_version::Refusal::UnknownVersion {
+                    axum::http::StatusCode::NOT_FOUND
+                } else {
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY
+                };
+                return Err((
+                    status,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
+    } else if export_campaign::names(&body.data_capability) {
+        let id = body
+            .target_id
+            .clone()
+            .or_else(|| export_campaign::campaign_id(&body.payload))
+            .unwrap_or_default();
+        let tables = match served.rows.archived(&id).await {
+            Ok(Some(tables)) => tables,
+            Ok(None) => {
+                return Err((
+                    axum::http::StatusCode::NOT_FOUND,
+                    Json(
+                        serde_json::json!({ "error": export_campaign::Refusal::NoCampaign.to_string() }),
+                    ),
+                ));
+            }
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        match export_campaign::prepare(&tables, &now()) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+                archive = Some(prepared.archive);
+            }
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
+        if let Some(archive) = archive {
+            served.exports.keep(&submitted.command_id, archive);
+        }
         submitted
     });
     reply(axum::http::StatusCode::ACCEPTED, submitted)
 }
 
-async fn status(State(engine): State<Shared>, Path(id): Path<String>) -> Reply<serde_json::Value> {
+/// A random (version 4) uuid: a new element's id, a version's.
+fn fresh_uuid() -> Result<String, getrandom::Error> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)?;
+    // The version (4) and the variant (10), on the bits cleared for them.
+    bytes[6] = 0x40 + (bytes[6] & 0x0f);
+    bytes[8] = 0x80 + (bytes[8] & 0x3f);
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    Ok(format!(
+        "{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    ))
+}
+
+/// A command's result; an export's, once applied, with its archive —
+/// `result.archive.file`, the file's name, and `result.archive.content`, the
+/// document —
+/// which the shell hands to the DM as a download.
+async fn status(
+    State(engine): State<Shared>,
+    State(exports): State<Arc<exports::Exports>>,
+    Path(id): Path<String>,
+) -> Reply<serde_json::Value> {
     reply(
         axum::http::StatusCode::OK,
-        engine
-            .status(&id)
-            .await
-            .map(|r| serde_json::json!({ "result": r })),
+        engine.status(&id).await.map(|r| {
+            let mut answer = serde_json::json!({ "result": r });
+            let applied = answer["result"]["status"] == "applied";
+            if let Some(archive) = exports.of(&id).filter(|_| applied) {
+                answer["result"]["archive"] =
+                    serde_json::json!({ "file": archive.file, "content": archive.content });
+            }
+            answer
+        }),
     )
 }
 
@@ -352,6 +645,8 @@ async fn decide(
 struct Read {
     #[serde(default)]
     sha256: Option<String>,
+    #[serde(default)]
+    variables: serde_json::Value,
 }
 
 /// The hash `scripts/queries.sh` registered for `capability`.
@@ -380,7 +675,10 @@ async fn capability(
         .or_else(|| registered(&id))
         .unwrap_or_default();
     let answer = match engine.served(&id, sha256) {
-        Ok(()) => match (engine.data_version().await, reads.run(&id).await) {
+        Ok(()) => match (
+            engine.data_version().await,
+            reads.run(&id, &body.variables).await,
+        ) {
             (Ok(as_of), Ok(data)) => Ok(ReadResponse { as_of, data }),
             (Err(e), _) | (_, Err(e)) => Err(e),
         },
@@ -410,11 +708,15 @@ mod tests {
 
     /// What `router` answers to one request, over the in-memory engine.
     async fn answer(request: Request<Body>) -> (StatusCode, serde_json::Value) {
-        let engine = plant(MEMORY).await.expect("the in-memory engine");
-        let response = router(Arc::new(engine), Arc::new(ports_llm::fake::FakeLlm::new()))
-            .oneshot(request)
-            .await
-            .expect("an answer");
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        let response = router(
+            Arc::new(engine),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+        )
+        .oneshot(request)
+        .await
+        .expect("an answer");
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -470,15 +772,18 @@ mod tests {
     /// The same, served with `llm`: a clone shares its journal.
     async fn served_by(llm: ports_llm::fake::FakeLlm) -> (Arc<Engine>, Arc<MemoryStore>, Router) {
         let store = Arc::new(MemoryStore::default());
-        let engine = bound(Engine::new(
-            store.clone(),
-            Arc::new(MemoryNotifier::default()),
-            Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
-        ))
+        let engine = bound(
+            Engine::new(
+                store.clone(),
+                Arc::new(MemoryNotifier::default()),
+                Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
+            ),
+            Arc::default(),
+        )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
         let engine = Arc::new(engine);
-        let app = router(engine.clone(), Arc::new(llm));
+        let app = router(engine.clone(), Rows::new(store.clone()), Arc::new(llm));
         (engine, store, app)
     }
 
@@ -863,11 +1168,34 @@ mod tests {
     }
 
     #[test]
+    fn a_fresh_uuid_is_a_random_version_4_uuid() {
+        let drawn: Vec<String> = (0..256)
+            .map(|_| fresh_uuid().expect("randomness"))
+            .collect();
+        for id in &drawn {
+            let chars: Vec<char> = id.chars().collect();
+            assert_eq!(chars.len(), 36, "{id}");
+            for (i, c) in chars.iter().enumerate() {
+                match i {
+                    8 | 13 | 18 | 23 => assert_eq!(*c, '-', "{id}"),
+                    14 => assert_eq!(*c, '4', "{id}"),
+                    19 => assert!("89ab".contains(*c), "{id}"),
+                    _ => assert!(c.is_ascii_hexdigit() && !c.is_ascii_uppercase(), "{id}"),
+                }
+            }
+        }
+        let mut distinct = drawn.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), drawn.len());
+    }
+
+    #[test]
     fn a_capability_is_registered_under_the_hash_of_its_query() {
         let hash = registered("ai.getSettings").expect("ai.getSettings is registered");
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "{hash}");
-        assert_eq!(registered("campaign.listCampaigns"), None);
+        assert_eq!(registered("nothing.registered"), None);
     }
 
     #[tokio::test]
@@ -885,15 +1213,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_campaign_capability_the_product_serves_has_a_persisted_query() {
+        let variables =
+            serde_json::json!({ "variables": { "campaign": "c", "id": "e", "entity": "e" } });
+        for id in [
+            "campaign.listCampaigns",
+            "campaign.getCampaign",
+            "campaign.listPlayers",
+            "campaign.listCharacters",
+            "campaign.listPlaces",
+            "campaign.listEvents",
+            "campaign.getEntity",
+            "campaign.listEntityVersions",
+        ] {
+            assert!(registered(id).is_some(), "{id} has no persisted query");
+            let (status, answered) = read(id, variables.clone()).await;
+            assert_eq!(status, StatusCode::OK, "{id}: {answered}");
+        }
+    }
+
+    #[tokio::test]
     async fn a_read_under_another_hash_or_of_no_registered_query_is_404() {
         for (id, body) in [
             (
                 "ai.getSettings",
                 serde_json::json!({ "sha256": "0".repeat(64) }),
             ),
-            ("campaign.listCampaigns", serde_json::json!({})),
+            ("nothing.registered", serde_json::json!({})),
             (
-                "campaign.listCampaigns",
+                "nothing.registered",
                 serde_json::json!({ "sha256": "0".repeat(64) }),
             ),
         ] {
