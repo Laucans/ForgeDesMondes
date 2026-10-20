@@ -1,0 +1,47 @@
+{
+  "dataCapability": "media.uploadMedia",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "Media",
+    "id": "$id"
+  },
+  "touches": [
+    "Media.id",
+    "Media.campaignId",
+    "Media.kind",
+    "Media.title",
+    "Media.filePath",
+    "Media.widthPx",
+    "Media.heightPx",
+    "Media.placeId",
+    "Media.uploadedAt",
+    "Media.mediaId",
+    "Media.hexSizePx",
+    "Media.offsetX",
+    "Media.offsetY",
+    "Media.orientation",
+    "Media.color",
+    "Media.opacity"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign the media is added to",
+    "kind": "'battlemap' | 'illustration' — a battlemap arrives with its default grid, an illustration with none",
+    "title": "string — not blank",
+    "file": "string — the local path the DM chose; no file is copied. Optional, '' when none",
+    "width": "integer ≥ 0 — the image's width in pixels; optional, 0 when unknown",
+    "height": "integer ≥ 0 — the image's height in pixels; optional, 0 when unknown",
+    "place": "uuid | null — optional: a « lieu » of the same campaign (media-place-is-lieu)"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "grid-only-for-battlemap",
+    "hex-is-five-feet",
+    "grid-values-range",
+    "media-place-is-lieu"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

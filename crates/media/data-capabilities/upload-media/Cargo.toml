@@ -1,0 +1,10 @@
+[package]
+name = "upload-media"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability media.uploadMedia: a battlemap or an illustration added to a campaign on its own Media partition, a battlemap with its default grid at 5 feet per hex — the wire payload mapped, its place judged a lieu of the campaign before it is queued."
+publish = false
+
+[dependencies]
+serde_json = "1"

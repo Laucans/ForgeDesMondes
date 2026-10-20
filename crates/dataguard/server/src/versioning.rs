@@ -150,7 +150,7 @@ impl Store for Versioning {
 }
 
 /// The rows the engine holds, as a command about to be submitted sees them,
-/// and — over a database — what its tables hold of a campaign.
+/// and — over a database — what its tables hold of a campaign or a place.
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
@@ -195,6 +195,68 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
+    }
+
+    /// The element `id` names as a media's place reads it — its type and its
+    /// campaign — from the tables over a database, which hold the fixtures'
+    /// elements and every one applied; from the engine's row over its
+    /// memory. `None` when there is no such live element.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn place(&self, id: &str) -> Result<Option<upload_media::Place>> {
+        let Some(tables) = &self.tables else {
+            // The ids the server makes are lower case.
+            let row = self
+                .store
+                .row(&format!("{ENTITY}{}", id.to_ascii_lowercase()))
+                .await?;
+            let text = |field: &str| row.get(field).and_then(Value::as_str).map(str::to_owned);
+            return Ok(text("type")
+                .zip(text("entityCampaignId"))
+                .map(|(kind, campaign)| upload_media::Place { kind, campaign }));
+        };
+        tables.place(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "entity not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether the tables hold the campaign `id` names, live — over the
+    /// engine's memory, which has no table, every campaign is held.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn holds_campaign(&self, id: &str) -> Result<bool> {
+        let Some(tables) = &self.tables else {
+            return Ok(true);
+        };
+        tables.holds_campaign(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether a command of `data_capability` was submitted under `key`
+    /// already: its replay is the engine's to answer, as it was queued.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn replayed(&self, data_capability: &str, key: &str) -> Result<bool> {
+        // The engine keeps a key under the id alone, its `@version` dropped.
+        let id = data_capability.split('@').next().unwrap_or_default();
+        self.store
+            .by_idempotency_key(id, key)
+            .await
+            .map(|command| command.is_some())
     }
 
     /// The versions of `element` a restoration can name, oldest first.
