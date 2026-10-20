@@ -1,0 +1,20 @@
+{
+  "dataCapability": "soundbox.stopAll",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "SoundPlayback",
+    "id": "$playback"
+  },
+  "touches": ["SoundPlayback.stoppedAt"],
+  "payload": {
+    "campaign": "uuid — the campaign whose playbacks stop, or the request's target: the server queues one command per playback still playing — the tables' and those queued to start — targeting the playback, its partition `SoundPlayback/<its id>`, writing its stoppedAt and nothing else",
+    "session": "uuid — optional: only the playbacks of this session of the campaign stop; by default those of every session of the campaign"
+  },
+  "mode": "relative",
+  "invariants": ["stop-all"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

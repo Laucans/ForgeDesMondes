@@ -27,6 +27,7 @@ use serde_json::Value;
 use crate::aliases::Aliases;
 use crate::history::History;
 use crate::projection::ProjectingStore;
+use crate::stops::PLAYBACK;
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -195,6 +196,60 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
+    }
+
+    /// The playbacks of the campaign `scope` names — of its one session, when
+    /// it names one — each with its row as the commands queued on it will
+    /// leave it (`soundbox.stopAll`): those the tables hold still playing,
+    /// and those whose commands queued start them in one of its sessions.
+    /// Over the engine's memory, which has no table, none.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn running(
+        &self,
+        scope: &stop_all::Scope,
+    ) -> Result<Vec<(String, BTreeMap<String, Value>)>> {
+        let Some(tables) = &self.tables else {
+            return Ok(Vec::new());
+        };
+        let (ids, sessions) = tables.running(scope).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "playbacks not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        // The queue, read once: what each playback's commands write, in order.
+        let mut pending = self.store.pending().await?;
+        pending.sort_by_key(|entry| entry.position);
+        let mut queued: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
+        for entry in pending {
+            if let Some(id) = entry.partition.strip_prefix(PLAYBACK) {
+                queued
+                    .entry(id.to_lowercase())
+                    .or_default()
+                    .extend(entry.payload);
+            }
+        }
+        let started = queued.iter().filter_map(|(id, written)| {
+            let session = written.get("sessionId").and_then(Value::as_str)?;
+            sessions
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(session))
+                .then(|| id.clone())
+        });
+        let mut running = Vec::new();
+        for id in ids.into_iter().chain(started) {
+            if running.iter().any(|(known, _)| *known == id) {
+                continue;
+            }
+            let mut row = self.store.row(&format!("{PLAYBACK}{id}")).await?;
+            row.extend(queued.get(&id).cloned().unwrap_or_default());
+            running.push((id, row));
+        }
+        Ok(running)
     }
 
     /// What the tables hold of the sound a playback names, and of the

@@ -1,0 +1,10 @@
+[package]
+name = "stop-all"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.stopAll: « Tout arrêter » — every playback still playing in the campaign, or in one of its sessions, gets its stop time (stop-all); a playback stopped already keeps the one it has, and nothing starts or changes volume."
+publish = false
+
+[dependencies]
+serde_json = "1"
