@@ -351,7 +351,14 @@ async fn a_window_whose_illustration_is_gone_is_rejected_under_window_proportion
     let (answer, state, violations) = resized(&engine, &app, 0.6, 0.6).await;
     assert_eq!(state, State::Rejected, "{answer}");
     assert_eq!(violations, ["window-proportional"]);
-    assert_eq!(answer["warnings"], json!([resize_window::NO_PROPORTIONS]));
+    // The DataGuard's own warning first, then why.
+    assert_eq!(
+        answer["warnings"],
+        json!([
+            "invariant(s) at risk: window-proportional",
+            resize_window::NO_PROPORTIONS
+        ])
+    );
     assert_eq!(scratch.diffusion(SEANCE).await, before);
     scratch.drop().await;
 }
