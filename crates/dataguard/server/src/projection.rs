@@ -833,8 +833,8 @@ impl Store for ProjectingStore {
         };
         // A close is never undone: a session the engine closed keeps its
         // close, its table lagging behind until its projection is made again.
-        let closed = partition.starts_with(SESSION)
-            && row.get("sessionStatus").and_then(Value::as_str) == Some("closed");
+        // Only Session declares `sessionStatus`.
+        let closed = row.get("sessionStatus").and_then(Value::as_str) == Some("closed");
         let kept: Vec<(String, Value)> = if closed {
             CLOSE
                 .iter()
