@@ -157,8 +157,9 @@ impl Scratch {
     }
 
     /// The engine as the server plants it over this database — repairing
-    /// what the tables lost — with the test-only DataCapability that ends a
-    /// combat, table.endCombat's stand-in, and its wire protocol.
+    /// what the tables lost — with the test-only DataCapabilities that end a
+    /// combat and delete it, table.endCombat's and table.resetBattlemap's
+    /// stand-ins, and its wire protocol.
     async fn serve(&self) -> (Arc<Engine>, Router) {
         let Planted { engine, rows } = planted(&self.url)
             .await
@@ -175,11 +176,11 @@ impl Scratch {
             });
             DataCapability::parse(&manifest.to_string()).expect("contract F")
         };
-        let engine = Arc::new(engine.with_data_capability(stand_in(
-            "test.endCombat",
-            "update",
-            "$combatId",
-        )));
+        let engine = Arc::new(
+            engine
+                .with_data_capability(stand_in("test.endCombat", "update", "$combatId"))
+                .with_data_capability(stand_in("test.resetCombat", "delete", "$combatId")),
+        );
         let app = router(
             engine.clone(),
             rows,
@@ -466,6 +467,20 @@ async fn an_entry_of_another_instance_or_of_an_ended_combat_is_refused_and_nothi
     assert_eq!(remove(&app, &bandit, None).await.0, StatusCode::CONFLICT);
     assert_eq!(applied(&engine).await, 0);
     assert_eq!(s.carousel().await.len(), 4);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn an_entry_of_a_combat_whose_deletion_is_queued_is_none_to_remove() {
+    let s = Scratch::new("reset").await;
+    let (engine, app) = s.serve().await;
+    started(&engine, &app).await;
+    let bandit = s.entry(T_BANDIT).await;
+    let (combat, _) = s.turn().await;
+    let (status, body) = send(&app, "test.resetCombat@1", &combat, json!({}), None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(remove(&app, &bandit, None).await.0, StatusCode::NOT_FOUND);
+    drop(engine);
     s.drop().await;
 }
 

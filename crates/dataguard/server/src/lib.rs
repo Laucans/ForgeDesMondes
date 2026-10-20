@@ -720,6 +720,7 @@ async fn submit<L: Llm>(
             body.target_id = Some(prepared.target_id);
         }
     } else if remove_participant::names(&body.data_capability) {
+        holding = Some(REMOVING.lock().await);
         removal(&served, &mut body).await?;
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
@@ -755,6 +756,11 @@ static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// its new list is queued: two badges set at once on a token never both
 /// start from the same list, and none is lost.
 static MARKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// One participant's removal at a time, from the read of its entry and its
+/// combat until it is queued: two removals of one entry sent at once never
+/// both pass, the second reading the first's tombstone queued.
+static REMOVING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A refusal before a command is queued: its status, and why in words.
 type Refused = (axum::http::StatusCode, Json<serde_json::Value>);
@@ -1077,7 +1083,9 @@ fn draw() -> Result<i64, getrandom::Error> {
 /// (`table.removeParticipant`), made the deletion of its entry's partition
 /// (`remove_participant::prepare`) — the fixtures' slugs it names read as the
 /// ids the tables hold them by — against the entry's row and its combat's as
-/// the queue will leave them: one naming no uuid, 422; an entry the engine
+/// the queue will leave them, either none once its deletion is queued
+/// (`Rows::standing`), one at a time until it is queued ([`REMOVING`]): one
+/// naming no uuid, 422; an entry the engine
 /// does not hold, or holds in a combat of another instance than the target,
 /// 404; one of a combat that ended, 409 — none is queued. One sent again under
 /// the key of a removal the engine holds is the engine's to replay, as it was:
@@ -1117,7 +1125,7 @@ async fn removal<L>(served: &Served<L>, body: &mut Submission) -> Result<(), Ref
     let combat = match remove_participant::combat_of(&entry) {
         Some(combat) => served
             .rows
-            .projected(&remove_participant::partition(&combat))
+            .standing(&remove_participant::partition(&combat))
             .await
             .map_err(failed)?,
         None => remove_participant::Row::new(),
