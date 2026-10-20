@@ -9,6 +9,9 @@ build = "build.rs"
 [dev-dependencies]
 # The migrations' applier the server runs, for the AiSettings migration's tests.
 data = { path = "../../data" }
+# The Concepts' fixtures the Entity migration's SQL is held to (AliasMatch@1,
+# AbilityModifier@1).
+platform-conformance = { path = "../../platform/conformance" }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 
 # The engine is the harness's, taken by git: this crate only binds it. The
@@ -24,11 +27,24 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
 tokio-postgres = { version = "0.7", default-features = false, features = ["runtime"] }
+# The ids a new element and each version it takes are given.
+getrandom = "0.4"
 # The port a save of the AI settings detects its API type through, and a
 # connection test reaches the provider by.
 ports-llm = { path = "../../ports/llm" }
 # The Capability a read is answered by (`reads.rs`): rows in, answer out.
 get-settings = { path = "../../ai/capabilities/get-settings" }
+get-campaign = { path = "../../campaign/capabilities/get-campaign" }
+get-entity = { path = "../../campaign/capabilities/get-entity" }
+list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
+list-characters = { path = "../../campaign/capabilities/list-characters" }
+list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
+list-events = { path = "../../campaign/capabilities/list-events" }
+list-places = { path = "../../campaign/capabilities/list-places" }
+list-players = { path = "../../campaign/capabilities/list-players" }
 # --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
+save-entity = { path = "../../campaign/data-capabilities/save-entity" }
+restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
+export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }

@@ -7,7 +7,9 @@
 //! - [`read_only`]: the connection `DATABASE_URL_READONLY` names, whose only
 //!   API is [`ReadOnly::query_json`];
 //! - [`migrate`]: the applier of a folder's `*.sql` files, in path order, each
-//!   once.
+//!   once;
+//! - [`insert_missing`]: the rows a table lacks, inserted whole in one
+//!   transaction — the way the mock-up's fixtures reach the store.
 //!
 //! A read is read-only twice over: by its role, and by the `READ ONLY`
 //! transaction every query runs in, so a write is refused by PostgreSQL even
@@ -31,6 +33,9 @@ pub const READ_ONLY_URL: &str = "DATABASE_URL_READONLY";
 /// Where the applied migrations are recorded: one fixed table, whatever the
 /// `search_path` of the run.
 const TRACKING: &str = "public.data_migrations";
+
+/// One loader of rows at a time, whatever the number of servers starting.
+const INSERT_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtext('data_insert_missing'))";
 
 /// One applier at a time, whatever the number of servers starting.
 const LOCK: &str = "SELECT pg_advisory_xact_lock(hashtext('data_migrations'))";
@@ -74,6 +79,9 @@ pub enum Error {
     /// The query failed otherwise.
     #[error("query: {0}")]
     Query(#[source] tokio_postgres::Error),
+    /// A table, key or column name that is not a plain lowercase identifier.
+    #[error("{0:?} is not a plain identifier (lowercase letters, digits and _)")]
+    Identifier(String),
     /// A column's type has no JSON reading here: cast it in the query
     /// (`::text`, `::float8`, `to_json(…)`).
     #[error("column {column} is of type {ty}, which has no JSON reading — cast it in the query")]
@@ -214,6 +222,90 @@ pub async fn migrate(client: &mut Client, dir: &Path) -> Result<Vec<String>, Err
         applied.push(name);
     }
     Ok(applied)
+}
+
+/// The rows of one table to insert: each a JSON object keyed by column.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Table {
+    /// The table's name.
+    pub name: &'static str,
+    /// The column that identifies a row: a row whose key the table holds is
+    /// left as it is.
+    pub key: &'static str,
+    /// The columns the rows give; the others take their default.
+    pub columns: &'static [&'static str],
+    /// The rows, in the order they are inserted.
+    pub rows: Vec<Value>,
+}
+
+/// A name that is safe between double quotes.
+fn identifier(name: &str) -> Result<&str, Error> {
+    let plain = !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+    if plain {
+        Ok(name)
+    } else {
+        Err(Error::Identifier(name.to_string()))
+    }
+}
+
+/// Inserts into each table, in order, the rows whose key it does not hold
+/// yet, and answers how many were inserted. All tables go in one
+/// transaction: a row the database refuses — a CHECK, a foreign key, an
+/// invariant's trigger — rolls the whole load back, never half of it. A second
+/// call with the same rows inserts none: a row already there is not tried
+/// again (a `BEFORE INSERT` trigger would judge it a second time, which
+/// `ON CONFLICT DO NOTHING` does not spare). Of rows that share a key, the
+/// first is inserted. One load runs at a time, so two servers starting
+/// together do not race on what is missing.
+///
+/// # Errors
+///
+/// [`Error::Identifier`] for a name that is not a plain identifier,
+/// [`Error::Database`] when the database refuses a row or cannot be reached.
+pub async fn insert_missing(client: &mut Client, tables: &[Table]) -> Result<u64, Error> {
+    let mut statements = Vec::new();
+    for table in tables {
+        let name = identifier(table.name)?;
+        let key = identifier(table.key)?;
+        let columns = table
+            .columns
+            .iter()
+            .map(|column| identifier(column).map(|c| format!("\"{c}\"")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let picked: Vec<String> = columns.iter().map(|c| format!("r.{c}")).collect();
+        statements.push(format!(
+            "INSERT INTO \"{name}\" ({}) SELECT {} \
+             FROM jsonb_populate_recordset(NULL::\"{name}\", $1::jsonb) AS r \
+             WHERE NOT EXISTS (SELECT 1 FROM \"{name}\" t WHERE t.\"{key}\" = r.\"{key}\")",
+            columns.join(", "),
+            picked.join(", "),
+        ));
+    }
+    let tx = client.transaction().await.map_err(Error::Database)?;
+    tx.batch_execute(INSERT_LOCK)
+        .await
+        .map_err(Error::Database)?;
+    let mut inserted = 0;
+    for (table, sql) in tables.iter().zip(&statements) {
+        let mut keys = std::collections::HashSet::new();
+        let rows = Value::Array(
+            table
+                .rows
+                .iter()
+                .filter(|row| keys.insert(row[table.key].to_string()))
+                .cloned()
+                .collect(),
+        );
+        inserted += tx
+            .execute(sql.as_str(), &[&rows])
+            .await
+            .map_err(Error::Database)?;
+    }
+    tx.commit().await.map_err(Error::Database)?;
+    Ok(inserted)
 }
 
 /// The `*.sql` files directly under `dir`, by name in byte order — the

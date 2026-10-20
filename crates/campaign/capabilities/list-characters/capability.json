@@ -1,13 +1,9 @@
 {
   "capability": "campaign.listCharacters",
-  "description": "A campaign's characters, PCs and NPCs, for the Micro-UIs of the campaign system: each with its id, its name, its aliases, its kind (pj or pnj), the player of a PC (null for an NPC), its type, description, prompt, background and behaviour, its stats (FOR, DEX, CON, INT, SAG, CHA), its armour class, its maximum hit points, its speed, its features, its look (art, colour, initials, portrait, crop, token name, illustration), its notes and its D&D Beyond link when it has one. It is read by reference only from the campaign system's own Micro-UIs (contract D, gate system-frontier). A Micro-UI of another system (session, table, live) does not need it; it reads the characters through a Capability of its own system.",
-  "input": {
-    "campaign": "string"
-  },
-  "output": "{ id: string, name: string, aliases: string[], kind: 'pj' | 'pnj', player: string | null, type: string, description: string, prompt: string, background: string, behavior: string, stats: { FOR: number, DEX: number, CON: number, INT: number, SAG: number, CHA: number }, ca: number, pvMax: number, speed: string, features: { name: string, text: string }[], art: string | null, color: string, initials: string, portrait: boolean, crop?: { zoom: number, x: number, y: number }, tokenName?: string, illustration?: string | null, notes: string, ddb?: { url: string, syncedAt: string } }[]",
-  "reads": [
-    "queries/list-characters.graphql"
-  ],
   "system": "campaign",
-  "version": 2
+  "version": "1.0.0",
+  "description": "The characters of a campaign, PCs then NPCs, for the characters tab: each element of type pj or pnj with its kind, its aliases, its description and notes, its initial prompt, background and behaviour, its six abilities, armour class and maximum hit points, its actions, its token (colour, initials, portrait, crop) and its D&D Beyond link. A PC carries the id of the player it belongs to; an NPC has none. A place or an event is not listed, and neither is a player.",
+  "input": { "campaign": "string" },
+  "output": "{ id: string, name: string, aliases: string[], kind: 'pj' | 'pnj', player: string | null, description: string, prompt: string, background: string, behavior: string, stats: { FOR, DEX, CON, INT, SAG, CHA: number | null }, ca: number | null, pvMax: number | null, features: { name: string, text: string }[], color: string, initials: string, portrait: boolean, crop: object | null, notes: string, ddb: { url: string, syncedAt: string | null } | null }[]",
+  "reads": ["queries/list-characters.graphql"]
 }

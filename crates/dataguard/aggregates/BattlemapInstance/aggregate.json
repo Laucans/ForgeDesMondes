@@ -1,0 +1,289 @@
+{
+  "aggregate": "BattlemapInstance",
+  "fields": {
+    "battlemapInstanceId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "battlemapMediaId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "characterId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "combatId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "combatInstanceId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "conditions": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "createdAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "currentEntryId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "dead": {
+      "criticality": "critical",
+      "kind": "derived"
+    },
+    "dexScore": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "endedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "entryId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "healthBand": {
+      "criticality": "critical",
+      "kind": "derived"
+    },
+    "hpCurrent": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "hpMax": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "initiative": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "initiativeEntryCombatId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "initiativeEntryId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "initiativeEntryTokenId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "initiativeOrderViewCombatId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "labelInitial": {
+      "criticality": "low",
+      "kind": "derived"
+    },
+    "name": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "number": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "orderIndex": {
+      "criticality": "critical",
+      "kind": "derived"
+    },
+    "q": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "r": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "rank": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "resetAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "roll": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "round": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "sceneId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "shownToPlayers": {
+      "criticality": "critical",
+      "kind": "derived"
+    },
+    "skipped": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "startedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "tiebreak": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "tokenId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "tokenInstanceId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "visible": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "instance-isolated",
+      "onViolation": "reject",
+      "rule": "Les tokens, PV, états et le combat appartiennent à l'instance. La battlemap d'origine et sa grille ne sont jamais modifiées par une instance."
+    },
+    {
+      "id": "one-instance-per-scene",
+      "onViolation": "reject",
+      "rule": "Une scène a au plus une instance de battlemap. La battlemap d'origine est liée à la scène et appartient à la campagne de la séance."
+    },
+    {
+      "id": "token-roster",
+      "onViolation": "reject",
+      "rule": "Un PJ ne peut être posé que s'il est présent à la séance, et un PJ n'a qu'un token par instance."
+    },
+    {
+      "id": "multi-drop-numbering",
+      "onViolation": "reject",
+      "rule": "Déposer un personnage « × n » crée n tokens numérotés à la suite des numéros déjà pris pour ce personnage (1 à n la première fois). Les numéros sont uniques par instance et par personnage. Renommer un token ne touche que lui."
+    },
+    {
+      "id": "pj-hp-not-tracked",
+      "onViolation": "reject",
+      "rule": "hp_current et hp_max restent vides pour un token de PJ. Pour un PNJ, hp_max est copié de la fiche à la pose et 0 ≤ hp_current ≤ hp_max."
+    },
+    {
+      "id": "hp-change-one-token",
+      "onViolation": "reject",
+      "rule": "Un changement de PV ne touche que le token visé, jamais les autres instances du même personnage."
+    },
+    {
+      "id": "dead-derived",
+      "onViolation": "reject",
+      "rule": "Un PNJ est mort si et seulement si ses PV courants valent 0. Il est alors grisé et sauté par « Suivant »."
+    },
+    {
+      "id": "players-see-band-only",
+      "onViolation": "reject",
+      "rule": "La player view ne reçoit que health_band : jamais de chiffre de PV, jamais de notes, jamais de token caché."
+    },
+    {
+      "id": "npc-initiative-bounds",
+      "onViolation": "reject",
+      "rule": "Pour un PNJ, roll est entre 1 et 20 et initiative = roll + modificateur de DEX. Pour un PJ, roll est vide et initiative est saisie par le DM."
+    },
+    {
+      "id": "initiative-tiebreak",
+      "onViolation": "reject",
+      "rule": "Au lancement, rank suit l'initiative décroissante, puis la DEX décroissante, puis le tirage aléatoire."
+    },
+    {
+      "id": "hidden-keeps-rank",
+      "onViolation": "reject",
+      "rule": "Un token caché garde son rank. Le révéler ne change ni son rang ni celui des autres participants."
+    },
+    {
+      "id": "next-turn",
+      "onViolation": "reject",
+      "rule": "« Suivant » passe au prochain participant vivant dans l'ordre des rangs. Il incrémente le round quand il revient au premier."
+    },
+    {
+      "id": "one-active-combat",
+      "onViolation": "reject",
+      "rule": "Une instance a au plus un combat sans ended_at."
+    },
+    {
+      "id": "state-persisted-reset",
+      "onViolation": "reject",
+      "rule": "Positions, PV, états et initiative sont persistés à chaque action et identiques après réouverture. « Réinitialiser la carte » supprime tokens, combat et initiative de l'instance."
+    },
+    {
+      "id": "single-position-source",
+      "onViolation": "reject",
+      "rule": "La position (q, r) d'un token est la seule source pour la DM view et la player view. Le dépôt est diffusé aux onglets en moins d'une seconde, et la distance affichée pendant le glisser vaut la distance hex entre l'origine et le curseur, multipliée par 5 pieds."
+    }
+  ],
+  "relations": [
+    {
+      "from": "BattlemapInstance.battlemapMediaId",
+      "onDelete": "restrict",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "BattlemapInstance.sessionId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "BattlemapInstance.sceneId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "BattlemapInstance.tokenInstanceId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "BattlemapInstance.characterId",
+      "onDelete": "review",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "BattlemapInstance.combatInstanceId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "BattlemapInstance.currentEntryId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "BattlemapInstance.initiativeEntryCombatId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "BattlemapInstance.initiativeEntryTokenId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    }
+  ]
+}

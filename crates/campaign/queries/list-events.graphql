@@ -1,0 +1,13 @@
+# fields: entity.id, entity.campaignId, entity.type, entity.name, entity.description, entity_alias.alias
+# The campaign's events, for their own tab: a name, aliases and a description
+# each. entity.type decides the tab — a PC, an NPC or a place is another read.
+query ListEvents($campaign: ID!) {
+  events(campaign: $campaign) {
+    id
+    campaignId
+    type
+    name
+    description
+    aliases
+  }
+}
