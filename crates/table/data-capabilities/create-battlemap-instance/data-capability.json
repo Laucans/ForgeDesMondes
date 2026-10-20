@@ -1,0 +1,27 @@
+{
+  "dataCapability": "table.createBattlemapInstance",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$battlemapInstanceId"
+  },
+  "touches": [
+    "BattlemapInstance.battlemapInstanceId",
+    "BattlemapInstance.battlemapMediaId",
+    "BattlemapInstance.sessionId",
+    "BattlemapInstance.sceneId",
+    "BattlemapInstance.createdAt"
+  ],
+  "payload": {
+    "session": "uuid — the session the scene belongs to",
+    "scene": "uuid — the scene given its instance; it has none yet (one-instance-per-scene), and its instance's id is derived from it, so the scene is the command's idempotency key (`table.createBattlemapInstance:<scene>`)",
+    "battlemap": "uuid — a battlemap media of the session's campaign, read and never written (instance-isolated)"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["one-instance-per-scene", "instance-isolated"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

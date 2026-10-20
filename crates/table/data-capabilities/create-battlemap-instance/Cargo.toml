@@ -1,0 +1,12 @@
+[package]
+name = "create-battlemap-instance"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.createBattlemapInstance: a scene's own instance of a battlemap of the session's campaign, on its BattlemapInstance partition — one per scene, its id derived from the scene's; the original battlemap and its grid never written."
+publish = false
+
+[dependencies]
+serde_json = "1"
+# The instance's id, derived from its scene's (UUIDv5): one partition a scene.
+uuid = { version = "1", default-features = false, features = ["v5"] }

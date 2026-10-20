@@ -150,7 +150,8 @@ impl Store for Versioning {
 }
 
 /// The rows the engine holds, as a command about to be submitted sees them,
-/// and — over a database — what its tables hold of a campaign.
+/// and — over a database — what its tables hold of a campaign, and of what a
+/// creation of an instance names.
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
@@ -195,6 +196,47 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
+    }
+
+    /// What the tables hold of the session, the scene and the battlemap a
+    /// creation of an instance names (`table.createBattlemapInstance`):
+    /// nothing over the engine's memory, which has no table.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn placement(
+        &self,
+        session: &str,
+        scene: &str,
+        battlemap: &str,
+    ) -> Result<create_battlemap_instance::Placement> {
+        let Some(tables) = &self.tables else {
+            return Ok(create_battlemap_instance::Placement::default());
+        };
+        tables
+            .placement(session, scene, battlemap)
+            .await
+            .map_err(|e| {
+                harness_dataguard::Error::Store(format!(
+                    "placement not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                ))
+            })
+    }
+
+    /// Whether the engine holds a command of `data_capability` under the
+    /// idempotency key `key`: one it replays.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn replays(&self, data_capability: &str, key: &str) -> Result<bool> {
+        Ok(self
+            .store
+            .by_idempotency_key(data_capability, key)
+            .await?
+            .is_some())
     }
 
     /// The versions of `element` a restoration can name, oldest first.
