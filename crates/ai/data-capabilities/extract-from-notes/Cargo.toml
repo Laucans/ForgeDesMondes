@@ -1,0 +1,19 @@
+[package]
+name = "extract-from-notes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability ai.extractFromNotes: the DM's typed, pasted or dictated notes kept as an imported note and analysed by the llm port into proposals — characters, places, events, each with its excerpt — an element the campaign already knows by its name or an alias (AliasMatch@1) proposed unchecked; nothing created."
+publish = false
+
+[dependencies]
+base64 = "0.22"
+ports-llm = { path = "../../../ports/llm" }
+ports-speech-to-text = { path = "../../../ports/speech-to-text" }
+serde_json = "1"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+# The Concept's fixtures `normalized` is held to.
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

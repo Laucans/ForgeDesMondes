@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use extract_from_notes::Known;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::queue::Hold;
@@ -156,6 +157,7 @@ pub struct Rows {
     store: Arc<dyn Store>,
     history: Arc<History>,
     tables: Option<Arc<ProjectingStore>>,
+    aliases: Arc<Aliases>,
 }
 
 impl Rows {
@@ -170,6 +172,7 @@ impl Rows {
             store,
             history,
             tables: None,
+            aliases: Arc::default(),
         }
     }
 
@@ -195,6 +198,31 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
+    }
+
+    /// The same, the elements' terms read from `aliases`.
+    pub(crate) fn knowing(self, aliases: Arc<Aliases>) -> Self {
+        Self { aliases, ..self }
+    }
+
+    /// The elements `campaign` holds, with their names and aliases: what
+    /// an analysis of its notes recognises.
+    pub fn known(&self, campaign: &str) -> Vec<Known> {
+        self.aliases.known(campaign)
+    }
+
+    /// Whether the engine holds a command of `data_capability` under `key`,
+    /// its idempotency key.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn submitted(&self, data_capability: &str, key: &str) -> Result<bool> {
+        Ok(self
+            .store
+            .by_idempotency_key(data_capability, key)
+            .await?
+            .is_some())
     }
 
     /// The versions of `element` a restoration can name, oldest first.

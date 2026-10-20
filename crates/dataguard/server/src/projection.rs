@@ -17,7 +17,11 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A campaign's row is its table's over the engine's, and
+//! column. An analysis of notes (`ai.extractFromNotes`) writes a partition
+//! per imported note, `NoteImport/<its id>`, and one per proposal: once the
+//! note is applied, [`ProjectingStore`] adds its `imported_note` row and the
+//! `note_proposal` row of every proposal of it applied, in one transaction —
+//! whichever the engine applied first. A campaign's row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -247,6 +251,52 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
 
+/// The imported notes the engine holds and the tables do not — of the note
+/// `$1` names, or of every one when it is null: an analysis whose note was
+/// just applied, or whose projection was lost. A note of a campaign the
+/// tables do not hold, or whose ids are no uuids, is none they could hold.
+const ADD_NOTES: &str =
+    "INSERT INTO imported_note (id, campaign_id, raw_text, created_at, analyzed_at)
+    SELECT (r.fields ->> 'importedNoteId')::uuid, c.id, r.fields ->> 'rawText',
+        coalesce((r.fields ->> 'createdAt')::timestamptz, now()),
+        (r.fields ->> 'analyzedAt')::timestamptz
+    FROM dataguard_rows r
+    JOIN campaign c ON c.id::text = lower(r.fields ->> 'campaignId')
+    WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned
+        AND ($1::text IS NULL OR lower(r.fields ->> 'importedNoteId') = lower($1::text))
+        AND pg_input_is_valid(r.fields ->> 'importedNoteId', 'uuid')
+        AND r.fields ->> 'rawText' IS NOT NULL
+        AND pg_input_is_valid(coalesce(r.fields ->> 'createdAt', 'now'), 'timestamptz')
+        AND pg_input_is_valid(coalesce(r.fields ->> 'analyzedAt', 'now'), 'timestamptz')
+        AND NOT EXISTS (SELECT 1 FROM imported_note n
+            WHERE n.id::text = lower(r.fields ->> 'importedNoteId'))";
+
+/// The proposals the engine holds and the tables do not, of a note they hold
+/// — the one `$1` names, or every one when it is null. The element a
+/// proposal recognised and the tables no longer hold is forgotten, as its
+/// relation's `onDelete nullify` would have.
+const ADD_PROPOSALS: &str = "INSERT INTO note_proposal
+        (id, note_id, type, name, excerpt, existing_entity_id, checked)
+    SELECT (r.fields ->> 'noteProposalId')::uuid, n.id, r.fields ->> 'type',
+        r.fields ->> 'name', coalesce(r.fields ->> 'excerpt', ''), e.id,
+        coalesce((r.fields ->> 'checked')::boolean, e.id IS NULL)
+    FROM dataguard_rows r
+    JOIN imported_note n ON n.id::text = lower(r.fields ->> 'noteId')
+    LEFT JOIN entity e ON e.id::text = lower(r.fields ->> 'existingEntityId')
+    WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned
+        AND ($1::text IS NULL OR n.id::text = lower($1::text))
+        AND pg_input_is_valid(r.fields ->> 'noteProposalId', 'uuid')
+        AND r.fields ->> 'type' IN ('pj', 'pnj', 'lieu', 'evenement')
+        AND r.fields ->> 'name' IS NOT NULL
+        AND pg_input_is_valid(coalesce(r.fields ->> 'checked', 'true'), 'boolean')
+        AND NOT EXISTS (SELECT 1 FROM note_proposal p
+            WHERE p.id::text = lower(r.fields ->> 'noteProposalId'))
+    ORDER BY r.partition";
+
+/// The partitions of the NoteImport aggregate: an imported note's,
+/// `NoteImport/<its id>`, and a proposal's, `NoteImport/<its id>`.
+const NOTE_IMPORT: &str = "NoteImport/";
+
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
@@ -290,6 +340,29 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_notes(None).await;
+    }
+
+    /// Adds the imported note `note` names — every one, `None` — and the
+    /// proposals of it the engine holds, when the tables do not hold them
+    /// yet, in one transaction, logging a failure: after each apply of a
+    /// note or a proposal, and at a start. Tables not migrated yet hold none.
+    async fn repair_notes(&self, note: Option<&str>) {
+        let written = async {
+            let mut client = self.inner.client().lock().await;
+            let tx = client.transaction().await?;
+            tx.execute(ADD_NOTES, &[&note]).await?;
+            tx.execute(ADD_PROPOSALS, &[&note]).await?;
+            tx.commit().await
+        };
+        if let Err(e) = written.await {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: imported notes not projected: {} {}",
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -621,6 +694,17 @@ fn element(write: &Write) -> bool {
     !write.tombstone && element_of(write).is_some()
 }
 
+/// The imported note a live write of the NoteImport aggregate is of: the
+/// note's own id, or the note a proposal is of.
+fn noted(write: &Write) -> Option<&str> {
+    if write.tombstone || !write.partition.starts_with(NOTE_IMPORT) {
+        return None;
+    }
+    ["importedNoteId", "noteId"]
+        .iter()
+        .find_map(|field| write.values.get(*field).and_then(Value::as_str))
+}
+
 /// The provider whose last test `write` records: a live write of a
 /// provider's partition, `AiSettings/<uuid>`.
 fn tested(write: &Write) -> Option<&str> {
@@ -700,6 +784,8 @@ impl Store for ProjectingStore {
             self.record_test(&write.partition, provider, false).await;
         } else if element(write) {
             self.repair_elements().await;
+        } else if let Some(note) = noted(write) {
+            self.repair_notes(Some(note)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
@@ -794,6 +880,33 @@ mod tests {
         assert!(!element(&write(morlox, true)));
         assert!(!element(&write(AI_SETTINGS, false)));
         assert!(!element(&write(AI_SETTINGS, true)));
+    }
+
+    #[test]
+    fn a_live_write_of_a_note_or_a_proposal_names_its_note() {
+        let write = |partition: &str, values: serde_json::Value, tombstone| Write {
+            partition: partition.to_string(),
+            values: serde_json::from_value(values).expect("an object"),
+            tombstone,
+        };
+        let note = "a1000000-0000-4000-8000-000000000001";
+        let noted_by = |values, tombstone| {
+            noted(&write(&format!("NoteImport/{note}"), values, tombstone)).map(str::to_owned)
+        };
+        assert_eq!(
+            noted_by(json!({ "importedNoteId": note }), false).as_deref(),
+            Some(note)
+        );
+        assert_eq!(
+            noted_by(json!({ "noteProposalId": CLOUD, "noteId": note }), false).as_deref(),
+            Some(note)
+        );
+        assert_eq!(noted_by(json!({ "importedNoteId": note }), true), None);
+        assert_eq!(noted_by(json!({ "checked": true }), false), None);
+        assert_eq!(
+            noted(&write(AI_SETTINGS, json!({ "noteId": note }), false)),
+            None
+        );
     }
 
     async fn connect(url: &str) -> Client {

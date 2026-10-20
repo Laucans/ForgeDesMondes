@@ -1,0 +1,36 @@
+{
+  "dataCapability": "ai.extractFromNotes",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "NoteImport"
+  },
+  "touches": [
+    "NoteImport.importedNoteId",
+    "NoteImport.campaignId",
+    "NoteImport.rawText",
+    "NoteImport.createdAt",
+    "NoteImport.analyzedAt",
+    "NoteImport.noteProposalId",
+    "NoteImport.noteId",
+    "NoteImport.type",
+    "NoteImport.name",
+    "NoteImport.excerpt",
+    "NoteImport.existingEntityId",
+    "NoteImport.checked"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign the notes are imported into",
+    "text": "string — the notes typed or pasted; kept whole as the imported note's raw text",
+    "dictation": "string — base64 of the dictated audio, read only when no text is given: transcribed locally through the speech-to-text port, the transcript taken as the notes; the audio is neither sent nor stored"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "no-creation-before-validation"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "ports": ["llm", "speech-to-text"],
+  "idempotencyKey": "optional"
+}

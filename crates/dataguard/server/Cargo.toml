@@ -7,6 +7,8 @@ build = "build.rs"
 
 # Above [dependencies], which the DataCapabilities' lines close.
 [dev-dependencies]
+# A dictation's audio, as the wire carries it.
+base64 = "0.22"
 # The migrations' applier the server runs, for the AiSettings migration's tests.
 data = { path = "../../data" }
 # The Concepts' fixtures the Entity migration's SQL is held to (AliasMatch@1,
@@ -32,6 +34,8 @@ getrandom = "0.4"
 # The port a save of the AI settings detects its API type through, and a
 # connection test reaches the provider by.
 ports-llm = { path = "../../ports/llm" }
+# The port a dictation of notes is transcribed by, locally.
+ports-speech-to-text = { path = "../../ports/speech-to-text" }
 # The Capability a read is answered by (`reads.rs`): rows in, answer out.
 get-settings = { path = "../../ai/capabilities/get-settings" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
@@ -48,3 +52,4 @@ test-connection = { path = "../../ai/data-capabilities/test-connection" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
+extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }

@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use dataguard_server::{MEMORY, Planted, applier, planted};
-use server::{Config, Error, Ports, app, fixtures, llm, reads};
+use server::{Config, Error, Ports, app, fixtures, llm, reads, speech_to_text};
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
 /// — among the tracked `*migrations/*.sql` `scripts/rules-runtime.sh` and
@@ -97,6 +97,7 @@ async fn run() -> Result<(), Error> {
     let Planted { engine, rows } = planted(&config.database_url).await?;
     let engine = Arc::new(engine);
     let llm = Arc::new(llm(config.ports, config.fixtures.as_deref()));
+    let speech = Arc::new(speech_to_text(config.ports, config.fixtures.as_deref()));
     if config.read_only_url.is_none() && config.database_url != MEMORY {
         eprintln!(
             "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"
@@ -109,7 +110,7 @@ async fn run() -> Result<(), Error> {
         .map_err(|source| Error::Serve { addr, source })?;
     let applier = applier(engine.clone());
     eprintln!("server: listening on {addr}");
-    let served = axum::serve(listener, app(engine, rows, llm, reads))
+    let served = axum::serve(listener, app(engine, rows, llm, speech, reads))
         .with_graceful_shutdown(stopped())
         .await
         .map_err(|source| Error::Serve { addr, source });
