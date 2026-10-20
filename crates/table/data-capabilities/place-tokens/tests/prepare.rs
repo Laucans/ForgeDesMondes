@@ -106,6 +106,15 @@ fn a_request_the_tables_could_never_hold_is_refused() {
         refused(json!({ "character": "bandit" }), Some(INSTANCE)),
         Refusal::NotAnId("character")
     );
+    // Hex digits too short to be one, and a text of a uuid's length that is
+    // none.
+    for character in ["beef", "e1000000_0000_4000_8000_0000000000b1"] {
+        assert_eq!(
+            refused(json!({ "character": character }), Some(INSTANCE)),
+            Refusal::NotAnId("character"),
+            "{character}"
+        );
+    }
     assert_eq!(
         refused(json!({ "q": 1.5 }), Some(INSTANCE)),
         Refusal::NotAHex("q")
@@ -188,6 +197,14 @@ fn multi_drop_numbering_refuses_numbers_a_smallint_cannot_hold() {
     );
     let one = prepare(&drop(BANDIT, 1), &roster, &ids(1)).expect("the last number");
     assert_eq!(one[0]["number"], i16::MAX);
+    let full = Roster {
+        taken: vec![i64::from(i16::MAX)],
+        ..npc(Some(11))
+    };
+    assert_eq!(
+        prepare(&drop(BANDIT, 1), &full, &ids(1)),
+        Err(Refusal::NoNumberLeft)
+    );
 }
 
 #[test]
@@ -199,6 +216,12 @@ fn pj_hp_not_tracked_an_npc_copies_its_sheet_s_hp_max_a_pc_tracks_none() {
     let tokens = prepare(&drop(BANDIT, 1), &npc(None), &ids(1)).expect("dropped");
     assert_eq!(tokens[0]["hpMax"], Value::Null);
     assert_eq!(tokens[0]["hpCurrent"], Value::Null);
+    // Nor does one below 0, or above what the tables hold.
+    for hp_max in [-5, i64::from(i16::MAX) + 1] {
+        let tokens = prepare(&drop(BANDIT, 1), &npc(Some(hp_max)), &ids(1)).expect("dropped");
+        assert_eq!(tokens[0]["hpMax"], Value::Null, "{hp_max}");
+        assert_eq!(tokens[0]["hpCurrent"], Value::Null, "{hp_max}");
+    }
     // A PC's token tracks no HP, whatever its sheet says.
     let tokens = prepare(&drop(ELOWEN, 1), &pc(true, 0), &ids(1)).expect("placed");
     assert_eq!(tokens.len(), 1);
@@ -285,5 +308,38 @@ fn a_token_writes_the_fields_the_manifest_touches_and_no_other() {
         let tokens = prepare(&request, &roster, &ids(1)).expect("dropped");
         let written: Vec<String> = tokens[0].keys().cloned().collect();
         assert_eq!(written, touched);
+    }
+}
+
+#[test]
+fn a_refusal_says_what_the_dm_is_answered() {
+    for (refusal, message) in [
+        (
+            Refusal::NotAnId("instance"),
+            "instance n'est pas un identifiant",
+        ),
+        (Refusal::NotAHex("q"), "q n'est pas une coordonnée de case"),
+        (Refusal::Count, "le nombre de tokens va de 1 à 12"),
+        (
+            Refusal::UnknownInstance,
+            "cette instance de battlemap n'existe pas",
+        ),
+        (Refusal::UnknownCharacter, "ce personnage n'existe pas"),
+        (
+            Refusal::CharacterOfAnotherCampaign,
+            "ce personnage n'est pas de la campagne de la séance",
+        ),
+        (Refusal::Absent, "ce PJ n'est pas présent à la séance"),
+        (
+            Refusal::AlreadyPlaced,
+            "ce PJ a déjà son token sur la carte",
+        ),
+        (Refusal::OnePcToken, "un PJ n'a qu'un token par carte"),
+        (
+            Refusal::NoNumberLeft,
+            "plus aucun numéro de token n'est libre",
+        ),
+    ] {
+        assert_eq!(refusal.to_string(), message);
     }
 }

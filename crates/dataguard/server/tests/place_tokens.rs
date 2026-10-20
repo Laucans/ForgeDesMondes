@@ -195,12 +195,25 @@ impl Scratch {
 /// `POST /commands` of table.placeTokens on `instance`: its status and
 /// answer.
 async fn place(app: &Router, instance: &str, payload: Value) -> (StatusCode, Value) {
-    let body = json!({
+    place_keyed(app, instance, payload, None).await
+}
+
+/// [`place`], under the idempotency key `key` when one is given.
+async fn place_keyed(
+    app: &Router,
+    instance: &str,
+    payload: Value,
+    key: Option<&str>,
+) -> (StatusCode, Value) {
+    let mut body = json!({
         "dataCapability": "table.placeTokens@1",
         "payload": payload,
         "target": { "id": instance },
         "caller": { "by": "dm", "from": "table.Battlemap", "roles": ["role:approver"] },
     });
+    if let Some(key) = key {
+        body["idempotencyKey"] = json!(key);
+    }
     let request = Request::post("/commands")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
@@ -341,6 +354,47 @@ async fn token_roster_a_pc_is_placed_once_and_only_when_present() {
     );
     assert_eq!(applied(&engine).await, 0, "a refused drop queues nothing");
     assert_eq!(s.tokens().await.len(), 1);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn token_roster_tokens_queued_for_another_character_are_not_a_pc_s() {
+    let s = Scratch::new("others").await;
+    let (engine, app) = s.serve().await;
+    let (status, body) = place(
+        &app,
+        INSTANCE,
+        json!({ "character": BANDIT, "q": 1, "r": 1, "count": 2 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // The bandits still queued are no token of Elowen's.
+    let (status, body) = place(
+        &app,
+        INSTANCE,
+        json!({ "character": ELOWEN, "q": 2, "r": 3 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 3);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_drop_sent_again_under_its_key_is_replayed_as_its_last_token() {
+    let s = Scratch::new("replayed").await;
+    let (engine, app) = s.serve().await;
+    let payload = json!({ "character": BANDIT, "q": 0, "r": 0, "count": 2 });
+    let key = Some("table.placeTokens:drop-1");
+    let (status, first) = place_keyed(&app, INSTANCE, payload.clone(), key).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{first}");
+    // The answer is the last token's command, the one queued under the key.
+    let (status, again) = place_keyed(&app, INSTANCE, payload, key).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["replayed"], true, "{again}");
+    assert_eq!(again["commandId"], first["commandId"], "{again}");
+    assert_eq!(applied(&engine).await, 2);
+    assert_eq!(s.tokens().await.len(), 2);
     s.drop().await;
 }
 

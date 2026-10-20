@@ -961,6 +961,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_drop_under_a_key_never_sent_is_judged() {
+        let payload = serde_json::json!({ "character": BANDIT, "q": 3, "r": 4 });
+        let key = Some("table.placeTokens:never-sent");
+        let (status, body) = answer(placement(Some(INSTANCE), payload, key)).await;
+        // Not replayed: over the engine's memory the tables hold no instance.
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "cette instance de battlemap n'existe pas" })
+        );
+    }
+
+    #[tokio::test]
     async fn a_drop_on_an_instance_named_by_its_slug_is_judged_on_its_stored_id() {
         let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
         let reads = Reads::none().named([("taverne-arrivee".to_string(), INSTANCE.to_string())]);
