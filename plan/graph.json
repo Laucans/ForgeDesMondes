@@ -466,13 +466,13 @@
     "BattlemapInstance": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "Campaign": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "CampaignArchive@1": {
@@ -496,7 +496,7 @@
     "CampaignOverview": {
       "kind": "micro-ui",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "DetectionVocabulary@1": {
@@ -508,7 +508,7 @@
     "Diffusion": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "EffectiveVolume@1": {
@@ -526,7 +526,7 @@
     "Entity": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "EntityEditor": {
@@ -580,7 +580,7 @@
     "Media": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "MediaLibrary": {
@@ -592,7 +592,7 @@
     "NoteImport": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "OralBrief": {
@@ -604,7 +604,7 @@
     "Player": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "PlayerStage": {
@@ -712,7 +712,7 @@
     "VersionHistory": {
       "kind": "micro-ui",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "ai.analyzeBrief": {
@@ -772,19 +772,19 @@
     "campaign.exportCampaign": {
       "kind": "data-capability",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "campaign.getCampaign": {
       "kind": "capability",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.getEntity": {
       "kind": "capability",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.importCampaign": {
@@ -796,13 +796,13 @@
     "campaign.listCampaigns": {
       "kind": "capability",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.listCharacters": {
       "kind": "capability",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.listEntitiesToCreate": {
@@ -814,13 +814,13 @@
     "campaign.listEntityVersions": {
       "kind": "capability",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.listEvents": {
       "kind": "capability",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.listImportedNotes": {
@@ -832,25 +832,25 @@
     "campaign.listPlaces": {
       "kind": "capability",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.listPlayers": {
       "kind": "capability",
       "producer": 18,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.restoreEntityVersion": {
       "kind": "data-capability",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "campaign.saveEntity": {
       "kind": "data-capability",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "dndbeyond.importCharacter": {
