@@ -929,9 +929,11 @@ async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted
 /// `BattlemapInstance/<its id>`: the moves first, the last entry of the
 /// order first, the newcomer's entry last, whose command is the answer. With
 /// an idempotency key, the entry is queued under it and each move under it
-/// followed by `#<its entry's id>`, so the joining sent again under its key is
-/// the engine's to replay, as it was — a move already queued is replayed, not
-/// stepped twice, whatever the new plan makes of the others.
+/// followed by `#<the newcomer's entry id>#<its entry's id>`: the joining sent
+/// again under its key after it was queued whole is the engine's to replay,
+/// as it was, while one that failed half queued is planned again from the
+/// ranks as the queue leaves them — a move queued by the first attempt is
+/// already in those ranks, and no stale step of it is replayed.
 /// Refused, and nothing queued: ids that are none, or an initiative that is
 /// no whole number, 422; a token the engine does not hold on the instance
 /// targeted, or a character the tables do not hold, 404 — over the engine's
@@ -995,7 +997,7 @@ async fn adding<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted>
             payload: moved,
             target_id: Some(id.clone()),
             based_on: None,
-            idempotency_key: key.as_ref().map(|key| format!("{key}#{id}")),
+            idempotency_key: key.as_ref().map(|key| format!("{key}#{entry}#{id}")),
             caller: body.caller.clone(),
         };
         warnings.extend(served.engine.submit(one).await.map_err(failed)?.warnings);

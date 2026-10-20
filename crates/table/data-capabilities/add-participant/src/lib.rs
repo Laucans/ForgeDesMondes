@@ -40,9 +40,10 @@ use serde_json::{Value, json};
 /// This DataCapability's id, as `data-capability.json` names it.
 pub const DATA_CAPABILITY: &str = "table.addParticipant";
 
-/// The faces of the die a participant's draw is rolled on: the number kept
-/// as its `tiebreak`, which settles a tie on initiative and DEX.
-pub const DRAW_SIDES: u32 = 100;
+/// The faces of the die a participant's draw is rolled on: the draw is the
+/// roll less one, 0 to 2³¹ - 1 — the scale `table.startCombat` draws on, so
+/// a newcomer's tie against a seated participant is a fair one.
+pub const DRAW_SIDES: u32 = 1 << 31;
 
 /// The aggregate whose partitions a token and an entry are.
 const AGGREGATE: &str = "BattlemapInstance";
@@ -308,7 +309,7 @@ pub fn prepare(
         let roll = dice.roll(20).ok_or(Refusal::NoRandomness)?;
         (Some(roll), roll + modifier(dex))
     };
-    let draw = dice.roll(DRAW_SIDES).ok_or(Refusal::NoRandomness)?;
+    let draw = dice.roll(DRAW_SIDES).ok_or(Refusal::NoRandomness)? - 1;
     let newcomer = Standing {
         initiative,
         dex: character.dex,

@@ -174,11 +174,37 @@ fn an_npc_rolls_a_d20_and_adds_its_floored_dex_modifier() {
             "roll": 7,
             "initiative": 6,
             "dexScore": 9,
-            "tiebreak": 42.0,
+            "tiebreak": 41.0,
             "rank": 1,
         }))
     );
     assert!(prepared.moves.is_empty());
+}
+
+/// A die that records the faces it was asked for and rolls the highest.
+struct Highest(Vec<u32>);
+
+impl Dice for Highest {
+    fn roll(&mut self, sides: u32) -> Option<i64> {
+        self.0.push(sides);
+        Some(i64::from(sides))
+    }
+}
+
+#[test]
+fn the_draw_is_on_the_scale_start_combat_draws_on() {
+    let mut highest = Highest(Vec::new());
+    let prepared = prepare(
+        &asked(Some(10)),
+        &renfort(),
+        &combat("pj", Some(12), Vec::new()),
+        &mut highest,
+        ENTREE,
+    )
+    .expect("joins");
+    // A PC rolls nothing but its draw: 0 to 2^31 - 1, as a start draws.
+    assert_eq!(highest.0, vec![1 << 31]);
+    assert_eq!(prepared.entry.1["tiebreak"], 2_147_483_647.0);
 }
 
 #[test]
@@ -196,7 +222,7 @@ fn a_pc_rolls_nothing_and_takes_the_dm_s_figure() {
     assert_eq!(row["roll"], Value::Null);
     assert_eq!(row["initiative"], 17);
     assert_eq!(row["dexScore"], 18);
-    assert_eq!(row["tiebreak"], 3.0);
+    assert_eq!(row["tiebreak"], 2.0);
 }
 
 #[test]
@@ -302,7 +328,8 @@ fn at_equal_initiative_dex_then_the_draw_decide_and_a_full_tie_goes_after() {
             &asked(Some(14)),
             &renfort(),
             &combat("pj", Some(12), entries.clone()),
-            &mut dice(&[draw]),
+            // The draw is the roll less one.
+            &mut dice(&[draw + 1]),
             ENTREE,
         )
         .expect("joins");
@@ -321,7 +348,7 @@ fn at_equal_initiative_dex_then_the_draw_decide_and_a_full_tie_goes_after() {
         &asked(Some(14)),
         &renfort(),
         &combat("pj", None, entries.clone()),
-        &mut dice(&[100]),
+        &mut dice(&[101]),
         ENTREE,
     )
     .expect("joins");

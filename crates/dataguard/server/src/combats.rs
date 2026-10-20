@@ -82,13 +82,17 @@ const COMBATS: &str = "SELECT c.id::text FROM combat c
 
 /// The combats of the instance `$1` with no end — in the table, or in the
 /// engine's rows, which say whether it ended — that no tombstone took: each
-/// id, and whether the table holds it running, by id.
+/// id, and whether it is open when the engine's row names no `endedAt` (a
+/// start writes none): true for one the table holds running and for one only
+/// the engine holds, false for one the table holds ended; by id.
 const OPEN_COMBATS: &str = "SELECT c.id::text, true FROM combat c
     WHERE c.instance_id = $1::text::uuid AND c.ended_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.tombstoned AND r.partition = 'BattlemapInstance/' || c.id::text)
     UNION
-    SELECT lower(r.fields ->> 'combatId'), false FROM dataguard_rows r
+    SELECT lower(r.fields ->> 'combatId'),
+        NOT EXISTS (SELECT 1 FROM combat c WHERE c.id::text = lower(r.fields ->> 'combatId'))
+    FROM dataguard_rows r
     WHERE r.partition LIKE 'BattlemapInstance/%' AND NOT r.tombstoned
         AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'combatId')
         AND lower(r.fields ->> 'combatInstanceId') = $1::text
@@ -246,8 +250,9 @@ pub async fn lineup(
 /// of a character, as [`seating`] reads them.
 #[derive(Debug, Default)]
 pub struct Tabled {
-    /// The combats with no end, by id, and whether the table holds it
-    /// running — the engine's row, when there is one, says better.
+    /// The combats with no end, by id, and whether each is open when the
+    /// engine's row names no end — the engine's row, when it does, says
+    /// better.
     pub combats: Vec<(String, bool)>,
     /// Their entries: each one's combat, its id, and the table's row of it,
     /// empty when only the engine holds it.
