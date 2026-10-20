@@ -177,6 +177,19 @@ fn what_the_table_could_never_hold_is_refused_before_it_is_queued() {
         at("instance", json!("taverne")),
         Some(Refusal::NotAnId("instance"))
     );
+    // A uuid's length with other characters, or a uuid's characters at
+    // another length, is no uuid either.
+    for id in [
+        "z".repeat(36),
+        INSTANCE[..35].to_string(),
+        format!("{INSTANCE}0"),
+    ] {
+        assert_eq!(
+            at("instance", json!(id)),
+            Some(Refusal::NotAnId("instance")),
+            "{id}"
+        );
+    }
     assert_eq!(
         at("campaign", json!(12)),
         Some(Refusal::NotAnId("campaign"))
