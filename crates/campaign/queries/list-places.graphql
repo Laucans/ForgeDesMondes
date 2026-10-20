@@ -1,0 +1,14 @@
+# fields: entity.id, entity.campaignId, entity.type, entity.name, entity.description, entityAlias.alias
+# The campaign's places, for their own tab: a name, its aliases and a
+# description each. Only the elements of type lieu; the PCs, the NPCs and the
+# events have their own tabs. The media attached to a place wait for Media.
+query ListPlaces($campaign: ID!) {
+  places(campaign: $campaign) {
+    id
+    campaignId
+    type
+    name
+    aliases
+    description
+  }
+}

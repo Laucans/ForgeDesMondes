@@ -1,0 +1,10 @@
+{
+  "capability": "campaign.listEntityVersions",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "One element's history, for the DM who picks a version to go back to: the element's name and its versions, newest first, each with its number (v), its date, its source (dm, ia, dndbeyond, brief or restauration), its origin as the screen words it (manuelle, ia or dndbeyond), the number of the version it restored when it is a restoration (restoredFrom, else null) and its changes — one {field, old, new} per field that moved since the previous version, sorted by field. An unknown element has no answer (null); an element never saved has an empty history.",
+  "implements": "EntityVersion@1",
+  "input": { "entity": "string" },
+  "output": "{ name: string, versions: { v: number, date: string, origin: 'manuelle' | 'ia' | 'dndbeyond', source: 'dm' | 'ia' | 'dndbeyond' | 'brief' | 'restauration', restoredFrom: number | null, changes: { field: string, old: any, new: any }[] }[] } | null",
+  "reads": ["queries/list-entity-versions.graphql"]
+}

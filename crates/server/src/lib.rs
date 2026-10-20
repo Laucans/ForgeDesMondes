@@ -14,7 +14,9 @@
 //!   default: every built port on its fake, no secret read, nothing reached
 //!   outside — the `llm` port's fake is [`llm`];
 //! - `FIXTURES_DIR`: when set and not empty, the folder of the mock-up's
-//!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]).
+//!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]) and
+//!   loaded into the store by the Data layer ([`data::insert_missing`]) —
+//!   once: a restart loads nothing twice.
 //!
 //! The server adds no read and no write path of its own: a read is served
 //! only when the engine's registry holds its persisted query, a write only
@@ -23,6 +25,11 @@
 //! through `POST /capabilities/<id>` once a table Capability's query is
 //! registered, table writes through `POST /commands` once a table
 //! DataCapability is — each slice by its folder, no route to add here.
+//! The fixtures are the one exception on the write side: rows the mock-up's
+//! data describes, inserted as the tables' own constraints and triggers
+//! judge them.
+
+mod fixtures;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -30,7 +37,8 @@ use std::sync::Arc;
 
 use axum::routing::get;
 use axum::{Json, Router};
-use dataguard_server::{Engine, Reads};
+use dataguard_server::{Engine, Reads, Rows};
+pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
 use ports_llm::Llm;
 use ports_llm::fake::FakeLlm;
 use serde_json::{Value, json};
@@ -137,44 +145,6 @@ impl Config {
     }
 }
 
-/// A fixture file not loaded into the store: its name, and why.
-pub type Skipped = (String, String);
-
-/// Reads every `*.json` file directly under `dir`, by name, and answers the
-/// ones it skipped. None is loaded while no aggregate exists to hold it:
-/// each is skipped, and so is a file that is not JSON — neither stops the
-/// server.
-///
-/// # Errors
-///
-/// The folder's, when it cannot be listed.
-pub fn fixtures(dir: &Path) -> std::io::Result<Vec<Skipped>> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.extension().is_some_and(|e| e == "json") && path.is_file() {
-            files.push(path);
-        }
-    }
-    files.sort();
-    let mut skipped = Vec::new();
-    for path in files {
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let why = match std::fs::read_to_string(&path) {
-            Err(e) => format!("cannot be read: {e}"),
-            Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
-                Err(e) => format!("not JSON: {e}"),
-                Ok(_) => "no aggregate holds it".to_string(),
-            },
-        };
-        skipped.push((name, why));
-    }
-    Ok(skipped)
-}
-
 /// The `llm` port as `ports` wires it: its fake, whose home server answers
 /// its model list at the opencode provider's URL the fixtures describe
 /// (`AiSettings.json` in `fixtures`) — so a save of that URL detects it, as
@@ -219,10 +189,15 @@ pub async fn reads(config: &Config) -> Result<Reads, Error> {
     Ok(Reads::open(url).await?)
 }
 
-/// The shell's wire protocol through `engine` and `llm`, its reads through
-/// `reads`, and `GET /health`.
-pub fn app<L: Llm + 'static>(engine: Arc<Engine>, llm: Arc<L>, reads: Arc<Reads>) -> Router {
-    dataguard_server::router_reading(engine, llm, reads).route("/health", get(health))
+/// The shell's wire protocol through `engine`, whose rows are `rows`, and
+/// `llm`, its reads through `reads`, and `GET /health`.
+pub fn app<L: Llm + 'static>(
+    engine: Arc<Engine>,
+    rows: Rows,
+    llm: Arc<L>,
+    reads: Arc<Reads>,
+) -> Router {
+    dataguard_server::router_reading(engine, rows, llm, reads).route("/health", get(health))
 }
 
 /// Answers 200 once the server serves: migrations applied, engine planted.
@@ -352,30 +327,6 @@ mod tests {
         dir
     }
 
-    #[test]
-    fn every_json_fixture_is_read_and_skipped_with_why() {
-        let dir = folder(
-            "fixtures",
-            &[
-                ("b.json", "{\"items\": []}"),
-                ("a.json", "not json"),
-                ("notes.txt", "not a fixture"),
-            ],
-        );
-        let skipped = fixtures(&dir).expect("the folder is listed");
-        std::fs::remove_dir_all(&dir).ok();
-        let names: Vec<&str> = skipped.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, ["a.json", "b.json"]);
-        assert!(skipped[0].1.starts_with("not JSON"), "{skipped:?}");
-        assert_eq!(skipped[1].1, "no aggregate holds it");
-    }
-
-    #[test]
-    fn a_missing_fixtures_folder_is_an_error_the_caller_logs() {
-        let dir = std::env::temp_dir().join(format!("server-absent-{}", std::process::id()));
-        assert!(fixtures(&dir).is_err());
-    }
-
     /// The provider the fake's connection test reaches at `url`.
     async fn reached(llm: &FakeLlm, url: &str) -> Option<ports_llm::Provider> {
         let config = ports_llm::ProviderConfig::Api {
@@ -413,9 +364,10 @@ mod tests {
 
     /// The app over the in-memory engine, answering one request.
     async fn answer(method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
-        let engine = dataguard_server::plant(dataguard_server::MEMORY)
-            .await
-            .expect("the in-memory engine");
+        let dataguard_server::Planted { engine, rows } =
+            dataguard_server::planted(dataguard_server::MEMORY)
+                .await
+                .expect("the in-memory engine");
         let request = Request::builder().method(method).uri(uri);
         let request = match body {
             Some(body) => request
@@ -427,10 +379,15 @@ mod tests {
         let reads = Reads::open(dataguard_server::MEMORY)
             .await
             .expect("no database");
-        let response = app(Arc::new(engine), Arc::new(FakeLlm::new()), Arc::new(reads))
-            .oneshot(request)
-            .await
-            .expect("an answer");
+        let response = app(
+            Arc::new(engine),
+            rows,
+            Arc::new(FakeLlm::new()),
+            Arc::new(reads),
+        )
+        .oneshot(request)
+        .await
+        .expect("an answer");
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -459,7 +416,7 @@ mod tests {
     async fn an_unregistered_query_is_404() {
         let (status, body) = answer(
             Method::POST,
-            "/capabilities/campaign.listCampaigns",
+            "/capabilities/nothing.registered",
             Some(json!({ "sha256": "0".repeat(64), "variables": {} })),
         )
         .await;
@@ -514,7 +471,7 @@ mod tests {
     async fn a_capability_with_no_registered_query_is_404_without_a_hash_too() {
         let (status, body) = answer(
             Method::POST,
-            "/capabilities/campaign.listCampaigns",
+            "/capabilities/nothing.registered",
             Some(json!({ "variables": {} })),
         )
         .await;
@@ -587,7 +544,7 @@ mod tests {
         let listed = fixtures(&dir).unwrap_or_else(|e| panic!("the server lists {dir:?}: {e}"));
         let table = "table.getBattlemapInstance.json";
         assert!(dir.join(table).is_file(), "{table} in {dir:?}");
-        let why = listed.iter().find(|(name, _)| name == table);
+        let why = listed.skipped.iter().find(|(name, _)| name == table);
         let (_, why) = why.unwrap_or_else(|| panic!("{table} is listed: {listed:?}"));
         assert_eq!(why, "no aggregate holds it", "{table} is read as JSON");
     }

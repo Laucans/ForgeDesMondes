@@ -1,0 +1,16 @@
+# fields: campaign.id, campaign.name, campaign.kind, campaign.art, campaign.glyph, campaign.pitch, campaign.createdAt
+# Every campaign and oneshot of the home page, newest first: no account, no
+# owner. The session count and the dates are counted from the sessions in
+# campaign_overview_view, never stored: they join this read with the Session
+# aggregate's table.
+query ListCampaigns {
+  campaigns {
+    id
+    name
+    kind
+    art
+    glyph
+    pitch
+    createdAt
+  }
+}

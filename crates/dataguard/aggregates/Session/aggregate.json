@@ -1,0 +1,359 @@
+{
+  "aggregate": "Session",
+  "fields": {
+    "addedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "analyzedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "briefId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "closedAt": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "createdAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "createdEntityId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "durationSeconds": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "entityId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "entityToCreateCampaignId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "entityToCreateId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "entityToCreateSceneId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "entityToCreateSessionId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "entityToCreateStatus": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "excerpt": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "microphoneOn": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "name": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "notes": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "oralBriefId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "oralBriefSessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "plannedOn": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "recordedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "refinementText": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "sceneEntityPosition": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "sceneEntitySceneId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sceneId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sceneMediaMediaId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "sceneMediaSceneId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "scenePosition": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "sceneSessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sceneTitle": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "sessionCampaignId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sessionJournalLineId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "sessionJournalLineSceneId": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "sessionJournalLineSessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sessionMediaViewMediaId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "sessionMediaViewSessionId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "sessionPosition": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "sessionPresentCharacterCharacterId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sessionPresentCharacterSessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sessionRosterViewCharacterId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "sessionRosterViewSessionId": {
+      "criticality": "normal",
+      "kind": "derived"
+    },
+    "sessionStatus": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "sessionTitle": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "spokenAt": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "startedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "summary": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "summaryEditedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "summaryModel": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "text": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "transcript": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "type": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "via": {
+      "criticality": "low",
+      "kind": "derived"
+    },
+    "viaPlaceId": {
+      "criticality": "low",
+      "kind": "derived"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "present-only-pj",
+      "onViolation": "reject",
+      "rule": "Seuls des PJ de la même campagne peuvent être cochés présents. Les PJ proposés en DM view et sur les battlemaps sont exactement les présents, y compris ceux ajoutés plus tard."
+    },
+    {
+      "id": "scene-order-contiguous",
+      "onViolation": "reject",
+      "rule": "Les rangs des scènes d'une séance vont de 1 à n, sans trou ni doublon. Un réordonnancement réécrit tous les rangs d'un coup."
+    },
+    {
+      "id": "scene-links-same-campaign",
+      "onViolation": "reject",
+      "rule": "Les éléments et médias liés à une scène appartiennent à la campagne de la séance."
+    },
+    {
+      "id": "session-media-by-place",
+      "onViolation": "reject",
+      "rule": "Un média est associé à une séance s'il est lié à une de ses scènes ou si son lieu figure dans une de ses scènes. Cette association n'est jamais stockée, elle suit donc tout changement de lieu. Un média sans lieu reste valide."
+    },
+    {
+      "id": "brief-no-auto-creation",
+      "onViolation": "reject",
+      "rule": "L'analyse d'un brief lie les éléments existants à leurs scènes et met à jour les PNJ existants avec une version et son diff. Tout élément inconnu va dans la liste « à créer » avec son type et son extrait. Aucun élément n'est créé automatiquement."
+    },
+    {
+      "id": "to-create-leaves-once-created",
+      "onViolation": "reject",
+      "rule": "Une entrée « à créer » passe à « creee » si et seulement si created_entity_id est renseigné. La proposition affinée tient compte de l'extrait et des phrases ajoutées."
+    },
+    {
+      "id": "status-lifecycle",
+      "onViolation": "reject",
+      "rule": "Une séance passe de « prep » à « live » puis à « closed », sans retour en arrière. Une séance close n'accepte plus de lignes de journal."
+    },
+    {
+      "id": "close-session",
+      "onViolation": "reject",
+      "rule": "Clore une séance éteint le micro, arrête les sons, conserve le journal horodaté en local et enregistre le résumé avec le modèle de résumé configuré."
+    },
+    {
+      "id": "text-only-no-audio",
+      "onViolation": "reject",
+      "rule": "Aucune colonne ne contient d'audio. Les briefs et le journal ne sont conservés qu'en texte transcrit en local, et seul ce texte part vers le fournisseur."
+    },
+    {
+      "id": "previous-summary-visible",
+      "onViolation": "reject",
+      "rule": "Le résumé et le journal de la séance close qui précède sont lisibles depuis la séance suivante, et le résumé figure dans la liste des séances."
+    }
+  ],
+  "relations": [
+    {
+      "from": "Session.sessionCampaignId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.sessionPresentCharacterSessionId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.sessionPresentCharacterCharacterId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.sceneSessionId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.sceneEntitySceneId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.entityId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.sceneMediaSceneId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.sceneMediaMediaId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.oralBriefSessionId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.entityToCreateCampaignId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.entityToCreateSessionId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.briefId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.entityToCreateSceneId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.createdEntityId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Session.sessionJournalLineSessionId",
+      "onDelete": "cascade",
+      "onUpdate": "restrict"
+    },
+    {
+      "from": "Session.sessionJournalLineSceneId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    }
+  ]
+}
