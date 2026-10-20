@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "1028b499109eda36"
+      "builtFrom": "ae8f1ea1b464e365"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "787847e24ee100a4"
+      "builtFrom": "33245f8f6467735f"
     },
     {
       "name": "SessionList",
@@ -171,7 +171,7 @@
         "campaign": "string — id de la campagne dont on liste les séances"
       },
       "source": "apps/session/session-list",
-      "builtFrom": "05533c88a6e1acb3"
+      "builtFrom": "08834f08077b41b2"
     },
     {
       "name": "CampaignElements",
@@ -278,7 +278,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "1a581cd7676ba098"
+      "builtFrom": "9bf8f5de65ce0513"
     },
     {
       "name": "PreviousSummary",
@@ -404,7 +404,7 @@
         "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
       },
       "source": "apps/media/media-library",
-      "builtFrom": "a4183d811b4830ad"
+      "builtFrom": "e5bc94e5f5f7cd90"
     },
     {
       "name": "GridSettings",

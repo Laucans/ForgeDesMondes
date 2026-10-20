@@ -1,18 +1,22 @@
-//! What a new scene is prepared against beyond its own row: each session's
-//! campaign, and each scene's session and rank — whether its session is one
-//! the product holds, and where its next scene goes
+//! What a scene is prepared and judged against beyond its own row: each
+//! session's campaign, and each scene's session and rank — whether a new
+//! scene's session is one the product holds, where its next scene goes, and
+//! whether a reorder lists every scene of its session, each once
 //! (`scene-order-contiguous`). The engine judges a row alone, and this is
-//! the rest of its session. The places it links are judged as a place put in
-//! a scene is (`crate::scene_places`).
+//! the rest of its session. The places a new scene links are judged as a
+//! place put in a scene is (`crate::scene_places`).
 //!
 //! It follows what the engine applies: [`crate::versioning::Versioning`]
 //! records each write of a session or a scene once it is applied, over the
 //! engine's memory and over a database alike, and forgets one when it is
 //! removed. Over a database it also takes what the tables hold — the
-//! fixtures' rows, which no command wrote — at a start, and of a session
-//! each time a scene of it is prepared ([`crate::Rows::refresh_session`]).
-//! Sessions and scenes are told apart by their id parsed as a uuid: the
-//! same id in another case is the same one.
+//! fixtures' rows, which no command wrote — at a start, of a session each
+//! time a scene of it is prepared ([`crate::Rows::refresh_session`]), and of
+//! its scenes each time a reorder of it is submitted
+//! ([`crate::Rows::refresh_scenes`]): taken beside what it knows, never over
+//! it, so a scene applied while the tables were read is not lost. Sessions
+//! and scenes are told apart by their id parsed as a uuid: the same id in
+//! another case is the same one.
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
@@ -68,13 +72,57 @@ impl Scenes {
         }
     }
 
-    /// The session or scene `id` is no more.
+    /// The session or scene `id` is no more — nor, when `id` names a
+    /// session, are its scenes: they go with it.
     pub fn forget(&self, id: &str) {
         if let Some(id) = parsed(id) {
             let mut facts = self.facts.write().unwrap_or_else(|e| e.into_inner());
             facts.sessions.remove(&id);
-            facts.scenes.remove(&id);
+            facts
+                .scenes
+                .retain(|scene, (session, _)| *scene != id && *session != id);
         }
+    }
+
+    /// Records each `(scene, session)` pair the tables and the engine's rows
+    /// hold, beside the scenes known — a rank known kept: the ones that do
+    /// not parse left out.
+    pub fn take(&self, scenes: &[(String, String)]) {
+        let mut facts = self.facts.write().unwrap_or_else(|e| e.into_inner());
+        for (scene, session) in scenes {
+            if let (Some(scene), Some(session)) = (parsed(scene), parsed(session)) {
+                let rank = facts.scenes.get(&scene).map_or(0, |(_, rank)| *rank);
+                facts.scenes.insert(scene, (session, rank));
+            }
+        }
+    }
+
+    /// Whether `order` is every scene of `session`, each once: a scene it
+    /// omits, repeats, takes from another session — or an id that is no
+    /// scene — and it is not.
+    pub fn orders(&self, session: &str, order: &[Value]) -> bool {
+        let Some(session) = parsed(session) else {
+            return false;
+        };
+        let facts = self.facts.read().unwrap_or_else(|e| e.into_inner());
+        let mut ranked = Vec::with_capacity(order.len());
+        for scene in order {
+            match scene.as_str().and_then(parsed) {
+                Some(scene) if facts.scenes.get(&scene).map(|(of, _)| *of) == Some(session) => {
+                    ranked.push(scene);
+                }
+                _ => return false,
+            }
+        }
+        ranked.sort_unstable();
+        ranked.dedup();
+        ranked.len() == order.len()
+            && facts
+                .scenes
+                .values()
+                .filter(|(of, _)| *of == session)
+                .count()
+                == ranked.len()
     }
 
     /// The campaign of `session`, in lower case, when it is known: a session
@@ -114,6 +162,9 @@ mod tests {
     const SEANCE: &str = "51000000-0000-4000-8000-000000000001";
     const ARRIVEE: &str = "5c000000-0000-4000-8000-000000000001";
     const ROUTE: &str = "5c000000-0000-4000-8000-000000000002";
+    const AUTRE_SEANCE: &str = "51000000-0000-4000-8000-000000000002";
+    const GUE: &str = "5c000000-0000-4000-8000-000000000003";
+    const AILLEURS: &str = "5c000000-0000-4000-8000-000000000009";
 
     fn row(fields: Value) -> BTreeMap<String, Value> {
         let Value::Object(fields) = fields else {
@@ -168,5 +219,109 @@ mod tests {
         assert_eq!(scenes.next_position(SEANCE, ROUTE), 3);
         scenes.forget(ARRIVEE);
         assert_eq!(scenes.next_position(SEANCE, ROUTE), 1);
+    }
+
+    fn scene(id: &str, session: &str) -> BTreeMap<String, Value> {
+        row(json!({ "sceneId": id, "sceneSessionId": session, "scenePosition": 1 }))
+    }
+
+    /// `id` recorded as a scene of `session`, as its partition's write.
+    fn record_scene(scenes: &Scenes, id: &str, session: &str) {
+        scenes.record("Session", id, &scene(id, session));
+    }
+
+    fn order(ids: &[&str]) -> Vec<Value> {
+        ids.iter().map(|id| json!(id)).collect()
+    }
+
+    /// Session 1's three scenes, and a scene of another session.
+    fn scenes() -> Scenes {
+        let scenes = Scenes::default();
+        for id in [ARRIVEE, ROUTE, GUE] {
+            record_scene(&scenes, id, SEANCE);
+        }
+        record_scene(&scenes, AILLEURS, AUTRE_SEANCE);
+        scenes
+    }
+
+    #[test]
+    fn an_order_is_every_scene_of_its_session_each_once_whatever_the_case() {
+        let scenes = scenes();
+        assert!(scenes.orders(SEANCE, &order(&[GUE, ARRIVEE, ROUTE])));
+        assert!(scenes.orders(
+            &SEANCE.to_uppercase(),
+            &order(&[&GUE.to_uppercase(), ARRIVEE, ROUTE])
+        ));
+        assert!(scenes.orders(AUTRE_SEANCE, &order(&[AILLEURS])));
+    }
+
+    #[test]
+    fn an_order_omitting_repeating_or_borrowing_a_scene_is_none() {
+        let scenes = scenes();
+        // Omits the ford.
+        assert!(!scenes.orders(SEANCE, &order(&[ROUTE, ARRIVEE])));
+        // Repeats the road, in place of the ford.
+        assert!(!scenes.orders(SEANCE, &order(&[ROUTE, ARRIVEE, ROUTE])));
+        // Repeats the road, beside every scene.
+        assert!(!scenes.orders(SEANCE, &order(&[ROUTE, ARRIVEE, GUE, ROUTE])));
+        // Takes a scene of another session.
+        assert!(!scenes.orders(SEANCE, &order(&[GUE, ARRIVEE, ROUTE, AILLEURS])));
+        assert!(!scenes.orders(SEANCE, &order(&[GUE, ARRIVEE, AILLEURS])));
+        // Names what is no scene, or no id at all.
+        assert!(!scenes.orders(SEANCE, &order(&[GUE, ARRIVEE, ROUTE, "sc1"])));
+        assert!(!scenes.orders(SEANCE, &[json!(GUE), json!(ARRIVEE), json!(1)]));
+        // Of a session that is none, or no uuid.
+        assert!(!scenes.orders("seance-1", &order(&[GUE, ARRIVEE, ROUTE])));
+        assert!(!scenes.orders(
+            "51000000-0000-4000-8000-0000000000ff",
+            &order(&[GUE, ARRIVEE, ROUTE])
+        ));
+    }
+
+    #[test]
+    fn a_row_holding_no_scene_records_none_and_a_removal_forgets_it() {
+        let scenes = scenes();
+        // A session's own row, its status written alone, is no scene.
+        scenes.record(
+            "Session",
+            SEANCE,
+            &row(json!({ "sessionId": SEANCE, "sessionStatus": "live" })),
+        );
+        scenes.record("Session", "sc4", &row(json!({ "sceneSessionId": SEANCE })));
+        assert!(scenes.orders(SEANCE, &order(&[GUE, ARRIVEE, ROUTE])));
+        scenes.forget(&GUE.to_uppercase());
+        assert!(scenes.orders(SEANCE, &order(&[ARRIVEE, ROUTE])));
+        // A session removed takes its scenes with it.
+        scenes.forget(SEANCE);
+        assert!(!scenes.orders(SEANCE, &order(&[ARRIVEE, ROUTE])));
+        assert!(scenes.orders(AUTRE_SEANCE, &order(&[AILLEURS])));
+        scenes.forget("not-an-id");
+        assert!(scenes.orders(AUTRE_SEANCE, &order(&[AILLEURS])));
+    }
+
+    #[test]
+    fn the_scenes_the_tables_hold_are_taken_beside_the_ones_known() {
+        let scenes = Scenes::default();
+        record_scene(&scenes, ARRIVEE, SEANCE);
+        scenes.take(&[
+            (ROUTE.to_uppercase(), SEANCE.to_string()),
+            (GUE.to_string(), SEANCE.to_uppercase()),
+            (AILLEURS.to_string(), AUTRE_SEANCE.to_string()),
+            ("sc9".to_string(), SEANCE.to_string()),
+            (ARRIVEE.to_string(), "seance-1".to_string()),
+        ]);
+        assert!(scenes.orders(SEANCE, &order(&[GUE, ARRIVEE, ROUTE])));
+        assert!(scenes.orders(AUTRE_SEANCE, &order(&[AILLEURS])));
+        // Taken again, nothing known is lost.
+        scenes.take(&[]);
+        assert!(scenes.orders(SEANCE, &order(&[GUE, ARRIVEE, ROUTE])));
+        // A rank known is kept, one the tables name alone is none.
+        scenes.record(
+            "Session",
+            ARRIVEE,
+            &row(json!({ "sceneSessionId": SEANCE, "scenePosition": 2 })),
+        );
+        scenes.take(&[(ARRIVEE.to_string(), SEANCE.to_string())]);
+        assert_eq!(scenes.next_position(SEANCE, ROUTE), 3);
     }
 }

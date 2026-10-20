@@ -13,20 +13,26 @@
 //! presence and every change of place. `scene-links-same-campaign` reads the
 //! campaign of a scene's session and of each element it links: its judge is
 //! `crate::scene_places`, for a place put in a scene and a new scene alike.
-//! `scene-order-contiguous` reads the session's other
-//! scenes: here, a scene's rank is one of 1 to n, and a new scene's is
-//! settled after the session's last when it is applied
-//! (`crate::versioning::Versioning`). `previous-summary-visible` is a read:
-//! the tables keep a closed session's summary and journal for the next one.
+//! `scene-order-contiguous` reads the session's other scenes: here, a
+//! scene's rank is one of 1 to n — a new scene's is settled after the
+//! session's last when it is applied (`crate::versioning::Versioning`), and
+//! a reorder (`session.reorderScenes`) writes the session's whole order on
+//! its own row — every scene of the session, each once, which [`Scenes`]
+//! knows — so the ranks it rewrites at once run 1 to n.
+//! `previous-summary-visible` is a read: the tables keep a closed session's
+//! summary and journal for the next one.
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use add_scene::{LINKED, POSITION as SCENE_POSITION};
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
+
+use crate::scenes::Scenes;
+use crate::versioning::SESSION;
 
 const AGGREGATE: &str = "Session";
 
@@ -50,6 +56,10 @@ const MICROPHONE: &str = "microphoneOn";
 const CLOSED_AT: &str = "closedAt";
 const SUMMARY: &str = "summary";
 const SUMMARY_MODEL: &str = "summaryModel";
+
+/// The invariant [`Session`] judges an order with, against what [`Scenes`]
+/// keeps.
+const ORDER_CONTIGUOUS: &str = "scene-order-contiguous";
 
 /// An entry of the « à créer » list: its id and status, which say a row is
 /// one; the element it created; what the analysis of a brief writes it with.
@@ -95,7 +105,7 @@ type Check = (&'static str, fn(&BTreeMap<String, Value>, &Entry) -> bool);
 
 const CHECKS: [Check; 8] = [
     ("present-only-pj", present_only_pj),
-    ("scene-order-contiguous", scene_order_contiguous),
+    (ORDER_CONTIGUOUS, scene_order_contiguous),
     ("session-media-by-place", session_media_by_place),
     ("brief-no-auto-creation", brief_no_auto_creation),
     (
@@ -107,8 +117,35 @@ const CHECKS: [Check; 8] = [
     ("text-only-no-audio", text_only_no_audio),
 ];
 
-/// The invariants `plant()` binds the engine with.
-pub struct Session;
+/// The invariants `plant()` binds the engine with, an order of the scenes
+/// read against `scenes`.
+pub struct Session {
+    scenes: Arc<Scenes>,
+}
+
+impl Session {
+    /// The judge of the Session aggregate, reading `scenes`.
+    pub fn new(scenes: Arc<Scenes>) -> Self {
+        Self { scenes }
+    }
+
+    /// An order the command writes on a session's row is every scene of
+    /// that session, each once: its ranks, 1 to n, leave no gap and no
+    /// duplicate. Judged when the command writes it, against the session's
+    /// scenes as they are then — never again on a later write of the row.
+    fn orders_every_scene(&self, state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+        let Value::Array(order) = value(state, SCENE_POSITION) else {
+            return true;
+        };
+        if !entry.payload.contains_key(SCENE_POSITION) {
+            return true;
+        }
+        entry
+            .partition
+            .strip_prefix(SESSION)
+            .is_some_and(|session| self.scenes.orders(session, order))
+    }
+}
 
 impl Invariants for Session {
     fn violated(
@@ -122,11 +159,17 @@ impl Invariants for Session {
         if aggregate != AGGREGATE || entry.effect == Effect::Delete {
             return Vec::new();
         }
-        CHECKS
+        let mut violated: Vec<String> = CHECKS
             .iter()
             .filter(|(_, holds)| !holds(state, entry))
             .map(|(id, _)| (*id).to_string())
-            .collect()
+            .collect();
+        if !self.orders_every_scene(state, entry)
+            && !violated.iter().any(|id| id == ORDER_CONTIGUOUS)
+        {
+            violated.push(ORDER_CONTIGUOUS.to_string());
+        }
+        violated
     }
 }
 
@@ -160,10 +203,14 @@ fn present_only_pj(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A scene's rank, when the row has one, is one of 1 to n: a whole number
-/// from 1.
+/// from 1 — or, on a session's row, its order: a list of scene ids, each at
+/// its rank less one, which [`Session`] judges against the session's scenes.
 fn scene_order_contiguous(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
-    let position = value(state, SCENE_POSITION);
-    position.is_null() || position.as_u64().is_some_and(|rank| rank >= 1)
+    match value(state, SCENE_POSITION) {
+        Value::Null => true,
+        Value::Array(order) => order.iter().all(Value::is_string),
+        position => position.as_u64().is_some_and(|rank| rank >= 1),
+    }
 }
 
 /// A session's media are never stored: `session_media_view` computes them,
@@ -230,13 +277,16 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A command writes only fields the aggregate declares, each a text, a
-/// number, a boolean or a null — the elements a scene links, a list of their
-/// ids: no field holds audio, nor anything but what a column types.
+/// number, a boolean or a null — the elements a scene links, or a session's
+/// order of its scenes, a list of their ids: no field holds audio, nor
+/// anything but what a column types.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
         DECLARED.contains(field)
             && match value {
-                Value::Array(ids) => field == LINKED && ids.iter().all(Value::is_string),
+                Value::Array(ids) => {
+                    (field == LINKED || field == SCENE_POSITION) && ids.iter().all(Value::is_string)
+                }
                 Value::Object(_) => false,
                 _ => true,
             }
@@ -246,6 +296,7 @@ fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     use add_scene::SESSION as SCENE_SESSION;
     use harness_dataguard::command::Entry;
@@ -288,19 +339,52 @@ mod tests {
         ]
         .into_iter()
         .collect();
+        let judge = Session::new(Arc::default());
         assert_eq!(
-            Session.violated("Session", &state, &entry("Session", "update")),
+            judge.violated("Session", &state, &entry("Session", "update")),
             ["scene-order-contiguous", "close-session"]
         );
         assert!(
-            Session
+            judge
                 .violated("Campaign", &state, &entry("Campaign", "update"))
                 .is_empty()
         );
         assert!(
-            Session
+            judge
                 .violated("Session", &state, &entry("Session", "delete"))
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn an_order_no_scene_of_its_session_is_named_once_beside_the_other_violations() {
+        let judge = Session::new(Arc::default());
+        let ordering = |order: Value| {
+            let mut written = entry("Session", "update");
+            written.payload.insert(SCENE_POSITION.to_string(), order);
+            written
+        };
+        // An order of no ids: the check and the scenes refuse it, named once.
+        let state: BTreeMap<String, Value> = [(SCENE_POSITION.to_string(), json!([1]))]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            judge.violated("Session", &state, &ordering(json!([1]))),
+            ["scene-order-contiguous", "text-only-no-audio"]
+        );
+        // Ids of no scene the judge knows, on a closed session with its
+        // microphone on: the scenes refuse the order beside the close.
+        let order = json!(["5c000000-0000-4000-8000-000000000001"]);
+        let state: BTreeMap<String, Value> = [
+            (STATUS.to_string(), json!("closed")),
+            (MICROPHONE.to_string(), json!(true)),
+            (SCENE_POSITION.to_string(), order.clone()),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            judge.violated("Session", &state, &ordering(order)),
+            ["close-session", "scene-order-contiguous"]
         );
     }
 
@@ -348,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn text_only_no_audio_admits_a_list_of_ids_in_the_links_a_scene_holds_alone() {
+    fn text_only_no_audio_admits_a_list_of_ids_in_a_scene_s_links_or_a_session_s_order_alone() {
         let writing = |field: &str, value: Value| {
             let mut entry = entry("Session", "insert");
             entry.payload.insert(field.to_string(), value);
@@ -360,9 +444,17 @@ mod tests {
             &writing(LINKED, json!(["e1000000-0000-4000-8000-000000000003"]))
         ));
         assert!(text_only_no_audio(&state, &writing(LINKED, json!([]))));
+        assert!(text_only_no_audio(
+            &state,
+            &writing(
+                SCENE_POSITION,
+                json!(["5c000000-0000-4000-8000-000000000001"])
+            )
+        ));
         // A list of anything but ids, a list in any other field, an object.
         for (field, value) in [
             (LINKED, json!([3])),
+            (SCENE_POSITION, json!([3])),
             (LINKED, json!(["e1", { "audio": "x" }])),
             (SUMMARY, json!(["Le gué"])),
             (LINKED, json!({ "id": "e1" })),

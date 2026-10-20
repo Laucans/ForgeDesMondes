@@ -1,0 +1,10 @@
+[package]
+name = "reorder-scenes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.reorderScenes: the full ordered list of a session's scenes, written in one command on its Session partition — every rank rewritten at once, 1 to n with no gap or duplicate (scene-order-contiguous)."
+publish = false
+
+[dependencies]
+serde_json = "1"

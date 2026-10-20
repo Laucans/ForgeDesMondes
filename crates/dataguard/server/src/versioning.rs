@@ -13,7 +13,8 @@
 //! keeps [`Scenes`] — each session's campaign, its scenes and their ranks,
 //! as every write applied leaves them — and settles a new scene's rank
 //! there: the one after its session's last, whatever was queued beside it
-//! (`scene-order-contiguous`). Every other method is the inner store's.
+//! (`scene-order-contiguous`), which a reorder of the session's scenes is
+//! judged against too. Every other method is the inner store's.
 //! [`Rows`] reads what a link of a place to a scene is judged against
 //! (`session.addPlaceToSession`), and the places of a new scene alike, and
 //! keeps their verdict in [`Links`].
@@ -309,6 +310,28 @@ impl Rows {
     /// The rank after the last of `session`'s scenes besides `scene`.
     pub fn next_scene_position(&self, session: &str, scene: &str) -> u64 {
         self.scenes.next_position(session, scene)
+    }
+
+    /// Takes what the tables and the engine's rows hold of `session`'s
+    /// scenes into what a reorder of them is judged against: the fixtures'
+    /// scenes, which no command wrote. Over the engine's memory, which has
+    /// no table, nothing: its scenes are the ones it applied.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn refresh_scenes(&self, session: &str) -> Result<()> {
+        let Some(tables) = &self.tables else {
+            return Ok(());
+        };
+        let held = tables.scenes_of(Some(session)).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "scenes not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        self.scenes.take(&held);
+        Ok(())
     }
 
     /// The same, the verdicts of the links of places to scenes kept in
