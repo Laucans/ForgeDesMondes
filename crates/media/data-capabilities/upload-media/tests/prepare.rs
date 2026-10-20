@@ -44,6 +44,14 @@ fn place_named(wire: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The campaign `wire` names, once checked.
+fn campaign_named(wire: &Value) -> String {
+    checked(&row(wire.clone()))
+        .expect("checked")
+        .campaign()
+        .to_owned()
+}
+
 fn uploaded(wire: Value) -> Row {
     upload(wire, None).expect("prepared").payload
 }
@@ -153,6 +161,15 @@ fn media_place_is_lieu_refuses_a_non_lieu_another_campaign_s_lieu_and_an_unknown
 }
 
 #[test]
+fn a_checked_upload_names_its_campaign() {
+    assert_eq!(campaign_named(&battlemap()), VALOMBRE);
+    assert_eq!(
+        campaign_named(&with(battlemap(), "campaign", json!(BRUME))),
+        BRUME
+    );
+}
+
+#[test]
 fn the_dimensions_and_the_path_are_optional() {
     let payload =
         uploaded(json!({ "campaign": VALOMBRE, "kind": "illustration", "title": "Elowen" }));
@@ -198,6 +215,19 @@ fn what_the_tables_could_never_hold_is_refused_before_it_is_queued() {
         (
             with(battlemap(), "width", json!(12.5)),
             Refusal::NotAPixelCount("width"),
+        ),
+        // Hex digits and hyphens only, short; 36 characters but not a uuid.
+        (
+            with(battlemap(), "campaign", json!("abcdef")),
+            Refusal::NotAnId("campaign"),
+        ),
+        (
+            with(
+                battlemap(),
+                "campaign",
+                json!("c1000000-0000-4000-8000-00000000000g"),
+            ),
+            Refusal::NotAnId("campaign"),
         ),
         (
             with(battlemap(), "place", json!("taverne-sanglier")),
