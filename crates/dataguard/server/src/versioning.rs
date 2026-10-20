@@ -43,6 +43,10 @@ pub fn element_of(write: &Write) -> Option<&str> {
     write.partition.strip_prefix(ENTITY)
 }
 
+/// A session's campaign, and its position there.
+const CAMPAIGN: &str = "sessionCampaignId";
+const POSITION: &str = "sessionPosition";
+
 /// The session a write is of, when it is a write of the Session aggregate.
 pub fn session_of(write: &Write) -> Option<&str> {
     write.partition.strip_prefix(SESSION)
@@ -89,25 +93,23 @@ impl Versioning {
         let Some((aggregate, id)) = write.partition.split_once('/') else {
             return self.inner.apply(write, result).await;
         };
-        let mut settled = Write {
-            partition: write.partition.clone(),
-            values: write.values.clone(),
-            tombstone: write.tombstone,
-        };
+        let mut positioned = None;
         if let Some(session) = session_of(write).filter(|_| !write.tombstone) {
-            let campaign = write
-                .values
-                .get("sessionCampaignId")
-                .and_then(Value::as_str);
+            let campaign = write.values.get(CAMPAIGN).and_then(Value::as_str);
             let before = self.inner.row(&write.partition).await?;
-            if let Some(campaign) = campaign.filter(|_| !before.contains_key("sessionCampaignId")) {
+            if let Some(campaign) = campaign.filter(|_| !before.contains_key(CAMPAIGN)) {
+                let mut values = write.values.clone();
                 let position = self.sessions.next_position(campaign, session);
-                settled
-                    .values
-                    .insert("sessionPosition".into(), position.into());
+                values.insert(POSITION.into(), position.into());
+                positioned = Some(Write {
+                    partition: write.partition.clone(),
+                    values,
+                    tombstone: false,
+                });
             }
         }
-        let version = self.inner.apply(&settled, result).await?;
+        let settled = positioned.as_ref().unwrap_or(write);
+        let version = self.inner.apply(settled, result).await?;
         if settled.tombstone {
             self.sessions.forget(id);
         } else {
@@ -256,7 +258,7 @@ impl Rows {
         let Some(tables) = &self.tables else {
             return Ok(());
         };
-        let facts = tables.campaign_facts(id).await.map_err(|e| {
+        let facts = tables.campaign_facts(Some(id)).await.map_err(|e| {
             harness_dataguard::Error::Store(format!(
                 "campaign not read: {}",
                 e.as_db_error().map_or("-", |db| db.code().code())
@@ -266,6 +268,12 @@ impl Rows {
             self.sessions.record(&aggregate, &id, &row);
         }
         Ok(())
+    }
+
+    /// Whether `campaign` is one the engine or — over a database, once
+    /// [`refresh`](Self::refresh)ed — the tables hold.
+    pub fn knows(&self, campaign: &str) -> bool {
+        self.sessions.known(campaign)
     }
 
     /// The position a new session `session` of `campaign` takes: the one

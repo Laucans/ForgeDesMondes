@@ -289,6 +289,7 @@ async fn the_same_idempotency_key_twice_is_one_session() {
 #[tokio::test]
 async fn a_session_the_tables_could_never_hold_is_refused_422_and_not_queued() {
     let served = served().await;
+    served.campaign(VALOMBRE, "campagne").await;
     for payload in [
         json!({ "title": "Sans campagne" }),
         json!({ "campaign": "cendres-valombre", "title": "Par son nom" }),
@@ -307,5 +308,18 @@ async fn a_session_the_tables_could_never_hold_is_refused_422_and_not_queued() {
         );
         assert!(answer["error"].is_string(), "{answer}");
     }
+    assert!(served.settle().await.is_empty(), "nothing was queued");
+}
+
+#[tokio::test]
+async fn a_session_of_a_campaign_the_product_does_not_hold_is_refused_404_and_not_queued() {
+    let served = served().await;
+    served.campaign(VALOMBRE, "campagne").await;
+    let (status, answer) = served.submit(titled(BRUME, "Ailleurs", &[]), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
+    assert_eq!(
+        answer["error"],
+        json!(create_session::Refusal::UnknownCampaign.to_string())
+    );
     assert!(served.settle().await.is_empty(), "nothing was queued");
 }

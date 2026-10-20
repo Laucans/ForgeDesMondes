@@ -18,7 +18,8 @@
 //! - a session the tables could never hold is refused before it is queued
 //!   ([`Refusal`]): it names its campaign by a uuid, it has a title, its day
 //!   is a date, its PCs are a list of ids, and no value holds the character
-//!   U+0000.
+//!   U+0000. That the campaign is one the product holds is the server's to
+//!   say ([`Refusal::UnknownCampaign`]), from what it holds.
 
 use std::collections::BTreeMap;
 
@@ -54,6 +55,8 @@ pub struct Fresh<'a> {
 pub enum Refusal {
     /// No campaign is named, or not by a uuid.
     NoCampaign,
+    /// The campaign named is none the product holds.
+    UnknownCampaign,
     /// No title, or one of blanks alone.
     NoTitle,
     /// The planned day is not a date `YYYY-MM-DD`.
@@ -68,6 +71,7 @@ impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::NoCampaign => "une séance nomme sa campagne par son identifiant",
+            Self::UnknownCampaign => "la campagne de cette séance n'existe pas",
             Self::NoTitle => "une séance a un titre",
             Self::NotADate => "la date prévue d'une séance est un jour AAAA-MM-JJ",
             Self::NotPresent => "les PJ présents sont une liste d'identifiants",

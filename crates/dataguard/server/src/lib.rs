@@ -185,6 +185,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
         store.repair_tests().await;
         store.elements().await;
         store.versions(None).await;
+        store.campaigns(&sessions).await;
         let store = Arc::new(store);
         tables = Some(store.clone());
         store
@@ -367,8 +368,9 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// campaign the tables do not hold is refused, 404, and one they cannot make
 /// an archive of, 422 — neither is queued, so nothing changes. A new session
 /// (`create_session::prepare`) is given its id and the position after its
-/// campaign's last, what the tables hold of the campaign read first; one the
-/// tables could never hold is refused, 422, before it is queued.
+/// campaign's last, what the tables hold of the campaign read first: one of a
+/// campaign neither the engine nor the tables hold is refused, 404, and one
+/// the tables could never hold, 422 — neither is queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -523,7 +525,16 @@ async fn submit<L: Llm>(
             }
         }
     } else if create_session::names(&body.data_capability) {
-        let campaign = create_session::campaign_of(&body.payload).unwrap_or_default();
+        let refused = |status, refusal: create_session::Refusal| {
+            Err((
+                status,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            ))
+        };
+        let Some(campaign) = create_session::campaign_of(&body.payload) else {
+            let unnamed = create_session::Refusal::NoCampaign;
+            return refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, unnamed);
+        };
         let session = match fresh_uuid() {
             Ok(session) => session,
             Err(_) => {
@@ -533,6 +544,10 @@ async fn submit<L: Llm>(
         };
         if let Err(e) = served.rows.refresh(&campaign).await {
             return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+        }
+        if !served.rows.knows(&campaign) {
+            let unknown = create_session::Refusal::UnknownCampaign;
+            return refused(axum::http::StatusCode::NOT_FOUND, unknown);
         }
         let now = now();
         let fresh = create_session::Fresh {
@@ -545,12 +560,7 @@ async fn submit<L: Llm>(
                 body.payload = prepared.payload;
                 body.target_id = Some(prepared.target_id);
             }
-            Err(refusal) => {
-                return Err((
-                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(serde_json::json!({ "error": refusal.to_string() })),
-                ));
-            }
+            Err(refusal) => return refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, refusal),
         }
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {

@@ -141,9 +141,9 @@ impl Scratch {
     }
 }
 
-/// Creates the session `payload` describes as the DM, approver of their own
-/// campaign: its id, and what the applier made of it.
-async fn create(engine: &Engine, app: &Router, payload: Value) -> (String, CommandResult) {
+/// Submits the session `payload` describes as the DM, approver of their own
+/// campaign: its id, queued.
+async fn submit(app: &Router, payload: Value) -> String {
     let body = json!({
         "dataCapability": "session.createSession@1",
         "payload": payload,
@@ -159,11 +159,17 @@ async fn create(engine: &Engine, app: &Router, payload: Value) -> (String, Comma
         .await
         .expect("a body");
     let answer: Value = serde_json::from_slice(&bytes).expect("JSON");
-    let id = answer["partition"]
+    answer["partition"]
         .as_str()
         .and_then(|p| p.strip_prefix("Session/"))
         .expect("a Session partition")
-        .to_owned();
+        .to_owned()
+}
+
+/// Creates the session `payload` describes as the DM: its id, and what the
+/// applier made of it.
+async fn create(engine: &Engine, app: &Router, payload: Value) -> (String, CommandResult) {
+    let id = submit(app, payload).await;
     let mut settled = engine.run_once().await.expect("the applier ran");
     assert_eq!(settled.len(), 1, "{settled:?}");
     (id, settled.remove(0))
@@ -248,5 +254,32 @@ async fn the_pcs_and_the_oneshot_s_session_the_tables_hold_are_judged_and_nothin
         .rows("SELECT (SELECT count(*) FROM session) AS sessions, (SELECT count(*) FROM session_present_character) AS present")
         .await;
     assert_eq!(counted, [json!({ "sessions": 4, "present": 0 })]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_session_queued_before_a_restart_is_judged_and_placed_against_the_tables_after_it() {
+    let s = Scratch::new("restart").await;
+    let (_, app) = s.serve().await;
+    let id = submit(
+        &app,
+        json!({ "campaign": VALOMBRE, "title": "La tour", "present": [ELOWEN] }),
+    )
+    .await;
+    // The server stops before applying it, and starts again.
+    drop(app);
+    let (engine, _) = s.serve().await;
+    let mut settled = engine.run_once().await.expect("the applier ran");
+    assert_eq!(settled.len(), 1, "{settled:?}");
+    let result = settled.remove(0);
+    assert_eq!(result.status, State::Applied, "{result:?}");
+    let sessions = s
+        .rows(&format!(
+            "SELECT position, (SELECT count(*) FROM session_present_character p
+                WHERE p.session_id = q.id AND p.character_id = '{ELOWEN}') AS elowen
+             FROM session q WHERE id = '{id}'"
+        ))
+        .await;
+    assert_eq!(sessions, [json!({ "position": 4, "elowen": 1 })]);
     s.drop().await;
 }

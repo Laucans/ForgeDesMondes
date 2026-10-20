@@ -113,6 +113,17 @@ impl Sessions {
         }
     }
 
+    /// Whether `campaign` is one whose kind is known: a campaign the engine or
+    /// the tables hold.
+    pub fn known(&self, campaign: &str) -> bool {
+        let Some(campaign) = parsed(campaign) else {
+            return false;
+        };
+        self.facts
+            .read()
+            .is_ok_and(|facts| facts.kinds.contains_key(&campaign))
+    }
+
     /// Whether `campaign` is a oneshot.
     pub fn oneshot(&self, campaign: &str) -> bool {
         let Some(campaign) = parsed(campaign) else {
@@ -233,7 +244,9 @@ mod tests {
     fn a_campaign_is_a_oneshot_once_its_kind_says_so() {
         let sessions = Sessions::default();
         assert!(!sessions.oneshot(BRUME));
+        assert!(!sessions.known(BRUME));
         sessions.record("Campaign", BRUME, &row(json!({ "kind": "oneshot" })));
+        assert!(sessions.known(&BRUME.to_uppercase()));
         sessions.record("Campaign", VALOMBRE, &row(json!({ "kind": "campagne" })));
         assert!(sessions.oneshot(BRUME));
         assert!(!sessions.oneshot(VALOMBRE));

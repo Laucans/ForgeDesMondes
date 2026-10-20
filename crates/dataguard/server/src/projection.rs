@@ -58,6 +58,7 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
+use crate::sessions::Sessions;
 use crate::versioning::{ENTITY, SESSION, element_of, session_of};
 
 /// The partition whose writes reach the tables: the one settings row.
@@ -257,30 +258,45 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
-/// A session's row as the engine holds it (`$1`, JSON), its id `$2`: upserted
-/// whole.
-const UPSERT_SESSION: &str = "INSERT INTO session
+/// The fields a session's row as the engine holds it (`$1`, JSON) holds,
+/// written on the session `$2`'s row: a field the row does not hold — a
+/// session of the fixtures, which the engine writes in part — is left as the
+/// table has it.
+const UPDATE_SESSION: &str = "UPDATE session SET
+        campaign_id = CASE WHEN r ? 'sessionCampaignId' THEN (r ->> 'sessionCampaignId')::uuid ELSE campaign_id END,
+        position = CASE WHEN r ? 'sessionPosition' THEN (r ->> 'sessionPosition')::integer ELSE position END,
+        title = CASE WHEN r ? 'sessionTitle' THEN r ->> 'sessionTitle' ELSE title END,
+        planned_on = CASE WHEN r ? 'plannedOn' THEN (r ->> 'plannedOn')::date ELSE planned_on END,
+        status = CASE WHEN r ? 'sessionStatus' THEN r ->> 'sessionStatus' ELSE status END,
+        microphone_on = CASE WHEN r ? 'microphoneOn' THEN (r ->> 'microphoneOn')::boolean ELSE microphone_on END,
+        started_at = CASE WHEN r ? 'startedAt' THEN (r ->> 'startedAt')::timestamptz ELSE started_at END,
+        closed_at = CASE WHEN r ? 'closedAt' THEN (r ->> 'closedAt')::timestamptz ELSE closed_at END,
+        summary = CASE WHEN r ? 'summary' THEN r ->> 'summary' ELSE summary END,
+        summary_model = CASE WHEN r ? 'summaryModel' THEN r ->> 'summaryModel' ELSE summary_model END,
+        summary_edited_at = CASE WHEN r ? 'summaryEditedAt' THEN (r ->> 'summaryEditedAt')::timestamptz ELSE summary_edited_at END
+    FROM (SELECT ($1::text)::jsonb AS r) given
+    WHERE id = ($2::text)::uuid";
+
+/// The session `$2` as its row (`$1`, JSON) holds it, when the table does not
+/// hold it yet and the row names its campaign: a session written whole.
+const ADD_SESSION: &str = "INSERT INTO session
         (id, campaign_id, position, title, planned_on, status, microphone_on,
          started_at, closed_at, summary, summary_model, summary_edited_at)
-    SELECT ($2::text)::uuid, (r ->> 'sessionCampaignId')::uuid,
-        (r ->> 'sessionPosition')::integer, r ->> 'sessionTitle',
-        (r ->> 'plannedOn')::date, r ->> 'sessionStatus',
-        (r ->> 'microphoneOn')::boolean, (r ->> 'startedAt')::timestamptz,
-        (r ->> 'closedAt')::timestamptz, r ->> 'summary', r ->> 'summaryModel',
+    SELECT ($2::text)::uuid,
+        (r ->> 'sessionCampaignId')::uuid,
+        (r ->> 'sessionPosition')::integer,
+        r ->> 'sessionTitle',
+        (r ->> 'plannedOn')::date,
+        r ->> 'sessionStatus',
+        (r ->> 'microphoneOn')::boolean,
+        (r ->> 'startedAt')::timestamptz,
+        (r ->> 'closedAt')::timestamptz,
+        r ->> 'summary',
+        r ->> 'summaryModel',
         (r ->> 'summaryEditedAt')::timestamptz
     FROM (SELECT ($1::text)::jsonb AS r) given
-    ON CONFLICT (id) DO UPDATE SET
-        campaign_id = EXCLUDED.campaign_id,
-        position = EXCLUDED.position,
-        title = EXCLUDED.title,
-        planned_on = EXCLUDED.planned_on,
-        status = EXCLUDED.status,
-        microphone_on = EXCLUDED.microphone_on,
-        started_at = EXCLUDED.started_at,
-        closed_at = EXCLUDED.closed_at,
-        summary = EXCLUDED.summary,
-        summary_model = EXCLUDED.summary_model,
-        summary_edited_at = EXCLUDED.summary_edited_at";
+    WHERE r ? 'sessionCampaignId'
+        AND NOT EXISTS (SELECT 1 FROM session s WHERE s.id = ($2::text)::uuid)";
 
 /// The session `$2`'s PCs no longer present, dropped.
 const DROP_ABSENT: &str = "DELETE FROM session_present_character
@@ -291,7 +307,8 @@ const DROP_ABSENT: &str = "DELETE FROM session_present_character
                 ELSE '[]'::jsonb END) c)";
 
 /// The session `$2`'s PCs present, added when they were not, at the time the
-/// row says they were ticked.
+/// row says the list was last ticked (`addedAt`, which each write of the list
+/// stamps): a PC present already keeps its own.
 const ADD_PRESENT: &str = "INSERT INTO session_present_character (session_id, character_id, added_at)
     SELECT ($2::text)::uuid, (present.id)::uuid,
         coalesce((($1::text)::jsonb ->> 'addedAt')::timestamptz, now())
@@ -309,25 +326,26 @@ const UNPROJECTED_SESSIONS: &str = "SELECT r.partition FROM dataguard_rows r
             WHERE 'Session/' || s.id::text = lower(r.partition))
     ORDER BY r.partition";
 
-/// What the tables hold of the campaign `$1` (in whatever case) that the
-/// sessions' invariants read, each as `(aggregate, id, row)`: its kind, its
-/// sessions and their positions, its elements and their types — none the
-/// engine removed.
+/// What the tables hold of the campaign `$1` (in whatever case) — of every
+/// campaign when it is null — that the sessions' invariants read, each as
+/// `(aggregate, id, row)`: its kind, its sessions and their positions, its
+/// elements and their types — none the engine removed, under its id in
+/// whatever case.
 const CAMPAIGN_FACTS: &str =
     "SELECT 'Campaign', c.id::text, jsonb_build_object('kind', c.kind)::text
-        FROM campaign c WHERE c.id::text = lower($1)
+        FROM campaign c WHERE $1::text IS NULL OR c.id::text = lower($1)
     UNION ALL
     SELECT 'Session', s.id::text, jsonb_build_object(
             'sessionCampaignId', s.campaign_id, 'sessionPosition', s.position)::text
-        FROM session s WHERE s.campaign_id::text = lower($1)
+        FROM session s WHERE ($1::text IS NULL OR s.campaign_id::text = lower($1))
             AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
-                WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned)
+                WHERE lower(r.partition) = 'session/' || s.id::text AND r.tombstoned)
     UNION ALL
     SELECT 'Entity', e.id::text, jsonb_build_object(
             'entityCampaignId', e.campaign_id, 'type', e.type)::text
-        FROM entity e WHERE e.campaign_id::text = lower($1)
+        FROM entity e WHERE ($1::text IS NULL OR e.campaign_id::text = lower($1))
             AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
-                WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned)";
+                WHERE lower(r.partition) = 'entity/' || e.id::text AND r.tombstoned)";
 
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
@@ -372,12 +390,12 @@ impl ProjectingStore {
         self.repair_sessions().await;
     }
 
-    /// What the tables hold of the campaign `id` names that the sessions'
-    /// invariants read: `(aggregate, id, row)` for the campaign's kind, each
-    /// of its sessions, each of its elements.
+    /// What the tables hold of the campaign `id` names — of every campaign,
+    /// `None` — that the sessions' invariants read: `(aggregate, id, row)` for
+    /// the campaign's kind, each of its sessions, each of its elements.
     pub async fn campaign_facts(
         &self,
-        id: &str,
+        id: Option<&str>,
     ) -> std::result::Result<Vec<(String, String, BTreeMap<String, Value>)>, tokio_postgres::Error>
     {
         let client = self.inner.client().lock().await;
@@ -391,6 +409,24 @@ impl ProjectingStore {
                 Some((row.get(0), row.get(1), fields.into_iter().collect()))
             })
             .collect())
+    }
+
+    /// Records every campaign the tables hold in `sessions` — its kind, its
+    /// sessions, its elements — logging a failure: at a start, so the
+    /// commands queued before are judged against them. Tables not migrated
+    /// yet hold none.
+    pub async fn campaigns(&self, sessions: &Sessions) {
+        match self.campaign_facts(None).await {
+            Ok(facts) => {
+                for (aggregate, id, row) in facts {
+                    sessions.record(&aggregate, &id, &row);
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
     }
 
     /// Projects every session the engine holds and the tables do not,
@@ -436,8 +472,9 @@ impl ProjectingStore {
         }
     }
 
-    /// Writes the session `id` as `row` holds it, and — when the row holds
-    /// a list of them — its PCs present, in one transaction.
+    /// Writes the session `id` as `row` holds it — the fields it holds — and,
+    /// when the row holds a list of them, its PCs present, in one
+    /// transaction.
     async fn project_session(
         &self,
         id: &str,
@@ -446,7 +483,9 @@ impl ProjectingStore {
         let json = Value::Object(row.clone().into_iter().collect()).to_string();
         let mut client = self.inner.client().lock().await;
         let tx = client.transaction().await?;
-        tx.execute(UPSERT_SESSION, &[&json, &id]).await?;
+        for sql in [UPDATE_SESSION, ADD_SESSION] {
+            tx.execute(sql, &[&json, &id]).await?;
+        }
         if row.contains_key(PRESENT) {
             for sql in [DROP_ABSENT, ADD_PRESENT] {
                 tx.execute(sql, &[&json, &id]).await?;

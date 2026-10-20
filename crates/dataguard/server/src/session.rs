@@ -23,12 +23,14 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, LazyLock};
 
+use create_session::PRESENT;
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
 
 use crate::sessions::Sessions;
+use crate::versioning::SESSION;
 
 const AGGREGATE: &str = "Session";
 
@@ -68,10 +70,9 @@ const TYPE: &str = "type";
 const TO_CREATE_TYPES: [&str; 3] = ["pnj", "lieu", "evenement"];
 const EXCERPT: &str = "excerpt";
 
-/// A session's campaign, the PCs ticked present at it, and its partition.
+/// A session's campaign; the PCs ticked present at it are
+/// `create_session::PRESENT`.
 const CAMPAIGN: &str = "sessionCampaignId";
-const PRESENT: &str = "sessionPresentCharacterCharacterId";
-const PARTITION: &str = "Session/";
 
 /// The characters a session offers: `session_roster_view`'s, never stored.
 const ROSTER: [&str; 3] = [
@@ -161,7 +162,7 @@ impl Session {
         let Some(campaign) = value(state, CAMPAIGN).as_str() else {
             return true;
         };
-        let session = entry.partition.strip_prefix(PARTITION).unwrap_or_default();
+        let session = entry.partition.strip_prefix(SESSION).unwrap_or_default();
         !written(entry).any(|field| field == CAMPAIGN)
             || !self.sessions.oneshot(campaign)
             || self.sessions.others(campaign, session) == 0
