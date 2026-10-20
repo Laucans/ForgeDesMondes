@@ -1,0 +1,14 @@
+[package]
+name = "close-session"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.closeSession: a live session closed in one action — its microphone off, its close dated, the summary of its journal generated through the llm port by the active provider's summary model and stored with that model's name; its running playbacks stopped and its journal kept by the store."
+publish = false
+
+[dependencies]
+ports-llm = { path = "../../../ports/llm" }
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

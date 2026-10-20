@@ -1,0 +1,28 @@
+{
+  "dataCapability": "session.closeSession",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Session",
+    "id": "$session"
+  },
+  "touches": [
+    "Session.sessionStatus",
+    "Session.closedAt",
+    "Session.microphoneOn",
+    "Session.summary",
+    "Session.summaryModel"
+  ],
+  "payload": {},
+  "mode": "overwrite",
+  "invariants": [
+    "close-session",
+    "status-lifecycle",
+    "text-only-no-audio"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "ports": ["llm"],
+  "idempotencyKey": "optional"
+}

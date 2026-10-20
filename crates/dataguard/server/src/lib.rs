@@ -30,7 +30,10 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. A close of a session
+//! (`session.closeSession`) is prepared against the session's row and its
+//! journal, which [`Rows`] reads, its summary generated through the `llm`
+//! port with the active provider's summary model.
 
 use std::sync::Arc;
 
@@ -346,7 +349,14 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. A close of a
+/// session (`close_session::prepare`) is made the close it writes on the
+/// session's partition, against its row as the queue will leave it: a live
+/// session's journal, read from the tables, is summarised through the port
+/// by the active provider's summary model, and a close without a summary is
+/// told among the warnings. One of a session neither the engine nor the
+/// tables hold is refused, 404, and not queued; one of a session not live is
+/// queued for the DataGuard to refuse (`status-lifecycle`).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -496,6 +506,41 @@ async fn submit<L: Llm>(
             Err(refusal) => {
                 return Err((
                     axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
+    } else if close_session::names(&body.data_capability) {
+        // One partition per session, whatever case the caller wrote its id
+        // in: the tables' own, which their projection matches.
+        let id = body
+            .target_id
+            .as_deref()
+            .map(str::to_lowercase)
+            .or_else(|| close_session::session_id(&body.payload))
+            .unwrap_or_default();
+        body.target_id = Some(id.clone());
+        let read = async {
+            let session = served.rows.projected(&format!("Session/{id}")).await?;
+            let journal = served.rows.journal(&id).await?;
+            let settings = served.rows.settings().await?;
+            Ok::<_, Error>((session, journal, settings))
+        };
+        let (session, journal, settings) = match read.await {
+            Ok(read) => read,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared =
+            close_session::prepare(served.llm.as_ref(), &session, &journal, &settings, &now())
+                .await;
+        match prepared {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                refusal = prepared.warning;
+            }
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::NOT_FOUND,
                     Json(serde_json::json!({ "error": refusal.to_string() })),
                 ));
             }
