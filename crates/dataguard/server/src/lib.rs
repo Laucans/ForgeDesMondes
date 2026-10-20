@@ -403,6 +403,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// under the key of a removal the engine holds, the engine's to replay.
 /// The token commands judge the token's row as none once its removal is
 /// queued (`Rows::standing`).
+/// A participant taken out of the open combat is made the deletion of its
+/// entry's partition the same way ([`removal`]); its token stays.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -717,6 +719,8 @@ async fn submit<L: Llm>(
             body.payload = prepared.payload;
             body.target_id = Some(prepared.target_id);
         }
+    } else if remove_participant::names(&body.data_capability) {
+        removal(&served, &mut body).await?;
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
@@ -1067,6 +1071,61 @@ fn draw() -> Result<i64, getrandom::Error> {
     let mut bytes = [0_u8; 4];
     getrandom::fill(&mut bytes)?;
     Ok(i64::from(u32::from_le_bytes(bytes) >> 1))
+}
+
+/// `body`, a participant taken out of the open combat
+/// (`table.removeParticipant`), made the deletion of its entry's partition
+/// (`remove_participant::prepare`) — the fixtures' slugs it names read as the
+/// ids the tables hold them by — against the entry's row and its combat's as
+/// the queue will leave them: one naming no uuid, 422; an entry the engine
+/// does not hold, or holds in a combat of another instance than the target,
+/// 404; one of a combat that ended, 409 — none is queued. One sent again under
+/// the key of a removal the engine holds is the engine's to replay, as it was:
+/// its entry reads as none once its removal is queued (`Rows::standing`).
+async fn removal<L>(served: &Served<L>, body: &mut Submission) -> Result<(), Refused> {
+    use axum::http::StatusCode;
+    use remove_participant::{DATA_CAPABILITY, Refusal};
+    let failed = |e: Error| refused(status_of(&e), &e);
+    let unprocessable = |why: Refusal| {
+        let status = match why {
+            Refusal::UnknownEntry => StatusCode::NOT_FOUND,
+            Refusal::CombatEnded => StatusCode::CONFLICT,
+            Refusal::NotAnId(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        };
+        refused(status, &why)
+    };
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return Ok(());
+    }
+    let wire = served.reads.stored(&body.payload);
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = remove_participant::request(&wire, target.as_deref()).map_err(unprocessable)?;
+    let entry = served
+        .rows
+        .standing(&remove_participant::partition(&request.entry))
+        .await
+        .map_err(failed)?;
+    let combat = match remove_participant::combat_of(&entry) {
+        Some(combat) => served
+            .rows
+            .projected(&remove_participant::partition(&combat))
+            .await
+            .map_err(failed)?,
+        None => remove_participant::Row::new(),
+    };
+    let prepared = remove_participant::prepare(&request, &entry, &combat).map_err(unprocessable)?;
+    body.payload = prepared.payload;
+    body.target_id = Some(prepared.target_id);
+    Ok(())
 }
 
 /// A random (version 4) uuid: a new element's id, a version's.

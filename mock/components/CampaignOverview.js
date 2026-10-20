@@ -549,6 +549,28 @@
       token.states = payload.on ? states.includes(state) ? states : states.concat(state) : states.filter((s) => s !== state);
       return void 0;
     },
+    // table.removeParticipant: one participant taken out of the open combat, `payload.entry` in a combat of the
+    // instance `targetId` — or the entry itself as the target, or no target. The mock-up's order names each
+    // participant by its token, which stands for its entry here. Its entry's partition is tombstoned and nothing else
+    // is written: its token stays on the map, the order's places close up, and a turn still on it is no one's — the
+    // Battlemap sends table.nextTurn first when it holds the turn. Ids are compared in any case, as the server does.
+    "table.removeParticipant": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const named = payload.entry !== void 0;
+      const entryId = named ? payload.entry : targetId;
+      if (typeof entryId !== "string") return ["not-found"];
+      const instance = named && targetId && !same2(targetId, entryId) ? targetId : null;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const of = (o) => o.entry ?? o.id;
+      const inst = instances.find((i) => (instance == null || same2(i.id, instance)) && i.state.combat && i.state.combat.order.some((o) => same2(of(o), entryId)));
+      if (!inst) return ["not-found"];
+      const combat = inst.state.combat;
+      const gone = combat.order.find((o) => same2(of(o), entryId));
+      combat.order = combat.order.filter((o) => o !== gone);
+      if (same2(combat.current, gone.id)) combat.current = null;
+      return void 0;
+    },
     // table.removeToken: one token taken off the map, `payload.token` on the instance `targetId` — or the token
     // itself as the target, or no target. Its partition is tombstoned and the tables follow the aggregate's
     // relations: its entry leaves the order, whose places close up, and a turn still on it is no one's — the
