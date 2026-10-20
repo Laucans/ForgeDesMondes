@@ -160,6 +160,14 @@ impl Reads {
         self
     }
 
+    /// `row` with every text that is a wire name turned into its stored id:
+    /// what a command names, as the tables hold it.
+    pub(crate) fn stored(&self, row: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
+        row.iter()
+            .map(|(field, value)| (field.clone(), self.names.to_stored(value)))
+            .collect()
+    }
+
     /// The reads over the database `url` names — or [`none`](Self::none) for
     /// [`MEMORY`].
     ///

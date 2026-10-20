@@ -87,6 +87,31 @@ export const COMMANDS = {
     if (!scene.media.includes(map.id)) scene.media.push(map.id);
     return undefined;
   },
+  // table.placeTokens: a character dropped on an instance at a hex, « × count » (1 to 12). An NPC's tokens are
+  // numbered after the highest number it holds there and named with it (`multi-drop-numbering`), each with
+  // the sheet's HP max as its HP (`pj-hp-not-tracked`); a PC is dropped once, only when present at the
+  // session, and only when it has no token there yet (`token-roster`).
+  'table.placeTokens': async (server, { payload, targetId }) => {
+    const id = targetId || payload.instance;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const inst = id === fixture.id ? fixture : server.instances && server.instances.get(id);
+    const character = (await server.load('campaign.listCharacters')).find((c) => c.id === payload.character);
+    if (!inst || !character) return ['not-found'];
+    const count = payload.count ?? 1;
+    if (!Number.isInteger(count) || count < 1 || count > 12) return ['multi-drop-numbering'];
+    if (!Number.isInteger(payload.q) || !Number.isInteger(payload.r)) return ['single-position-source'];
+    const tokens = inst.state.tokens;
+    const mine = tokens.filter((t) => t.char === character.id);
+    const pc = character.kind === 'pj';
+    if (pc && (count !== 1 || mine.length || !(await server.load('session.getSession')).present.includes(character.id))) return ['token-roster'];
+    const hp = pc ? null : character.pvMax ?? null;
+    let num = Math.max(0, ...mine.map((t) => t.num || 0));
+    for (let i = 0; i < count; i++) {
+      num += pc ? 0 : 1;
+      tokens.push({ id: server.uuid(), char: character.id, kind: character.kind, name: pc ? character.name : `${character.name} ${num}`, num: pc ? null : num, q: payload.q, r: payload.r, visible: true, hp, hpMax: hp, states: [], dead: false });
+    }
+    return undefined;
+  },
   // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
   // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
   // version after it are undone, each field back to what it was. Either way the restoration is a new version
