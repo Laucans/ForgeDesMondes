@@ -18,8 +18,14 @@
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
 //! column. A campaign's row is its table's over the engine's, and
-//! an archive is read from the tables ([`ProjectingStore::archived`]). Every
-//! other method is the inner store's.
+//! an archive is read from the tables ([`ProjectingStore::archived`]). A
+//! session (`session.createSession`) writes its partition, `Session/<its
+//! id>`, whole: [`ProjectingStore`] upserts its `session` row and makes its
+//! `session_present_character` rows the PCs its row holds present — a PC
+//! present already keeps the time it was ticked — in one transaction. What
+//! the tables hold of a campaign — its kind, its sessions, its elements — is
+//! read for the sessions' invariants ([`ProjectingStore::campaign_facts`]).
+//! Every other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -39,6 +45,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use create_session::PRESENT;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::postgres::PgStore;
@@ -51,7 +58,7 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
-use crate::versioning::{ENTITY, element_of};
+use crate::versioning::{ENTITY, SESSION, element_of, session_of};
 
 /// The partition whose writes reach the tables: the one settings row.
 pub const AI_SETTINGS: &str = "AiSettings/1";
@@ -250,6 +257,78 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
+/// A session's row as the engine holds it (`$1`, JSON), its id `$2`: upserted
+/// whole.
+const UPSERT_SESSION: &str = "INSERT INTO session
+        (id, campaign_id, position, title, planned_on, status, microphone_on,
+         started_at, closed_at, summary, summary_model, summary_edited_at)
+    SELECT ($2::text)::uuid, (r ->> 'sessionCampaignId')::uuid,
+        (r ->> 'sessionPosition')::integer, r ->> 'sessionTitle',
+        (r ->> 'plannedOn')::date, r ->> 'sessionStatus',
+        (r ->> 'microphoneOn')::boolean, (r ->> 'startedAt')::timestamptz,
+        (r ->> 'closedAt')::timestamptz, r ->> 'summary', r ->> 'summaryModel',
+        (r ->> 'summaryEditedAt')::timestamptz
+    FROM (SELECT ($1::text)::jsonb AS r) given
+    ON CONFLICT (id) DO UPDATE SET
+        campaign_id = EXCLUDED.campaign_id,
+        position = EXCLUDED.position,
+        title = EXCLUDED.title,
+        planned_on = EXCLUDED.planned_on,
+        status = EXCLUDED.status,
+        microphone_on = EXCLUDED.microphone_on,
+        started_at = EXCLUDED.started_at,
+        closed_at = EXCLUDED.closed_at,
+        summary = EXCLUDED.summary,
+        summary_model = EXCLUDED.summary_model,
+        summary_edited_at = EXCLUDED.summary_edited_at";
+
+/// The session `$2`'s PCs no longer present, dropped.
+const DROP_ABSENT: &str = "DELETE FROM session_present_character
+    WHERE session_id = ($2::text)::uuid
+        AND character_id::text NOT IN (SELECT lower(c) FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(($1::text)::jsonb -> 'sessionPresentCharacterCharacterId') = 'array'
+                THEN ($1::text)::jsonb -> 'sessionPresentCharacterCharacterId'
+                ELSE '[]'::jsonb END) c)";
+
+/// The session `$2`'s PCs present, added when they were not, at the time the
+/// row says they were ticked.
+const ADD_PRESENT: &str = "INSERT INTO session_present_character (session_id, character_id, added_at)
+    SELECT ($2::text)::uuid, (present.id)::uuid,
+        coalesce((($1::text)::jsonb ->> 'addedAt')::timestamptz, now())
+    FROM (SELECT lower(c) AS id FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(($1::text)::jsonb -> 'sessionPresentCharacterCharacterId') = 'array'
+                THEN ($1::text)::jsonb -> 'sessionPresentCharacterCharacterId'
+                ELSE '[]'::jsonb END) c) present
+    ON CONFLICT (session_id, character_id) DO NOTHING";
+
+/// The sessions the engine holds and the tables do not.
+const UNPROJECTED_SESSIONS: &str = "SELECT r.partition FROM dataguard_rows r
+    WHERE r.partition LIKE 'Session/%' AND NOT r.tombstoned
+        AND r.fields ->> 'sessionCampaignId' IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM session s
+            WHERE 'Session/' || s.id::text = lower(r.partition))
+    ORDER BY r.partition";
+
+/// What the tables hold of the campaign `$1` (in whatever case) that the
+/// sessions' invariants read, each as `(aggregate, id, row)`: its kind, its
+/// sessions and their positions, its elements and their types — none the
+/// engine removed.
+const CAMPAIGN_FACTS: &str =
+    "SELECT 'Campaign', c.id::text, jsonb_build_object('kind', c.kind)::text
+        FROM campaign c WHERE c.id::text = lower($1)
+    UNION ALL
+    SELECT 'Session', s.id::text, jsonb_build_object(
+            'sessionCampaignId', s.campaign_id, 'sessionPosition', s.position)::text
+        FROM session s WHERE s.campaign_id::text = lower($1)
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned)
+    UNION ALL
+    SELECT 'Entity', e.id::text, jsonb_build_object(
+            'entityCampaignId', e.campaign_id, 'type', e.type)::text
+        FROM entity e WHERE e.campaign_id::text = lower($1)
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned)";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -290,6 +369,90 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_sessions().await;
+    }
+
+    /// What the tables hold of the campaign `id` names that the sessions'
+    /// invariants read: `(aggregate, id, row)` for the campaign's kind, each
+    /// of its sessions, each of its elements.
+    pub async fn campaign_facts(
+        &self,
+        id: &str,
+    ) -> std::result::Result<Vec<(String, String, BTreeMap<String, Value>)>, tokio_postgres::Error>
+    {
+        let client = self.inner.client().lock().await;
+        let rows = client.query(CAMPAIGN_FACTS, &[&id]).await?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let Ok(Value::Object(fields)) = serde_json::from_str(row.get::<_, &str>(2)) else {
+                    return None;
+                };
+                Some((row.get(0), row.get(1), fields.into_iter().collect()))
+            })
+            .collect())
+    }
+
+    /// Projects every session the engine holds and the tables do not,
+    /// logging a failure: at a start. Tables not migrated yet hold none.
+    async fn repair_sessions(&self) {
+        let partitions = {
+            let client = self.inner.client().lock().await;
+            client.query(UNPROJECTED_SESSIONS, &[]).await
+        };
+        match partitions {
+            Ok(rows) => {
+                for row in rows {
+                    self.repair_session(row.get(0)).await;
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: session not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
+    }
+
+    /// Projects the session `partition` names as the engine holds it,
+    /// logging a failure: after each apply of it, and at a start.
+    async fn repair_session(&self, partition: &str) {
+        let Some(id) = partition.strip_prefix(SESSION) else {
+            return;
+        };
+        let row = match self.inner.row(partition).await {
+            Ok(row) => row,
+            Err(e) => {
+                eprintln!("projection: {partition} not read: {e}");
+                return;
+            }
+        };
+        if let Err(e) = self.project_session(id, &row).await {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: {partition} not projected: {} {}",
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
+    }
+
+    /// Writes the session `id` as `row` holds it, and — when the row holds
+    /// a list of them — its PCs present, in one transaction.
+    async fn project_session(
+        &self,
+        id: &str,
+        row: &BTreeMap<String, Value>,
+    ) -> std::result::Result<(), tokio_postgres::Error> {
+        let json = Value::Object(row.clone().into_iter().collect()).to_string();
+        let mut client = self.inner.client().lock().await;
+        let tx = client.transaction().await?;
+        tx.execute(UPSERT_SESSION, &[&json, &id]).await?;
+        if row.contains_key(PRESENT) {
+            for sql in [DROP_ABSENT, ADD_PRESENT] {
+                tx.execute(sql, &[&json, &id]).await?;
+            }
+        }
+        tx.commit().await
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -703,6 +866,8 @@ impl Store for ProjectingStore {
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
+        } else if session_of(write).is_some() && !write.tombstone {
+            self.repair_session(&write.partition).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.
@@ -918,6 +1083,7 @@ mod tests {
                 Arc::new(SystemClock),
             ),
             Arc::default(),
+            Arc::default(),
         )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
@@ -1069,6 +1235,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(SystemClock),
             ),
+            Arc::default(),
             Arc::default(),
         )
         .expect("the product's manifests parse");

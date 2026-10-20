@@ -4,8 +4,10 @@
 //! once it is closed, ranks a scene below 1, stores the roster or the media
 //! of a session, creates an element from a brief, marks an entry « creee »
 //! without its element, or writes audio is rejected under the invariant's
-//! id, and the row stays as it was. The DataCapabilities here are test-only:
-//! no DataCapability of the product writes a session yet.
+//! id, and the row stays as it was. The DataCapabilities here are
+//! test-only; that the PCs ticked present are the campaign's, and a
+//! oneshot's single session, are judged in `create_session.rs`, through
+//! `session.createSession`, the product's.
 
 use dataguard_server::{Engine, MEMORY, plant};
 use harness_dataguard::api::Submission;
@@ -23,6 +25,9 @@ const UPSERT_TO_CREATE: &str = r#"{"dataCapability":"test.upsertToCreate","owner
 /// A session written: its status, its scenes, its presences, its journal.
 const UPDATE: &str = r#"{"dataCapability":"test.updateSession","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Session","id":"$sessionId"},"mode":"overwrite","callableBy":["*"]}"#;
 const UPDATE_TO_CREATE: &str = r#"{"dataCapability":"test.updateToCreate","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Session","id":"$entityToCreateId"},"mode":"overwrite","callableBy":["*"]}"#;
+/// An element created under the id its payload names: the PCs a session
+/// ticks present are the campaign's.
+const CREATE_ENTITY: &str = r#"{"dataCapability":"test.createEntity","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"Entity","id":"$entityId"},"mode":"overwrite","callableBy":["*"]}"#;
 /// A session removed: the engine's soft delete, a tombstone.
 const REMOVE: &str = r#"{"dataCapability":"test.removeSession","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"Session","id":"$sessionId"},"mode":"overwrite","callableBy":["*"]}"#;
 
@@ -53,6 +58,7 @@ async fn engine() -> Engine {
         UPSERT_TO_CREATE,
         UPDATE,
         UPDATE_TO_CREATE,
+        CREATE_ENTITY,
         REMOVE,
     ] {
         engine = engine.with_data_capability(DataCapability::parse(manifest).expect("contract F"));
@@ -358,6 +364,30 @@ async fn scene_order_contiguous_ranks_a_scene_from_one() {
 #[tokio::test]
 async fn present_only_pj_offers_the_roster_the_view_computes_never_a_stored_one() {
     let engine = session("prep").await;
+    // Elowen, Valombre's PC, as her first save writes her.
+    applied(
+        &written(
+            &engine,
+            "test.createEntity",
+            json!({
+                "entityId": ELOWEN,
+                "entityCampaignId": VALOMBRE,
+                "entityCreatedAt": "2026-10-17T10:00:00Z",
+                "type": "pj",
+                "name": "Elowen",
+                "characterEntityId": ELOWEN,
+                "spells": [],
+                "actions": [],
+                "tokenColor": "accent",
+                "entityVersionId": "f1000000-0000-4000-8000-000000000001",
+                "versionNumber": 1,
+                "source": "dm",
+                "snapshot": { "name": "Elowen", "type": "pj" },
+                "diff": [],
+            }),
+        )
+        .await,
+    );
     // A PC checked present is a presence, which the roster reads.
     applied(
         &written(

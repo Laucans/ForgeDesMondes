@@ -1,0 +1,38 @@
+{
+  "dataCapability": "session.createSession",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "Session",
+    "id": "$sessionId"
+  },
+  "touches": [
+    "Session.sessionId",
+    "Session.sessionCampaignId",
+    "Session.sessionPosition",
+    "Session.sessionTitle",
+    "Session.plannedOn",
+    "Session.sessionStatus",
+    "Session.microphoneOn",
+    "Session.sessionPresentCharacterSessionId",
+    "Session.sessionPresentCharacterCharacterId",
+    "Session.addedAt"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign the session is added to",
+    "title": "string — the session's title, not blank",
+    "plannedOn": "YYYY-MM-DD | null — the day it is planned for; absent, none",
+    "present": "uuid[] — the PCs ticked present, each a PC of the same campaign; a duplicate counts once"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "present-only-pj",
+    "oneshot-single-session",
+    "status-lifecycle",
+    "text-only-no-audio"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

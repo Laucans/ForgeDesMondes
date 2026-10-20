@@ -1,0 +1,10 @@
+[package]
+name = "create-session"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.createSession: the next session of a campaign, on its own Session partition — at the position after the last, in prep, its microphone off, with the PCs ticked present."
+publish = false
+
+[dependencies]
+serde_json = "1"

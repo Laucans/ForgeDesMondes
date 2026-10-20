@@ -9,8 +9,11 @@
 //! diff that never happened. Over the engine's memory it keeps [`Aliases`]
 //! too, which `alias-unique-in-campaign` reads, and the [`History`] of the
 //! versions a restoration is prepared against; over a database the
-//! projection keeps them, once the tables hold the write. Every other method
-//! is the inner store's.
+//! projection keeps them, once the tables hold the write. Over either, it
+//! keeps [`Sessions`] — each campaign's kind, sessions and elements, as every
+//! write applied leaves them — and settles a new session's position there:
+//! the one after its campaign's last, whatever was queued beside it. Every
+//! other method is the inner store's.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -27,20 +30,31 @@ use serde_json::Value;
 use crate::aliases::Aliases;
 use crate::history::History;
 use crate::projection::ProjectingStore;
+use crate::sessions::Sessions;
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
+
+/// The partitions of the Session aggregate: `Session/<session id>`.
+pub const SESSION: &str = "Session/";
 
 /// The element a write is of, when it is a write of the Entity aggregate.
 pub fn element_of(write: &Write) -> Option<&str> {
     write.partition.strip_prefix(ENTITY)
 }
 
-/// A store whose applied Entity writes carry their settled version.
+/// The session a write is of, when it is a write of the Session aggregate.
+pub fn session_of(write: &Write) -> Option<&str> {
+    write.partition.strip_prefix(SESSION)
+}
+
+/// A store whose applied Entity writes carry their settled version, and a
+/// new session its settled position.
 pub struct Versioning {
     inner: Arc<dyn Store>,
     aliases: Option<Arc<Aliases>>,
     history: Option<Arc<History>>,
+    sessions: Arc<Sessions>,
 }
 
 impl Versioning {
@@ -51,6 +65,7 @@ impl Versioning {
             inner,
             aliases,
             history: None,
+            sessions: Arc::default(),
         }
     }
 
@@ -58,6 +73,47 @@ impl Versioning {
     #[must_use]
     pub fn keeping(self, history: Option<Arc<History>>) -> Self {
         Self { history, ..self }
+    }
+
+    /// The same, keeping the campaigns' kinds, sessions and elements in
+    /// `sessions`.
+    #[must_use]
+    pub fn tracking(self, sessions: Arc<Sessions>) -> Self {
+        Self { sessions, ..self }
+    }
+
+    /// Applies a write of any aggregate but Entity: a new session at the
+    /// position after its campaign's last, and what a campaign or a session
+    /// says recorded in [`Sessions`] once applied.
+    async fn apply_other(&self, write: &Write, result: &CommandResult) -> Result<u64> {
+        let Some((aggregate, id)) = write.partition.split_once('/') else {
+            return self.inner.apply(write, result).await;
+        };
+        let mut settled = Write {
+            partition: write.partition.clone(),
+            values: write.values.clone(),
+            tombstone: write.tombstone,
+        };
+        if let Some(session) = session_of(write).filter(|_| !write.tombstone) {
+            let campaign = write
+                .values
+                .get("sessionCampaignId")
+                .and_then(Value::as_str);
+            let before = self.inner.row(&write.partition).await?;
+            if let Some(campaign) = campaign.filter(|_| !before.contains_key("sessionCampaignId")) {
+                let position = self.sessions.next_position(campaign, session);
+                settled
+                    .values
+                    .insert("sessionPosition".into(), position.into());
+            }
+        }
+        let version = self.inner.apply(&settled, result).await?;
+        if settled.tombstone {
+            self.sessions.forget(id);
+        } else {
+            self.sessions.record(aggregate, id, &settled.values);
+        }
+        Ok(version)
     }
 }
 
@@ -97,10 +153,11 @@ impl Store for Versioning {
 
     async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let Some(element) = element_of(write) else {
-            return self.inner.apply(write, result).await;
+            return self.apply_other(write, result).await;
         };
         if write.tombstone {
             let version = self.inner.apply(write, result).await?;
+            self.sessions.forget(element);
             if let Some(aliases) = &self.aliases {
                 aliases.forget(element);
             }
@@ -125,6 +182,7 @@ impl Store for Versioning {
             tombstone: false,
         };
         let version = self.inner.apply(&settled, result).await?;
+        self.sessions.record("Entity", element, &settled.values);
         if let Some(aliases) = &self.aliases {
             aliases.record(element, &settled.values);
         }
@@ -156,6 +214,7 @@ pub struct Rows {
     store: Arc<dyn Store>,
     history: Arc<History>,
     tables: Option<Arc<ProjectingStore>>,
+    sessions: Arc<Sessions>,
 }
 
 impl Rows {
@@ -170,12 +229,49 @@ impl Rows {
             store,
             history,
             tables: None,
+            sessions: Arc::default(),
         }
     }
 
     /// The same, a campaign's archive read from `tables`.
     pub(crate) fn reading(self, tables: Option<Arc<ProjectingStore>>) -> Self {
         Self { tables, ..self }
+    }
+
+    /// The same, the campaigns' kinds, sessions and elements kept in
+    /// `sessions`.
+    pub(crate) fn tracking(self, sessions: Arc<Sessions>) -> Self {
+        Self { sessions, ..self }
+    }
+
+    /// Records in [`Sessions`] what the tables hold of the campaign `id`
+    /// names — its kind, its sessions, its elements: the fixtures' rows, which
+    /// no command wrote. Over the engine's memory, which has no table, what
+    /// the engine applied is all there is.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn refresh(&self, id: &str) -> Result<()> {
+        let Some(tables) = &self.tables else {
+            return Ok(());
+        };
+        let facts = tables.campaign_facts(id).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        for (aggregate, id, row) in facts {
+            self.sessions.record(&aggregate, &id, &row);
+        }
+        Ok(())
+    }
+
+    /// The position a new session `session` of `campaign` takes: the one
+    /// after the campaign's last.
+    pub fn next_position(&self, campaign: &str, session: &str) -> u64 {
+        self.sessions.next_position(campaign, session)
     }
 
     /// What the tables hold of the campaign `id` names, as an archive holds

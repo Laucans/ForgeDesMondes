@@ -5,24 +5,30 @@
 //! (`crates/data/migrations/0006_session.sql`) hold the relations, the value
 //! sets and the two views the rules read.
 //!
-//! What a session's own row can say is judged here; the rest waits for the
-//! DataCapabilities that write these tables, which prepare a command against
-//! the rows it needs. `present-only-pj` and `scene-links-same-campaign` read
-//! the character, element or media linked, rows of the Entity and Media
-//! aggregates: here, the roster and the media of a session are never
-//! stored — the views compute them, so they follow every later presence and
-//! every change of place. `scene-order-contiguous` reads the session's other
+//! What a session's own row can say is judged here, and — for
+//! `present-only-pj` and `oneshot-single-session` — against the rest of its
+//! campaign the engine holds ([`Sessions`]): each PC ticked present is a PC
+//! of the session's campaign, and a oneshot takes no session besides its
+//! one. The rest waits for the DataCapabilities that write these tables,
+//! which prepare a command against the rows it needs.
+//! `scene-links-same-campaign` reads the element or media linked, rows of the
+//! Entity and Media aggregates: here, the roster and the media of a session
+//! are never stored — the views compute them, so they follow every later
+//! presence and every change of place. `scene-order-contiguous` reads the
+//! session's other
 //! scenes: here, a scene's rank is one of 1 to n. `previous-summary-visible`
 //! is a read: the tables keep a closed session's summary and journal for the
 //! next one.
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
+
+use crate::sessions::Sessions;
 
 const AGGREGATE: &str = "Session";
 
@@ -61,6 +67,11 @@ const CREATED: &str = "createdEntityId";
 const TYPE: &str = "type";
 const TO_CREATE_TYPES: [&str; 3] = ["pnj", "lieu", "evenement"];
 const EXCERPT: &str = "excerpt";
+
+/// A session's campaign, the PCs ticked present at it, and its partition.
+const CAMPAIGN: &str = "sessionCampaignId";
+const PRESENT: &str = "sessionPresentCharacterCharacterId";
+const PARTITION: &str = "Session/";
 
 /// The characters a session offers: `session_roster_view`'s, never stored.
 const ROSTER: [&str; 3] = [
@@ -106,8 +117,56 @@ const CHECKS: [Check; 8] = [
     ("text-only-no-audio", text_only_no_audio),
 ];
 
-/// The invariants `plant()` binds the engine with.
-pub struct Session;
+/// The invariants judged against the rest of the campaign.
+const PRESENT_ONLY_PJ: &str = "present-only-pj";
+const ONESHOT_SINGLE_SESSION: &str = "oneshot-single-session";
+
+/// The invariants `plant()` binds the engine with, `present-only-pj` and
+/// `oneshot-single-session` read from the campaigns the engine holds.
+#[derive(Default)]
+pub struct Session {
+    sessions: Arc<Sessions>,
+}
+
+impl Session {
+    /// The judge reading the campaigns' kinds, sessions and characters in
+    /// `sessions`.
+    pub fn new(sessions: Arc<Sessions>) -> Self {
+        Self { sessions }
+    }
+
+    /// The PCs a command ticks present are each a PC of the session's
+    /// campaign: one of another campaign, an NPC, an id no element has is
+    /// not.
+    fn present_are_pcs(&self, state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+        if !written(entry).any(|field| field == PRESENT) {
+            return true;
+        }
+        let present = match value(state, PRESENT) {
+            Value::Null => Vec::new(),
+            Value::Array(ids) => ids.iter().collect(),
+            one => vec![one],
+        };
+        let campaign = value(state, CAMPAIGN).as_str();
+        present.iter().all(|id| {
+            id.as_str()
+                .zip(campaign)
+                .is_some_and(|(id, campaign)| self.sessions.pc_of(id, campaign))
+        })
+    }
+
+    /// A oneshot has exactly one session: a session written into a oneshot
+    /// that has one already is a second.
+    fn single_session(&self, state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+        let Some(campaign) = value(state, CAMPAIGN).as_str() else {
+            return true;
+        };
+        let session = entry.partition.strip_prefix(PARTITION).unwrap_or_default();
+        !written(entry).any(|field| field == CAMPAIGN)
+            || !self.sessions.oneshot(campaign)
+            || self.sessions.others(campaign, session) == 0
+    }
+}
 
 impl Invariants for Session {
     fn violated(
@@ -121,11 +180,18 @@ impl Invariants for Session {
         if aggregate != AGGREGATE || entry.effect == Effect::Delete {
             return Vec::new();
         }
-        CHECKS
+        let mut violated: Vec<String> = CHECKS
             .iter()
             .filter(|(_, holds)| !holds(state, entry))
             .map(|(id, _)| (*id).to_string())
-            .collect()
+            .collect();
+        if !violated.iter().any(|id| id == PRESENT_ONLY_PJ) && !self.present_are_pcs(state, entry) {
+            violated.insert(0, PRESENT_ONLY_PJ.to_string());
+        }
+        if !self.single_session(state, entry) {
+            violated.push(ONESHOT_SINGLE_SESSION.to_string());
+        }
+        violated
     }
 }
 
@@ -153,7 +219,8 @@ fn written(entry: &Entry) -> impl Iterator<Item = String> + '_ {
 }
 
 /// The roster is never stored: the present PCs are offered as
-/// `session_roster_view` computes them, those checked later included.
+/// `session_roster_view` computes them, those checked later included. That
+/// each is a PC of the session's campaign is [`Session::present_are_pcs`]'s.
 fn present_only_pj(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
     ROSTER.iter().all(|field| !set(state, field))
 }
@@ -229,11 +296,16 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A command writes only fields the aggregate declares, each a text, a
-/// number, a boolean or a null: no field holds audio, nor anything but what
-/// a column types.
+/// number, a boolean or a null — the PCs present, a list of their ids: no
+/// field holds audio, nor anything but what a column types.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
-        DECLARED.contains(field) && !matches!(value, Value::Array(_) | Value::Object(_))
+        DECLARED.contains(field)
+            && match value {
+                Value::Array(ids) => field == PRESENT && ids.iter().all(Value::is_string),
+                Value::Object(_) => false,
+                _ => true,
+            }
     })
 }
 
@@ -245,10 +317,23 @@ mod tests {
     use harness_dataguard::guard::Invariants;
     use serde_json::{Value, json};
 
+    use std::sync::Arc;
+
     use super::{
-        CHECKS, CLOSED_AT, CREATED, DECLARED, EXCERPT, JOURNAL, MICROPHONE, ROSTER, SCENE_POSITION,
-        SESSION_MEDIA, STATUS, SUMMARY, SUMMARY_MODEL, Session, TO_CREATE, TYPE,
+        CAMPAIGN, CHECKS, CLOSED_AT, CREATED, DECLARED, EXCERPT, JOURNAL, MICROPHONE,
+        ONESHOT_SINGLE_SESSION, PRESENT, PRESENT_ONLY_PJ, ROSTER, SCENE_POSITION, SESSION_MEDIA,
+        STATUS, SUMMARY, SUMMARY_MODEL, Session, TO_CREATE, TYPE,
     };
+    use crate::sessions::Sessions;
+
+    const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
+    const BRUME: &str = "c1000000-0000-4000-8000-000000000002";
+    const ELOWEN: &str = "e1000000-0000-4000-8000-000000000001";
+    const MORLOX: &str = "e1000000-0000-4000-8000-000000000003";
+    const VESNA: &str = "e1000000-0000-4000-8000-000000000004";
+    /// The session judged, and another.
+    const SEANCE: &str = "51000000-0000-4000-8000-000000000001";
+    const OTHER: &str = "51000000-0000-4000-8000-000000000002";
 
     /// A command of `effect` on `aggregate`'s row.
     fn entry(aggregate: &str, effect: &str) -> Entry {
@@ -269,6 +354,134 @@ mod tests {
         .expect("an entry")
     }
 
+    /// A command of `effect` on session `s1` writing `payload`.
+    fn writing(effect: &str, payload: Value) -> Entry {
+        let mut entry = entry("Session", effect);
+        let Value::Object(payload) = payload else {
+            panic!("a payload is an object");
+        };
+        entry.payload = payload.into_iter().collect();
+        entry
+    }
+
+    /// The row a command leaves: its payload.
+    fn left(entry: &Entry) -> BTreeMap<String, Value> {
+        entry.payload.clone()
+    }
+
+    /// Valombre, a campagne with Elowen its PC and Morlox its NPC; Brume, a
+    /// oneshot with Vesna its PC.
+    fn known() -> Arc<Sessions> {
+        let sessions = Arc::new(Sessions::default());
+        sessions.campaign(VALOMBRE, "campagne");
+        sessions.campaign(BRUME, "oneshot");
+        sessions.element(ELOWEN, VALOMBRE, "pj");
+        sessions.element(MORLOX, VALOMBRE, "pnj");
+        sessions.element(VESNA, BRUME, "pj");
+        sessions
+    }
+
+    #[test]
+    fn present_only_pj_takes_the_pcs_of_the_session_s_campaign_and_no_one_else() {
+        let judge = Session::new(known());
+        let ticking = |present: Value| {
+            writing(
+                "insert",
+                json!({ CAMPAIGN: VALOMBRE, STATUS: "prep", PRESENT: present }),
+            )
+        };
+        for present in [json!([]), json!([ELOWEN]), json!(ELOWEN.to_uppercase())] {
+            let entry = ticking(present.clone());
+            assert!(
+                judge.violated("Session", &left(&entry), &entry).is_empty(),
+                "{present}"
+            );
+        }
+        // An NPC, a PC of another campaign, an id no element has.
+        for present in [
+            json!([ELOWEN, MORLOX]),
+            json!([VESNA]),
+            json!(["elowen"]),
+            json!([7]),
+        ] {
+            let entry = ticking(present.clone());
+            assert!(
+                judge
+                    .violated("Session", &left(&entry), &entry)
+                    .contains(&PRESENT_ONLY_PJ.to_string()),
+                "{present}"
+            );
+        }
+        // A PC present with no campaign to be one of.
+        let entry = writing("insert", json!({ PRESENT: [ELOWEN] }));
+        assert_eq!(
+            judge.violated("Session", &left(&entry), &entry),
+            [PRESENT_ONLY_PJ]
+        );
+        // A write that ticks no one leaves the PCs ticked before unjudged.
+        let entry = writing("update", json!({ STATUS: "live" }));
+        let mut state = left(&entry);
+        state.insert(CAMPAIGN.to_string(), json!(VALOMBRE));
+        state.insert(PRESENT.to_string(), json!([MORLOX]));
+        assert!(judge.violated("Session", &state, &entry).is_empty());
+    }
+
+    #[test]
+    fn oneshot_single_session_refuses_a_oneshot_s_second_session_and_no_campagne_s() {
+        let sessions = known();
+        let judge = Session::new(sessions.clone());
+        // A session of `campaign` written for the first time, as `Session/<SEANCE>`.
+        let born = |campaign: &str| {
+            let mut entry = writing("insert", json!({ CAMPAIGN: campaign, STATUS: "prep" }));
+            entry.partition = format!("Session/{SEANCE}");
+            entry
+        };
+        let entry = born(BRUME);
+        assert!(judge.violated("Session", &left(&entry), &entry).is_empty());
+        sessions.session(OTHER, BRUME, 1);
+        assert_eq!(
+            judge.violated("Session", &left(&entry), &entry),
+            [ONESHOT_SINGLE_SESSION]
+        );
+        // The oneshot's own session, written again, is not a second.
+        sessions.forget(OTHER);
+        sessions.session(SEANCE, BRUME, 1);
+        assert!(judge.violated("Session", &left(&entry), &entry).is_empty());
+        // A campagne takes as many as it is given.
+        sessions.session(OTHER, VALOMBRE, 1);
+        let entry = born(VALOMBRE);
+        assert!(judge.violated("Session", &left(&entry), &entry).is_empty());
+        // A write that does not place the session in a campaign is not
+        // judged a second one.
+        sessions.session(OTHER, BRUME, 2);
+        let entry = writing("update", json!({ STATUS: "live" }));
+        let mut state = left(&entry);
+        state.insert(CAMPAIGN.to_string(), json!(BRUME));
+        assert!(judge.violated("Session", &state, &entry).is_empty());
+    }
+
+    #[test]
+    fn text_only_no_audio_takes_the_pcs_present_as_a_list_of_ids_and_no_other_list() {
+        let judge = Session::new(known());
+        let entry = writing(
+            "insert",
+            json!({ CAMPAIGN: VALOMBRE, STATUS: "prep", PRESENT: [ELOWEN] }),
+        );
+        assert!(judge.violated("Session", &left(&entry), &entry).is_empty());
+        for payload in [
+            json!({ CAMPAIGN: VALOMBRE, STATUS: "prep", PRESENT: [{ "id": ELOWEN }] }),
+            json!({ CAMPAIGN: VALOMBRE, STATUS: "prep", SUMMARY: ["un", "deux"] }),
+        ] {
+            let entry = writing("insert", payload.clone());
+            assert!(
+                judge
+                    .violated("Session", &left(&entry), &entry)
+                    .contains(&"text-only-no-audio".to_string()),
+                "{payload}"
+            );
+        }
+    }
+
     #[test]
     fn the_judge_leaves_another_aggregate_s_row_and_a_tombstone_alone() {
         // A closed session with its microphone on, at rank 0: what a session
@@ -281,16 +494,16 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(
-            Session.violated("Session", &state, &entry("Session", "update")),
+            Session::default().violated("Session", &state, &entry("Session", "update")),
             ["scene-order-contiguous", "close-session"]
         );
         assert!(
-            Session
+            Session::default()
                 .violated("Campaign", &state, &entry("Campaign", "update"))
                 .is_empty()
         );
         assert!(
-            Session
+            Session::default()
                 .violated("Session", &state, &entry("Session", "delete"))
                 .is_empty()
         );
@@ -312,6 +525,8 @@ mod tests {
             CREATED,
             TYPE,
             EXCERPT,
+            CAMPAIGN,
+            PRESENT,
         ]
         .iter()
         .chain(JOURNAL.iter())
@@ -332,7 +547,11 @@ mod tests {
             .iter()
             .map(|invariant| invariant["id"].as_str().expect("an id"))
             .collect();
-        for (id, _) in CHECKS {
+        for id in CHECKS
+            .iter()
+            .map(|(id, _)| *id)
+            .chain([PRESENT_ONLY_PJ, ONESHOT_SINGLE_SESSION])
+        {
             assert!(declared.contains(&id), "{id} is not declared");
         }
     }

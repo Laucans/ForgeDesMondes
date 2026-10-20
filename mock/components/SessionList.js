@@ -447,15 +447,20 @@
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
-    // session.createSession (planned, #157): the next session of the campaign, at
-    // the position after the last, in preparation, with the PCs ticked present.
-    // `present-only-pj` refuses a character that is not a PC of the fixtures.
+    // session.createSession (#157): the next session of the campaign, at the
+    // position after the last, in preparation, with the PCs ticked present.
+    // `present-only-pj` refuses a character that is not a PC of the fixtures;
+    // `oneshot-single-session`, a second session of a oneshot.
     "session.createSession": async (server, { payload: payload2 }) => {
       const sessions = await server.load("session.listSessions");
       const characters = await server.load("campaign.listCharacters");
+      const campaigns = await server.load("campaign.listCampaigns");
       const present = Array.isArray(payload2.present) ? payload2.present : [];
       const pcs = new Set(characters.filter((c) => c.kind === "pj").map((c) => c.id));
       if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
+      const campaign = (Array.isArray(campaigns) ? campaigns : []).find((c) => c.id === payload2.campaign);
+      if (campaign && campaign.type === "oneshot" && (campaign.sessions || 0) >= 1) return ["oneshot-single-session"];
+      if (campaign) campaign.sessions = (campaign.sessions || 0) + 1;
       sessions.push({
         id: server.uuid(),
         order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
