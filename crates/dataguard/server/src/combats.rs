@@ -28,6 +28,10 @@
 //! partition, [`end`] writes the combat's `ended_at` and its current entry —
 //! none —, and no other column: its entries, the instance's tokens, their
 //! HP and their conditions stay as they are.
+//!
+//! A participant taken out of the combat (`table.removeParticipant`) is a
+//! tombstone on its entry's partition: [`leave`] takes its row out of the
+//! table.
 
 use start_combat::{Lineup, Participant};
 use tokio_postgres::Client;
@@ -146,6 +150,20 @@ const END: &str = "UPDATE combat c
         AND c.id::text = lower(r.fields ->> 'combatId')
         AND r.fields ->> 'endedAt' IS NOT NULL
         AND c.ended_at IS DISTINCT FROM (r.fields ->> 'endedAt')::timestamptz";
+
+/// The entry of the partition `$1` — of every entry when it is null — the
+/// engine holds tombstoned, out of the table: the row is the read side's, the
+/// tombstone the engine keeps (a soft delete, reversible through its journal)
+/// is what was removed (`table.removeParticipant`). The entry is found by the
+/// partition its id names, which a tombstone keeps whatever its fields. Its
+/// token stays; a turn still on it is no one's by the table's foreign key
+/// (`currentEntryId`, nullify), and the carousel's places close up
+/// (`initiative_order_view`).
+const LEAVE: &str = "DELETE FROM initiative_entry e
+    USING dataguard_rows r
+    WHERE r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'BattlemapInstance/' || e.id::text";
 
 /// The combats the engine holds and the table does not: a projection that
 /// failed after its apply, or was lost since.
@@ -277,6 +295,19 @@ pub async fn end(client: &Client, partition: Option<&str>) {
     }
     let combat = partition.map(|partition| partition.trim_start_matches("BattlemapInstance/"));
     current(client, combat).await;
+}
+
+/// Takes the entry `partition` names out of the table once the engine holds
+/// it tombstoned — every such entry, `None` — logging a failure: after each
+/// tombstone of the aggregate, and at a start, so a removal whose projection
+/// failed after its apply is made again. Tables not migrated yet hold none.
+pub async fn leave(client: &Client, partition: Option<&str>) {
+    if let Err(e) = client.execute(LEAVE, &[&partition]).await {
+        eprintln!(
+            "projection: initiative entry not removed: {}",
+            e.as_db_error().map_or("-", |db| db.code().code())
+        );
+    }
 }
 
 /// Projects every combat, then every entry, the engine holds and the table

@@ -547,7 +547,8 @@ impl Rows {
     /// A token's row as [`Rows::projected`] reads it, and none at all once
     /// its removal is queued (`table.removeToken`): no command is judged
     /// against it to land after its tombstone, which a write lifts. The
-    /// token's commands alone read it so; every other aggregate's row reads
+    /// token's commands alone read it so — and a participant's removal its
+    /// entry's (`table.removeParticipant`); every other aggregate's row reads
     /// through a deletion as ever.
     ///
     /// # Errors

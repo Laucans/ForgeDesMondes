@@ -58,3 +58,4 @@ next-turn = { path = "../../table/data-capabilities/next-turn" }
 start-combat = { path = "../../table/data-capabilities/start-combat" }
 remove-token = { path = "../../table/data-capabilities/remove-token" }
 end-combat = { path = "../../table/data-capabilities/end-combat" }
+remove-participant = { path = "../../table/data-capabilities/remove-participant" }
