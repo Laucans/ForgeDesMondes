@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use dataguard_server::{MEMORY, applier, plant};
+use dataguard_server::{MEMORY, Planted, applier, planted};
 use server::{Config, Error, Ports, app, fixtures, llm, reads};
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
@@ -49,33 +49,58 @@ async fn run() -> Result<(), Error> {
         eprintln!("server: no migrations/ folder — no migration to apply");
     }
 
-    let engine = Arc::new(plant(&config.database_url).await?);
+    let (reads, names) = match &config.fixtures {
+        None => {
+            eprintln!("server: no FIXTURES_DIR — starting without fixtures");
+            (reads(&config).await?, Vec::new())
+        }
+        Some(dir) => match fixtures(dir) {
+            Err(e) => {
+                eprintln!(
+                    "server: cannot read the fixtures in {}: {e} — starting without them",
+                    dir.display()
+                );
+                (reads(&config).await?, Vec::new())
+            }
+            Ok(plan) => {
+                if config.database_url == MEMORY {
+                    eprintln!("server: the in-memory store holds no table — no fixture loaded");
+                } else {
+                    // One transaction: the fixtures are all there, or none is.
+                    let loaded = match data::read_write().await {
+                        Ok(mut client) => data::insert_missing(&mut client, &plan.tables).await,
+                        Err(e) => Err(e),
+                    };
+                    match loaded {
+                        Ok(rows) => eprintln!(
+                            "server: fixtures in {}: {} loaded ({rows} row(s) inserted), {} skipped",
+                            dir.display(),
+                            plan.loaded.len(),
+                            plan.skipped.len()
+                        ),
+                        Err(e) => eprintln!(
+                            "server: cannot load the fixtures in {}: {e} — starting without them",
+                            dir.display()
+                        ),
+                    }
+                }
+                for (name, why) in &plan.skipped {
+                    eprintln!("server: fixture {name} skipped — {why}");
+                }
+                (reads(&config).await?, plan.names)
+            }
+        },
+    };
+    let reads = Arc::new(reads.named(names));
+
+    // After the fixtures: the engine records the aliases the tables hold.
+    let Planted { engine, rows } = planted(&config.database_url).await?;
+    let engine = Arc::new(engine);
     let llm = Arc::new(llm(config.ports, config.fixtures.as_deref()));
     if config.read_only_url.is_none() && config.database_url != MEMORY {
         eprintln!(
             "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"
         );
-    }
-    let reads = Arc::new(reads(&config).await?);
-
-    match &config.fixtures {
-        None => eprintln!("server: no FIXTURES_DIR — starting without fixtures"),
-        Some(dir) => match fixtures(dir) {
-            Err(e) => eprintln!(
-                "server: cannot read the fixtures in {}: {e} — starting without them",
-                dir.display()
-            ),
-            Ok(skipped) => {
-                eprintln!(
-                    "server: fixtures in {}: 0 loaded, {} skipped",
-                    dir.display(),
-                    skipped.len()
-                );
-                for (name, why) in &skipped {
-                    eprintln!("server: fixture {name} skipped — {why}");
-                }
-            }
-        },
     }
 
     let addr = config.addr;
@@ -84,7 +109,7 @@ async fn run() -> Result<(), Error> {
         .map_err(|source| Error::Serve { addr, source })?;
     let applier = applier(engine.clone());
     eprintln!("server: listening on {addr}");
-    let served = axum::serve(listener, app(engine, llm, reads))
+    let served = axum::serve(listener, app(engine, rows, llm, reads))
         .with_graceful_shutdown(stopped())
         .await
         .map_err(|source| Error::Serve { addr, source });

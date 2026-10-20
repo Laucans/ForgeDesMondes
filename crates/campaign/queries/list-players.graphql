@@ -1,0 +1,11 @@
+# fields: player.id, player.campaignId, player.name, player.notes
+# The campaign's players, for their own tab: a name and notes each, never a
+# sheet or a token (player-not-character). The PCs they play are another read.
+query ListPlayers($campaign: ID!) {
+  players(campaign: $campaign) {
+    id
+    campaignId
+    name
+    notes
+  }
+}

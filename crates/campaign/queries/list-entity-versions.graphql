@@ -1,0 +1,18 @@
+# fields: entity.id, entity.name, entity_version.entityId, entity_version.versionNumber, entity_version.source, entity_version.snapshot, entity_version.createdAt, entity_version.restoredFromVersionId
+# One element's history, newest first: each version with its number, date,
+# source and snapshot, the snapshot it follows (the changes are derived from
+# the two, EntityVersion@1) and the number of the version it restored, if any.
+query ListEntityVersions($entity: ID!) {
+  entity(id: $entity) {
+    id
+    name
+    versions {
+      versionNumber
+      source
+      snapshot
+      previousSnapshot
+      createdAt
+      restoredFrom
+    }
+  }
+}

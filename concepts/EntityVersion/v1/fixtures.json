@@ -1,0 +1,372 @@
+{
+  "concept": "EntityVersion",
+  "version": 1,
+  "cases": [
+    {
+      "name": "the first version has number 1 and lists every field the snapshot holds, against an empty snapshot",
+      "input": {
+        "previous": null,
+        "snapshot": {
+          "name": "Morlox",
+          "type": "pnj",
+          "notes": "Doit 40 po à Vesna.",
+          "behavior": null,
+          "aliases": [
+            "le gobelin"
+          ]
+        },
+        "source": "brief"
+      },
+      "output": {
+        "number": 1,
+        "source": "brief",
+        "diff": [
+          {
+            "field": "aliases",
+            "old": null,
+            "new": [
+              "le gobelin"
+            ]
+          },
+          {
+            "field": "name",
+            "old": null,
+            "new": "Morlox"
+          },
+          {
+            "field": "notes",
+            "old": null,
+            "new": "Doit 40 po à Vesna."
+          },
+          {
+            "field": "type",
+            "old": null,
+            "new": "pnj"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two snapshots that differ in notes and behaviour give exactly those two fields with their old and new values",
+      "input": {
+        "previous": {
+          "number": 3,
+          "snapshot": {
+            "name": "Morlox",
+            "type": "pnj",
+            "notes": "Doit 40 po à Vesna.",
+            "behavior": "Parle vite, se frotte les mains.",
+            "hpMax": 18,
+            "aliases": [
+              "le gobelin",
+              "le marchand"
+            ]
+          }
+        },
+        "snapshot": {
+          "name": "Morlox",
+          "type": "pnj",
+          "notes": "Doit 40 po à Vesna. Connaît le passage sous le moulin.",
+          "behavior": "Parle vite, se frotte les mains. Évite le regard de Kael.",
+          "hpMax": 18,
+          "aliases": [
+            "le gobelin",
+            "le marchand"
+          ]
+        },
+        "source": "ia"
+      },
+      "output": {
+        "number": 4,
+        "source": "ia",
+        "diff": [
+          {
+            "field": "behavior",
+            "old": "Parle vite, se frotte les mains.",
+            "new": "Parle vite, se frotte les mains. Évite le regard de Kael."
+          },
+          {
+            "field": "notes",
+            "old": "Doit 40 po à Vesna.",
+            "new": "Doit 40 po à Vesna. Connaît le passage sous le moulin."
+          }
+        ]
+      }
+    },
+    {
+      "name": "a snapshot identical to the previous one gives an empty diff and still takes the next number",
+      "input": {
+        "previous": {
+          "number": 4,
+          "snapshot": {
+            "name": "Morlox",
+            "notes": "Doit 40 po à Vesna.",
+            "aliases": [
+              "le gobelin"
+            ]
+          }
+        },
+        "snapshot": {
+          "aliases": [
+            "le gobelin"
+          ],
+          "notes": "Doit 40 po à Vesna.",
+          "name": "Morlox"
+        },
+        "source": "dm"
+      },
+      "output": {
+        "number": 5,
+        "source": "dm",
+        "diff": []
+      }
+    },
+    {
+      "name": "the aliases are compared as a whole array and their order is significant",
+      "input": {
+        "previous": {
+          "number": 1,
+          "snapshot": {
+            "name": "Morlox",
+            "aliases": [
+              "le gobelin",
+              "le marchand"
+            ]
+          }
+        },
+        "snapshot": {
+          "name": "Morlox",
+          "aliases": [
+            "le marchand",
+            "le gobelin",
+            "Morlo"
+          ]
+        },
+        "source": "dm"
+      },
+      "output": {
+        "number": 2,
+        "source": "dm",
+        "diff": [
+          {
+            "field": "aliases",
+            "old": [
+              "le gobelin",
+              "le marchand"
+            ],
+            "new": [
+              "le marchand",
+              "le gobelin",
+              "Morlo"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a restoration takes the next number, not the number of the version it restores, and its diff runs from the version just before it",
+      "input": {
+        "previous": {
+          "number": 4,
+          "snapshot": {
+            "name": "Morlox",
+            "notes": "Doit 40 po à Vesna. A trahi le groupe.",
+            "aliases": [
+              "le gobelin",
+              "le marchand",
+              "Morlo"
+            ]
+          }
+        },
+        "snapshot": {
+          "name": "Morlox",
+          "notes": "Doit 40 po à Vesna.",
+          "aliases": [
+            "le gobelin",
+            "le marchand"
+          ]
+        },
+        "source": "restauration"
+      },
+      "output": {
+        "number": 5,
+        "source": "restauration",
+        "diff": [
+          {
+            "field": "aliases",
+            "old": [
+              "le gobelin",
+              "le marchand",
+              "Morlo"
+            ],
+            "new": [
+              "le gobelin",
+              "le marchand"
+            ]
+          },
+          {
+            "field": "notes",
+            "old": "Doit 40 po à Vesna. A trahi le groupe.",
+            "new": "Doit 40 po à Vesna."
+          }
+        ]
+      }
+    },
+    {
+      "name": "an absent field and a null field are the same thing, so neither one alone is a difference",
+      "input": {
+        "previous": {
+          "number": 2,
+          "snapshot": {
+            "name": "Elowen",
+            "notes": null
+          }
+        },
+        "snapshot": {
+          "name": "Elowen",
+          "behavior": null
+        },
+        "source": "dndbeyond"
+      },
+      "output": {
+        "number": 3,
+        "source": "dndbeyond",
+        "diff": []
+      }
+    },
+    {
+      "name": "a field that appears, one that disappears and one that changes are each in the diff, sorted by field whatever the order of the keys",
+      "input": {
+        "previous": {
+          "number": 6,
+          "snapshot": {
+            "wisdom": 15,
+            "hpMax": 44,
+            "name": "Elowen",
+            "armorClass": 15
+          }
+        },
+        "snapshot": {
+          "wisdom": 16,
+          "spells": [
+            "Marque du chasseur"
+          ],
+          "name": "Elowen",
+          "armorClass": null,
+          "hpMax": 44
+        },
+        "source": "dndbeyond"
+      },
+      "output": {
+        "number": 7,
+        "source": "dndbeyond",
+        "diff": [
+          {
+            "field": "armorClass",
+            "old": 15,
+            "new": null
+          },
+          {
+            "field": "spells",
+            "old": null,
+            "new": [
+              "Marque du chasseur"
+            ]
+          },
+          {
+            "field": "wisdom",
+            "old": 15,
+            "new": 16
+          }
+        ]
+      }
+    },
+    {
+      "name": "an empty value is a value: an empty string, an empty array, zero and false are not absences, a number is compared by value, an object as a whole, and the order of fields is by code point so a capital comes first",
+      "input": {
+        "previous": {
+          "number": 2,
+          "snapshot": {
+            "notes": null,
+            "aliases": [],
+            "hpMax": 15,
+            "concentration": null,
+            "token": {
+              "color": "#aa3300",
+              "crop": null
+            },
+            "Zone": "nord",
+            "armorClass": 13
+          }
+        },
+        "snapshot": {
+          "notes": "",
+          "aliases": null,
+          "hpMax": 15.0,
+          "concentration": false,
+          "token": {
+            "color": "#aa3300",
+            "crop": {
+              "x": 4
+            }
+          },
+          "Zone": "nord",
+          "armorClass": "13"
+        },
+        "source": "dm"
+      },
+      "output": {
+        "number": 3,
+        "source": "dm",
+        "diff": [
+          {
+            "field": "aliases",
+            "old": [],
+            "new": null
+          },
+          {
+            "field": "armorClass",
+            "old": 13,
+            "new": "13"
+          },
+          {
+            "field": "concentration",
+            "old": null,
+            "new": false
+          },
+          {
+            "field": "notes",
+            "old": null,
+            "new": ""
+          },
+          {
+            "field": "token",
+            "old": {
+              "color": "#aa3300",
+              "crop": null
+            },
+            "new": {
+              "color": "#aa3300",
+              "crop": {
+                "x": 4
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a first version of an empty snapshot has number 1 and an empty diff",
+      "input": {
+        "previous": null,
+        "snapshot": {},
+        "source": "dm"
+      },
+      "output": {
+        "number": 1,
+        "source": "dm",
+        "diff": []
+      }
+    }
+  ]
+}

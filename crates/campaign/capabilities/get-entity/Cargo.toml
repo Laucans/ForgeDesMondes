@@ -1,0 +1,13 @@
+[package]
+name = "get-entity"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability campaign.getEntity: one element's full sheet, the DEX modifier derived per AbilityModifier@1 — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+platform-conformance = { path = "../../../platform/conformance" }

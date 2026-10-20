@@ -1,0 +1,101 @@
+{
+  "aggregate": "Diffusion",
+  "fields": {
+    "baseInstanceId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "baseKind": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "baseMediaId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "sessionId": {
+      "criticality": "critical",
+      "kind": "authoritative"
+    },
+    "updatedAt": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "viewPanX": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "viewPanY": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "viewZoom": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "windowMediaId": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "windowWidth": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
+    "windowX": {
+      "criticality": "low",
+      "kind": "authoritative"
+    },
+    "windowY": {
+      "criticality": "low",
+      "kind": "authoritative"
+    }
+  },
+  "holds": {
+    "maxTtl": "15m",
+    "renewable": true
+  },
+  "invariants": [
+    {
+      "id": "base-coherent",
+      "onViolation": "reject",
+      "rule": "« cover » n'a ni média ni instance en fond. « illustration » a une illustration en base_media_id. « battlemap » a une instance de la séance en base_instance_id."
+    },
+    {
+      "id": "window-proportional",
+      "onViolation": "reject",
+      "rule": "La fenêtre flottante montre une illustration. Sa hauteur n'est pas stockée : elle vaut window_width × height_px / width_px, ce qui garde les proportions du média (2/3 pour 800 × 1200)."
+    },
+    {
+      "id": "window-fields-together",
+      "onViolation": "reject",
+      "rule": "window_x, window_y et window_width sont tous renseignés si une fenêtre est ouverte, et tous vides sinon."
+    },
+    {
+      "id": "single-diffusion-source",
+      "onViolation": "reject",
+      "rule": "La player view projetée et l'onglet player view du DM lisent la même ligne. Position, taille, zoom et cadrage y sont donc identiques."
+    }
+  ],
+  "relations": [
+    {
+      "from": "Diffusion.sessionId",
+      "onDelete": "cascade",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Diffusion.baseMediaId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Diffusion.baseInstanceId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    },
+    {
+      "from": "Diffusion.windowMediaId",
+      "onDelete": "nullify",
+      "onUpdate": "propagate"
+    }
+  ]
+}
