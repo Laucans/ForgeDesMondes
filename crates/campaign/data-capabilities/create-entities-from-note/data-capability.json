@@ -1,0 +1,24 @@
+{
+  "dataCapability": "campaign.createEntitiesFromNote",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "NoteImport"
+  },
+  "touches": [
+    "NoteImport.checked",
+    "NoteImport.createdEntityId"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign the note was imported into",
+    "accepted": "uuid[] — the proposals the DM kept: each is checked and, unless it already created its element or recognises one the campaign holds, becomes a new element of its type, name and excerpt, with its first version (EntityVersion@1, source `dm`); the other proposals of their notes are unchecked"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "no-creation-before-validation"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

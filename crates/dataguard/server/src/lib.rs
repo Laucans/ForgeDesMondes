@@ -66,6 +66,7 @@ mod exports;
 mod history;
 mod media;
 mod note_import;
+mod notes;
 mod player;
 mod projection;
 mod provider;
@@ -173,6 +174,7 @@ pub struct Planted {
 pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     let aliases = Arc::new(aliases::Aliases::default());
     let history = Arc::new(history::History::default());
+    let notes = Arc::new(notes::Notes::default());
     let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
@@ -189,6 +191,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
         store.repair_tests().await;
         store.elements().await;
         store.versions(None).await;
+        store.notes(&notes).await;
         let store = Arc::new(store);
         tables = Some(store.clone());
         store
@@ -197,8 +200,11 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     // the versions.
     let kept = (url == MEMORY).then(|| aliases.clone());
     let versions = (url == MEMORY).then(|| history.clone());
-    let store: Arc<dyn Store> =
-        Arc::new(versioning::Versioning::new(store, kept).keeping(versions));
+    let store: Arc<dyn Store> = Arc::new(
+        versioning::Versioning::new(store, kept)
+            .keeping(versions)
+            .noting(notes.clone()),
+    );
     let engine = bound(
         Engine::new(
             store.clone(),
@@ -212,7 +218,8 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
         engine,
         rows: Rows::keeping(store, history)
             .reading(tables)
-            .knowing(aliases),
+            .knowing(aliases)
+            .noting(notes),
     })
 }
 
@@ -369,7 +376,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
 /// an archive of, 422 — neither is queued, so nothing changes. An analysis
-/// of notes is answered by [`extract`].
+/// of notes is answered by [`extract`], a validation of its proposals by
+/// [`validate`].
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -411,6 +419,9 @@ async fn submit<L: Llm, S: SpeechToText>(
     };
     if extract_from_notes::names(&body.data_capability) {
         return extract(&served, body, &now()).await;
+    }
+    if create_entities_from_note::names(&body.data_capability) {
+        return validate(&served, body, &now()).await;
     }
     if save_settings::names(&body.data_capability) {
         let prepared = save_settings::prepare(served.llm.as_ref(), &body.payload, &now()).await;
@@ -632,6 +643,205 @@ async fn extract<L: Llm, S: SpeechToText>(
             submitted
         });
     reply(StatusCode::ACCEPTED, submitted)
+}
+
+/// A validation of a note's proposals (`create_entities_from_note::request`),
+/// made against the proposals the engine holds — the accepted ones and every
+/// other of their notes, which [`Rows`] knows — and submitted as its
+/// commands (`Request::batch`), `now` being when the elements are made. First
+/// the element each accepted proposal becomes, on its Entity partition: the
+/// DM's save of an element, written as `campaign.saveEntity` writes one —
+/// the Entity aggregate's DataCapability, under whose touches the engine
+/// judges every Entity invariant. An element the DataGuard judges at risk
+/// when it is queued — which it rejects once applied — is not recorded on its
+/// proposal, which stays as it was, and the warnings are told, each after
+/// the proposal's name; when no proposal is left to write, that element's
+/// command is answered. Then each proposal checked or unchecked, in id
+/// order: the last, applied after the others, is answered. Each command is
+/// the caller's; an idempotency key is the last proposal's alone, as an
+/// analysis's is its note's — a validation that writes no proposal keeps
+/// none. Validations run one at a time, each against the proposals the one
+/// before queued. A validation naming no campaign or no proposal
+/// is refused, 422, and one naming a proposal of no note of its campaign,
+/// 404: neither is queued.
+async fn validate<L: Llm, S: SpeechToText>(
+    served: &Served<L, S>,
+    body: Submission,
+    now: &str,
+) -> Reply<harness_dataguard::api::Submitted> {
+    use axum::http::StatusCode;
+    use create_entities_from_note::Fresh;
+    let refused =
+        |status: StatusCode, why: String| Err((status, Json(serde_json::json!({ "error": why }))));
+    // One validation at a time: the next reads the proposals the last one
+    // queued, so a proposal is never made twice by two at once.
+    let _validating = VALIDATING.lock().await;
+    if let Some(key) = &body.idempotency_key {
+        // The engine keeps a key under the DataCapability's bare id.
+        let id = body.data_capability.split('@').next().unwrap_or_default();
+        match served.rows.submitted(id, key).await {
+            Ok(false) => {}
+            // The engine answers the last proposal's command again.
+            Ok(true) => return reply(StatusCode::ACCEPTED, served.engine.submit(body).await),
+            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
+        }
+    }
+    let request = match create_entities_from_note::request(&body.payload) {
+        Ok(request) => request,
+        Err(refusal) => return refused(StatusCode::UNPROCESSABLE_ENTITY, refusal.to_string()),
+    };
+    let proposals = match held(&served.rows, &request.accepted).await {
+        Ok(proposals) => proposals,
+        Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
+    };
+    let fresh: Result<Vec<Fresh>, _> = request
+        .accepted
+        .iter()
+        .map(|_| {
+            Ok::<_, getrandom::Error>(Fresh {
+                entity: fresh_uuid()?,
+                version: fresh_uuid()?,
+            })
+        })
+        .collect();
+    let Ok(fresh) = fresh else {
+        let e = Error::Store("no randomness for an id".to_string());
+        return reply(StatusCode::ACCEPTED, Err(e));
+    };
+    let batch = match request.batch(&proposals, fresh, now) {
+        Ok(batch) => batch,
+        Err(refusal) => return refused(StatusCode::NOT_FOUND, refusal.to_string()),
+    };
+    let command = |data_capability: &str, command: create_entities_from_note::Command| Submission {
+        data_capability: data_capability.to_owned(),
+        payload: command.payload,
+        target_id: Some(command.target_id),
+        based_on: None,
+        idempotency_key: None,
+        caller: body.caller.clone(),
+    };
+    let mut warnings = Vec::new();
+    let mut rejected = std::collections::BTreeSet::new();
+    let mut last_rejected = None;
+    for element in batch.elements {
+        let submitted = match served
+            .engine
+            .submit(command(save_entity::DATA_CAPABILITY, element.command))
+            .await
+        {
+            Ok(submitted) => submitted,
+            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
+        };
+        // What the DataGuard judges at risk now, it rejects once applied; a
+        // review it opens, or a value declared ahead, it may still let through.
+        let at_risk = submitted
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with(AT_RISK));
+        if !at_risk {
+            warnings.extend(submitted.warnings);
+            continue;
+        }
+        let name = proposals
+            .iter()
+            .find(|proposal| proposal.id == element.proposal)
+            .and_then(|proposal| proposal.row.get("name"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&element.proposal);
+        warnings.extend(submitted.warnings.iter().map(|w| format!("{name} : {w}")));
+        rejected.insert(element.proposal);
+        last_rejected = Some(submitted);
+    }
+    let mut stamps: Vec<_> = batch
+        .stamps
+        .into_iter()
+        .filter(|stamp| !rejected.contains(&stamp.target_id))
+        .collect();
+    let Some(last) = stamps.pop() else {
+        // Every element accepted is at risk: the last one is answered.
+        return reply(
+            StatusCode::ACCEPTED,
+            last_rejected.ok_or_else(|| Error::Store("nothing validated".to_string())),
+        );
+    };
+    for stamp in stamps {
+        match served
+            .engine
+            .submit(command(&body.data_capability, stamp))
+            .await
+        {
+            Ok(submitted) => warnings.extend(submitted.warnings),
+            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
+        }
+    }
+    let mut last = command(&body.data_capability, last);
+    last.idempotency_key = body.idempotency_key.clone();
+    let submitted = served.engine.submit(last).await.map(|mut submitted| {
+        submitted.warnings.splice(0..0, warnings);
+        submitted
+    });
+    reply(StatusCode::ACCEPTED, submitted)
+}
+
+/// The warning the DataGuard gives a command whose state, as queued, breaks
+/// an invariant — which it rejects once applied.
+const AT_RISK: &str = "invariant(s) at risk";
+
+/// Held while a validation reads the proposals and queues its commands.
+static VALIDATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The proposals a validation of `accepted` is made against, as the commands
+/// queued will leave them: the accepted ones, and every other of their
+/// notes, each with its note's campaign and whether the element it
+/// recognises is one the engine still holds.
+async fn held(
+    rows: &Rows,
+    accepted: &[String],
+) -> Result<Vec<create_entities_from_note::Proposal>, Error> {
+    let text = |row: &std::collections::BTreeMap<String, serde_json::Value>, field: &str| {
+        row.get(field)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    let mut ids: std::collections::BTreeSet<String> = accepted.iter().cloned().collect();
+    for id in accepted {
+        let row = rows.projected(&format!("NoteImport/{id}")).await?;
+        if let Some(note) = text(&row, "noteId") {
+            ids.extend(rows.proposals(&note));
+        }
+    }
+    let mut campaigns: std::collections::BTreeMap<String, Option<String>> =
+        std::collections::BTreeMap::new();
+    let mut proposals = Vec::new();
+    for id in ids {
+        let row = rows.projected(&format!("NoteImport/{id}")).await?;
+        let campaign = match text(&row, "noteId") {
+            Some(note) => match campaigns.get(&note) {
+                Some(campaign) => campaign.clone(),
+                None => {
+                    let of = rows.projected(&format!("NoteImport/{note}")).await?;
+                    let campaign = text(&of, "campaignId");
+                    campaigns.insert(note, campaign.clone());
+                    campaign
+                }
+            },
+            None => None,
+        };
+        let recognised = match text(&row, "existingEntityId") {
+            Some(element) => !rows
+                .projected(&format!("Entity/{element}"))
+                .await?
+                .is_empty(),
+            None => false,
+        };
+        proposals.push(create_entities_from_note::Proposal {
+            id,
+            row,
+            campaign,
+            recognised,
+        });
+    }
+    Ok(proposals)
 }
 
 /// A random (version 4) uuid: a new element's id, a version's.

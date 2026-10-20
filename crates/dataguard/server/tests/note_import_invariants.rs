@@ -219,6 +219,39 @@ async fn no_creation_before_validation_rejects_creating_a_proposal_s_element_twi
 }
 
 #[tokio::test]
+async fn no_creation_before_validation_warns_no_validation_when_it_is_queued() {
+    let engine = proposed(true).await;
+    let submitted = engine
+        .submit(Submission {
+            data_capability: "test.updateProposal".to_string(),
+            payload: [
+                ("id".to_string(), json!(GRIMBALD)),
+                ("checked".to_string(), json!(true)),
+                ("createdEntityId".to_string(), json!(CREATED)),
+            ]
+            .into_iter()
+            .collect(),
+            target_id: None,
+            based_on: None,
+            idempotency_key: None,
+            caller: Caller {
+                by: "dm".to_string(),
+                from: "campaign.noteImport".to_string(),
+                permissions: Vec::new(),
+                roles: vec!["role:approver".to_string()],
+            },
+        })
+        .await
+        .expect("queued");
+    // The row an update reads when it is queued is empty: it is no row
+    // written now, whose element the analysis would create.
+    assert!(submitted.warnings.is_empty(), "{:?}", submitted.warnings);
+    let mut applied_now = engine.run_once().await.expect("the applier ran");
+    assert_eq!(applied_now.len(), 1, "{applied_now:?}");
+    applied(&applied_now.remove(0));
+}
+
+#[tokio::test]
 async fn no_creation_before_validation_lets_the_dm_check_and_uncheck_freely() {
     let engine = proposed(true).await;
     for checked in [false, true, false] {
