@@ -114,7 +114,8 @@ const MAP: &str = "WITH tokens AS (
 /// the one it holds: a reset replaces the last, none clears it. A reset is
 /// the deletions sharing an instance and a time, and is applied once all
 /// `resetSize` of them are — the command `$1`, being applied right now,
-/// counts as one, the queue marking it a moment after its row is written.
+/// counts as one, the queue marking it a moment after its row is written;
+/// at a start, `$1` null, none does (a null would pass `bool_and`).
 /// While one is held for review, parked, refused or withdrawn, the stamp
 /// waits (`state-persisted-reset`); a token dropped after the reset does not
 /// hold it back.
@@ -127,7 +128,7 @@ const STAMP: &str = "UPDATE battlemap_instance b SET reset_at = s.at
                 AND pg_input_is_valid(q.entry -> 'payload' ->> 'resetAt', 'timestamptz')
                 AND pg_input_is_valid(q.entry -> 'payload' ->> 'resetSize', 'integer')
             GROUP BY 1, 2
-            HAVING bool_and(q.state = 'applied' OR q.command = $1::text)
+            HAVING bool_and(q.state = 'applied' OR coalesce(q.command = $1::text, false))
                 AND count(*) >= max((q.entry -> 'payload' ->> 'resetSize')::integer)
                 AND ($1::text IS NULL OR bool_or(q.command = $1::text))) done
         GROUP BY instance) s

@@ -605,6 +605,50 @@ async fn a_reset_whose_last_deletion_is_withdrawn_stamps_nothing_until_a_reset_w
 }
 
 #[tokio::test]
+async fn a_start_stamps_a_reset_applied_whole_and_not_one_partly_applied() {
+    let s = Scratch::new("partly").await;
+    let whole = {
+        let (engine, app) = s.serve().await;
+        dropped(&app, INSTANCE, 1).await;
+        dropped(&app, AUTRE_INSTANCE, 1).await;
+        assert_eq!(applied(&engine).await, 4);
+        let (status, body) = reset(&app, INSTANCE).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        // The last deletion withdrawn: two of the three are applied.
+        let cancel = Request::post(format!(
+            "/commands/{}/cancel",
+            body["commandId"].as_str().unwrap()
+        ))
+        .header("content-type", "application/json")
+        .body(Body::from(json!({ "by": "dm" }).to_string()))
+        .unwrap();
+        let response = app.clone().oneshot(cancel).await.expect("an answer");
+        assert_eq!(response.status(), StatusCode::OK);
+        let (status, body) = reset(&app, AUTRE_INSTANCE).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        assert_eq!(applied(&engine).await, 2 + 2);
+        assert_eq!(s.reset_at(INSTANCE).await, None);
+        s.reset_at(AUTRE_INSTANCE).await.expect("stamped")
+    };
+    // The tables lose the whole reset's stamp; the start's repair weighs
+    // every reset, none being applied right now.
+    s.client
+        .batch_execute(&format!(
+            "UPDATE battlemap_instance SET reset_at = NULL WHERE id = '{AUTRE_INSTANCE}'"
+        ))
+        .await
+        .expect("a stamp lost");
+    let _ = s.serve().await;
+    // A token stays: state-persisted-reset holds not, nothing is stamped.
+    assert_eq!(s.map(INSTANCE).await[0].len(), 1);
+    assert_eq!(s.reset_at(INSTANCE).await, None);
+    // The reset applied whole is stamped again.
+    assert_eq!(s.map(AUTRE_INSTANCE).await[0].len(), 0);
+    assert_eq!(s.reset_at(AUTRE_INSTANCE).await, Some(whole));
+    s.drop().await;
+}
+
+#[tokio::test]
 async fn a_token_dropped_before_the_reset_applies_does_not_keep_the_instance_unstamped() {
     let s = Scratch::new("dropped_between").await;
     let (engine, app) = s.serve().await;
