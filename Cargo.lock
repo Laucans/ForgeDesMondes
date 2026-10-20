@@ -280,6 +280,7 @@ dependencies = [
  "save-settings",
  "serde",
  "serde_json",
+ "set-master-volume",
  "test-connection",
  "thiserror",
  "tokio",
@@ -1475,6 +1476,13 @@ dependencies = [
  "tokio",
  "tower",
  "uuid",
+]
+
+[[package]]
+name = "set-master-volume"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

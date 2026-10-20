@@ -30,7 +30,9 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. A change of the master
+//! volume (`soundbox.setMasterVolume`) is made the fraction it writes on its
+//! campaign's partition.
 
 use std::sync::Arc;
 
@@ -346,7 +348,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. A change of
+/// the master volume (`set_master_volume::prepare`) is made the fraction it
+/// writes on its campaign's partition, the percent divided by 100, which
+/// `master-volume-range` judges once it is processed: one naming no campaign,
+/// or one the tables do not hold, is refused, 404, before it is queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -500,6 +506,34 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if set_master_volume::names(&body.data_capability) {
+        let no_campaign = || {
+            Err((
+                axum::http::StatusCode::NOT_FOUND,
+                Json(
+                    serde_json::json!({ "error": set_master_volume::Refusal::NoCampaign.to_string() }),
+                ),
+            ))
+        };
+        let Ok(prepared) = set_master_volume::prepare(&body.payload, body.target_id.as_deref())
+        else {
+            return no_campaign();
+        };
+        let campaign = match served
+            .rows
+            .projected(&format!("Campaign/{}", prepared.target_id))
+            .await
+        {
+            Ok(campaign) => campaign,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        // A campaign is a campagne or a oneshot: a partition holding no kind
+        // is none the tables hold.
+        if !campaign.contains_key("kind") {
+            return no_campaign();
+        }
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));
