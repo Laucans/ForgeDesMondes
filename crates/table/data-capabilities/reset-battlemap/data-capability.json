@@ -14,7 +14,7 @@
     "BattlemapInstance.initiativeEntryId"
   ],
   "payload": {
-    "instance": "uuid — the battlemap instance wiped clean, when the command names no target; each of its tokens, its combats and their initiative entries is tombstoned on its own partition (a soft delete), one command each, carrying the instance and the reset's time, which its row is stamped with (resetAt); the instance itself and its original battlemap and grid are never written"
+    "instance": "uuid — the battlemap instance wiped clean, when the command names no target; each of its tokens, its combats and their initiative entries is tombstoned on its own partition (a soft delete), one command each, carrying the instance, the reset's time (resetAt, which its row is stamped with once all are applied) and the reset's size; the instance itself and its original battlemap and grid are never written"
   },
   "mode": "overwrite",
   "invariants": ["instance-isolated", "state-persisted-reset"],

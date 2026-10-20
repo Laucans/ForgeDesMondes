@@ -560,10 +560,11 @@ async fn a_caller_who_is_no_approver_has_each_deletion_reviewed_first() {
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
     assert_eq!(body["result"]["status"], "awaiting_review", "{body}");
     // Held until an approver decides: the applier runs nothing, the map
-    // stays and the instance is not stamped.
+    // stays — the started combat beside the ended one — and the instance is
+    // not stamped.
     assert_eq!(applied(&engine).await, 0);
     let [tokens, combats, entries] = s.map(INSTANCE).await;
-    assert_eq!((tokens.len(), combats.len(), entries.len()), (2, 1, 2));
+    assert_eq!((tokens.len(), combats.len(), entries.len()), (2, 2, 2));
     assert_eq!(s.reset_at(INSTANCE).await, None);
     // The held deletion of the combat may be refused: it is still open, and
     // none other starts (one-active-combat).
@@ -580,7 +581,8 @@ async fn a_reset_whose_last_deletion_is_withdrawn_stamps_nothing_until_a_reset_w
     assert_eq!(applied(&engine).await, 2);
     let (status, body) = reset(&app, INSTANCE).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
-    // The answer is the last deletion's: withdrawn, a token stays.
+    // The answer is the last deletion's: withdrawn, a token stays. The ended
+    // combat's and the other token's deletions are applied.
     let cancel = Request::post(format!(
         "/commands/{}/cancel",
         body["commandId"].as_str().unwrap()
@@ -590,7 +592,7 @@ async fn a_reset_whose_last_deletion_is_withdrawn_stamps_nothing_until_a_reset_w
     .unwrap();
     let response = app.clone().oneshot(cancel).await.expect("an answer");
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(applied(&engine).await, 1);
+    assert_eq!(applied(&engine).await, 2);
     assert_eq!(s.map(INSTANCE).await[0].len(), 1);
     // The first deletion applied: state-persisted-reset holds not yet.
     assert_eq!(s.reset_at(INSTANCE).await, None);
@@ -598,6 +600,24 @@ async fn a_reset_whose_last_deletion_is_withdrawn_stamps_nothing_until_a_reset_w
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
     assert_eq!(applied(&engine).await, 1);
     assert_eq!(s.map(INSTANCE).await[0].len(), 0);
+    assert!(s.reset_at(INSTANCE).await.is_some());
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_token_dropped_before_the_reset_applies_does_not_keep_the_instance_unstamped() {
+    let s = Scratch::new("dropped_between").await;
+    let (engine, app) = s.serve().await;
+    dropped(&app, INSTANCE, 1).await;
+    assert_eq!(applied(&engine).await, 2);
+    let (status, body) = reset(&app, INSTANCE).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // A token lands behind the reset's deletions, before the applier runs.
+    dropped(&app, INSTANCE, 1).await;
+    // The ended combat, the two tokens, then the two dropped behind.
+    assert_eq!(applied(&engine).await, 5);
+    assert_eq!(s.map(INSTANCE).await[0].len(), 2);
+    // The reset was whole: its stamp is written, the later tokens stay.
     assert!(s.reset_at(INSTANCE).await.is_some());
     s.drop().await;
 }

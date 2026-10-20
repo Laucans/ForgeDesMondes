@@ -113,7 +113,12 @@ fn each_entry_then_each_combat_then_each_token_is_deleted_by_id_carrying_the_sta
     let deletions = prepare(&asked(), &set(), NOW).expect("prepared");
     let order: Vec<&str> = deletions.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(order, [ENTRY_1, ENTRY_2, COMBAT, TOKEN_1, TOKEN_2]);
-    let stamp = row(json!({ "battlemapInstanceId": INSTANCE, "resetAt": NOW }));
+    // Each carries the reset's size, which the stamp waits for.
+    let stamp = row(json!({
+        "battlemapInstanceId": INSTANCE,
+        "resetAt": NOW,
+        "resetSize": 5,
+    }));
     for (id, payload) in &deletions {
         assert_eq!(*payload, stamp, "{id}");
     }

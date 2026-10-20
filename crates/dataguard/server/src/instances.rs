@@ -17,7 +17,7 @@
 //! [`crate::Rows::reset_map`] adds —, none the engine tombstoned. It never
 //! writes the instance's partition: each of its deletions carries the
 //! instance and the reset's time, which the engine keeps with the command,
-//! and once the engine applied the last of them, [`stamp`] writes the
+//! and once the engine applied all of them, [`stamp`] writes the
 //! instance's `reset_at` — a later reset replaces it, none clears it.
 
 use create_battlemap_instance::Placement;
@@ -109,29 +109,29 @@ const MAP: &str = "WITH tokens AS (
         ARRAY(SELECT id FROM standing WHERE kind = 'entry' ORDER BY id)";
 
 /// The last reset the engine applied of each instance — of the command
-/// `$1`'s instance alone, or of every instance when it is null —, as its
+/// `$1`'s reset alone, or of every instance's when it is null —, as its
 /// deletions carry it, written on the instance's row when it is later than
-/// the one it holds: a reset replaces the last, none clears it. Only an
-/// instance left with no token and no combat is stamped
-/// (`state-persisted-reset`): while a deletion is held for review, parked,
-/// or refused, the stamp waits for the last row to go.
+/// the one it holds: a reset replaces the last, none clears it. A reset is
+/// the deletions sharing an instance and a time, and is applied once all
+/// `resetSize` of them are — the command `$1`, being applied right now,
+/// counts as one, the queue marking it a moment after its row is written.
+/// While one is held for review, parked, refused or withdrawn, the stamp
+/// waits (`state-persisted-reset`); a token dropped after the reset does not
+/// hold it back.
 const STAMP: &str = "UPDATE battlemap_instance b SET reset_at = s.at
-    FROM (SELECT lower(q.entry -> 'payload' ->> 'battlemapInstanceId') AS instance,
-            max((q.entry -> 'payload' ->> 'resetAt')::timestamptz) AS at
-        FROM dataguard_queue q
-        WHERE split_part(q.data_capability, '@', 1) = 'table.resetBattlemap'
-            AND pg_input_is_valid(q.entry -> 'payload' ->> 'resetAt', 'timestamptz')
-            AND (q.command = $1::text OR ($1::text IS NULL AND q.state = 'applied'))
-        GROUP BY 1) s
-    WHERE b.id::text = s.instance AND (b.reset_at IS NULL OR b.reset_at < s.at)
-        AND NOT EXISTS (SELECT 1 FROM token t WHERE t.instance_id = b.id)
-        AND NOT EXISTS (SELECT 1 FROM combat c WHERE c.instance_id = b.id)
-        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
-            WHERE r.partition LIKE 'BattlemapInstance/%' AND NOT r.tombstoned
-                AND ((r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
-                        AND lower(r.fields ->> 'tokenInstanceId') = s.instance)
-                    OR (r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'combatId')
-                        AND lower(r.fields ->> 'combatInstanceId') = s.instance)))";
+    FROM (SELECT instance, max(at) AS at
+        FROM (SELECT lower(q.entry -> 'payload' ->> 'battlemapInstanceId') AS instance,
+                (q.entry -> 'payload' ->> 'resetAt')::timestamptz AS at
+            FROM dataguard_queue q
+            WHERE split_part(q.data_capability, '@', 1) = 'table.resetBattlemap'
+                AND pg_input_is_valid(q.entry -> 'payload' ->> 'resetAt', 'timestamptz')
+                AND pg_input_is_valid(q.entry -> 'payload' ->> 'resetSize', 'integer')
+            GROUP BY 1, 2
+            HAVING bool_and(q.state = 'applied' OR q.command = $1::text)
+                AND count(*) >= max((q.entry -> 'payload' ->> 'resetSize')::integer)
+                AND ($1::text IS NULL OR bool_or(q.command = $1::text))) done
+        GROUP BY instance) s
+    WHERE b.id::text = s.instance AND (b.reset_at IS NULL OR b.reset_at < s.at)";
 
 /// What the tables hold of the session, the scene and the battlemap named —
 /// ids the tables can read.
@@ -180,9 +180,9 @@ pub async fn map(
 }
 
 /// Stamps the instance a reset's deletion `command` carries with its time
-/// once it holds no token and no combat — every instance with the last reset
-/// applied, `None` — logging a failure: after each tombstone of the aggregate, and at a start. Tables
-/// not migrated yet hold none.
+/// once every deletion of that reset is applied — every instance with its
+/// last reset applied, `None` — logging a failure: after each tombstone of
+/// the aggregate, and at a start. Tables not migrated yet hold none.
 pub async fn stamp(client: &Client, command: Option<&str>) {
     if let Err(e) = client.execute(STAMP, &[&command]).await {
         eprintln!(

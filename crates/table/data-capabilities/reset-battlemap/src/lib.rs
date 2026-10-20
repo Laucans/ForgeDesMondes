@@ -9,8 +9,8 @@
 //! command journal). The instance's own partition is never written — a
 //! deletion there would take the instance — nor any row of another
 //! instance, of the battlemap or of its grid (`instance-isolated`). Each
-//! deletion carries the instance and the reset's time, which the instance's
-//! row is stamped with once the tables follow (`resetAt`): what the
+//! deletion carries the instance, the reset's time and size, which the
+//! instance's row is stamped with once the tables follow (`resetAt`): what the
 //! instance holds is read before the reset is queued — the engine cannot
 //! see it from one row —; [`request`] reads the instance, and [`prepare`]
 //! makes what it holds the commands:
@@ -102,8 +102,9 @@ pub fn request(wire: &Row, target: Option<&str>) -> Result<Request, Refusal> {
 /// stamped `now`, RFC 3339: one per partition, by id — its entries, then
 /// its combats, then its tokens, so a reset that fails half queued leaves
 /// the tokens on the map, and may be sent again. Each carries the instance
-/// (`battlemapInstanceId`) and the time it is reset at (`resetAt`), its
-/// row's stamp; a deletion writes no field of its own partition.
+/// (`battlemapInstanceId`), the time it is reset at (`resetAt`), its row's
+/// stamp, and how many deletions the reset is (`resetSize`), which the
+/// stamp waits for; a deletion writes no field of its own partition.
 ///
 /// # Errors
 ///
@@ -113,7 +114,7 @@ pub fn prepare(request: &Request, map: &Map, now: &str) -> Result<Vec<(String, R
     if !map.instance {
         return Err(Refusal::UnknownInstance);
     }
-    let stamp = Row::from([
+    let mut stamp = Row::from([
         (
             "battlemapInstanceId".to_owned(),
             Value::String(request.instance.clone()),
@@ -132,6 +133,7 @@ pub fn prepare(request: &Request, map: &Map, now: &str) -> Result<Vec<(String, R
     if seen.is_empty() {
         return Err(Refusal::NothingToReset);
     }
+    stamp.insert("resetSize".to_owned(), Value::from(seen.len()));
     Ok(seen.into_iter().map(|one| (one, stamp.clone())).collect())
 }
 
