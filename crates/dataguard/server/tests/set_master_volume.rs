@@ -60,6 +60,7 @@ fn naming(name: &str) -> String {
 /// full volume.
 struct Scratch {
     name: String,
+    url: String,
     client: Client,
     engine: Arc<Engine>,
     rows: Rows,
@@ -89,20 +90,20 @@ impl Scratch {
             ))
             .await
             .expect("Valombre and Brume");
-        let Planted { engine, rows } = planted(&url).await.expect("the engine over PostgreSQL");
-        let engine = Arc::new(engine);
-        let app = router(
-            engine.clone(),
-            rows.clone(),
-            Arc::new(ports_llm::fake::FakeLlm::new()),
-        );
+        let (engine, rows, app) = serve(&url).await;
         Scratch {
             name,
+            url,
             client,
             engine,
             rows,
             app,
         }
+    }
+
+    /// The server started again over the same database.
+    async fn restart(&mut self) {
+        (self.engine, self.rows, self.app) = serve(&self.url).await;
     }
 
     /// Every row of every table of the product, as JSON, by table: the
@@ -174,14 +175,39 @@ impl Scratch {
         (status, answer, Some(settled.remove(0)))
     }
 
+    /// Drops the database — again a moment later while a backend of another
+    /// role, which a role that is no superuser may not end (an autovacuum
+    /// worker its writes woke), still holds it.
     async fn drop(self) {
         drop((self.client, self.app, self.rows, self.engine));
-        connect(&url())
-            .await
-            .batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name))
-            .await
-            .expect("the scratch database dropped");
+        let admin = connect(&url()).await;
+        let sql = format!("DROP DATABASE {} WITH (FORCE)", self.name);
+        for _ in 0..50 {
+            match admin.batch_execute(&sql).await {
+                Err(e)
+                    if e.code()
+                        == Some(&tokio_postgres::error::SqlState::INSUFFICIENT_PRIVILEGE) =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                dropped => return dropped.expect("the scratch database dropped"),
+            }
+        }
+        panic!("the scratch database {} still held", self.name);
     }
+}
+
+/// The engine as the server plants it over the database `url` names, its
+/// rows, and its wire protocol.
+async fn serve(url: &str) -> (Arc<Engine>, Rows, Router) {
+    let Planted { engine, rows } = planted(url).await.expect("the engine over PostgreSQL");
+    let engine = Arc::new(engine);
+    let app = router(
+        engine.clone(),
+        rows.clone(),
+        Arc::new(ports_llm::fake::FakeLlm::new()),
+    );
+    (engine, rows, app)
 }
 
 fn setting(campaign: &str, volume: Value) -> Value {
@@ -284,5 +310,53 @@ async fn a_campaign_the_tables_do_not_hold_or_none_named_is_refused_before_it_is
         assert!(result.is_none());
     }
     assert_eq!(scratch.tables().await, before);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_fractional_percent_is_kept_to_the_whole_percent_the_table_holds() {
+    let scratch = Scratch::new("rounded").await;
+    let (status, answer, result) = scratch.command(setting(VALOMBRE, json!(12.5))).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    assert_eq!(result.expect("queued").status, State::Applied);
+    assert_eq!(scratch.master_volume(VALOMBRE).await, "0.13");
+    let row = scratch
+        .rows
+        .projected(&format!("Campaign/{VALOMBRE}"))
+        .await
+        .expect("the row");
+    assert_eq!(row["soundMasterVolume"], json!(0.13), "{row:?}");
+    // What the engine judged and keeps is what the table holds.
+    let kept: String = scratch
+        .client
+        .query_one(
+            "SELECT fields ->> 'soundMasterVolume' FROM dataguard_rows WHERE partition = $1",
+            &[&format!("Campaign/{VALOMBRE}")],
+        )
+        .await
+        .expect("the engine's row")
+        .get(0);
+    assert_eq!(kept, "0.13");
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_master_volume_the_table_lost_is_written_again_at_the_next_start_and_no_other() {
+    let mut scratch = Scratch::new("repair").await;
+    let (_, answer, result) = scratch.command(setting(VALOMBRE, json!(40))).await;
+    assert_eq!(result.expect("queued").status, State::Applied, "{answer}");
+    // As if the projection had failed after the engine applied the volume;
+    // Brume, which no command wrote, moved meanwhile.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "UPDATE campaign SET sound_master_volume = 0.8 WHERE id = '{VALOMBRE}';
+             UPDATE campaign SET sound_master_volume = 0.3 WHERE id = '{BRUME}';"
+        ))
+        .await
+        .expect("the volume lost");
+    scratch.restart().await;
+    assert_eq!(scratch.master_volume(VALOMBRE).await, "0.40");
+    assert_eq!(scratch.master_volume(BRUME).await, "0.30");
     scratch.drop().await;
 }

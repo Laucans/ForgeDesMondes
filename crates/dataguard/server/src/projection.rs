@@ -19,7 +19,7 @@
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
 //! column. A change of the master volume (`soundbox.setMasterVolume`) writes
 //! that partition with the volume alone: [`ProjectingStore`] writes
-//! `campaign.sound_master_volume` from what the write carries, and no other
+//! `campaign.sound_master_volume` as the engine holds it, and no other
 //! column. A campaign's row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
@@ -36,7 +36,7 @@
 //! tables' aliases are the ones `alias-unique-in-campaign` judges against.
 //! So do its versions reach [`History`], as `entity_version` numbers them:
 //! the ones a restoration names. A stamp the table lost is written again at
-//! the next start, never over a later one.
+//! the next start, never over a later one, and so is a master volume.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -228,13 +228,22 @@ const STAMP_EXPORTS: &str = "UPDATE campaign c
         AND (c.last_exported_at IS NULL
             OR c.last_exported_at < (r.fields ->> 'lastExportedAt')::timestamptz)";
 
-/// The master volume a write of the campaign `$1` names carries, `$2` as
-/// text, on its row: the one column a change of it writes. The fraction the
-/// engine judged (`master-volume-range`) is the column's to round to its
-/// hundredths, and its CHECK judges it again.
-const MASTER_VOLUME: &str = "UPDATE campaign
-    SET sound_master_volume = ($2::text)::numeric
-    WHERE id::text = lower($1)";
+/// The master volume the engine holds on the campaign partition `$1`
+/// names — on every one when it is null — written on its row when it is not
+/// that already: the one column a change of it writes. After each apply of a
+/// campaign, and at a start, so a volume whose projection failed after its
+/// apply is written again. A volume the column could not hold, or outside
+/// `master-volume-range`, is left aside, so it keeps no other campaign's from
+/// its row.
+const MASTER_VOLUMES: &str = "UPDATE campaign c
+    SET sound_master_volume = (r.fields ->> 'soundMasterVolume')::numeric(3, 2)
+    FROM dataguard_rows r
+    WHERE r.partition = 'Campaign/' || c.id::text AND NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND pg_input_is_valid(r.fields ->> 'soundMasterVolume', 'numeric(3, 2)')
+        AND (r.fields ->> 'soundMasterVolume')::numeric(3, 2) BETWEEN 0 AND 1
+        AND c.sound_master_volume IS DISTINCT FROM
+            (r.fields ->> 'soundMasterVolume')::numeric(3, 2)";
 
 /// What an archive holds of the campaign `$1` names, in whatever case, as
 /// the tables hold it — the campaign, its players, its elements each with
@@ -301,6 +310,7 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_master_volumes(None).await;
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -319,25 +329,18 @@ impl ProjectingStore {
         }
     }
 
-    /// Writes the master volume `write` carries on its campaign's row, when
-    /// it carries one, logging a failure: after each apply of a campaign.
-    async fn record_master_volume(&self, write: &Write) {
-        let (Some(id), Some(volume)) =
-            (write.partition.strip_prefix(CAMPAIGN), master_volume(write))
-        else {
-            return;
-        };
+    /// Writes the master volume the engine holds on the row of the campaign
+    /// `partition` names — of every campaign, `None` — logging a failure:
+    /// after each apply of a campaign, and at a start.
+    async fn repair_master_volumes(&self, partition: Option<&str>) {
         let written = {
             let client = self.inner.client().lock().await;
-            client.execute(MASTER_VOLUME, &[&id, &volume]).await
+            client.execute(MASTER_VOLUMES, &[&partition]).await
         };
         if let Err(e) = written {
-            let db = e.as_db_error();
             eprintln!(
-                "projection: {} not projected: {} {}",
-                write.partition,
-                db.map_or("-", |db| db.code().code()),
-                db.and_then(|db| db.constraint()).unwrap_or_default()
+                "projection: master volume not written: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
             );
         }
     }
@@ -667,19 +670,6 @@ fn tested(write: &Write) -> Option<&str> {
         .filter(|id| uuid(id))
 }
 
-/// The master volume a live write carries, as the text of its number: a
-/// JSON number, or the text of one, as `master-volume-range` reads it.
-fn master_volume(write: &Write) -> Option<String> {
-    if write.tombstone {
-        return None;
-    }
-    match write.values.get("soundMasterVolume")? {
-        Value::Number(n) => Some(n.to_string()),
-        Value::String(text) => Some(text.trim().to_owned()),
-        _ => None,
-    }
-}
-
 /// A field as text; `None` when absent, `null` or not a string.
 fn text<'a>(row: &'a BTreeMap<String, Value>, field: &str) -> Option<&'a str> {
     row.get(field).and_then(Value::as_str)
@@ -748,10 +738,10 @@ impl Store for ProjectingStore {
         } else if element(write) {
             self.repair_elements().await;
         } else if write.partition.starts_with(CAMPAIGN) {
-            // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it,
-            // and it carries no master volume.
+            // A campaign's tombstone stamps nothing, and sets no volume:
+            // STAMP_EXPORTS and MASTER_VOLUMES skip it.
             self.repair_exports(Some(&write.partition)).await;
-            self.record_master_volume(write).await;
+            self.repair_master_volumes(Some(&write.partition)).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.

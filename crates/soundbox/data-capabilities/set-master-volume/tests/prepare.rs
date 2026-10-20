@@ -21,7 +21,10 @@ fn a_percent_is_written_as_its_fraction_and_nothing_else() {
         (json!(100), json!(1.0)),
         (json!(55), json!(0.55)),
         (json!(7), json!(0.07)),
-        (json!(12.5), json!(0.125)),
+        // To the whole percent: the column holds hundredths.
+        (json!(12.5), json!(0.13)),
+        (json!(99.6), json!(1.0)),
+        (json!(0.4), json!(0.0)),
     ] {
         let prepared = prepare(
             &wire(json!({ "campaign": VALOMBRE, "volume": volume })),
@@ -43,6 +46,9 @@ fn a_volume_out_of_range_is_never_clamped_and_one_that_is_no_number_is_null() {
     for (volume, written) in [
         (json!(150), json!(1.5)),
         (json!(-5), json!(-0.05)),
+        // Out of range is never rounded into it.
+        (json!(100.4), json!(1.004)),
+        (json!(-0.4), json!(-0.004)),
         (json!("40"), Value::Null),
         (Value::Null, Value::Null),
         (json!([40]), Value::Null),

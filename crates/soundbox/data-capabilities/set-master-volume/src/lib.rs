@@ -12,9 +12,11 @@
 //! - the target is the campaign, lowercase as the table writes it — one
 //!   partition per campaign whatever case the request used;
 //! - its payload is `soundMasterVolume`, the percent divided by 100, and
-//!   nothing else;
-//! - a volume out of range is never clamped: its fraction is written as it
-//!   is, and the campaign's own invariant refuses it (`master-volume-range`);
+//!   nothing else — to the whole percent, the hundredths the campaign's
+//!   column holds, so what the engine judges is what the table keeps;
+//! - a volume out of range is never clamped nor rounded into range: its
+//!   fraction is written as it is, and the campaign's own invariant refuses
+//!   it (`master-volume-range`);
 //!   a volume that is no number is written `null`, which the invariant
 //!   refuses too;
 //! - a request naming no campaign is refused before anything is queued
@@ -81,7 +83,15 @@ pub fn prepare(wire: &Row, target: Option<&str>) -> Result<Prepared, Refusal> {
     let volume = wire
         .get("volume")
         .and_then(Value::as_f64)
-        .and_then(|percent| Number::from_f64(percent / PERCENT))
+        .map(|percent| {
+            let percent = if (0.0..=PERCENT).contains(&percent) {
+                percent.round()
+            } else {
+                percent
+            };
+            percent / PERCENT
+        })
+        .and_then(Number::from_f64)
         .map_or(Value::Null, Value::Number);
     Ok(Prepared {
         payload: Row::from([(MASTER_VOLUME.to_owned(), volume)]),
