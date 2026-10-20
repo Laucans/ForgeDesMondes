@@ -1,0 +1,10 @@
+[package]
+name = "show-on-player-view"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.showOnPlayerView: the DM sends a battlemap instance of the session, or an illustration, as the player view's base, with its zoom and pan, on the session's Diffusion partition — the wire payload mapped, an instance not of the session or a media that is no illustration of its campaign left out, which base-coherent refuses."
+publish = false
+
+[dependencies]
+serde_json = "1"

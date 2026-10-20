@@ -17,7 +17,11 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A campaign's row is its table's over the engine's, and
+//! column. A send to the player view (`live.showOnPlayerView`) writes its
+//! session's partition, `Diffusion/<its id>`: [`ProjectingStore`] upserts
+//! the session's `diffusion` row with what the engine's row carries, the
+//! rest as the table holds it. A campaign's row is its table's over the
+//! engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -46,6 +50,7 @@ use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
 use restore_entity_version::Kept;
 use serde_json::Value;
+use show_on_player_view::{Found, Named};
 use test_connection::NO_PROVIDER;
 
 use crate::ai_settings::uuid;
@@ -250,6 +255,89 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
+/// The partitions of the Diffusion aggregate: `Diffusion/<session id>`.
+const DIFFUSION: &str = "Diffusion/";
+
+/// What the tables say of the rows a send to the player view names
+/// (`live.showOnPlayerView`), `$1` the campaign, `$2` the instance, `$3` the
+/// media, each a uuid or null: the live session of the campaign — of the
+/// instance's or the media's campaign when none is named —, the session the
+/// instance belongs to, whether the media is an illustration of the live
+/// session's campaign, and whether the tables hold the instance or the media
+/// sent. Of two live sessions, the last one planned.
+const SHOWING: &str = "WITH sent AS (
+        SELECT i.session_id, s.campaign_id
+        FROM battlemap_instance i JOIN session s ON s.id = i.session_id
+        WHERE i.id = ($2::text)::uuid
+    ), shown AS (
+        SELECT m.campaign_id, m.kind FROM media m WHERE m.id = ($3::text)::uuid
+    ), live AS (
+        SELECT s.id, s.campaign_id FROM session s
+        WHERE s.status = 'live'
+            AND s.campaign_id = coalesce(($1::text)::uuid,
+                (SELECT campaign_id FROM sent), (SELECT campaign_id FROM shown))
+        ORDER BY s.position DESC, s.id
+        LIMIT 1
+    )
+    SELECT (SELECT id::text FROM live), (SELECT session_id::text FROM sent),
+        EXISTS (SELECT 1 FROM shown JOIN live ON shown.campaign_id = live.campaign_id
+            WHERE shown.kind = 'illustration'),
+        EXISTS (SELECT 1 FROM sent) OR EXISTS (SELECT 1 FROM shown)";
+
+/// The diffusion rows the engine holds — the partition `$1` names, or every
+/// one when it is null — written on `diffusion`, one row per session
+/// (single-diffusion-source). A field the engine's row does not carry keeps
+/// what the table holds: a send writes the base and the framing, never the
+/// window. A media or an instance the tables no longer hold is none, as
+/// their deletion leaves it (onDelete nullify). A row of a session the
+/// tables do not hold, or holding a value its column cannot, is left aside,
+/// so it keeps no other session's from the table.
+const PROJECT_DIFFUSIONS: &str = "INSERT INTO diffusion (session_id, base_kind, base_media_id,
+        base_instance_id, window_media_id, window_x, window_y, window_width,
+        view_zoom, view_pan_x, view_pan_y, updated_at)
+    SELECT s.id, r.fields ->> 'baseKind',
+        (SELECT m.id FROM media m WHERE m.id::text = r.fields ->> 'baseMediaId'),
+        (SELECT i.id FROM battlemap_instance i WHERE i.id::text = r.fields ->> 'baseInstanceId'),
+        CASE WHEN r.fields::jsonb ? 'windowMediaId'
+            THEN (SELECT m.id FROM media m WHERE m.id::text = r.fields ->> 'windowMediaId')
+            ELSE kept.window_media_id END,
+        CASE WHEN r.fields::jsonb ? 'windowX' THEN (r.fields ->> 'windowX')::numeric ELSE kept.window_x END,
+        CASE WHEN r.fields::jsonb ? 'windowY' THEN (r.fields ->> 'windowY')::numeric ELSE kept.window_y END,
+        CASE WHEN r.fields::jsonb ? 'windowWidth'
+            THEN (r.fields ->> 'windowWidth')::numeric ELSE kept.window_width END,
+        coalesce((r.fields ->> 'viewZoom')::numeric, kept.view_zoom, 1),
+        coalesce((r.fields ->> 'viewPanX')::numeric, kept.view_pan_x, 0),
+        coalesce((r.fields ->> 'viewPanY')::numeric, kept.view_pan_y, 0),
+        coalesce((r.fields ->> 'updatedAt')::timestamptz, now())
+    FROM dataguard_rows r
+    JOIN session s ON s.id = CASE WHEN pg_input_is_valid(substr(r.partition, 11), 'uuid')
+            THEN substr(r.partition, 11)::uuid END
+    LEFT JOIN diffusion kept ON kept.session_id = s.id
+    WHERE NOT r.tombstoned
+        AND r.partition LIKE 'Diffusion/%'
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'Diffusion/' || s.id::text
+        AND r.fields ->> 'baseKind' IN ('cover', 'illustration', 'battlemap')
+        AND NOT EXISTS (SELECT 1 FROM (VALUES
+                ('windowX', 'numeric(6,4)'), ('windowY', 'numeric(6,4)'),
+                ('windowWidth', 'numeric(6,4)'), ('viewZoom', 'numeric(6,3)'),
+                ('viewPanX', 'numeric(9,2)'), ('viewPanY', 'numeric(9,2)'),
+                ('updatedAt', 'timestamptz')) AS f (name, sql_type)
+            WHERE r.fields ->> f.name IS NOT NULL
+                AND NOT pg_input_is_valid(r.fields ->> f.name, f.sql_type))
+    ON CONFLICT (session_id) DO UPDATE SET
+        base_kind = EXCLUDED.base_kind,
+        base_media_id = EXCLUDED.base_media_id,
+        base_instance_id = EXCLUDED.base_instance_id,
+        window_media_id = EXCLUDED.window_media_id,
+        window_x = EXCLUDED.window_x,
+        window_y = EXCLUDED.window_y,
+        window_width = EXCLUDED.window_width,
+        view_zoom = EXCLUDED.view_zoom,
+        view_pan_x = EXCLUDED.view_pan_x,
+        view_pan_y = EXCLUDED.view_pan_y,
+        updated_at = EXCLUDED.updated_at";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -290,6 +378,40 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_diffusions(None).await;
+    }
+
+    /// Writes the diffusion row the engine holds for the partition
+    /// `partition` names — every one, `None` — logging a failure: after each
+    /// apply of a diffusion, and at a start.
+    async fn repair_diffusions(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(PROJECT_DIFFUSIONS, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: diffusion not written: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
+    }
+
+    /// What the tables say of the rows a send to the player view names.
+    pub async fn showing(
+        &self,
+        named: &Named,
+    ) -> std::result::Result<Found, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let row = client
+            .query_one(SHOWING, &[&named.campaign, &named.instance, &named.media])
+            .await?;
+        Ok(Found {
+            session: row.get(0),
+            instance_session: row.get(1),
+            illustration: row.get(2),
+            held: row.get(3),
+        })
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -700,6 +822,9 @@ impl Store for ProjectingStore {
             self.record_test(&write.partition, provider, false).await;
         } else if element(write) {
             self.repair_elements().await;
+        } else if write.partition.starts_with(DIFFUSION) {
+            // A diffusion's tombstone writes nothing: PROJECT_DIFFUSIONS skips it.
+            self.repair_diffusions(Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;

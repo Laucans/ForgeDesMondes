@@ -30,7 +30,9 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. A send to the player view
+//! (`live.showOnPlayerView`) is prepared against the live session, the
+//! instance and the media the tables hold, which [`Rows`] reads.
 
 use std::sync::Arc;
 
@@ -346,7 +348,14 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. A send to the
+/// player view (`show_on_player_view::prepare`) is made the state it writes
+/// on its live session's diffusion row, against what the tables say of the
+/// instance or the media it names: one the session cannot show is queued
+/// all the same, for the DataGuard to refuse under base-coherent, and told
+/// among the warnings; one naming no live session, an instance or a media the
+/// tables do not hold with no campaign, or a value the table could never
+/// hold, is refused, 422, before it is queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -500,6 +509,23 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if show_on_player_view::names(&body.data_capability) {
+        let refused = |refusal: show_on_player_view::Refusal| {
+            (
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            )
+        };
+        let named = show_on_player_view::named(&body.payload).map_err(refused)?;
+        let found = match served.rows.showing(&named).await {
+            Ok(found) => found,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared =
+            show_on_player_view::prepare(&body.payload, &found, &now()).map_err(refused)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+        refusal = prepared.warning;
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));

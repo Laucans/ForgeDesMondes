@@ -23,6 +23,7 @@ use harness_dataguard::store::{Collision, Store, Write};
 use restore_entity_version::Kept;
 use save_entity::{stamp, versioned};
 use serde_json::Value;
+use show_on_player_view::{Found, Named};
 
 use crate::aliases::Aliases;
 use crate::history::History;
@@ -192,6 +193,25 @@ impl Rows {
         tables.archived(id).await.map_err(|e| {
             harness_dataguard::Error::Store(format!(
                 "campaign not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// What the tables say of the rows a send to the player view names
+    /// (`live.showOnPlayerView`): nothing over the engine's memory, which has
+    /// no table — no live session shows it.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn showing(&self, named: &Named) -> Result<Found> {
+        let Some(tables) = &self.tables else {
+            return Ok(Found::default());
+        };
+        tables.showing(named).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "session not read: {}",
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
