@@ -19,7 +19,9 @@
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
 //! column. A token dropped on a battlemap instance (`table.placeTokens`)
 //! writes its partition, `BattlemapInstance/<its id>`: [`ProjectingStore`]
-//! inserts its `token` row ([`tokens`]). A campaign's row is its table's over
+//! inserts its `token` row ([`tokens`]); a token hidden or revealed
+//! (`table.setTokenVisibility`) writes it again with its visibility alone:
+//! [`ProjectingStore`] writes `token.visible`, and no other column. A campaign's row is its table's over
 //! the engine's, and an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -293,7 +295,9 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
-        tokens::repair(&*self.inner.client().lock().await).await;
+        let client = self.inner.client().lock().await;
+        tokens::repair(&client).await;
+        tokens::show(&client, None).await;
     }
 
     /// What the tables hold of the instance and the character a drop of
@@ -716,7 +720,9 @@ impl Store for ProjectingStore {
         } else if element(write) {
             self.repair_elements().await;
         } else if !write.tombstone && tokens::of_aggregate(&write.partition) {
-            tokens::project(&*self.inner.client().lock().await, &write.partition).await;
+            let client = self.inner.client().lock().await;
+            tokens::project(&client, &write.partition).await;
+            tokens::show(&client, Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;

@@ -49,3 +49,4 @@ save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 place-tokens = { path = "../../table/data-capabilities/place-tokens" }
+set-token-visibility = { path = "../../table/data-capabilities/set-token-visibility" }

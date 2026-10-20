@@ -112,6 +112,24 @@ export const COMMANDS = {
     }
     return undefined;
   },
+  // table.setTokenVisibility: one token hidden from the players or revealed, `payload.token` on the instance
+  // `targetId` — or the token itself as the target. Its visibility alone: its initiative rank and every other
+  // participant's stay as they are (`hidden-keeps-rank`); a visibility that is no boolean is refused.
+  'table.setTokenVisibility': async (server, { payload, targetId }) => {
+    const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+    if (typeof payload.visible !== 'boolean') return ['players-see-band-only'];
+    // A `token` sent, even null, names the token: the target is then its instance, as the server reads it.
+    const named = payload.token !== undefined;
+    const tokenId = named ? payload.token : targetId;
+    if (typeof tokenId !== 'string') return ['not-found'];
+    const instance = named && targetId && !same(targetId, tokenId) ? targetId : null;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const inst = instances.find((i) => (instance == null || same(i.id, instance)) && i.state.tokens.some((t) => same(t.id, tokenId)));
+    if (!inst) return ['not-found'];
+    inst.state.tokens.find((t) => same(t.id, tokenId)).visible = payload.visible;
+    return undefined;
+  },
   // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
   // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
   // version after it are undone, each field back to what it was. Either way the restoration is a new version

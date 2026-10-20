@@ -33,7 +33,10 @@
 //! the command's result once its stamp is applied. A drop of tokens on a
 //! battlemap instance (`table.placeTokens`) is prepared against what the
 //! tables and the queue hold of the instance and the character, which
-//! [`Rows`] reads: one command per token.
+//! [`Rows`] reads: one command per token. A token hidden or revealed
+//! (`table.setTokenVisibility`) is prepared against the token's row as the
+//! queue will leave it, which [`Rows`] reads: its visibility alone, on its
+//! partition.
 
 use std::sync::Arc;
 
@@ -352,6 +355,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// campaign the tables do not hold is refused, 404, and one they cannot make
 /// an archive of, 422 — neither is queued, so nothing changes. A drop of
 /// tokens is made the token rows it inserts, one command each ([`placing`]).
+/// A token hidden or revealed (`set_token_visibility::prepare`) is made the
+/// visibility it writes on the token's partition, against the token's row:
+/// one naming no uuid, or a visibility that is no boolean, is refused, 422,
+/// and one of a token the engine does not hold on the instance targeted,
+/// 404 — neither is queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -477,6 +485,33 @@ async fn submit<L: Llm>(
     } else if place_tokens::names(&body.data_capability) {
         let _placing = PLACING.lock().await;
         return placing(&served, body).await;
+    } else if set_token_visibility::names(&body.data_capability) {
+        let unprocessable = |refusal: set_token_visibility::Refusal| {
+            let status = if refusal == set_token_visibility::Refusal::UnknownToken {
+                axum::http::StatusCode::NOT_FOUND
+            } else {
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            };
+            refused(status, &refusal)
+        };
+        let wire = served.reads.stored(&body.payload);
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(id));
+        let request =
+            set_token_visibility::request(&wire, target.as_deref()).map_err(unprocessable)?;
+        let base = match served
+            .rows
+            .projected(&set_token_visibility::partition(&request.token))
+            .await
+        {
+            Ok(base) => base,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = set_token_visibility::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     } else if export_campaign::names(&body.data_capability) {
         let id = body
             .target_id
