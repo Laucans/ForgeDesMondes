@@ -30,7 +30,10 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. A drop of tokens on a
+//! battlemap instance (`table.placeTokens`) is prepared against what the
+//! tables and the queue hold of the instance and the character, which
+//! [`Rows`] reads: one command per token.
 
 use std::sync::Arc;
 
@@ -39,7 +42,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
-use harness_dataguard::api::{HoldRequest, ReadResponse, ReviewDecision, Submission};
+use harness_dataguard::api::{HoldRequest, ReadResponse, ReviewDecision, Submission, Submitted};
 use harness_dataguard::command::Entry;
 pub use harness_dataguard::engine::Engine;
 use harness_dataguard::guard::Invariants;
@@ -67,6 +70,7 @@ mod session;
 mod sound;
 mod sound_playback;
 mod suggestion;
+mod tokens;
 mod versioning;
 
 pub use reads::Reads;
@@ -346,14 +350,15 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. A drop of
+/// tokens is made the token rows it inserts, one command each ([`placing`]).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
 async fn submit<L: Llm>(
     State(served): State<Served<L>>,
     Json(raw): Json<serde_json::Value>,
-) -> Reply<harness_dataguard::api::Submitted> {
+) -> Reply<Submitted> {
     let target = raw
         .get("target")
         .and_then(|target| target.get("id"))
@@ -469,6 +474,9 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if place_tokens::names(&body.data_capability) {
+        let _placing = PLACING.lock().await;
+        return placing(&served, body).await;
     } else if export_campaign::names(&body.data_capability) {
         let id = body
             .target_id
@@ -509,6 +517,110 @@ async fn submit<L: Llm>(
         submitted
     });
     reply(axum::http::StatusCode::ACCEPTED, submitted)
+}
+
+/// One drop of tokens at a time, from its judgement until its tokens are
+/// queued: two drops of a character sent at once never take the same
+/// numbers, nor place a PC twice.
+static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A refusal before a command is queued: its status, and why in words.
+type Refused = (axum::http::StatusCode, Json<serde_json::Value>);
+
+fn refused(status: axum::http::StatusCode, why: &impl std::fmt::Display) -> Refused {
+    (
+        status,
+        Json(serde_json::json!({ "error": why.to_string() })),
+    )
+}
+
+/// `body`, a drop of a character on a battlemap instance
+/// (`table.placeTokens`), made its tokens (`place_tokens::prepare`) — the
+/// fixtures' slugs it names read as the ids the tables hold them by — and
+/// queued, one command per token on its own partition,
+/// `BattlemapInstance/<its id>`: the engine writes one partition per
+/// command. The answer is the last token's command, queued after the others;
+/// with an idempotency key, the last token's command is queued under it and
+/// each other under it followed by `#<its rank>`, so the drop sent again
+/// under its key is the engine's to replay, as it was. Refused, and nothing
+/// queued: ids that are none, a hex that is none or a count out of 1 to 12,
+/// 422; an instance or a character the tables do not hold, 404 — over the
+/// engine's memory, every instance; a character of another campaign, or a PC
+/// absent from the session or dropped more than once, 422; a PC that has its
+/// token on the instance, applied or queued, 409 (`token-roster`).
+async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted> {
+    use axum::http::StatusCode;
+    use place_tokens::{DATA_CAPABILITY, Refusal};
+    let failed = |e: Error| refused(status_of(&e), &e);
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return reply(StatusCode::ACCEPTED, served.engine.submit(body).await);
+    }
+    let wire = served.reads.stored(&body.payload);
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = place_tokens::request(&wire, target.as_deref())
+        .map_err(|why| refused(StatusCode::UNPROCESSABLE_ENTITY, &why))?;
+    let roster = served
+        .rows
+        .roster(&request.instance, &request.character)
+        .await
+        .map_err(failed)?;
+    let ids = (0..request.count)
+        .map(|_| fresh_uuid())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| failed(Error::Store("no randomness for an id".to_string())))?;
+    let tokens = place_tokens::prepare(&request, &roster, &ids).map_err(|why| {
+        let status = match why {
+            Refusal::UnknownInstance | Refusal::UnknownCharacter => StatusCode::NOT_FOUND,
+            Refusal::AlreadyPlaced => StatusCode::CONFLICT,
+            Refusal::NotAnId(_)
+            | Refusal::NotAHex(_)
+            | Refusal::Count
+            | Refusal::CharacterOfAnotherCampaign
+            | Refusal::Absent
+            | Refusal::OnePcToken
+            | Refusal::NoNumberLeft => StatusCode::UNPROCESSABLE_ENTITY,
+        };
+        refused(status, &why)
+    })?;
+    let key = body.idempotency_key.take();
+    let last = tokens.len();
+    let mut submitted: Option<Submitted> = None;
+    // What the engine said of each token queued before the last one.
+    let mut warnings = Vec::new();
+    for (rank, (id, token)) in (1..).zip(ids.into_iter().zip(tokens)) {
+        let one = Submission {
+            data_capability: body.data_capability.clone(),
+            payload: token,
+            target_id: Some(id),
+            based_on: None,
+            idempotency_key: key.as_ref().map(|key| {
+                if rank == last {
+                    key.clone()
+                } else {
+                    format!("{key}#{rank}")
+                }
+            }),
+            caller: body.caller.clone(),
+        };
+        warnings.extend(submitted.take().into_iter().flat_map(|one| one.warnings));
+        submitted = Some(served.engine.submit(one).await.map_err(failed)?);
+    }
+    submitted
+        .map(|mut submitted| {
+            warnings.append(&mut submitted.warnings);
+            submitted.warnings = warnings;
+            (StatusCode::ACCEPTED, Json(submitted))
+        })
+        .ok_or_else(|| refused(StatusCode::UNPROCESSABLE_ENTITY, &Refusal::Count))
 }
 
 /// A random (version 4) uuid: a new element's id, a version's.
@@ -753,6 +865,211 @@ mod tests {
             body,
             serde_json::json!({ "error": "no DataCapability named x.y" })
         );
+    }
+
+    const INSTANCE: &str = "b1a00000-0000-4000-8000-000000000001";
+    const BANDIT: &str = "e1000000-0000-4000-8000-0000000000b1";
+
+    /// `POST /commands` of table.placeTokens on `target` with `payload`,
+    /// under `key` when one is given.
+    fn placement(
+        target: Option<&str>,
+        payload: serde_json::Value,
+        key: Option<&str>,
+    ) -> Request<Body> {
+        let mut body = serde_json::json!({
+            "dataCapability": "table.placeTokens@1",
+            "payload": payload,
+        });
+        if let Some(target) = target {
+            body["target"] = serde_json::json!({ "id": target });
+        }
+        if let Some(key) = key {
+            body["idempotencyKey"] = serde_json::json!(key);
+        }
+        Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    fn dm() -> harness_dataguard::guard::Caller {
+        harness_dataguard::guard::Caller {
+            by: "dm".to_string(),
+            from: "table.Battlemap".to_string(),
+            permissions: Vec::new(),
+            roles: vec!["role:approver".to_string()],
+        }
+    }
+
+    /// The tokens `count` of a character `roster` holds make, as the server
+    /// prepares them.
+    fn dropped(roster: &place_tokens::Roster, count: u16) -> Vec<(String, place_tokens::Row)> {
+        let request = place_tokens::Request {
+            instance: INSTANCE.to_string(),
+            character: BANDIT.to_string(),
+            q: 3,
+            r: 4,
+            count,
+        };
+        let ids: Vec<String> = (1..=count)
+            .map(|i| format!("70000000-0000-4000-8000-{i:012}"))
+            .collect();
+        let tokens = place_tokens::prepare(&request, roster, &ids).expect("prepared");
+        ids.into_iter().zip(tokens).collect()
+    }
+
+    fn sheet(kind: &str, hp_max: Option<i64>) -> place_tokens::Roster {
+        place_tokens::Roster {
+            campaign: Some("c".to_string()),
+            character: Some(place_tokens::Character {
+                campaign: "c".to_string(),
+                kind: kind.to_string(),
+                name: "Bandit".to_string(),
+                hp_max,
+            }),
+            present: true,
+            ..place_tokens::Roster::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_drop_of_tokens_is_judged_on_the_tables_before_it_is_queued() {
+        let payload = serde_json::json!({ "character": BANDIT, "q": 3, "r": 4, "count": 3 });
+        // Over the engine's memory the tables hold no instance: none is queued.
+        let (status, body) = answer(placement(Some(INSTANCE), payload.clone(), None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "cette instance de battlemap n'existe pas" })
+        );
+        // The instance is the target, else the payload's.
+        let (status, body) = answer(placement(None, payload.clone(), None)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "instance n'est pas un identifiant" })
+        );
+        let mut many = payload;
+        many["count"] = serde_json::json!(13);
+        let (status, body) = answer(placement(Some(INSTANCE), many, None)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "le nombre de tokens va de 1 à 12" })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_drop_under_a_key_never_sent_is_judged() {
+        let payload = serde_json::json!({ "character": BANDIT, "q": 3, "r": 4 });
+        let key = Some("table.placeTokens:never-sent");
+        let (status, body) = answer(placement(Some(INSTANCE), payload, key)).await;
+        // Not replayed: over the engine's memory the tables hold no instance.
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "cette instance de battlemap n'existe pas" })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_drop_on_an_instance_named_by_its_slug_is_judged_on_its_stored_id() {
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        let reads = Reads::none().named([("taverne-arrivee".to_string(), INSTANCE.to_string())]);
+        let app = router_reading(
+            Arc::new(engine),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+            Arc::new(reads),
+        );
+        let payload = serde_json::json!({ "character": BANDIT, "q": 3, "r": 4 });
+        let response = app
+            .oneshot(placement(Some("taverne-arrivee"), payload, None))
+            .await
+            .expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+        // An id, looked up: over the engine's memory no instance is held.
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "cette instance de battlemap n'existe pas" })
+        );
+    }
+
+    #[tokio::test]
+    async fn the_dataguard_applies_the_tokens_a_drop_prepares() {
+        let Planted { engine, .. } = planted(MEMORY).await.expect("the in-memory engine");
+        // Three NPC tokens, one PC token, and an NPC whose sheet has no HP max.
+        let mut tokens = dropped(&sheet("pnj", Some(11)), 3);
+        for (n, roster) in [(0xaa, sheet("pj", Some(38))), (0xbb, sheet("pnj", None))] {
+            let (_, mut row) = dropped(&roster, 1).remove(0);
+            let id = format!("70000000-0000-4000-8000-{n:012x}");
+            row.insert("tokenId".to_string(), serde_json::json!(id));
+            tokens.push((id, row));
+        }
+        for (id, payload) in &tokens {
+            engine
+                .submit(Submission {
+                    data_capability: "table.placeTokens@1".to_string(),
+                    payload: payload.clone(),
+                    target_id: Some(id.clone()),
+                    based_on: None,
+                    idempotency_key: None,
+                    caller: dm(),
+                })
+                .await
+                .expect("queued");
+        }
+        let applied = engine.run_once().await.expect("the applier ran");
+        assert_eq!(applied.len(), tokens.len(), "{applied:?}");
+        for result in applied {
+            assert_eq!(result.status, State::Applied, "{result:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_drop_sent_again_under_its_key_is_replayed() {
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        let key = "table.placeTokens:drop-1";
+        // The last token of the first one, queued under the key as a database
+        // would have let it be.
+        let (id, payload) = dropped(&sheet("pnj", Some(11)), 1).remove(0);
+        let first = engine
+            .submit(Submission {
+                data_capability: "table.placeTokens@1".to_string(),
+                payload,
+                target_id: Some(id),
+                based_on: None,
+                idempotency_key: Some(key.to_string()),
+                caller: dm(),
+            })
+            .await
+            .expect("queued");
+        let app = router(
+            Arc::new(engine),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+        );
+        let request = placement(
+            Some(INSTANCE),
+            serde_json::json!({ "character": BANDIT, "q": 3, "r": 4 }),
+            Some(key),
+        );
+        let response = app.oneshot(request).await.expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        let answer: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+        // Not judged again — over the engine's memory it would be a 404.
+        assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+        assert_eq!(answer["replayed"], true, "{answer}");
+        assert_eq!(answer["commandId"], first.command_id.as_str(), "{answer}");
     }
 
     /// The home server's URL in the fixtures, and the fake that answers its

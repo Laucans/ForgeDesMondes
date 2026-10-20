@@ -1,0 +1,136 @@
+//! The tokens of a battlemap instance in the tables (`token`,
+//! `crates/data/migrations/0010_battlemap_instance.sql`).
+//!
+//! A drop (`table.placeTokens`) is judged against what the tables hold of
+//! the instance and the character it names before it is queued
+//! ([`roster`]): the engine judges a row alone, and a token is one. The
+//! numbers taken and the tokens placed are the table's and the engine's
+//! rows' together — a token applied whose projection failed is one too —
+//! and the queue's, which [`crate::Rows::roster`] adds. Once the engine
+//! applied a token on `BattlemapInstance/<its id>`, [`project`] inserts its
+//! row; a token the table holds already is left as it is: a later write of
+//! its partition (a move, a rename) is not the drop's to project.
+
+use place_tokens::{Character, Roster};
+use tokio_postgres::Client;
+
+/// The partitions of the BattlemapInstance aggregate.
+const PARTITIONS: &str = "BattlemapInstance/";
+
+/// What the tables hold of the instance `$1` and the character `$2`: its
+/// session's campaign, the character's campaign, kind, name and HP max —
+/// a PC or an NPC with its sheet alone, which a token's foreign key names —,
+/// whether it is present at the session,
+/// and the tokens it has on the instance, in the table or in the engine's
+/// rows, with the numbers they hold.
+const ROSTER: &str = "WITH placed AS (
+        SELECT t.id::text AS id, t.number::bigint AS number FROM token t
+        WHERE t.instance_id = $1::text::uuid AND t.character_id = $2::text::uuid
+        UNION
+        SELECT lower(r.fields ->> 'tokenId'), (r.fields ->> 'number')::numeric::bigint
+        FROM dataguard_rows r
+        WHERE r.partition LIKE 'BattlemapInstance/%' AND NOT r.tombstoned
+            AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
+            AND lower(r.fields ->> 'tokenInstanceId') = $1::text
+            AND lower(r.fields ->> 'characterId') = $2::text
+    )
+    SELECT
+        (SELECT s.campaign_id::text FROM battlemap_instance i
+            JOIN session s ON s.id = i.session_id WHERE i.id = $1::text::uuid),
+        e.campaign_id::text, e.type, e.name, c.hp_max::bigint,
+        EXISTS (SELECT 1 FROM battlemap_instance i
+            JOIN session_present_character p ON p.session_id = i.session_id
+            WHERE i.id = $1::text::uuid AND p.character_id = $2::text::uuid),
+        (SELECT count(*) FROM placed),
+        (SELECT coalesce(array_agg(number ORDER BY number) FILTER (WHERE number IS NOT NULL), '{}')
+            FROM placed)
+    FROM (SELECT 1) AS one
+    LEFT JOIN (entity e JOIN character c ON c.entity_id = e.id)
+        ON e.id = $2::text::uuid AND e.type IN ('pj', 'pnj')";
+
+/// The token the engine holds on partition `$1`, inserted when the table
+/// holds it not. Its row is the partition's own: its id is the one the
+/// partition names.
+const PROJECT: &str = "INSERT INTO token
+        (id, instance_id, character_id, number, name, q, r, visible, hp_current, hp_max, conditions)
+    SELECT (r.fields ->> 'tokenId')::uuid, (r.fields ->> 'tokenInstanceId')::uuid,
+        (r.fields ->> 'characterId')::uuid, (r.fields ->> 'number')::numeric::smallint,
+        r.fields ->> 'name', (r.fields ->> 'q')::numeric::integer,
+        (r.fields ->> 'r')::numeric::integer, (r.fields ->> 'visible')::boolean,
+        (r.fields ->> 'hpCurrent')::numeric::smallint, (r.fields ->> 'hpMax')::numeric::smallint,
+        ARRAY(SELECT jsonb_array_elements_text(coalesce(r.fields -> 'conditions', '[]')))
+    FROM dataguard_rows r
+    WHERE r.partition = $1::text AND NOT r.tombstoned
+        AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
+        AND NOT EXISTS (SELECT 1 FROM token t WHERE t.id = (r.fields ->> 'tokenId')::uuid)";
+
+/// The tokens the engine holds and the table does not: a projection that
+/// failed after its apply, or was lost since.
+const UNPROJECTED: &str = "SELECT r.partition FROM dataguard_rows r
+    WHERE r.partition LIKE 'BattlemapInstance/%' AND NOT r.tombstoned
+        AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
+        AND NOT EXISTS (SELECT 1 FROM token t WHERE t.id::text = lower(r.fields ->> 'tokenId'))
+    ORDER BY r.partition";
+
+/// What the tables hold of the instance and the character a drop names —
+/// ids the tables can read, lowercase.
+///
+/// # Errors
+///
+/// The database's, when it cannot be read.
+pub async fn roster(
+    client: &Client,
+    instance: &str,
+    character: &str,
+) -> Result<Roster, tokio_postgres::Error> {
+    let row = client.query_one(ROSTER, &[&instance, &character]).await?;
+    let kind: Option<String> = row.get(2);
+    let placed: i64 = row.get(6);
+    Ok(Roster {
+        campaign: row.get(0),
+        character: kind.map(|kind| Character {
+            campaign: row.get::<_, Option<String>>(1).unwrap_or_default(),
+            kind,
+            name: row.get::<_, Option<String>>(3).unwrap_or_default(),
+            hp_max: row.get(4),
+        }),
+        present: row.get(5),
+        placed: usize::try_from(placed).unwrap_or_default(),
+        taken: row.get(7),
+    })
+}
+
+/// Whether `partition` is one of the aggregate's, where a token lands.
+pub fn of_aggregate(partition: &str) -> bool {
+    partition.starts_with(PARTITIONS)
+}
+
+/// Projects the token of `partition`, logging a failure — an instance reset
+/// or a character deleted since, which the table's foreign keys refuse.
+pub async fn project(client: &Client, partition: &str) {
+    if let Err(e) = client.execute(PROJECT, &[&partition]).await {
+        let db = e.as_db_error();
+        eprintln!(
+            "projection: {partition} not projected: {} {}",
+            db.map_or("-", |db| db.code().code()),
+            db.and_then(|db| db.constraint()).unwrap_or_default()
+        );
+    }
+}
+
+/// Projects every token the engine holds and the table does not, one by
+/// one, so one the table refuses keeps none of the others out: at a start.
+/// Tables not migrated yet hold none.
+pub async fn repair(client: &Client) {
+    match client.query(UNPROJECTED, &[]).await {
+        Ok(rows) => {
+            for row in rows {
+                project(client, row.get::<_, &str>(0)).await;
+            }
+        }
+        Err(e) => eprintln!(
+            "projection: token not read: {}",
+            e.as_db_error().map_or("-", |db| db.code().code())
+        ),
+    }
+}

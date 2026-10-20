@@ -1,0 +1,10 @@
+[package]
+name = "place-tokens"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.placeTokens: a character dropped on a battlemap instance at a hex, once or « × n » — one token row each, numbered after the numbers its character already holds there (multi-drop-numbering), an NPC's HP max copied from its sheet (pj-hp-not-tracked), a PC placed once and only when present at the session (token-roster)."
+publish = false
+
+[dependencies]
+serde_json = "1"
