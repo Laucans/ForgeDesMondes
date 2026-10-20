@@ -2,7 +2,9 @@
 //! against its combat and the instance, and the removal made the deletion of
 //! the entry's partition — no field written.
 
-use remove_participant::{Prepared, Refusal, Request, Row, combat_of, names, prepare, request};
+use remove_participant::{
+    Prepared, Refusal, Request, Row, combat_of, names, partition, prepare, request,
+};
 use serde_json::{Value, json};
 
 const INSTANCE: &str = "b1000000-0000-4000-8000-000000000001";
@@ -74,6 +76,11 @@ fn an_entry_is_named_in_the_instance_targeted_or_as_the_target_itself() {
 }
 
 #[test]
+fn an_entry_is_its_own_partition_of_the_aggregate() {
+    assert_eq!(partition(ENTREE), format!("BattlemapInstance/{ENTREE}"));
+}
+
+#[test]
 fn what_is_no_uuid_is_refused() {
     let refused = |payload: Value, target: Option<&str>| request(&row(payload), target);
     assert_eq!(refused(json!({}), None), Err(Refusal::NotAnId("entry")));
@@ -91,6 +98,11 @@ fn what_is_no_uuid_is_refused() {
     );
     assert_eq!(
         refused(json!({}), Some("kael")),
+        Err(Refusal::NotAnId("entry"))
+    );
+    // A uuid's shape with a digit too many is none.
+    assert_eq!(
+        refused(json!({ "entry": format!("{ENTREE}a") }), None),
         Err(Refusal::NotAnId("entry"))
     );
 }
