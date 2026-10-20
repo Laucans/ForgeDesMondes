@@ -9,7 +9,7 @@
 //! there is no table to read: a Capability answers from no row.
 //!
 //! A read is routed by the system its identifier names (`ai.…`,
-//! `campaign.…`) and carries its variables, which the query binds in the
+//! `campaign.…`, `live.…`) and carries its variables, which the query binds in the
 //! order of its `$1`, `$2`… A variable the caller did not give is the empty
 //! text: no row is that, and the Capability answers its "nothing" — null, or
 //! an empty list.
@@ -82,6 +82,16 @@ const CAMPAIGN: [(&str, &str, Option<&str>, Answer); 8] = [
         |rows, entity| list_entity_versions::answer(rows, entity).unwrap_or(Value::Null),
     ),
 ];
+
+/// The Capabilities of the live system that are served, as [`CAMPAIGN`]'s
+/// rows are: the campaign whose live session is read is the one variable,
+/// the empty text for the live session of any campaign.
+const LIVE: [(&str, &str, Option<&str>, Answer); 1] = [(
+    get_diffusion::CAPABILITY,
+    get_diffusion::SQL,
+    Some("campaign"),
+    |rows, _| get_diffusion::answer(rows),
+)];
 
 /// The connection reads go through, or none.
 pub struct Reads {
@@ -193,6 +203,7 @@ impl Reads {
         let answer = match id.split_once('.') {
             Some(("ai", _)) => self.ai(id).await?,
             Some(("campaign", _)) => self.campaign(id, &variables).await?,
+            Some(("live", _)) => self.live(id, &variables).await?,
             _ => Value::Null,
         };
         Ok(self.names.to_wire(answer))
@@ -208,7 +219,22 @@ impl Reads {
     }
 
     async fn campaign(&self, id: &str, variables: &Value) -> Result<Value> {
-        let Some((_, sql, variable, answer)) = CAMPAIGN.iter().find(|(c, ..)| *c == id) else {
+        self.served(&CAMPAIGN, id, variables).await
+    }
+
+    async fn live(&self, id: &str, variables: &Value) -> Result<Value> {
+        self.served(&LIVE, id, variables).await
+    }
+
+    /// What the Capability `id` of `served` answers to `variables`; `null`
+    /// for one it does not hold.
+    async fn served(
+        &self,
+        served: &[(&str, &str, Option<&str>, Answer)],
+        id: &str,
+        variables: &Value,
+    ) -> Result<Value> {
+        let Some((_, sql, variable, answer)) = served.iter().find(|(c, ..)| *c == id) else {
             return Ok(Value::Null);
         };
         // The one variable a Capability reads, the empty text when not given.
@@ -290,6 +316,28 @@ mod tests {
                 "{unknown}: an id no row holds has no answer"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn over_the_in_memory_store_the_live_session_shows_the_cover_and_no_window() {
+        let reads = Reads::none();
+        let shown = reads
+            .run(
+                "live.getDiffusion",
+                &serde_json::json!({ "view": "player" }),
+            )
+            .await
+            .expect("an answer");
+        assert_eq!(shown["base"]["kind"], "cover");
+        assert_eq!(shown["window"], Value::Null);
+        assert_eq!(shown["view"], Value::Null);
+        assert_eq!(
+            reads
+                .run("live.noSuchCapability", &Value::Null)
+                .await
+                .expect("an answer"),
+            Value::Null
+        );
     }
 
     #[test]

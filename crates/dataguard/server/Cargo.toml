@@ -42,6 +42,7 @@ list-entity-versions = { path = "../../campaign/capabilities/list-entity-version
 list-events = { path = "../../campaign/capabilities/list-events" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
+get-diffusion = { path = "../../live/capabilities/get-diffusion" }
 # --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }

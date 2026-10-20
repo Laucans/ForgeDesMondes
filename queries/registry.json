@@ -179,6 +179,27 @@
         "player.name",
         "player.notes"
       ]
+    },
+    {
+      "query": "GetDiffusion",
+      "capability": "live.getDiffusion",
+      "file": "crates/live/queries/getDiffusion.graphql",
+      "sha256": "60a6d5a96b9228280516937805761b7074a8b36ac45283c4671f26532ad0dc55",
+      "fields": [
+        "diffusion.baseKind",
+        "diffusion.baseMediaId",
+        "diffusion.baseInstanceId",
+        "campaign.coverMediaId",
+        "diffusion.windowMediaId",
+        "diffusion.windowX",
+        "diffusion.windowY",
+        "diffusion.windowWidth",
+        "media.widthPx",
+        "media.heightPx",
+        "diffusion.viewZoom",
+        "diffusion.viewPanX",
+        "diffusion.viewPanY"
+      ]
     }
   ]
 }
