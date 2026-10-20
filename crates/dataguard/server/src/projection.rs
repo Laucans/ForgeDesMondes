@@ -17,12 +17,12 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A send to the player view (`live.showOnPlayerView`) writes its
-//! session's partition, `Diffusion/<its id>`, and so does a window opened on
-//! the player view (`live.showWindowOnPlayerView`): [`ProjectingStore`]
-//! upserts the session's `diffusion` row with what the engine's row carries,
-//! the rest as the table holds it. A campaign's row is its table's over the
-//! engine's, and
+//! column. A send to the player view (`live.showOnPlayerView`), a return to
+//! the cover (`live.showCover`) and a window opened on the player view
+//! (`live.showWindowOnPlayerView`) write their session's partition,
+//! `Diffusion/<its id>`: [`ProjectingStore`] upserts the session's
+//! `diffusion` row with what the engine's row carries, the rest as the table
+//! holds it. A campaign's row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -285,6 +285,13 @@ const SHOWING: &str = "WITH sent AS (
             WHERE shown.kind = 'illustration'),
         EXISTS (SELECT 1 FROM sent) OR EXISTS (SELECT 1 FROM shown)";
 
+/// The live session of the campaign the uuid `$1` names: of two, the last
+/// one planned.
+const LIVE_SESSION: &str = "SELECT s.id::text FROM session s
+    WHERE s.status = 'live' AND s.campaign_id = ($1::text)::uuid
+    ORDER BY s.position DESC, s.id
+    LIMIT 1";
+
 /// What the tables say of what a window opened on the player view names
 /// (`live.showWindowOnPlayerView`), `$1` the campaign, `$2` the media, each
 /// a uuid: the campaign's live session — of two, the last one planned —,
@@ -313,12 +320,14 @@ const WINDOWING: &str = "WITH live AS (
 /// one when it is null — written on `diffusion`, one row per session
 /// (single-diffusion-source). A field the engine's row does not carry keeps
 /// what the table holds: a send writes the base and the framing, never the
-/// window; an opened window writes the window, never the base nor the
-/// framing, which a new row takes as the engine's and 1, 0, 0. A media or an
-/// instance the tables no longer hold is none, as their deletion leaves it
-/// (onDelete nullify). A row of a session the tables do not hold, or holding
-/// a value its column cannot, is left aside, so it keeps no other session's
-/// from the table; one the table holds a later write of is never moved back.
+/// window; a return to the cover writes the base, never the window nor the
+/// framing; an opened window writes the window, never the base nor the
+/// framing; a new row takes the framing as the engine's or 1, 0, 0. A media
+/// or an instance the tables no longer hold is none, as their deletion leaves
+/// it (onDelete nullify). A row of a session the tables do not hold, or
+/// holding a value its column cannot, is left aside, so it keeps no other
+/// session's from the table; one the table holds a later write of is never
+/// moved back.
 const PROJECT_DIFFUSIONS: &str = "INSERT INTO diffusion (session_id, base_kind, base_media_id,
         base_instance_id, window_media_id, window_x, window_y, window_width,
         view_zoom, view_pan_x, view_pan_y, updated_at)
@@ -440,6 +449,17 @@ impl ProjectingStore {
             illustration: row.get(2),
             held: row.get(3),
         })
+    }
+
+    /// The live session of the campaign the uuid `campaign` names, when it
+    /// has one.
+    pub async fn live_session(
+        &self,
+        campaign: &str,
+    ) -> std::result::Result<Option<String>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let row = client.query_opt(LIVE_SESSION, &[&campaign]).await?;
+        Ok(row.map(|row| row.get(0)))
     }
 
     /// What the tables say of what a window opened on the player view names.

@@ -32,10 +32,12 @@
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
 //! the command's result once its stamp is applied. A send to the player view
 //! (`live.showOnPlayerView`) is prepared against the live session, the
-//! instance and the media the tables hold, which [`Rows`] reads. A window
-//! opened on the player view (`live.showWindowOnPlayerView`) is prepared
-//! against the live session and the media the tables hold, which [`Rows`]
-//! reads, and the session's diffusion row as the queue will leave it.
+//! instance and the media the tables hold, which [`Rows`] reads. A return to
+//! the cover (`live.showCover`) is prepared against the campaign's live
+//! session, which [`Rows`] reads. A window opened on the player view
+//! (`live.showWindowOnPlayerView`) is prepared against the live session and
+//! the media the tables hold, which [`Rows`] reads, and the session's
+//! diffusion row as the queue will leave it.
 
 use std::sync::Arc;
 
@@ -358,7 +360,10 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// all the same, for the DataGuard to refuse under base-coherent, and told
 /// among the warnings; one naming no live session, an instance or a media the
 /// tables do not hold with no campaign, or a value the table could never
-/// hold, is refused, 422, before it is queued. A window
+/// hold, is refused, 422, before it is queued. A return to the cover
+/// (`show_cover::prepare`) is made the state it writes on its campaign's live
+/// session's diffusion row: one naming no campaign, or one with no live
+/// session, is refused, 422, before it is queued. A window
 /// opened on the player view (`show_window_on_player_view::prepare`) is made
 /// the state it writes on its campaign's live session's diffusion row: one
 /// showing a media that is no illustration of the campaign is queued all the
@@ -536,6 +541,21 @@ async fn submit<L: Llm>(
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
         refusal = prepared.warning;
+    } else if show_cover::names(&body.data_capability) {
+        let refused = |refusal: show_cover::Refusal| {
+            (
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            )
+        };
+        let campaign = show_cover::campaign(&body.payload).map_err(refused)?;
+        let session = match served.rows.live_session(&campaign).await {
+            Ok(session) => session,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = show_cover::prepare(session, &now()).map_err(refused)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     } else if show_window_on_player_view::names(&body.data_capability) {
         let refused = |refusal: show_window_on_player_view::Refusal| {
             (
