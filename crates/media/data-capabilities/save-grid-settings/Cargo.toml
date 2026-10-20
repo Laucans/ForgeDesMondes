@@ -1,0 +1,10 @@
+[package]
+name = "save-grid-settings"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability media.saveGridSettings: a battlemap's hex grid — size, offsets, orientation, colour, opacity — saved on its Media partition, the wire's HexGrid@1 words mapped to the aggregate's fields; never its 5 feet per hex."
+publish = false
+
+[dependencies]
+serde_json = "1"

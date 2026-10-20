@@ -33,7 +33,9 @@
 //! the command's result once its stamp is applied. An upload of a media
 //! (`media.uploadMedia`) is prepared against its place, which [`Rows`] reads:
 //! a place that is no lieu of the media's campaign is refused before it is
-//! queued.
+//! queued. A save of a battlemap's grid (`media.saveGridSettings`) is judged
+//! against the media's row as its tables hold it — its kind first — and
+//! reaches `battlemap_grid`.
 
 use std::sync::Arc;
 
@@ -355,7 +357,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// ([`Rows::place`]), and an upload whose place is no lieu of its campaign
 /// is refused, 422, naming `media-place-is-lieu`, as is one the tables could
 /// never hold — neither is queued. Its replay, under an idempotency key
-/// already submitted, is answered as the upload was queued.
+/// already submitted, is answered as the upload was queued. A save of a
+/// battlemap's grid (`save_grid_settings::prepare`) is made the six fields it
+/// writes on the battlemap's partition: one naming no battlemap, carrying
+/// another field, lacking one, or holding a value no grid can is refused,
+/// 422, and not queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -474,6 +480,19 @@ async fn submit<L: Llm>(
                 };
                 return Err((
                     status,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
+    } else if save_grid_settings::names(&body.data_capability) {
+        match save_grid_settings::prepare(&body.payload, body.target_id.as_deref()) {
+            Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
                     Json(serde_json::json!({ "error": refusal.to_string() })),
                 ));
             }
