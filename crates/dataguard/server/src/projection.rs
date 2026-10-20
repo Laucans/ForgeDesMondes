@@ -24,7 +24,11 @@
 //! partition, `Sound/<its id>`, whole, and an edit (`soundbox.updateSound`)
 //! the fields it changes on it: [`ProjectingStore`] adds the sound's `sound`
 //! row, or writes on the one the table holds the name, the file, the tags and
-//! the volume the engine's row holds, and no other column. A playback of a
+//! the volume the engine's row holds, and no other column. A removal of a
+//! sound (`soundbox.removeSound`) is the engine's tombstone on that
+//! partition, the sound kept there as it was: [`ProjectingStore`] takes its
+//! row out of the `sound` table, which no reader sees then, its playbacks
+//! with it (`SoundPlayback.soundId`, onDelete cascade). A playback of a
 //! sound (`soundbox.playSound`) writes its partition, `SoundPlayback/<its
 //! id>`: [`ProjectingStore`] inserts its `sound_playback` row
 //! ([`playbacks`]). A campaign's row is its table's over the engine's, and an
@@ -44,7 +48,8 @@
 //! So do its versions reach [`History`], as `entity_version` numbers them:
 //! the ones a restoration names. A stamp the table lost is written again at
 //! the next start, never over a later one, and so is a master volume, and a
-//! sound, or its edit, the table lost.
+//! sound, or its edit, the table lost; a sound removed the table still holds
+//! is taken out of it.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -317,6 +322,14 @@ const WRITE_SOUND: &str =
     WHERE (sound.name, sound.file_path, sound.tags, sound.volume)
         IS DISTINCT FROM (EXCLUDED.name, EXCLUDED.file_path, EXCLUDED.tags, EXCLUDED.volume)";
 
+/// The sounds the engine removed — the one the partition `$1` names, every
+/// one when it is null — taken out of the `sound` table: no reader sees them
+/// then, and their playbacks go with them (`SoundPlayback.soundId`, onDelete
+/// cascade). The engine's tombstone keeps each as it was.
+const REMOVE_SOUNDS: &str = "DELETE FROM sound s USING dataguard_rows r
+    WHERE r.partition = 'Sound/' || s.id::text AND r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -360,6 +373,7 @@ impl ProjectingStore {
         playbacks::repair(&*self.inner.client().lock().await).await;
         self.repair_master_volumes(None).await;
         self.repair_sounds().await;
+        self.remove_sounds(None).await;
     }
 
     /// Writes every sound the engine holds and the `sound` table does not,
@@ -396,6 +410,22 @@ impl ProjectingStore {
                 "projection: {partition} not written: {} {}",
                 db.map_or("-", |db| db.code().code()),
                 db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
+    }
+
+    /// Takes the sound the engine removed on `partition` — every one it
+    /// removed, `None` — out of the `sound` table, logging a failure: after
+    /// its removal, and at a start.
+    async fn remove_sounds(&self, partition: Option<&str>) {
+        let removed = {
+            let client = self.inner.client().lock().await;
+            client.execute(REMOVE_SOUNDS, &[&partition]).await
+        };
+        if let Err(e) = removed {
+            eprintln!(
+                "projection: sound not removed: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
             );
         }
     }
@@ -850,6 +880,9 @@ impl Store for ProjectingStore {
             self.repair_master_volumes(Some(&write.partition)).await;
         } else if sound(write) {
             self.write_sound(&write.partition).await;
+        } else if write.partition.starts_with(SOUND) {
+            // A removal: the engine's tombstone, its row out of the table.
+            self.remove_sounds(Some(&write.partition)).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.

@@ -366,8 +366,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// changes, its tags normalised and its volume a fraction of 1: one naming
 /// no sound the engine holds — a sound queued for addition is one — is
 /// refused, 404, and one with a blank name or file, or nothing to change,
-/// 422. A playback of a sound is made the row it inserts, on a partition of
-/// its own ([`playing`]).
+/// 422. A removal of a sound (`remove_sound::target`) names the sound alone,
+/// whose tombstone the engine keeps as it was: one naming no sound the
+/// engine holds — one removed already is none — is refused, 404.
+/// A playback of a sound is made the row it inserts, on a partition of its
+/// own ([`playing`]).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -625,6 +628,24 @@ async fn submit<L: Llm>(
         }
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
+    } else if remove_sound::names(&body.data_capability) {
+        let no_sound = || {
+            Err(refused(
+                axum::http::StatusCode::NOT_FOUND,
+                &remove_sound::Refusal::NoSound,
+            ))
+        };
+        let Ok(sound) = remove_sound::target(body.target_id.as_deref()) else {
+            return no_sound();
+        };
+        // The sound as the commands queued ahead leave it: an addition still
+        // queued is one, a sound removed already is none.
+        match served.rows.projected(&format!("Sound/{sound}")).await {
+            Ok(row) if row.is_empty() => return no_sound(),
+            Ok(_) => {}
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        }
+        body.target_id = Some(sound);
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));

@@ -1,0 +1,7 @@
+[package]
+name = "remove-sound"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.removeSound: a sound of the library removed on its Sound partition — a soft delete, the engine's tombstone keeping the sound as it was; the sound is the command's target, the wire payload names nothing."
+publish = false
