@@ -12,17 +12,23 @@
 //! aggregates: here, the roster and the media of a session are never
 //! stored — the views compute them, so they follow every later presence and
 //! every change of place. `scene-order-contiguous` reads the session's other
-//! scenes: here, a scene's rank is one of 1 to n. `previous-summary-visible`
-//! is a read: the tables keep a closed session's summary and journal for the
-//! next one.
+//! scenes: here, a scene's rank is one of 1 to n, and a reorder
+//! (`session.reorderScenes`) writes the session's whole order on its own
+//! row — every scene of the session, each once, which [`Scenes`] knows — so
+//! the ranks it rewrites at once run 1 to n. `previous-summary-visible` is a
+//! read: the tables keep a closed session's summary and journal for the next
+//! one.
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::guard::Invariants;
 use serde_json::Value;
+
+use crate::scenes::Scenes;
+use crate::versioning::SESSION;
 
 const AGGREGATE: &str = "Session";
 
@@ -47,8 +53,13 @@ const CLOSED_AT: &str = "closedAt";
 const SUMMARY: &str = "summary";
 const SUMMARY_MODEL: &str = "summaryModel";
 
-/// A scene's rank in its session.
+/// A scene's rank in its session — on a session's own row, its whole order:
+/// the scenes' ids, each at its rank less one.
 const SCENE_POSITION: &str = "scenePosition";
+
+/// The invariant [`Session`] judges an order with, against what [`Scenes`]
+/// keeps.
+const ORDER_CONTIGUOUS: &str = "scene-order-contiguous";
 
 /// An entry of the « à créer » list: its id and status, which say a row is
 /// one; the element it created; what the analysis of a brief writes it with.
@@ -94,7 +105,7 @@ type Check = (&'static str, fn(&BTreeMap<String, Value>, &Entry) -> bool);
 
 const CHECKS: [Check; 8] = [
     ("present-only-pj", present_only_pj),
-    ("scene-order-contiguous", scene_order_contiguous),
+    (ORDER_CONTIGUOUS, scene_order_contiguous),
     ("session-media-by-place", session_media_by_place),
     ("brief-no-auto-creation", brief_no_auto_creation),
     (
@@ -106,8 +117,35 @@ const CHECKS: [Check; 8] = [
     ("text-only-no-audio", text_only_no_audio),
 ];
 
-/// The invariants `plant()` binds the engine with.
-pub struct Session;
+/// The invariants `plant()` binds the engine with, an order of the scenes
+/// read against `scenes`.
+pub struct Session {
+    scenes: Arc<Scenes>,
+}
+
+impl Session {
+    /// The judge of the Session aggregate, reading `scenes`.
+    pub fn new(scenes: Arc<Scenes>) -> Self {
+        Self { scenes }
+    }
+
+    /// An order the command writes on a session's row is every scene of
+    /// that session, each once: its ranks, 1 to n, leave no gap and no
+    /// duplicate. Judged when the command writes it, against the session's
+    /// scenes as they are then — never again on a later write of the row.
+    fn orders_every_scene(&self, state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+        let Value::Array(order) = value(state, SCENE_POSITION) else {
+            return true;
+        };
+        if !entry.payload.contains_key(SCENE_POSITION) {
+            return true;
+        }
+        entry
+            .partition
+            .strip_prefix(SESSION)
+            .is_some_and(|session| self.scenes.orders(session, order))
+    }
+}
 
 impl Invariants for Session {
     fn violated(
@@ -121,11 +159,17 @@ impl Invariants for Session {
         if aggregate != AGGREGATE || entry.effect == Effect::Delete {
             return Vec::new();
         }
-        CHECKS
+        let mut violated: Vec<String> = CHECKS
             .iter()
             .filter(|(_, holds)| !holds(state, entry))
             .map(|(id, _)| (*id).to_string())
-            .collect()
+            .collect();
+        if !self.orders_every_scene(state, entry)
+            && !violated.iter().any(|id| id == ORDER_CONTIGUOUS)
+        {
+            violated.push(ORDER_CONTIGUOUS.to_string());
+        }
+        violated
     }
 }
 
@@ -159,10 +203,14 @@ fn present_only_pj(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A scene's rank, when the row has one, is one of 1 to n: a whole number
-/// from 1.
+/// from 1 — or, on a session's row, its order: a list of scene ids, each at
+/// its rank less one, which [`Session`] judges against the session's scenes.
 fn scene_order_contiguous(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
-    let position = value(state, SCENE_POSITION);
-    position.is_null() || position.as_u64().is_some_and(|rank| rank >= 1)
+    match value(state, SCENE_POSITION) {
+        Value::Null => true,
+        Value::Array(order) => order.iter().all(Value::is_string),
+        position => position.as_u64().is_some_and(|rank| rank >= 1),
+    }
 }
 
 /// A session's media are never stored: `session_media_view` computes them,
@@ -229,17 +277,23 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A command writes only fields the aggregate declares, each a text, a
-/// number, a boolean or a null: no field holds audio, nor anything but what
-/// a column types.
+/// number, a boolean or a null — a session's order of its scenes, a list of
+/// their ids: no field holds audio, nor anything but what a column types.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
-        DECLARED.contains(field) && !matches!(value, Value::Array(_) | Value::Object(_))
+        DECLARED.contains(field)
+            && match value {
+                Value::Array(ids) => field == SCENE_POSITION && ids.iter().all(Value::is_string),
+                Value::Object(_) => false,
+                _ => true,
+            }
     })
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     use harness_dataguard::command::Entry;
     use harness_dataguard::guard::Invariants;
@@ -280,17 +334,18 @@ mod tests {
         ]
         .into_iter()
         .collect();
+        let judge = Session::new(Arc::default());
         assert_eq!(
-            Session.violated("Session", &state, &entry("Session", "update")),
+            judge.violated("Session", &state, &entry("Session", "update")),
             ["scene-order-contiguous", "close-session"]
         );
         assert!(
-            Session
+            judge
                 .violated("Campaign", &state, &entry("Campaign", "update"))
                 .is_empty()
         );
         assert!(
-            Session
+            judge
                 .violated("Session", &state, &entry("Session", "delete"))
                 .is_empty()
         );

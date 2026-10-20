@@ -1,0 +1,20 @@
+{
+  "dataCapability": "session.reorderScenes",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Session",
+    "id": "$session"
+  },
+  "touches": ["Session.scenePosition"],
+  "payload": {
+    "session": "uuid — the session whose scenes are reordered: the command's target, its partition `Session/<id>`",
+    "order": "[uuid] — every scene of the session, each once, in the order they play: the first ranked 1, the last n (scene-order-contiguous); an order that omits one, repeats one or names a scene of another session is rejected and no rank changes"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["scene-order-contiguous", "text-only-no-audio"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

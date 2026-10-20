@@ -20,8 +20,13 @@
 //! column. A creation (`campaign.createCampaign`) writes its new
 //! partition whole: [`ProjectingStore`] inserts its `campaign` row and a
 //! oneshot's single `session`, in one statement, once — a row the table
-//! holds already is never written over. A campaign's row is its table's
-//! over the engine's, and
+//! holds already is never written over. A reorder of a session's scenes
+//! (`session.reorderScenes`) writes the session's partition, `Session/<its
+//! id>`, with its whole order: [`ProjectingStore`] rewrites the `position`
+//! of every scene of the session it lists, in one statement — 1 to n, in
+//! the order's order. The scenes the tables hold, with their session, are
+//! read for the order's invariant ([`ProjectingStore::scenes_of`]). A
+//! campaign's row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -55,7 +60,8 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
-use crate::versioning::{ENTITY, element_of};
+use crate::scenes::Scenes;
+use crate::versioning::{ENTITY, SESSION, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
 pub const AI_SETTINGS: &str = "AiSettings/1";
@@ -293,6 +299,44 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
+/// The ranks of the scenes of the session the partition `$1` names — of
+/// every session, when it is null — rewritten from the order its row holds,
+/// in one statement: each scene of the session the order lists at its place
+/// in it, 1 to n. A row holding no order, a tombstone, an id that is no
+/// scene of the session, rewrite nothing; a rank already right is left as
+/// it is.
+const REORDER_SCENES: &str = "UPDATE scene s SET position = o.rank::integer
+    FROM dataguard_rows r,
+        jsonb_array_elements_text(CASE jsonb_typeof(r.fields -> 'scenePosition')
+            WHEN 'array' THEN r.fields -> 'scenePosition' ELSE '[]'::jsonb END)
+            WITH ORDINALITY AS o (id, rank)
+    WHERE r.partition LIKE 'Session/%' AND NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND s.session_id::text = lower(split_part(r.partition, '/', 2))
+        AND s.id::text = lower(o.id)
+        AND s.position IS DISTINCT FROM o.rank::integer";
+
+/// The scenes the tables and the engine's rows hold of the session `$1`
+/// (in whatever case) — of every session, when it is null — each as
+/// `(scene, session)`: a scene of the fixtures, or one a command wrote —
+/// none the engine removed, nor any of a session it removed.
+const SCENES: &str = "WITH removed AS (
+        SELECT lower(split_part(r.partition, '/', 2)) AS id FROM dataguard_rows r
+        WHERE r.partition LIKE 'Session/%' AND r.tombstoned
+    )
+    SELECT s.id::text, s.session_id::text FROM scene s
+        WHERE ($1::text IS NULL OR s.session_id::text = lower($1))
+            AND s.id::text NOT IN (SELECT id FROM removed)
+            AND s.session_id::text NOT IN (SELECT id FROM removed)
+    UNION
+    SELECT lower(r.fields ->> 'sceneId'), lower(r.fields ->> 'sceneSessionId')
+        FROM dataguard_rows r
+        WHERE r.partition LIKE 'Session/%' AND NOT r.tombstoned
+            AND jsonb_typeof(r.fields -> 'sceneId') = 'string'
+            AND jsonb_typeof(r.fields -> 'sceneSessionId') = 'string'
+            AND ($1::text IS NULL OR lower(r.fields ->> 'sceneSessionId') = lower($1))
+            AND lower(r.fields ->> 'sceneSessionId') NOT IN (SELECT id FROM removed)";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -334,6 +378,48 @@ impl ProjectingStore {
         self.repair_elements().await;
         self.repair_campaigns(None).await;
         self.repair_exports(None).await;
+        self.repair_orders(None).await;
+    }
+
+    /// Rewrites the ranks of the scenes of the session `partition` names —
+    /// of every session, `None` — from the order its row holds, logging a
+    /// failure: after each apply of a session, and at a start. Tables not
+    /// migrated yet hold none.
+    async fn repair_orders(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(REORDER_SCENES, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: scenes not reordered: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
+    }
+
+    /// The scenes the tables and the engine's rows hold of `session` — of
+    /// every session, `None` — each as `(scene, session)`.
+    pub async fn scenes_of(
+        &self,
+        session: Option<&str>,
+    ) -> std::result::Result<Vec<(String, String)>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let rows = client.query(SCENES, &[&session]).await?;
+        Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
+    }
+
+    /// Records every scene the tables and the engine's rows hold in
+    /// `scenes`, logging a failure: at a start, so the commands queued
+    /// before are judged against them. Tables not migrated yet hold none.
+    pub async fn sessions(&self, scenes: &Scenes) {
+        match self.scenes_of(None).await {
+            Ok(held) => scenes.take(&held),
+            Err(e) => eprintln!(
+                "projection: scenes not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
     }
 
     /// Writes the campaigns the engine created on the partition `partition`
@@ -780,6 +866,10 @@ impl Store for ProjectingStore {
             // UNCREATED and STAMP_EXPORTS skip it.
             self.repair_campaigns(Some(&write.partition)).await;
             self.repair_exports(Some(&write.partition)).await;
+        } else if write.partition.starts_with(SESSION) {
+            // A session's tombstone reorders nothing: REORDER_SCENES skips
+            // it.
+            self.repair_orders(Some(&write.partition)).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.
@@ -995,6 +1085,7 @@ mod tests {
                 Arc::new(SystemClock),
             ),
             Arc::default(),
+            Arc::default(),
         )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
@@ -1146,6 +1237,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(SystemClock),
             ),
+            Arc::default(),
             Arc::default(),
         )
         .expect("the product's manifests parse");

@@ -32,7 +32,10 @@
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
 //! the command's result once its stamp is applied. A creation of a campaign
 //! (`campaign.createCampaign`) is prepared with the ids the server gives it
-//! and its oneshot's session.
+//! and its oneshot's session. A reorder of a session's scenes
+//! (`session.reorderScenes`) is written whole on the session's partition,
+//! and judged against the session's scenes the engine holds and — over a
+//! database — its tables hold ([`Rows::refresh_scenes`]).
 
 use std::sync::Arc;
 
@@ -65,6 +68,7 @@ mod note_import;
 mod player;
 mod projection;
 mod reads;
+mod scenes;
 mod session;
 mod sound;
 mod sound_playback;
@@ -165,6 +169,7 @@ pub struct Planted {
 pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     let aliases = Arc::new(aliases::Aliases::default());
     let history = Arc::new(history::History::default());
+    let scenes = Arc::new(scenes::Scenes::default());
     let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
@@ -181,6 +186,7 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
         store.repair_tests().await;
         store.elements().await;
         store.versions(None).await;
+        store.sessions(&scenes).await;
         let store = Arc::new(store);
         tables = Some(store.clone());
         store
@@ -189,8 +195,11 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     // the versions.
     let kept = (url == MEMORY).then(|| aliases.clone());
     let versions = (url == MEMORY).then(|| history.clone());
-    let store: Arc<dyn Store> =
-        Arc::new(versioning::Versioning::new(store, kept).keeping(versions));
+    let store: Arc<dyn Store> = Arc::new(
+        versioning::Versioning::new(store, kept)
+            .keeping(versions)
+            .following(scenes.clone()),
+    );
     let engine = bound(
         Engine::new(
             store.clone(),
@@ -198,18 +207,26 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
             Arc::new(SystemClock),
         ),
         aliases,
+        scenes.clone(),
     )?;
     engine.load().await?;
     Ok(Planted {
         engine,
-        rows: Rows::keeping(store, history).reading(tables),
+        rows: Rows::keeping(store, history)
+            .reading(tables)
+            .following(scenes),
     })
 }
 
 /// `engine` bound to what the checkout holds: the registry, every
 /// aggregate and DataCapability, and the invariants the product executes —
-/// `alias-unique-in-campaign` reading `aliases`.
-fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, PlantError> {
+/// `alias-unique-in-campaign` reading `aliases`, `scene-order-contiguous`
+/// reading `scenes`.
+fn bound(
+    engine: Engine,
+    aliases: Arc<aliases::Aliases>,
+    scenes: Arc<scenes::Scenes>,
+) -> Result<Engine, PlantError> {
     let mut engine = engine.with_registry(Registry::parse(registry::REGISTRY)?);
     for text in registry::AGGREGATES {
         engine = engine.with_aggregate(Aggregate::parse(text)?);
@@ -219,6 +236,7 @@ fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, Plant
     }
     engine = engine.with_invariants(Arc::new(Product {
         entity: entity::Entity::new(aliases),
+        session: session::Session::new(scenes),
     }));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
     Ok(engine)
@@ -228,6 +246,7 @@ fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, Plant
 /// one judge, and each aggregate's own judges its rows alone.
 struct Product {
     entity: entity::Entity,
+    session: session::Session,
 }
 
 impl Invariants for Product {
@@ -244,7 +263,7 @@ impl Invariants for Product {
             &self.entity,
             &media::Media,
             &note_import::NoteImport,
-            &session::Session,
+            &self.session,
             &sound::Sound,
             &battlemap_instance::BattlemapInstance,
             &diffusion::Diffusion,
@@ -352,7 +371,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// of a campaign (`create_campaign::prepare`) is given its id — and a
 /// oneshot's session its own — and written whole on its new partition, the
 /// command's target whatever the request named: one with no name, or of a
-/// kind there is not, is refused, 422, and not queued.
+/// kind there is not, is refused, 422, and not queued. A reorder of a
+/// session's scenes (`reorder_scenes::prepare`) is written whole on the
+/// session's partition, what the tables hold of its scenes read first: one
+/// naming no session, or no list of scene ids, is refused, 422, and not
+/// queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -520,6 +543,22 @@ async fn submit<L: Llm>(
         };
         match create_campaign::prepare(&body.payload, fresh) {
             Ok(prepared) => {
+                body.payload = prepared.payload;
+                body.target_id = Some(prepared.target_id);
+            }
+            Err(refusal) => {
+                return Err((
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        }
+    } else if reorder_scenes::names(&body.data_capability) {
+        match reorder_scenes::prepare(&body.payload) {
+            Ok(prepared) => {
+                if let Err(e) = served.rows.refresh_scenes(&prepared.target_id).await {
+                    return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+                }
                 body.payload = prepared.payload;
                 body.target_id = Some(prepared.target_id);
             }
@@ -808,6 +847,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
             ),
+            Arc::default(),
             Arc::default(),
         )
         .expect("the product's manifests parse");
