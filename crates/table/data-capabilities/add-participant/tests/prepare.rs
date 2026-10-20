@@ -275,11 +275,11 @@ fn it_lands_by_initiative_and_moves_down_the_ones_it_lands_ahead_of() {
     assert_eq!(prepared.entry.1["rank"], 2);
     assert_eq!(
         steps(&prepared.moves),
-        [("entree-bandit-1", 1), ("entree-kael", 1)]
+        [("entree-kael", 1), ("entree-bandit-1", 1)]
     );
     // A step names its entry, its combat and its token, and nothing else.
     assert_eq!(
-        prepared.moves[0].1,
+        prepared.moves[1].1,
         wire(json!({
             "initiativeEntryId": "entree-bandit-1",
             "initiativeEntryCombatId": COMBAT,
@@ -378,7 +378,7 @@ fn a_tie_in_ranks_is_read_by_id_as_the_carousel_reads_it_and_parted() {
     // a before b, by id, as the carousel orders them: a to 3, b to 4, c to 5.
     assert_eq!(
         steps(&prepared.moves),
-        [("entree-a", 1), ("entree-b", 2), ("entree-c", 2)]
+        [("entree-c", 2), ("entree-b", 2), ("entree-a", 1)]
     );
 }
 
@@ -434,4 +434,36 @@ fn an_entry_only_the_tables_hold_is_moved_whole_to_its_new_rank() {
             }))
         )]
     );
+}
+
+#[test]
+fn the_moves_never_leave_two_entries_at_one_rank_whichever_one_fails_after() {
+    // No gap in the ranks: the whole order shifts down.
+    let entries = vec![
+        seated("a", 10, Some(10), 1.0, 1),
+        seated("b", 9, Some(10), 1.0, 2),
+        seated("c", 8, Some(10), 1.0, 3),
+        seated("d", 7, Some(10), 1.0, 4),
+    ];
+    let prepared = prepare(
+        &asked(Some(20)),
+        &renfort(),
+        &combat("pj", Some(10), entries.clone()),
+        &mut dice(&[1]),
+        ENTREE,
+    )
+    .expect("joins");
+    assert_eq!(prepared.moves.len(), 4);
+    let mut ranks: Vec<(String, i64)> = entries.iter().map(|e| (e.id.clone(), e.rank)).collect();
+    for (moved, step) in &prepared.moves {
+        let entry = ranks
+            .iter_mut()
+            .find(|(id, _)| id == moved)
+            .expect("seated");
+        entry.1 += step["rank"].as_i64().expect("a step");
+        let mut seen: Vec<i64> = ranks.iter().map(|(_, rank)| *rank).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), ranks.len(), "two at one rank after {moved}");
+    }
 }

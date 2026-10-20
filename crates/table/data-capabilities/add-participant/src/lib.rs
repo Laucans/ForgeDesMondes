@@ -148,8 +148,9 @@ pub struct Seating {
 pub struct Prepared {
     /// The newcomer's entry id and its row, inserted whole.
     pub entry: (String, Row),
-    /// Each entry moved down, by id: the step of its rank, or — one only
-    /// the tables hold — its row whole.
+    /// Each entry moved down, by id, the last of the order first so that no
+    /// two ever hold one rank between two moves: the step of its rank, or —
+    /// one only the tables hold — its row whole.
     pub moves: Vec<(String, Row)>,
 }
 
@@ -334,6 +335,10 @@ pub fn prepare(
         last += 1;
         moves.push((seated.id.clone(), seated.moved_to(combat, last)));
     }
+    // Last entry first: each lands on a rank the one after it just left, or
+    // on a free one — queued top-down, the first would land on a rank the
+    // next still holds, and a failure midway would leave two at one rank.
+    moves.reverse();
     let row = Row::from([
         ("initiativeEntryId".to_string(), json!(entry)),
         ("initiativeEntryCombatId".to_string(), json!(combat)),
