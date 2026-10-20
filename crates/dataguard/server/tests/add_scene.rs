@@ -315,3 +315,37 @@ async fn the_same_idempotency_key_twice_adds_one_scene() {
     applied(&result);
     assert_eq!(served.row(&scene).await["scenePosition"], 2);
 }
+
+#[tokio::test]
+async fn a_scene_lands_first_in_the_session_a_oneshot_was_created_with() {
+    let served = Served::new().await;
+    let (status, answer) = served
+        .post(
+            "/commands",
+            json!({
+                "dataCapability": "campaign.createCampaign@1",
+                "payload": { "name": "La Nuit du Bal", "type": "oneshot" },
+                "caller": { "by": "dm", "from": "CampaignList", "roles": ["role:approver"] },
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    applied(&served.settled().await);
+    let campaign = partition_id(&answer, "Campaign");
+    // The oneshot's session is written on its campaign's partition.
+    let session = served
+        .rows
+        .projected(&format!("Campaign/{campaign}"))
+        .await
+        .expect("the row")["sessionId"]
+        .as_str()
+        .expect("a oneshot's session")
+        .to_owned();
+    let (scene, result) = served
+        .scene(json!({ "session": session, "title": "Le bal" }))
+        .await;
+    applied(&result);
+    let row = served.row(&scene).await;
+    assert_eq!(row["sceneSessionId"], session);
+    assert_eq!(row["scenePosition"], 1);
+}

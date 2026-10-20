@@ -41,6 +41,13 @@ pub const ENTITY: &str = "Entity/";
 /// scene's, `Session/<scene id>`.
 pub const SESSION: &str = "Session/";
 
+/// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
+const CAMPAIGN: &str = "Campaign/";
+
+/// A oneshot's creation: the id of the single session it writes on its
+/// campaign's partition.
+const ONESHOT_SESSION: &str = "sessionId";
+
 /// The element a write is of, when it is a write of the Entity aggregate.
 pub fn element_of(write: &Write) -> Option<&str> {
     write.partition.strip_prefix(ENTITY)
@@ -81,10 +88,19 @@ impl Versioning {
 
     /// Applies a write of any aggregate but Entity: a new scene ranked after
     /// its session's last, and what a session's partition holds — the whole
-    /// row a write carries — recorded in [`Scenes`] once applied.
+    /// row a write carries — recorded in [`Scenes`] once applied, as is the
+    /// session a oneshot's creation writes on its campaign's partition.
     async fn apply_other(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let Some(id) = write.partition.strip_prefix(SESSION) else {
-            return self.inner.apply(write, result).await;
+            let version = self.inner.apply(write, result).await?;
+            // A oneshot's session is written on its campaign's partition.
+            if write.partition.starts_with(CAMPAIGN)
+                && !write.tombstone
+                && let Some(session) = write.values.get(ONESHOT_SESSION).and_then(Value::as_str)
+            {
+                self.scenes.record("Session", session, &write.values);
+            }
+            return Ok(version);
         };
         if write.tombstone {
             let version = self.inner.apply(write, result).await?;

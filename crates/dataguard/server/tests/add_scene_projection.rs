@@ -100,6 +100,10 @@ impl Scratch {
                     ('{TAVERNE}', '{VALOMBRE}', 'lieu', 'La Taverne du Sanglier'),
                     ('{TOUR}', '{VALOMBRE}', 'lieu', 'La Tour d''Ébène'),
                     ('{PHARE}', '{BRUME}', 'lieu', 'Le Phare');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff) VALUES
+                    ('{TAVERNE}', 1, 'dm', '{{}}', '[]'),
+                    ('{TOUR}', 1, 'dm', '{{}}', '[]'),
+                    ('{PHARE}', 1, 'dm', '{{}}', '[]');
                  INSERT INTO session (id, campaign_id, position, title, status, microphone_on)
                     VALUES ('{SEANCE}', '{VALOMBRE}', 4, 'Le gué', 'prep', false);
                  INSERT INTO scene (id, session_id, position, title) VALUES
