@@ -2,7 +2,8 @@
 //! from the soundbox and another from the pill both reach `sound_playback`,
 //! playing together in the campaign's live session; a trigger with no
 //! session to play in, or naming another campaign's, is refused and nothing
-//! is written; a playback the table lost is projected again at a start.
+//! is written; a key submitted again replays its one playback; a playback
+//! the table lost is projected again at a start.
 //! Each test works in a scratch database of its own, migrated by the Data
 //! layer, dropped when it ends.
 
@@ -151,12 +152,26 @@ fn scratch_url(name: &str) -> String {
 /// Triggers `sound` with `payload` as the DM from the LiveSoundbox, approver
 /// of their own campaign: the status and the answer.
 async fn trigger(app: &Router, sound: &str, payload: Value) -> (StatusCode, Value) {
-    let body = json!({
+    submit(app, sound, payload, None).await
+}
+
+/// Triggers `sound` as [`trigger`] does, under the idempotency key `key` if
+/// any.
+async fn submit(
+    app: &Router,
+    sound: &str,
+    payload: Value,
+    key: Option<&str>,
+) -> (StatusCode, Value) {
+    let mut body = json!({
         "dataCapability": "soundbox.playSound@1",
         "payload": payload,
         "target": { "id": sound },
         "caller": { "by": "dm", "from": "LiveSoundbox", "roles": ["role:approver"] },
     });
+    if let Some(key) = key {
+        body["idempotencyKey"] = json!(key);
+    }
     let request = Request::post("/commands")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
@@ -283,6 +298,34 @@ async fn a_sound_with_no_session_to_play_in_or_none_at_all_is_refused() {
     assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
     assert_eq!(answer, json!({ "error": "ce son n'existe pas" }));
     assert!(scratch.playbacks().await.is_empty());
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_key_seen_first_is_prepared_and_the_same_key_again_replays_one_playback() {
+    let scratch = Scratch::new("keyed").await;
+    let (engine, app) = scratch.serve().await;
+    // A key never submitted is no replay: the trigger is judged, and refused.
+    let unknown = "50000000-0000-4000-8000-0000000000ff";
+    let (status, answer) = submit(&app, unknown, json!({}), Some("play-unknown")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
+    let (status, first) = submit(&app, FOULE, json!({}), Some("play-foule")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{first}");
+    let (status, second) = submit(&app, FOULE, json!({}), Some("play-foule")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{second}");
+    assert_eq!(second["replayed"], true, "{second}");
+    assert_eq!(second["commandId"], first["commandId"]);
+    engine.run_once().await.expect("the applier ran");
+    assert!(engine.run_once().await.expect("the applier ran").is_empty());
+    assert_eq!(
+        scratch.playbacks().await,
+        [(
+            "Bruit de foule".to_string(),
+            LIVE.to_string(),
+            "soundbox".to_string(),
+            true
+        )]
+    );
     scratch.drop().await;
 }
 

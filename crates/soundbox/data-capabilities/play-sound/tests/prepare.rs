@@ -109,6 +109,18 @@ fn the_sound_is_the_command_s_target_and_a_uuid() {
         request(&wire(json!({})), Some("snd-porte")),
         Err(Refusal::NotAnId("sound"))
     );
+    // A uuid's shape at its every length: neither shorter, nor longer, nor
+    // with a letter that is no hex digit.
+    let shorter = &PORTE[..35];
+    let longer = format!("{PORTE}0");
+    let not_hex = PORTE.replace('b', "g");
+    for text in [shorter, &longer, &not_hex] {
+        assert_eq!(
+            request(&wire(json!({})), Some(text)),
+            Err(Refusal::NotAnId("sound")),
+            "{text}"
+        );
+    }
     // Lowercase, as the tables write it.
     let upper = PORTE.to_ascii_uppercase();
     let request = request(&wire(json!({})), Some(&upper)).expect("a request");
