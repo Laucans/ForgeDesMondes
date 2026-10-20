@@ -259,21 +259,28 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
-/// A new scene as its row (`$1`, JSON) holds it, added when the table does
-/// not hold it yet.
-const ADD_SCENE: &str = "INSERT INTO scene (id, session_id, position, title, notes)
+/// A scene as its row (`$1`, JSON) holds it, upserted by its id: its rank,
+/// its title and its notes follow every write of it.
+const UPSERT_SCENE: &str = "INSERT INTO scene (id, session_id, position, title, notes)
     SELECT (r ->> 'sceneId')::uuid, (r ->> 'sceneSessionId')::uuid,
         (r ->> 'scenePosition')::integer, r ->> 'sceneTitle', r ->> 'notes'
     FROM (SELECT ($1::text)::jsonb AS r) given
-    ON CONFLICT (id) DO NOTHING";
+    ON CONFLICT (id) DO UPDATE SET
+        session_id = EXCLUDED.session_id,
+        position = EXCLUDED.position,
+        title = EXCLUDED.title,
+        notes = EXCLUDED.notes";
 
-/// The elements the scene's row (`$1`, JSON) links, each ranked by its place
-/// in the list, added when the scene does not link them yet.
+/// The elements the scene's row (`$1`, JSON) links — a list of their ids, or
+/// one — each ranked by its place in the list, added when the scene does not
+/// link them yet.
 const ADD_LINKS: &str = "INSERT INTO scene_entity (scene_id, entity_id, position)
     SELECT (r ->> 'sceneId')::uuid, (linked.id)::uuid, linked.rank::integer
     FROM (SELECT ($1::text)::jsonb AS r) given,
-        jsonb_array_elements_text(CASE WHEN jsonb_typeof(r -> 'entityId') = 'array'
-            THEN r -> 'entityId' ELSE '[]'::jsonb END) WITH ORDINALITY AS linked (id, rank)
+        jsonb_array_elements_text(CASE jsonb_typeof(r -> 'entityId')
+            WHEN 'array' THEN r -> 'entityId'
+            WHEN 'string' THEN jsonb_build_array(r -> 'entityId')
+            ELSE '[]'::jsonb END) WITH ORDINALITY AS linked (id, rank)
     ON CONFLICT (scene_id, entity_id) DO NOTHING";
 
 /// The scenes the engine holds and the tables do not: a projection that
@@ -286,10 +293,11 @@ const UNPROJECTED_SCENES: &str = "SELECT r.partition FROM dataguard_rows r
             WHERE s.id::text = lower(r.fields ->> 'sceneId'))
     ORDER BY r.partition";
 
-/// What the tables hold of the session `$1` (in whatever case) — of every
-/// session when it is null — that the scenes' invariants read, each as
-/// `(aggregate, id, row)`: its campaign, its scenes and their ranks, its
-/// campaign's elements — none the engine removed.
+/// What the tables hold of the session `$1` (in whatever case) and of the
+/// elements `$2` names — of every session and element when `$1` is null —
+/// that the scenes' invariants read, each as `(aggregate, id, row)`: a
+/// session's campaign, its scenes and their ranks, an element's campaign —
+/// none the engine removed.
 const SCENE_FACTS: &str =
     "SELECT 'Session', s.id::text, jsonb_build_object('sessionCampaignId', s.campaign_id)::text
         FROM session s WHERE ($1::text IS NULL OR s.id::text = lower($1))
@@ -303,10 +311,19 @@ const SCENE_FACTS: &str =
                 WHERE lower(r.partition) = 'session/' || sc.id::text AND r.tombstoned)
     UNION ALL
     SELECT 'Entity', e.id::text, jsonb_build_object('entityCampaignId', e.campaign_id)::text
-        FROM entity e WHERE ($1::text IS NULL OR e.campaign_id =
-                (SELECT s.campaign_id FROM session s WHERE s.id::text = lower($1)))
+        FROM entity e WHERE ($1::text IS NULL OR e.id::text = ANY ($2::text[]))
             AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
                 WHERE lower(r.partition) = 'entity/' || e.id::text AND r.tombstoned)";
+
+/// What the engine holds of every session, scene and element it has not
+/// removed, each as `(aggregate, id, row)`: at a start, over what the tables
+/// hold, so a write the tables refused is known still.
+const ENGINE_FACTS: &str =
+    "SELECT split_part(r.partition, '/', 1), split_part(r.partition, '/', 2),
+        r.fields::text
+    FROM dataguard_rows r
+    WHERE (r.partition LIKE 'Session/%' OR r.partition LIKE 'Entity/%') AND NOT r.tombstoned
+    ORDER BY r.partition";
 
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
@@ -351,35 +368,42 @@ impl ProjectingStore {
         self.repair_scenes().await;
     }
 
-    /// What the tables hold of the session `id` names — of every session,
-    /// `None` — that the scenes' invariants read: `(aggregate, id, row)` for
-    /// its campaign, each of its scenes, each element of its campaign.
+    /// What the tables hold of the session `id` names and of `elements` —
+    /// of every session and element, `None` — that the scenes' invariants
+    /// read: `(aggregate, id, row)` for the session's campaign, each of its
+    /// scenes, each element's campaign.
     pub async fn scene_facts(
         &self,
         id: Option<&str>,
+        elements: &[String],
     ) -> std::result::Result<Vec<(String, String, BTreeMap<String, Value>)>, tokio_postgres::Error>
     {
         let client = self.inner.client().lock().await;
-        let rows = client.query(SCENE_FACTS, &[&id]).await?;
-        Ok(rows
-            .iter()
-            .filter_map(|row| {
-                let Ok(Value::Object(fields)) = serde_json::from_str(row.get::<_, &str>(2)) else {
-                    return None;
-                };
-                Some((row.get(0), row.get(1), fields.into_iter().collect()))
-            })
-            .collect())
+        let rows = client.query(SCENE_FACTS, &[&id, &elements]).await?;
+        Ok(facts(&rows))
     }
 
-    /// Records every session the tables hold in `scenes` — its campaign, its
-    /// scenes, its campaign's elements — logging a failure: at a start, so
+    /// Records every session, scene and element the tables hold in `scenes`,
+    /// then the engine's own over them, logging a failure: at a start, so
     /// the commands queued before are judged against them. Tables not
     /// migrated yet hold none.
     pub async fn sessions(&self, scenes: &Scenes) {
-        match self.scene_facts(None).await {
-            Ok(facts) => {
-                for (aggregate, id, row) in facts {
+        let read = {
+            let client = self.inner.client().lock().await;
+            match client
+                .query(SCENE_FACTS, &[&None::<&str>, &Vec::<String>::new()])
+                .await
+            {
+                Ok(tables) => client
+                    .query(ENGINE_FACTS, &[])
+                    .await
+                    .map(|engine| (tables, engine)),
+                Err(e) => Err(e),
+            }
+        };
+        match read {
+            Ok((tables, engine)) => {
+                for (aggregate, id, row) in facts(&tables).into_iter().chain(facts(&engine)) {
                     scenes.record(&aggregate, &id, &row);
                 }
             }
@@ -410,20 +434,21 @@ impl ProjectingStore {
         }
     }
 
-    /// Projects the scene `partition` holds, when it holds one, logging a
-    /// failure: after each apply of a Session partition, and at a start.
+    /// Projects the scene `partition` holds, logging a failure: at a start.
     async fn repair_scene(&self, partition: &str) {
-        let row = match self.inner.row(partition).await {
-            Ok(row) => row,
-            Err(e) => {
-                eprintln!("projection: {partition} not read: {e}");
-                return;
-            }
-        };
-        if !row.contains_key("sceneId") {
+        match self.inner.row(partition).await {
+            Ok(row) => self.record_scene(partition, &row).await,
+            Err(e) => eprintln!("projection: {partition} not read: {e}"),
+        }
+    }
+
+    /// Projects the scene `row`, `partition`'s, when it is one, logging a
+    /// failure: after each apply of a Session partition, and at a start.
+    async fn record_scene(&self, partition: &str, row: &BTreeMap<String, Value>) {
+        if !row.contains_key(SCENE) {
             return;
         }
-        if let Err(e) = self.project_scene(&row).await {
+        if let Err(e) = self.project_scene(row).await {
             let db = e.as_db_error();
             eprintln!(
                 "projection: {partition} not projected: {} {}",
@@ -441,7 +466,7 @@ impl ProjectingStore {
         let json = Value::Object(row.clone().into_iter().collect()).to_string();
         let mut client = self.inner.client().lock().await;
         let tx = client.transaction().await?;
-        for sql in [ADD_SCENE, ADD_LINKS] {
+        for sql in [UPSERT_SCENE, ADD_LINKS] {
             tx.execute(sql, &[&json]).await?;
         }
         tx.commit().await
@@ -788,6 +813,21 @@ fn tested(write: &Write) -> Option<&str> {
         .filter(|id| uuid(id))
 }
 
+/// The rows of [`SCENE_FACTS`] or [`ENGINE_FACTS`], as `(aggregate, id, row)`.
+fn facts(rows: &[tokio_postgres::Row]) -> Vec<(String, String, BTreeMap<String, Value>)> {
+    rows.iter()
+        .filter_map(|row| {
+            let Ok(Value::Object(fields)) = serde_json::from_str(row.get::<_, &str>(2)) else {
+                return None;
+            };
+            Some((row.get(0), row.get(1), fields.into_iter().collect()))
+        })
+        .collect()
+}
+
+/// A scene's row: its id.
+const SCENE: &str = "sceneId";
+
 /// A field as text; `None` when absent, `null` or not a string.
 fn text<'a>(row: &'a BTreeMap<String, Value>, field: &str) -> Option<&'a str> {
     row.get(field).and_then(Value::as_str)
@@ -859,7 +899,8 @@ impl Store for ProjectingStore {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
         } else if !write.tombstone && write.partition.starts_with(SESSION) {
-            self.repair_scene(&write.partition).await;
+            // A write carries its whole row.
+            self.record_scene(&write.partition, &write.values).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.

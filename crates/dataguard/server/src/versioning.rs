@@ -80,8 +80,8 @@ impl Versioning {
     }
 
     /// Applies a write of any aggregate but Entity: a new scene ranked after
-    /// its session's last, and what a session's partition holds recorded in
-    /// [`Scenes`] once applied.
+    /// its session's last, and what a session's partition holds — the whole
+    /// row a write carries — recorded in [`Scenes`] once applied.
     async fn apply_other(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let Some(id) = write.partition.strip_prefix(SESSION) else {
             return self.inner.apply(write, result).await;
@@ -91,10 +91,14 @@ impl Versioning {
             self.scenes.forget(id);
             return Ok(version);
         }
-        let session = write.values.get(SCENE_SESSION).and_then(Value::as_str);
-        let before = self.inner.row(&write.partition).await?;
         let mut settled = None;
-        if let Some(session) = session.filter(|_| !before.contains_key(SCENE_SESSION)) {
+        if let Some(session) = write.values.get(SCENE_SESSION).and_then(Value::as_str)
+            && !self
+                .inner
+                .row(&write.partition)
+                .await?
+                .contains_key(SCENE_SESSION)
+        {
             let mut values = write.values.clone();
             let rank = self.scenes.next_position(session, id);
             values.insert(SCENE_POSITION.into(), rank.into());
@@ -104,12 +108,9 @@ impl Versioning {
                 tombstone: false,
             });
         }
-        let version = self
-            .inner
-            .apply(settled.as_ref().unwrap_or(write), result)
-            .await?;
-        let row = self.inner.row(&write.partition).await?;
-        self.scenes.record("Session", id, &row);
+        let settled = settled.as_ref().unwrap_or(write);
+        let version = self.inner.apply(settled, result).await?;
+        self.scenes.record("Session", id, &settled.values);
         Ok(version)
     }
 }
@@ -240,28 +241,48 @@ impl Rows {
         Self { scenes, ..self }
     }
 
-    /// Takes what the tables hold of `session` — its campaign, its scenes,
-    /// its campaign's elements — into what the scenes are judged against:
-    /// the fixtures' rows, which no command wrote. Over the engine's memory,
+    /// Takes what the tables hold of `session` — its campaign, its scenes —
+    /// and of `elements` into what the scenes are judged against: the
+    /// fixtures' rows, which no command wrote. Over the engine's memory,
     /// which has no table, nothing.
     ///
     /// # Errors
     ///
     /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
-    pub async fn refresh_session(&self, session: &str) -> Result<()> {
+    pub async fn refresh_session(&self, session: &str, elements: &[String]) -> Result<()> {
         let Some(tables) = &self.tables else {
             return Ok(());
         };
-        let facts = tables.scene_facts(Some(session)).await.map_err(|e| {
-            harness_dataguard::Error::Store(format!(
-                "session not read: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            ))
-        })?;
+        let facts = tables
+            .scene_facts(Some(session), elements)
+            .await
+            .map_err(|e| {
+                harness_dataguard::Error::Store(format!(
+                    "session not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                ))
+            })?;
         for (aggregate, id, row) in facts {
             self.scenes.record(&aggregate, &id, &row);
         }
         Ok(())
+    }
+
+    /// Whether a command of `data_capability` under `key` was submitted
+    /// already: one the engine replays. No key, none.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn replayed(&self, data_capability: &str, key: Option<&str>) -> Result<bool> {
+        let Some(key) = key else {
+            return Ok(false);
+        };
+        Ok(self
+            .store
+            .by_idempotency_key(data_capability, key)
+            .await?
+            .is_some())
     }
 
     /// Whether `session` is one the engine or the tables hold.

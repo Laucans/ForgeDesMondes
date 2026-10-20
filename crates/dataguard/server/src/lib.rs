@@ -368,9 +368,11 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// campaign the tables do not hold is refused, 404, and one they cannot make
 /// an archive of, 422 — neither is queued, so nothing changes. A new scene
 /// (`add_scene::prepare`) is given its id and the rank after its session's
-/// last, what the tables hold of the session read first: one of a session
-/// neither the engine nor the tables hold is refused, 404, and one the
-/// tables could never hold, 422 — neither is queued.
+/// last, what the tables hold of the session and its places read first: one
+/// of a session neither the engine nor the tables hold is refused, 404, and
+/// one the tables could never hold, 422 — neither is queued. Its replay —
+/// its idempotency key known already — is not prepared again: the engine
+/// answers it with the first.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -525,6 +527,21 @@ async fn submit<L: Llm>(
             }
         }
     } else if add_scene::names(&body.data_capability) {
+        // A replay is the engine's to answer, as the first was prepared.
+        match served
+            .rows
+            .replayed(add_scene::DATA_CAPABILITY, body.idempotency_key.as_deref())
+            .await
+        {
+            Ok(false) => {}
+            Ok(true) => {
+                return reply(
+                    axum::http::StatusCode::ACCEPTED,
+                    served.engine.submit(body).await,
+                );
+            }
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        }
         let refused = |status, refusal: add_scene::Refusal| {
             Err((
                 status,
@@ -542,7 +559,8 @@ async fn submit<L: Llm>(
                 return reply(axum::http::StatusCode::ACCEPTED, Err(e));
             }
         };
-        if let Err(e) = served.rows.refresh_session(&session).await {
+        let places = add_scene::places_of(&body.payload).unwrap_or_default();
+        if let Err(e) = served.rows.refresh_session(&session, &places).await {
             return reply(axum::http::StatusCode::ACCEPTED, Err(e));
         }
         if !served.rows.knows_session(&session) {

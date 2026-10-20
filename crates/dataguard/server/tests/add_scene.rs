@@ -298,6 +298,16 @@ async fn the_same_idempotency_key_twice_adds_one_scene() {
     let (status, again) = served.add(title("Le gué"), Some("k-1")).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{again}");
     assert_eq!(again["commandId"], first["commandId"], "{again}");
+    // A replay is answered as the first, never prepared again: not even
+    // refused for a session it names otherwise.
+    let (status, replay) = served
+        .add(
+            json!({ "session": "51000000-0000-4000-8000-0000000000ff", "title": "Le gué" }),
+            Some("k-1"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{replay}");
+    assert_eq!(replay["commandId"], first["commandId"], "{replay}");
     let queued = served.engine.run_once().await.expect("the applier ran");
     assert!(queued.is_empty(), "{queued:?}");
     // The next scene is the second.
