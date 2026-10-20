@@ -3,8 +3,10 @@
 //! them in the `scene` table, 1 to n in the order's order — scenes the
 //! fixtures wrote, which no command did; an order the DataGuard rejects
 //! (`scene-order-contiguous`) reaches no table; an order the tables lost is
-//! written again at the next start. Each test works in a scratch database of
-//! its own, migrated as the server migrates it, dropped when it ends.
+//! written again at the next start. An order is judged against the scenes the
+//! tables hold — read at a start, for an order queued before it, and again
+//! when an order is submitted. Each test works in a scratch database of its
+//! own, migrated as the server migrates it, dropped when it ends.
 
 use std::sync::Arc;
 
@@ -150,6 +152,14 @@ impl Served {
     /// `payload` submitted as the SceneBoard sends it, by the DM, then one
     /// pass of the applier: the answer, and the commands it settled.
     async fn reorder(&self, payload: Value) -> (StatusCode, Value, Vec<CommandResult>) {
+        let (status, answer) = self.submit(payload).await;
+        let settled = self.engine.run_once().await.expect("the applier ran");
+        (status, answer, settled)
+    }
+
+    /// `payload` submitted as the SceneBoard sends it, by the DM, and left
+    /// queued: the answer.
+    async fn submit(&self, payload: Value) -> (StatusCode, Value) {
         let body = json!({
             "dataCapability": "session.reorderScenes@1",
             "payload": payload,
@@ -165,8 +175,7 @@ impl Served {
             .await
             .expect("a body");
         let answer = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        let settled = self.engine.run_once().await.expect("the applier ran");
-        (status, answer, settled)
+        (status, answer)
     }
 }
 
@@ -247,5 +256,49 @@ async fn an_order_the_tables_lost_is_written_again_at_the_next_start() {
         .await;
     assert_eq!(settled[0].status, State::Rejected, "{settled:?}");
     assert_eq!(scratch.scenes(SEANCE).await, ranked(&[C, A, B]));
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn an_order_queued_before_a_restart_is_judged_against_the_tables_scenes() {
+    let scratch = Scratch::new("queued").await;
+    {
+        let served = scratch.serve().await;
+        let (status, answer) = served
+            .submit(json!({ "session": SEANCE, "order": [C, A, B] }))
+            .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    }
+    // Started again, the engine knows the fixtures' scenes before any
+    // submission reads them.
+    let served = scratch.serve().await;
+    let settled = served.engine.run_once().await.expect("the applier ran");
+    assert_eq!(settled.len(), 1, "{settled:?}");
+    assert_eq!(settled[0].status, State::Applied, "{settled:?}");
+    assert_eq!(scratch.scenes(SEANCE).await, ranked(&[C, A, B]));
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_scene_the_tables_hold_since_the_start_is_read_when_its_session_is_reordered() {
+    const D: &str = "5c000000-0000-4000-8000-00000000000d";
+    let scratch = Scratch::new("refresh").await;
+    let served = scratch.serve().await;
+    // A scene no command wrote, the tables holding it after the start.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO scene (id, session_id, position, title)
+                 VALUES ('{D}', '{SEANCE}', 4, 'Le pont');"
+        ))
+        .await
+        .expect("a fourth scene");
+    let (status, answer, settled) = served
+        .reorder(json!({ "session": SEANCE, "order": [D, C, A, B] }))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    assert_eq!(settled.len(), 1, "{settled:?}");
+    assert_eq!(settled[0].status, State::Applied, "{settled:?}");
+    assert_eq!(scratch.scenes(SEANCE).await, ranked(&[D, C, A, B]));
     scratch.drop().await;
 }

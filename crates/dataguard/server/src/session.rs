@@ -352,6 +352,38 @@ mod tests {
     }
 
     #[test]
+    fn an_order_no_scene_of_its_session_is_named_once_beside_the_other_violations() {
+        let judge = Session::new(Arc::default());
+        let ordering = |order: Value| {
+            let mut written = entry("Session", "update");
+            written.payload.insert(SCENE_POSITION.to_string(), order);
+            written
+        };
+        // An order of no ids: the check and the scenes refuse it, named once.
+        let state: BTreeMap<String, Value> = [(SCENE_POSITION.to_string(), json!([1]))]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            judge.violated("Session", &state, &ordering(json!([1]))),
+            ["scene-order-contiguous", "text-only-no-audio"]
+        );
+        // Ids of no scene the judge knows, on a closed session with its
+        // microphone on: the scenes refuse the order beside the close.
+        let order = json!(["5c000000-0000-4000-8000-000000000001"]);
+        let state: BTreeMap<String, Value> = [
+            (STATUS.to_string(), json!("closed")),
+            (MICROPHONE.to_string(), json!(true)),
+            (SCENE_POSITION.to_string(), order.clone()),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            judge.violated("Session", &state, &ordering(order)),
+            ["close-session", "scene-order-contiguous"]
+        );
+    }
+
+    #[test]
     fn the_checks_know_the_fields_and_invariants_the_aggregate_declares() {
         let aggregate: Value =
             serde_json::from_str(include_str!("../../aggregates/Session/aggregate.json"))
