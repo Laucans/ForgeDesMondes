@@ -186,6 +186,24 @@ export const COMMANDS = {
     token.states = payload.on ? (states.includes(state) ? states : states.concat(state)) : states.filter((s) => s !== state);
     return undefined;
   },
+  // table.reorderInitiative: the open combat of the instance `targetId` — or `payload.instance` — takes the order
+  // `payload.order`, every participant once, named by its token: the first gets rank 1, the next 2, without gap
+  // (`initiative-tiebreak`). A hidden one takes the rank it is given (`hidden-keeps-rank`); no participant is added
+  // or removed and the turn does not move. An order that omits, repeats or adds a participant is refused, and so is
+  // an instance with no open combat. Ids are compared in any case, as the server does.
+  'table.reorderInitiative': async (server, { payload, targetId }) => {
+    const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+    const id = targetId || payload.instance;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const combat = instances.find((i) => same(i.id, id))?.state.combat;
+    if (!combat) return ['not-found'];
+    const order = Array.isArray(payload.order) ? payload.order : [];
+    const placed = order.map((named) => combat.order.findIndex((p) => same(p.id, named)));
+    if (order.length !== combat.order.length || placed.some((at, i) => at < 0 || placed.indexOf(at) !== i)) return ['initiative-tiebreak'];
+    combat.order = placed.map((at) => combat.order[at]);
+    return undefined;
+  },
   // table.removeToken: one token taken off the map, `payload.token` on the instance `targetId` — or the token
   // itself as the target, or no target. Its partition is tombstoned and the tables follow the aggregate's
   // relations: its entry leaves the order, whose places close up, and a turn still on it is no one's — the

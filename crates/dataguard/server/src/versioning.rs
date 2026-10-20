@@ -273,6 +273,111 @@ impl Rows {
         Ok(roster)
     }
 
+    /// The participants of the open combat of the instance `instance` a
+    /// reorder names (`table.reorderInitiative`) — `None` when it has none
+    /// open — as the commands queued will leave them: the combats and
+    /// entries the engine holds or the queue brings, each row folded with the
+    /// commands queued on it, as [`Rows::projected`] folds them — so an entry
+    /// or a reorder queued ahead counts, and a row whose deletion is queued
+    /// is gone. One snapshot: the applier is kept still from the queue's read
+    /// to the last row's ([`APPLYING`]). A combat is open while it names the
+    /// instance and has no end. An entry is a participant while it names the
+    /// combat, a rank and a token still on the map, hidden or not
+    /// (`hidden-keeps-rank`); a token off the map is out of the combat. Over
+    /// the engine's memory, which has no table, no combat.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn lineup(
+        &self,
+        instance: &str,
+    ) -> Result<Option<Vec<reorder_initiative::Participant>>> {
+        let Some(tables) = &self.tables else {
+            return Ok(None);
+        };
+        let unread = |e: tokio_postgres::Error| {
+            harness_dataguard::Error::Store(format!(
+                "combat not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        };
+        let names = |row: &BTreeMap<String, Value>, field: &str, id: &str| {
+            row.get(field)
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.eq_ignore_ascii_case(id))
+        };
+        let id_of = |row: &BTreeMap<String, Value>, field: &str| {
+            row.get(field)
+                .and_then(Value::as_str)
+                .map(str::to_ascii_lowercase)
+        };
+        let _applying = APPLYING.lock().await;
+        let mut queued = self.store.pending().await?;
+        queued.sort_by_key(|entry| entry.position);
+        let folded = async |id: &str| -> Result<BTreeMap<String, Value>> {
+            let partition = reorder_initiative::partition(id);
+            let ahead: Vec<&Entry> = queued
+                .iter()
+                .filter(|entry| entry.partition == partition)
+                .collect();
+            if ahead.iter().any(|entry| entry.effect == Effect::Delete) {
+                return Ok(BTreeMap::new());
+            }
+            let row = self.store.row(&partition).await?;
+            Ok(ahead
+                .iter()
+                .fold(row, |row, entry| guard::projected(&row, entry)))
+        };
+        let mut combats: Vec<String> = queued
+            .iter()
+            .filter(|entry| names(&entry.payload, "combatInstanceId", instance))
+            .filter_map(|entry| id_of(&entry.payload, "combatId"))
+            .collect();
+        combats.extend(tables.initiative_combats(instance).await.map_err(unread)?);
+        combats.sort_unstable();
+        combats.dedup();
+        let mut open = None;
+        for id in combats {
+            let row = folded(&id).await?;
+            if names(&row, "combatId", &id)
+                && names(&row, "combatInstanceId", instance)
+                && row.get("endedAt").is_none_or(Value::is_null)
+            {
+                open = Some(id);
+                break;
+            }
+        }
+        let Some(combat) = open else {
+            return Ok(None);
+        };
+        let mut entries: Vec<String> = queued
+            .iter()
+            .filter(|entry| names(&entry.payload, "initiativeEntryCombatId", &combat))
+            .filter_map(|entry| id_of(&entry.payload, "initiativeEntryId"))
+            .collect();
+        entries.extend(tables.initiative_entries(&combat).await.map_err(unread)?);
+        entries.sort_unstable();
+        entries.dedup();
+        let mut participants = Vec::new();
+        for id in entries {
+            let row = folded(&id).await?;
+            let Some(token) = id_of(&row, "initiativeEntryTokenId") else {
+                continue;
+            };
+            if !names(&row, "initiativeEntryId", &id)
+                || !names(&row, "initiativeEntryCombatId", &combat)
+                || !row.get("rank").is_some_and(Value::is_i64)
+                || !names(&folded(&token).await?, "tokenId", &token)
+            {
+                continue;
+            }
+            participants.push(reorder_initiative::Participant { entry: id, token });
+        }
+        Ok(Some(participants))
+    }
+
     /// Whether the engine holds a command of `data_capability` under the
     /// idempotency key `key`: one it replays.
     ///
