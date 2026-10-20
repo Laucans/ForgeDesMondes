@@ -122,6 +122,8 @@ impl Scratch {
                  VALUES ('{OMBRE}', 1, 'dm', '{{}}', '[]');
                  INSERT INTO media (id, campaign_id, kind, title, file_path, width_px, height_px, place_id)
                  VALUES ('{CARTE}', '{VALOMBRE}', 'battlemap', 'Taverne', 'carte.png', 2048, 1536, '{TAVERNE}');
+                 INSERT INTO battlemap_grid (media_id, hex_size_px, offset_x, offset_y, orientation, color, opacity)
+                 VALUES ('{CARTE}', 64, 0, 0, 'pointe', '#202020', 0.4);
                  INSERT INTO session (id, campaign_id, position, title, status, microphone_on)
                  VALUES ('{SEANCE}', '{VALOMBRE}', 1, 'Le Sanglier', 'live', true);
                  INSERT INTO session_present_character (session_id, character_id) VALUES ('{SEANCE}', '{ELOWEN}');
