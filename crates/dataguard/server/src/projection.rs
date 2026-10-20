@@ -17,7 +17,11 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A campaign's row is its table's over the engine's, and
+//! column. A creation (`campaign.createCampaign`) writes its new
+//! partition whole: [`ProjectingStore`] inserts its `campaign` row and a
+//! oneshot's single `session`, in one statement, once — a row the table
+//! holds already is never written over. A campaign's row is its table's
+//! over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -225,6 +229,45 @@ const STAMP_EXPORTS: &str = "UPDATE campaign c
         AND (c.last_exported_at IS NULL
             OR c.last_exported_at < (r.fields ->> 'lastExportedAt')::timestamptz)";
 
+/// The campaigns the engine created that their table does not hold yet —
+/// on the campaign partition `$1` names, on every one when it is null: a
+/// row the engine holds with its name and its kind, under a uuid, that no
+/// import copied (an import's copy is its own projection's).
+const UNCREATED: &str = "SELECT r.partition FROM dataguard_rows r
+    WHERE r.partition LIKE 'Campaign/%' AND NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND pg_input_is_valid(r.fields ->> 'id', 'uuid')
+        AND r.partition = 'Campaign/' || lower(r.fields ->> 'id')
+        AND r.fields ->> 'name' IS NOT NULL AND r.fields ->> 'kind' IS NOT NULL
+        AND r.fields ->> 'importedAt' IS NULL
+        AND NOT EXISTS (SELECT 1 FROM campaign c WHERE 'Campaign/' || c.id::text = r.partition)
+    ORDER BY r.partition";
+
+/// The campaign of the partition `$1` names written on its row, with the
+/// session a oneshot was created with, in one statement: the session only
+/// with a campaign this statement inserts, so each is written once — one the
+/// table holds already is left as it is, and a session deleted since never
+/// comes back (`oneshot-single-session`).
+const CREATE_CAMPAIGN: &str = "WITH created AS (
+        INSERT INTO campaign (id, name, kind, pitch, art, glyph, created_at, sound_master_volume)
+        SELECT (r.fields ->> 'id')::uuid, r.fields ->> 'name', r.fields ->> 'kind',
+            r.fields ->> 'pitch', r.fields ->> 'art', r.fields ->> 'glyph',
+            CASE WHEN pg_input_is_valid(r.fields ->> 'createdAt', 'timestamptz')
+                THEN (r.fields ->> 'createdAt')::timestamptz ELSE now() END,
+            coalesce((r.fields ->> 'soundMasterVolume')::numeric, 1)
+        FROM dataguard_rows r WHERE r.partition = $1::text AND NOT r.tombstoned
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+    )
+    INSERT INTO session (id, campaign_id, position, title, status, microphone_on)
+    SELECT (r.fields ->> 'sessionId')::uuid, c.id,
+        (r.fields ->> 'sessionPosition')::integer, r.fields ->> 'sessionTitle',
+        r.fields ->> 'sessionStatus', (r.fields ->> 'microphoneOn')::boolean
+    FROM dataguard_rows r JOIN created c ON r.partition = 'Campaign/' || c.id::text
+    WHERE pg_input_is_valid(r.fields ->> 'sessionId', 'uuid')
+        AND lower(r.fields ->> 'sessionCampaignId') = c.id::text
+    ON CONFLICT (id) DO NOTHING";
+
 /// What an archive holds of the campaign `$1` names, in whatever case, as
 /// the tables hold it — the campaign, its players, its elements each with
 /// its sheet, its aliases and its versions — in one statement, so one
@@ -289,7 +332,39 @@ impl ProjectingStore {
     pub async fn repair(&self) {
         self.repair_settings().await;
         self.repair_elements().await;
+        self.repair_campaigns(None).await;
         self.repair_exports(None).await;
+    }
+
+    /// Writes the campaigns the engine created on the partition `partition`
+    /// names — on every one, `None` — that their table does not hold yet,
+    /// each with its oneshot's session, one campaign a statement, logging a
+    /// failure: after each apply of a campaign, and at a start. A campaign
+    /// the table refuses leaves the others to be written. Tables not
+    /// migrated yet hold none.
+    async fn repair_campaigns(&self, partition: Option<&str>) {
+        let client = self.inner.client().lock().await;
+        let partitions = match client.query(UNCREATED, &[&partition]).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                eprintln!(
+                    "projection: campaign not read: {}",
+                    e.as_db_error().map_or("-", |db| db.code().code())
+                );
+                return;
+            }
+        };
+        for partition in partitions {
+            let partition: String = partition.get(0);
+            if let Err(e) = client.execute(CREATE_CAMPAIGN, &[&partition]).await {
+                let db = e.as_db_error();
+                eprintln!(
+                    "projection: {partition} not created: {} {}",
+                    db.map_or("-", |db| db.code().code()),
+                    db.and_then(|db| db.constraint()).unwrap_or_default()
+                );
+            }
+        }
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -701,7 +776,9 @@ impl Store for ProjectingStore {
         } else if element(write) {
             self.repair_elements().await;
         } else if write.partition.starts_with(CAMPAIGN) {
-            // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
+            // A campaign's tombstone creates and stamps nothing:
+            // UNCREATED and STAMP_EXPORTS skip it.
+            self.repair_campaigns(Some(&write.partition)).await;
             self.repair_exports(Some(&write.partition)).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its

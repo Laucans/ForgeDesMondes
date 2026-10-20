@@ -227,6 +227,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-campaign"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,6 +267,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "create-campaign",
  "data",
  "export-campaign",
  "get-campaign",
