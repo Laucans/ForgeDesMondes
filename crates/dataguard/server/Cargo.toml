@@ -54,6 +54,7 @@ set-token-visibility = { path = "../../table/data-capabilities/set-token-visibil
 rename-token = { path = "../../table/data-capabilities/rename-token" }
 change-hit-points = { path = "../../table/data-capabilities/change-hit-points" }
 set-token-condition = { path = "../../table/data-capabilities/set-token-condition" }
+next-turn = { path = "../../table/data-capabilities/next-turn" }
 start-combat = { path = "../../table/data-capabilities/start-combat" }
 remove-token = { path = "../../table/data-capabilities/remove-token" }
 add-participant = { path = "../../table/data-capabilities/add-participant" }

@@ -10,7 +10,8 @@
 //!
 //! - an NPC rolls a d20 — drawn from the [`Dice`] the caller injects — and
 //!   its initiative is the roll plus its DEX modifier, `floor((DEX - 10) /
-//!   2)` (`npc-initiative-bounds`); a PC rolls nothing, its initiative is the
+//!   2)` (`npc-initiative-bounds`), [`DEFAULT_DEX`] when its sheet gives
+//!   none, as `table.startCombat` rolls it; a PC rolls nothing, its initiative is the
 //!   figure the DM entered, and an NPC is given none;
 //! - it is placed after every participant that ranks before it or ties with
 //!   it — initiative descending, then the DEX score descending (none last),
@@ -44,6 +45,10 @@ pub const DATA_CAPABILITY: &str = "table.addParticipant";
 /// roll less one, 0 to 2³¹ - 1 — the scale `table.startCombat` draws on, so
 /// a newcomer's tie against a seated participant is a fair one.
 pub const DRAW_SIDES: u32 = 1 << 31;
+
+/// The DEX score an NPC whose sheet gives none rolls with: an average one,
+/// no modifier — `table.startCombat`'s, so one combat follows one rule.
+pub const DEFAULT_DEX: i64 = 10;
 
 /// The aggregate whose partitions a token and an entry are.
 const AGGREGATE: &str = "BattlemapInstance";
@@ -174,8 +179,6 @@ pub enum Refusal {
     PcInitiative,
     /// An initiative was sent for an NPC, which rolls its own.
     NpcRolls,
-    /// The NPC's sheet gives no DEX for its modifier.
-    NoDex,
     /// The dice could not be rolled.
     NoRandomness,
 }
@@ -191,7 +194,6 @@ impl std::fmt::Display for Refusal {
             Self::UnknownCharacter => f.write_str("ce token n'est ni un PJ ni un PNJ"),
             Self::PcInitiative => f.write_str("l'initiative d'un PJ est celle que saisit le DM"),
             Self::NpcRolls => f.write_str("un PNJ tire son initiative, le DM n'en saisit pas"),
-            Self::NoDex => f.write_str("la fiche de ce PNJ ne donne pas sa DEX"),
             Self::NoRandomness => f.write_str("le dé n'a pas pu être lancé"),
         }
     }
@@ -277,7 +279,7 @@ pub fn token(request: &Request, base: &Row) -> Result<Token, Refusal> {
 ///
 /// [`Refusal::NoOpenCombat`], [`Refusal::AlreadyInCombat`],
 /// [`Refusal::UnknownCharacter`]; for a PC, [`Refusal::PcInitiative`]; for an
-/// NPC, [`Refusal::NpcRolls`] and [`Refusal::NoDex`];
+/// NPC, [`Refusal::NpcRolls`];
 /// [`Refusal::NoRandomness`] when `dice` rolls nothing.
 pub fn prepare(
     request: &Request,
@@ -305,7 +307,7 @@ pub fn prepare(
         if request.initiative.is_some() {
             return Err(Refusal::NpcRolls);
         }
-        let dex = character.dex.ok_or(Refusal::NoDex)?;
+        let dex = character.dex.unwrap_or(DEFAULT_DEX);
         let roll = dice.roll(20).ok_or(Refusal::NoRandomness)?;
         (Some(roll), roll + modifier(dex))
     };

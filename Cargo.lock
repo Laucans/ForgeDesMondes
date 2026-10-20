@@ -299,6 +299,7 @@ dependencies = [
  "list-events",
  "list-places",
  "list-players",
+ "next-turn",
  "place-tokens",
  "platform-conformance",
  "ports-llm",
@@ -936,6 +937,14 @@ dependencies = [
  "libc",
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "next-turn"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
 ]
 
 [[package]]

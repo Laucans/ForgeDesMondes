@@ -39,7 +39,11 @@
 //! [`Rows`] reads: its visibility, or its name, alone, on its partition. A
 //! change of an NPC's HP (`table.changeHitPoints`) is prepared the same way:
 //! the step of its current HP alone, cut so they land between 0 and its HP
-//! max. A start of an instance's combat (`table.startCombat`) is prepared
+//! max. A « Suivant » (`table.nextTurn`) is prepared against the instance's
+//! open combat and its participants as the queue will leave them, which
+//! [`Rows`] reads: the next living participant's turn, and the round's step,
+//! on the combat's partition.
+//! A start of an instance's combat (`table.startCombat`) is prepared
 //! against what the tables and the queue hold of the instance, which
 //! [`Rows`] reads: one command for the combat, then one per participant. A
 //! participant joining a running combat (`table.addParticipant`) is
@@ -86,6 +90,7 @@ mod sound;
 mod sound_playback;
 mod suggestion;
 mod tokens;
+mod turns;
 mod versioning;
 
 pub use reads::Reads;
@@ -400,7 +405,14 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// token's partition, the same way — the fixtures' slugs it names read as
 /// the ids the tables hold them by, one at a time until it is queued
 /// ([`MARKING`]): one naming no uuid, no condition, or no `on`, 422; one of a
-/// token not on the instance, 404. A start of an instance's combat is made
+/// token not on the instance, 404.
+/// A « Suivant » (`next_turn::prepare`) is made the turn it writes on the
+/// combat's partition, against the instance's open combat and its
+/// participants, one at a time from its judgement until it is queued
+/// ([`TURNING`]): one naming no uuid, 422; an instance with no open combat —
+/// over the engine's memory, every one — or none of whose participants is
+/// alive, 409 — neither is queued.
+/// A start of an instance's combat is made
 /// the combat's row and its entries', one command each ([`starting`]).
 /// A token taken off the map (`remove_token::prepare`) is made the deletion
 /// of the token's partition, which writes no field, the same way: one naming
@@ -436,8 +448,8 @@ async fn submit<L: Llm>(
     }
     let mut refusal = None;
     let mut archive = None;
-    // Held until the creation of an instance, a change of HP, or a token's
-    // new conditions, is queued.
+    // Held until the creation of an instance, a change of HP, a token's new
+    // conditions, or a turn, is queued.
     let mut holding = None;
     // To the millisecond: two tests in a second are told apart by the read of
     // the last one (`ai.getSettings`).
@@ -542,10 +554,10 @@ async fn submit<L: Llm>(
         let _placing = PLACING.lock().await;
         return placing(&served, body).await;
     } else if add_participant::names(&body.data_capability) {
-        let _adding = ADDING.lock().await;
+        let _initiative = INITIATIVE.lock().await;
         return adding(&served, body).await;
     } else if start_combat::names(&body.data_capability) {
-        let _starting = STARTING.lock().await;
+        let _initiative = INITIATIVE.lock().await;
         return starting(&served, body, &now()).await;
     } else if set_token_visibility::names(&body.data_capability) {
         let unprocessable = |refusal: set_token_visibility::Refusal| {
@@ -600,6 +612,23 @@ async fn submit<L: Llm>(
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         };
         let prepared = change_hit_points::prepare(&request, &base).map_err(unprocessable)?;
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
+    } else if next_turn::names(&body.data_capability) {
+        let wire = served.reads.stored(&body.payload);
+        let target = body
+            .target_id
+            .as_deref()
+            .map(|id| served.reads.stored_id(id));
+        let request = next_turn::request(&wire, target.as_deref())
+            .map_err(|why| refused(axum::http::StatusCode::UNPROCESSABLE_ENTITY, &why))?;
+        holding = Some(TURNING.lock().await);
+        let (combat, participants) = match served.rows.turn(&request.instance).await {
+            Ok(turn) => turn,
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        };
+        let prepared = next_turn::prepare(&request, combat.as_ref(), &participants)
+            .map_err(|why| refused(axum::http::StatusCode::CONFLICT, &why))?;
         body.payload = prepared.payload;
         body.target_id = Some(prepared.target_id);
     } else if export_campaign::names(&body.data_capability) {
@@ -747,10 +776,13 @@ static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// queued: two drops of a character sent at once never take the same
 /// numbers, nor place a PC twice.
 static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-/// One start of a combat at a time, from its judgement until its rows are
-/// queued: two starts of an instance sent at once never both pass
-/// (`one-active-combat`).
-static STARTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One change of a combat's order at a time — a start, a participant
+/// joining — from the read of the combat and its entries until its commands
+/// are queued: two starts of an instance sent at once never both pass
+/// (`one-active-combat`), two joining never take the same rank, and a join
+/// never reads a combat a start is still queueing. `reorderInitiative`,
+/// `removeParticipant` and `endCombat` must take it too when they land.
+static INITIATIVE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One change of HP at a time, from its judgement until it is queued: two
 /// blows sent at once are each cut against the HP the other leaves. The
 /// applier is kept out of the judgement's read ([`versioning::APPLYING`]), so
@@ -762,10 +794,10 @@ static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// start from the same list, and none is lost.
 static MARKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// One participant joining at a time, from the read of the combat's entries
-/// until its commands are queued: two joining at once never take the same
-/// rank, and each moves the entries the other left.
-static ADDING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One « Suivant » at a time, from its judgement until it is queued: two
+/// sent at once each start from the turn the other leaves, and the round
+/// counts each lap once.
+static TURNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A refusal before a command is queued: its status, and why in words.
 type Refused = (axum::http::StatusCode, Json<serde_json::Value>);
@@ -939,7 +971,8 @@ async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted
 /// targeted, or a character the tables do not hold, 404 — over the engine's
 /// memory, which reads no combat, an instance with none; an instance with no
 /// open combat, or a token in it already, applied or queued, 409; a PC sent
-/// with no initiative, an NPC with one, or an NPC whose sheet has no DEX, 422.
+/// with no initiative, or an NPC with one, 422. An NPC whose sheet gives no
+/// DEX rolls with `table.startCombat`'s default ([`add_participant::DEFAULT_DEX`]).
 async fn adding<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted> {
     use add_participant::{DATA_CAPABILITY, Refusal};
     use axum::http::StatusCode;
@@ -961,8 +994,7 @@ async fn adding<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted>
             Refusal::NotAnId(_)
             | Refusal::NotAnInitiative
             | Refusal::PcInitiative
-            | Refusal::NpcRolls
-            | Refusal::NoDex => StatusCode::UNPROCESSABLE_ENTITY,
+            | Refusal::NpcRolls => StatusCode::UNPROCESSABLE_ENTITY,
         };
         refused(status, &why)
     };
@@ -1011,6 +1043,9 @@ async fn adding<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted>
     submitted.warnings = warnings;
     Ok((StatusCode::ACCEPTED, Json(submitted)))
 }
+
+// One combat, one rule: an NPC with no DEX rolls alike, joining or starting.
+const _: () = assert!(add_participant::DEFAULT_DEX == start_combat::DEFAULT_DEX);
 
 /// The dice of the operating system's randomness, each face as likely: a
 /// draw past the last whole run of `sides` faces is drawn again.

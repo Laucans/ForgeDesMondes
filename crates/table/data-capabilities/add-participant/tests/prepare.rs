@@ -7,7 +7,8 @@
 use std::collections::VecDeque;
 
 use add_participant::{
-    Character, Dice, Refusal, Request, Row, Seated, Seating, Token, names, prepare, request, token,
+    Character, DEFAULT_DEX, Dice, Refusal, Request, Row, Seated, Seating, Token, names, prepare,
+    request, token,
 };
 use serde_json::{Value, json};
 
@@ -273,13 +274,27 @@ fn what_the_combat_or_the_sheet_forbids_is_refused() {
         Refusal::NpcRolls
     );
     assert_eq!(
-        refused(&asked(None), &combat("pnj", None, Vec::new()), &[10, 10]),
-        Refusal::NoDex
-    );
-    assert_eq!(
         refused(&asked(None), &combat("pnj", Some(12), Vec::new()), &[10]),
         Refusal::NoRandomness
     );
+}
+
+#[test]
+fn an_npc_whose_sheet_gives_no_dex_rolls_with_the_default_one_as_start_combat_does() {
+    // DEX 10, no modifier: its initiative is its roll. Its DEX stays unknown,
+    // ranked after every known one.
+    let prepared = prepare(
+        &asked(None),
+        &renfort(),
+        &combat("pnj", None, Vec::new()),
+        &mut dice(&[13, 7]),
+        ENTREE,
+    )
+    .expect("joins");
+    assert_eq!(DEFAULT_DEX, 10);
+    assert_eq!(prepared.entry.1["roll"], 13);
+    assert_eq!(prepared.entry.1["initiative"], 13);
+    assert_eq!(prepared.entry.1["dexScore"], Value::Null);
 }
 
 #[test]

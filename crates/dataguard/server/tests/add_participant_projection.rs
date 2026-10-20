@@ -447,7 +447,8 @@ async fn an_npc_joining_rolls_1_to_20_adds_its_dex_and_lands_in_its_place() {
     // DEX 16: +3 (npc-initiative-bounds).
     assert_eq!(joined.initiative, roll + 3);
     assert_eq!(joined.dex, Some(16));
-    assert!((1.0..=100.0).contains(&joined.draw), "{joined:?}");
+    // Drawn on table.startCombat's scale, 0 to 2^31 - 1.
+    assert!((0.0..2_147_483_648.0).contains(&joined.draw), "{joined:?}");
     // The others keep everything but their rank.
     assert_eq!(
         (carousel[2].roll, carousel[2].initiative, carousel[2].draw),
@@ -616,6 +617,98 @@ async fn an_entry_and_a_rank_the_table_lost_are_projected_again_at_the_next_star
         .expect("the table loses them");
     let (engine, _app) = scratch.serve().await;
     assert_eq!(scratch.carousel().await, before);
+    drop(engine);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn an_entry_only_the_table_holds_is_moved_whole_then_stepped_never_overwritten() {
+    let scratch = Scratch::new("tabled").await;
+    let (engine, app) = scratch.serve().await;
+    ambush(&scratch, &engine, &app).await;
+    // Kael at 3, DEX 14: ahead of Bandit 2 (3, DEX 12), whose entry and
+    // Bandit 1's only the table holds — each written whole, one rank down.
+    let kael = scratch.token("Kael").await;
+    let (status, body) = join(&app, &kael, Some(3)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 3);
+    assert_eq!(scratch.held_rank("Bandit 2").await, Some(3));
+    assert_eq!(scratch.held_rank("Bandit 1").await, Some(4));
+    // The chief, at 4 or more: ahead of Kael and both bandits, each now
+    // held by the engine — stepped from the rank it holds, not set anew.
+    let chef = scratch.token("Chef bandit 1").await;
+    let (status, body) = join(&app, &chef, None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 4);
+    let carousel = scratch.carousel().await;
+    assert_eq!(
+        names(&carousel),
+        ["Elowen", "Chef bandit 1", "Kael", "Bandit 2", "Bandit 1"]
+    );
+    assert!(contiguous(&carousel), "{carousel:?}");
+    // What the table alone held of them is kept, field by field.
+    let kept = |place: &Place| (place.roll, place.initiative, place.dex, place.draw);
+    assert_eq!(kept(&carousel[0]), (None, 25, Some(18), 40.0));
+    assert_eq!(kept(&carousel[3]), (Some(2), 3, Some(12), 60.0));
+    assert_eq!(kept(&carousel[4]), (Some(1), 2, Some(12), 70.0));
+    // The newcomer's entry, on a partition of its own, lands as sent.
+    assert_eq!(scratch.held_rank("Chef bandit 1").await, Some(2));
+    assert_eq!(scratch.held_rank("Kael").await, Some(3));
+    assert_eq!(scratch.held_rank("Bandit 2").await, Some(4));
+    assert_eq!(scratch.held_rank("Bandit 1").await, Some(5));
+    // Elowen, ahead of both, was never written.
+    assert_eq!(scratch.held_rank("Elowen").await, None);
+    assert_eq!(scratch.turn().await, (2, Some("Bandit 1".to_string())));
+    drop(engine);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_start_and_a_join_sent_together_seat_no_token_twice_nor_two_at_one_rank() {
+    let scratch = Scratch::new("race").await;
+    let (engine, app) = scratch.serve().await;
+    // The tokens dropped, no combat yet.
+    for (character, count) in [(ELOWEN, 1), (KAEL, 1), (BANDIT, 3), (VESNA, 1)] {
+        let placing = json!({ "character": character, "q": 5, "r": 5, "count": count });
+        assert_eq!(
+            command(&app, "table.placeTokens@1", placing).await.0,
+            StatusCode::ACCEPTED
+        );
+        applied(&engine).await;
+    }
+    let chef = scratch.token("Chef bandit 1").await;
+    let bandit_3 = scratch.token("Bandit 3").await;
+    let starting = json!({ "initiative": { ELOWEN: 18, KAEL: 9 } });
+    let (started, chef_joined, bandit_joined) = tokio::join!(
+        command(&app, "table.startCombat@1", starting),
+        join(&app, &chef, None),
+        join(&app, &bandit_3, None),
+    );
+    assert_eq!(started.0, StatusCode::ACCEPTED, "{}", started.1);
+    // Each join is judged before the start or after it, never in between:
+    // no open combat, or the token seated by the start.
+    for (status, body) in [chef_joined, bandit_joined] {
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    }
+    applied(&engine).await;
+    let seats = scratch
+        .client
+        .query(
+            "SELECT e.token_id::text, e.rank FROM initiative_entry e
+             JOIN combat c ON c.id = e.combat_id
+             WHERE c.instance_id = $1::text::uuid ORDER BY e.rank",
+            &[&INSTANCE],
+        )
+        .await
+        .expect("the entries");
+    let tokens: Vec<String> = seats.iter().map(|row| row.get(0)).collect();
+    let ranks: Vec<i32> = seats.iter().map(|row| row.get(1)).collect();
+    let mut distinct = tokens.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert_eq!(distinct.len(), 6, "{tokens:?}");
+    assert_eq!(tokens.len(), 6, "a token seated twice: {tokens:?}");
+    assert_eq!(ranks, (1..=6).collect::<Vec<i32>>(), "{ranks:?}");
     drop(engine);
     scratch.drop().await;
 }
