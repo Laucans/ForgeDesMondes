@@ -610,6 +610,23 @@
       }
       return void 0;
     },
+    // table.setTokenVisibility: one token hidden from the players or revealed, `payload.token` on the instance
+    // `targetId` — or the token itself as the target. Its visibility alone: its initiative rank and every other
+    // participant's stay as they are (`hidden-keeps-rank`); a visibility that is no boolean is refused.
+    "table.setTokenVisibility": async (server2, { payload, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      if (typeof payload.visible !== "boolean") return ["players-see-band-only"];
+      const named = payload.token !== void 0;
+      const tokenId = named ? payload.token : targetId;
+      if (typeof tokenId !== "string") return ["not-found"];
+      const instance = named && targetId && !same2(targetId, tokenId) ? targetId : null;
+      const fixture = await server2.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server2.instances ? server2.instances.values() : []];
+      const inst = instances.find((i) => (instance == null || same2(i.id, instance)) && i.state.tokens.some((t) => same2(t.id, tokenId)));
+      if (!inst) return ["not-found"];
+      inst.state.tokens.find((t) => same2(t.id, tokenId)).visible = payload.visible;
+      return void 0;
+    },
     // table.renameToken: one token renamed, `payload.token` on the instance `targetId` — or the token itself as
     // the target, or no target. Its number and the other tokens of its character are untouched
     // (`multi-drop-numbering`); a name of blanks alone is refused. Ids are compared in any case, as the server does.

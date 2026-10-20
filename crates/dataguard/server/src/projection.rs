@@ -22,12 +22,15 @@
 //! inserts its `battlemap_instance` row ([`instances`]). A token dropped on
 //! a battlemap instance (`table.placeTokens`) writes its partition,
 //! `BattlemapInstance/<its id>`: [`ProjectingStore`] inserts its `token` row
-//! ([`tokens`]). A rename of a token (`table.renameToken`) writes the same
-//! partition with its name alone: [`ProjectingStore`] writes `token.name`, and
-//! no other column; a condition badge put on or taken off
-//! (`table.setTokenCondition`), with its conditions alone:
-//! [`ProjectingStore`] writes `token.conditions`, and no other column. A campaign's row is its table's over the engine's, and an
-//! archive is read from the tables ([`ProjectingStore::archived`]). Every
+//! ([`tokens`]); a token hidden or revealed (`table.setTokenVisibility`)
+//! writes it again with its visibility alone: [`ProjectingStore`] writes
+//! `token.visible`, and no other column. A rename of a token
+//! (`table.renameToken`) writes the same partition with its name alone:
+//! [`ProjectingStore`] writes `token.name`, and no other column; a condition
+//! badge put on or taken off (`table.setTokenCondition`), with its conditions
+//! alone: [`ProjectingStore`] writes `token.conditions`, and no other column.
+//! A campaign's row is its table's over the engine's, and an archive is read
+//! from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
@@ -343,8 +346,12 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
-        instances::repair(&*self.inner.client().lock().await).await;
-        tokens::repair(&*self.inner.client().lock().await).await;
+        {
+            let client = self.inner.client().lock().await;
+            instances::repair(&client).await;
+            tokens::repair(&client).await;
+            tokens::show(&client, None).await;
+        }
         self.repair_names(None).await;
         self.repair_conditions(None).await;
     }
@@ -819,6 +826,7 @@ impl Store for ProjectingStore {
                 let client = self.inner.client().lock().await;
                 instances::project(&client, &write.partition).await;
                 tokens::project(&client, &write.partition).await;
+                tokens::show(&client, Some(&write.partition)).await;
             }
             // A rename, a badge set, or any later write, makes the token's name
             // and conditions follow the engine's.

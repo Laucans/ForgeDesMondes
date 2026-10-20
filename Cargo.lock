@@ -292,6 +292,7 @@ dependencies = [
  "serde",
  "serde_json",
  "set-token-condition",
+ "set-token-visibility",
  "test-connection",
  "thiserror",
  "tokio",
@@ -1505,6 +1506,13 @@ dependencies = [
 
 [[package]]
 name = "set-token-condition"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "set-token-visibility"
 version = "0.1.0"
 dependencies = [
  "serde_json",

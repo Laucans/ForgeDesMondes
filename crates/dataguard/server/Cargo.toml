@@ -50,5 +50,6 @@ restore-entity-version = { path = "../../campaign/data-capabilities/restore-enti
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }
 place-tokens = { path = "../../table/data-capabilities/place-tokens" }
+set-token-visibility = { path = "../../table/data-capabilities/set-token-visibility" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
 set-token-condition = { path = "../../table/data-capabilities/set-token-condition" }
