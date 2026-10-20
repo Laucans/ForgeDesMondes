@@ -31,6 +31,11 @@
 //! [`ProjectingStore`] writes `token.name`, and no other column; a condition
 //! badge put on or taken off (`table.setTokenCondition`), with its conditions
 //! alone: [`ProjectingStore`] writes `token.conditions`, and no other column.
+//! A combat started on an instance (`table.startCombat`) writes its
+//! partition, `BattlemapInstance/<its id>`, and each of its entries theirs:
+//! [`ProjectingStore`] inserts the `combat` row, then the `initiative_entry`
+//! rows, and points the combat at its current entry once the table holds it
+//! ([`combats`]).
 //! A token taken off the map (`table.removeToken`) tombstones its partition:
 //! [`ProjectingStore`] deletes its `token` row, and the foreign keys follow
 //! the aggregate's relations (its initiative entry cascades, a turn on it is
@@ -68,6 +73,7 @@ use test_connection::NO_PROVIDER;
 
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
+use crate::combats;
 use crate::history::History;
 use crate::instances;
 use crate::tokens;
@@ -359,6 +365,7 @@ impl ProjectingStore {
             tokens::repair(&client).await;
             tokens::show(&client, None).await;
             tokens::hit_points(&client, None).await;
+            combats::repair(&client).await;
         }
         self.repair_names(None).await;
         self.repair_conditions(None).await;
@@ -417,6 +424,18 @@ impl ProjectingStore {
     ) -> std::result::Result<place_tokens::Roster, tokio_postgres::Error> {
         let client = self.inner.client().lock().await;
         tokens::roster(&client, instance, character).await
+    }
+
+    /// What the tables hold of the instance a start of its combat names
+    /// (`table.startCombat`), with the tokens `queued` on it: its lineup,
+    /// and the combats of it that may be open.
+    pub async fn lineup(
+        &self,
+        instance: &str,
+        queued: &[(String, String)],
+    ) -> std::result::Result<(start_combat::Lineup, Vec<String>), tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        combats::lineup(&client, instance, queued).await
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -828,14 +847,27 @@ impl Store for ProjectingStore {
         } else if element(write) {
             self.repair_elements().await;
         } else if !write.tombstone && tokens::of_aggregate(&write.partition) {
-            // An instance and its tokens share the aggregate's partitions:
-            // each projection inserts only the row whose id the partition names.
+            // An instance, its tokens, its combat and the combat's entries
+            // share the aggregate's partitions: each projection inserts only
+            // the row whose id the partition names.
             {
                 let client = self.inner.client().lock().await;
                 instances::project(&client, &write.partition).await;
                 tokens::project(&client, &write.partition).await;
                 tokens::show(&client, Some(&write.partition)).await;
                 tokens::hit_points(&client, Some(&write.partition)).await;
+                // The engine applies a run's partitions by name: an entry is
+                // entered with the last of itself, its combat and its token.
+                let id = |field: &str| write.values.get(field).and_then(Value::as_str);
+                let combat = id("combatId");
+                if combat.is_some() {
+                    combats::project(&client, &write.partition).await;
+                    combats::current(&client, combat).await;
+                }
+                let token = id("tokenId");
+                if combat.is_some() || token.is_some() || id("initiativeEntryId").is_some() {
+                    combats::enter(&client, &write.partition, combat, token).await;
+                }
             }
             // A rename, a badge set, or any later write, makes the token's name
             // and conditions follow the engine's.
