@@ -1,0 +1,10 @@
+[package]
+name = "set-token-visibility"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.setTokenVisibility: one token of a battlemap instance hidden from the players or revealed, on its own BattlemapInstance partition — its visibility alone, never its initiative rank nor anyone else's (hidden-keeps-rank)."
+publish = false
+
+[dependencies]
+serde_json = "1"

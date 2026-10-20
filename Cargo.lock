@@ -291,6 +291,7 @@ dependencies = [
  "save-settings",
  "serde",
  "serde_json",
+ "set-token-visibility",
  "test-connection",
  "thiserror",
  "tokio",
@@ -1500,6 +1501,13 @@ dependencies = [
  "tokio",
  "tower",
  "uuid",
+]
+
+[[package]]
+name = "set-token-visibility"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

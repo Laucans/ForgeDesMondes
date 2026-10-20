@@ -9,7 +9,9 @@
 //! and the queue's, which [`crate::Rows::roster`] adds. Once the engine
 //! applied a token on `BattlemapInstance/<its id>`, [`project`] inserts its
 //! row; a token the table holds already is left as it is: a later write of
-//! its partition (a move, a rename) is not the drop's to project.
+//! its partition (a move, a rename) is not the drop's to project. A token
+//! hidden or revealed (`table.setTokenVisibility`) is: [`show`] writes its
+//! `visible` column, and no other.
 
 use place_tokens::{Character, Roster};
 use tokio_postgres::Client;
@@ -64,6 +66,26 @@ const PROJECT: &str = "INSERT INTO token
         AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
         AND NOT EXISTS (SELECT 1 FROM token t WHERE t.id = (r.fields ->> 'tokenId')::uuid)";
 
+/// The visibility the engine holds of the token partition `$1` names — of
+/// every token when it is null — written on its row: the one column a token
+/// hidden or revealed changes (`table.setTokenVisibility`), and the token's
+/// own alone, never an initiative rank (`hidden-keeps-rank`). After each
+/// apply of a token, and at a start, so a visibility whose projection failed
+/// after its apply is written again. The token is found by its key, the id
+/// its partition names; one the table does not hold yet is the drop's to
+/// insert, and a visibility that is no boolean is left aside, as the
+/// DataGuard refuses it.
+const SHOW: &str = "UPDATE token t
+    SET visible = (r.fields ->> 'visible')::boolean
+    FROM dataguard_rows r
+    WHERE NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
+        AND t.id = CASE WHEN pg_input_is_valid(r.fields ->> 'tokenId', 'uuid')
+            THEN (r.fields ->> 'tokenId')::uuid END
+        AND jsonb_typeof(r.fields -> 'visible') = 'boolean'
+        AND t.visible IS DISTINCT FROM (r.fields ->> 'visible')::boolean";
+
 /// The tokens the engine holds and the table does not: a projection that
 /// failed after its apply, or was lost since.
 const UNPROJECTED: &str = "SELECT r.partition FROM dataguard_rows r
@@ -114,6 +136,18 @@ pub async fn project(client: &Client, partition: &str) {
             "projection: {partition} not projected: {} {}",
             db.map_or("-", |db| db.code().code()),
             db.and_then(|db| db.constraint()).unwrap_or_default()
+        );
+    }
+}
+
+/// Writes the visibility the engine holds of the token `partition` names —
+/// of every token, `None` — on its row, logging a failure: after each apply
+/// of a token, and at a start. Tables not migrated yet hold none.
+pub async fn show(client: &Client, partition: Option<&str>) {
+    if let Err(e) = client.execute(SHOW, &[&partition]).await {
+        eprintln!(
+            "projection: token visibility not written: {}",
+            e.as_db_error().map_or("-", |db| db.code().code())
         );
     }
 }
