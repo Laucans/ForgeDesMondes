@@ -535,6 +535,15 @@
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
+    // live.showCover (crates/live/data-capabilities/show-cover): the player view
+    // goes back to the campaign cover, neither a media nor an instance as its base
+    // (base-coherent); the floating window and the framing stay as they are.
+    "live.showCover": async (server) => {
+      const row = await diffusionRow(server);
+      row.base = { kind: "cover" };
+      if (window.Mock) window.Mock.store.set("diffusion", row);
+      return void 0;
+    },
     // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone;
     // the size and the content stay.
     "live.moveWindow": (server, { payload }) => onWindow(server, (w) => {

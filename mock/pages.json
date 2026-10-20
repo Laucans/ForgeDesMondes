@@ -130,7 +130,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "0b765eff86ca634e"
+      "builtFrom": "1e699946bf41549d"
     },
     {
       "name": "CampaignOverview",
@@ -150,7 +150,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "2168d8a210345834"
+      "builtFrom": "f510bb2bf4ddcc2b"
     },
     {
       "name": "SessionList",
@@ -275,7 +275,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "51656258ed35ecd0"
+      "builtFrom": "2d0de1b8458f4307"
     },
     {
       "name": "PreviousSummary",
@@ -375,7 +375,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "ff05b0c83446c64d"
+      "builtFrom": "6b7b90fcdfb8e004"
     },
     {
       "name": "MediaLibrary",
@@ -561,7 +561,7 @@
         "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "a082aa15ecd51678"
+      "builtFrom": "25458dd18cb9cc6f"
     }
   ]
 }

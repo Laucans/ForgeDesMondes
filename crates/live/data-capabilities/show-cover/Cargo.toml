@@ -1,0 +1,10 @@
+[package]
+name = "show-cover"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.showCover: the DM brings the player view of the campaign's live session back to its cover, on the session's Diffusion partition — the base emptied of any media and instance, the floating window and the framing untouched."
+publish = false
+
+[dependencies]
+serde_json = "1"
