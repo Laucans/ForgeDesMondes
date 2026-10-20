@@ -30,7 +30,9 @@
 //! so too, against the versions the element has, which [`Rows`] keeps. An
 //! export of a campaign (`campaign.exportCampaign`) is prepared against what
 //! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied.
+//! the command's result once its stamp is applied. An addition of a sound
+//! (`soundbox.addSound`) is prepared against the campaign it names, which
+//! [`Rows`] reads.
 
 use std::sync::Arc;
 
@@ -346,7 +348,10 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// partition, and its archive is built from what the tables hold of the
 /// campaign now and kept until the command is applied ([`status`]): one of a
 /// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes.
+/// an archive of, 422 — neither is queued, so nothing changes. An addition of
+/// a sound (`add_sound::prepare`) is given its id and made the row it writes,
+/// its tags normalised and its volume a fraction of 1: one naming no campaign
+/// the engine holds is refused, 404, and one with no name or no file, 422.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -500,6 +505,45 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if add_sound::names(&body.data_capability) {
+        let Ok(sound) = fresh_uuid() else {
+            let e = Error::Store("no randomness for an id".to_string());
+            return reply(axum::http::StatusCode::ACCEPTED, Err(e));
+        };
+        let now = now();
+        let fresh = add_sound::Fresh {
+            sound: &sound,
+            now: &now,
+        };
+        let prepared = match add_sound::prepare(&body.payload, fresh) {
+            Ok(prepared) => prepared,
+            Err(refusal) => {
+                let status = if refusal == add_sound::Refusal::NoCampaign {
+                    axum::http::StatusCode::NOT_FOUND
+                } else {
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY
+                };
+                return Err((
+                    status,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ));
+            }
+        };
+        let campaign = prepared.payload["campaignId"].as_str().unwrap_or_default();
+        match served.rows.projected(&format!("Campaign/{campaign}")).await {
+            Ok(row) if row.is_empty() => {
+                return Err((
+                    axum::http::StatusCode::NOT_FOUND,
+                    Json(
+                        serde_json::json!({ "error": add_sound::Refusal::NoCampaign.to_string() }),
+                    ),
+                ));
+            }
+            Ok(_) => {}
+            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+        }
+        body.payload = prepared.payload;
+        body.target_id = Some(prepared.target_id);
     }
     let submitted = served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.extend(refusal.map(str::to_string));

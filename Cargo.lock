@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "add-sound"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -258,6 +266,7 @@ dependencies = [
 name = "dataguard-server"
 version = "0.1.0"
 dependencies = [
+ "add-sound",
  "async-trait",
  "axum",
  "data",

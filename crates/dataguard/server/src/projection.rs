@@ -17,7 +17,9 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A campaign's row is its table's over the engine's, and
+//! column. An addition of a sound (`soundbox.addSound`) writes its
+//! partition, `Sound/<its id>`, whole: [`ProjectingStore`] adds its `sound`
+//! row, and leaves one the table already holds as it is. A campaign's row is its table's over the engine's, and
 //! an archive is read from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
@@ -250,6 +252,32 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
+/// The partitions of the Sound aggregate: `Sound/<sound id>`.
+const SOUND: &str = "Sound/";
+
+/// Every live sound the engine holds and the `sound` table does not: a
+/// projection that failed after its apply, or was lost since.
+const UNPROJECTED_SOUNDS: &str = "SELECT r.partition FROM dataguard_rows r
+    WHERE r.partition LIKE 'Sound/%' AND NOT r.tombstoned
+        AND NOT EXISTS (SELECT 1 FROM sound s WHERE s.id = CASE
+            WHEN pg_input_is_valid(r.fields ->> 'id', 'uuid') THEN (r.fields ->> 'id')::uuid END)
+    ORDER BY r.partition";
+
+/// The sound the live partition `$1` holds, added to the `sound` table; one
+/// the table already holds is left as it is. Its tags and its volume are the
+/// DataGuard's to judge (`tags-normalized`, `sound-volume-range`) before it
+/// is applied; the table's CHECKs and its foreign key judge them again.
+const ADD_SOUND: &str =
+    "INSERT INTO sound (id, campaign_id, name, file_path, tags, volume, created_at)
+    SELECT (r.fields ->> 'id')::uuid, (r.fields ->> 'campaignId')::uuid,
+        r.fields ->> 'name', r.fields ->> 'filePath',
+        ARRAY(SELECT jsonb_array_elements_text(coalesce(nullif(r.fields -> 'tags', 'null'), '[]'))),
+        coalesce((r.fields ->> 'volume')::numeric, 1),
+        coalesce((r.fields ->> 'createdAt')::timestamptz, now())
+    FROM dataguard_rows r
+    WHERE r.partition = $1::text AND NOT r.tombstoned
+    ON CONFLICT (id) DO NOTHING";
+
 /// The versions the tables hold — the one `$1` names, or every one when it
 /// is null — oldest first.
 const VERSIONS: &str =
@@ -290,6 +318,45 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_sounds().await;
+    }
+
+    /// Adds every sound the engine holds and the `sound` table does not,
+    /// each on its own, so one the table refuses keeps none of the others
+    /// out: at a start. Tables not migrated yet hold none.
+    async fn repair_sounds(&self) {
+        let partitions = {
+            let client = self.inner.client().lock().await;
+            client.query(UNPROJECTED_SOUNDS, &[]).await
+        };
+        match partitions {
+            Ok(partitions) => {
+                for partition in partitions {
+                    self.add_sound(partition.get(0)).await;
+                }
+            }
+            Err(e) => eprintln!(
+                "projection: sound not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ),
+        }
+    }
+
+    /// Adds the sound `partition` holds to the `sound` table, logging a
+    /// failure: after its apply, and at a start.
+    async fn add_sound(&self, partition: &str) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(ADD_SOUND, &[&partition]).await
+        };
+        if let Err(e) = written {
+            let db = e.as_db_error();
+            eprintln!(
+                "projection: {partition} not added: {} {}",
+                db.map_or("-", |db| db.code().code()),
+                db.and_then(|db| db.constraint()).unwrap_or_default()
+            );
+        }
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -703,6 +770,8 @@ impl Store for ProjectingStore {
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
+        } else if !write.tombstone && write.partition.starts_with(SOUND) {
+            self.add_sound(&write.partition).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
             // versions go.
