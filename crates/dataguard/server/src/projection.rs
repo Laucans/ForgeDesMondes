@@ -17,9 +17,11 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A campaign's row is its table's over the engine's, and
-//! an archive is read from the tables ([`ProjectingStore::archived`]). Every
-//! other method is the inner store's.
+//! column. A rename of a token (`table.renameToken`) writes its partition,
+//! `BattlemapInstance/<its id>`, with its name alone: [`ProjectingStore`]
+//! writes `token.name`, and no other column. A campaign's row is its table's
+//! over the engine's, and an archive is read from the tables
+//! ([`ProjectingStore::archived`]). Every other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -225,6 +227,29 @@ const STAMP_EXPORTS: &str = "UPDATE campaign c
         AND (c.last_exported_at IS NULL
             OR c.last_exported_at < (r.fields ->> 'lastExportedAt')::timestamptz)";
 
+/// The name the engine holds of the token partition `$1` names — of every
+/// token when it is null — written on its row: the one column a rename
+/// changes, and the token's own alone (`multi-drop-numbering`). After each
+/// apply of a token, and at a start, so a name whose projection failed after
+/// its apply is written again. The token is found by its key, the id its
+/// partition names. A row the table does not hold yet is the drop's to
+/// insert; a name that is blanks alone is left aside, as the DataGuard
+/// refuses it.
+const NAME_TOKENS: &str = "UPDATE token t
+    SET name = r.fields ->> 'name'
+    FROM dataguard_rows r
+    WHERE NOT r.tombstoned
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
+        AND t.id = CASE WHEN pg_input_is_valid(r.fields ->> 'tokenId', 'uuid')
+            THEN (r.fields ->> 'tokenId')::uuid END
+        AND btrim(r.fields ->> 'name') <> ''
+        AND t.name IS DISTINCT FROM r.fields ->> 'name'";
+
+/// The partitions of the BattlemapInstance aggregate, a token's among them:
+/// `BattlemapInstance/<its id>`.
+const BATTLEMAP_INSTANCE: &str = "BattlemapInstance/";
+
 /// What an archive holds of the campaign `$1` names, in whatever case, as
 /// the tables hold it — the campaign, its players, its elements each with
 /// its sheet, its aliases and its versions — in one statement, so one
@@ -290,6 +315,23 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        self.repair_names(None).await;
+    }
+
+    /// Writes the name the engine holds of the token `partition` names — of
+    /// every token, `None` — on its row, logging a failure: after each apply
+    /// of a token, and at a start. Tables not migrated yet hold none.
+    async fn repair_names(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(NAME_TOKENS, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: token not renamed: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -708,6 +750,11 @@ impl Store for ProjectingStore {
             // versions go.
             self.aliases.forget(element);
             self.history.forget(element);
+        }
+        // Apart from the chain above: whatever else a write of a token's
+        // partition projects, its name follows the engine's.
+        if !write.tombstone && write.partition.starts_with(BATTLEMAP_INSTANCE) {
+            self.repair_names(Some(&write.partition)).await;
         }
         Ok(version)
     }
