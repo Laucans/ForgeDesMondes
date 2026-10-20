@@ -364,7 +364,10 @@ fn modifier(score: i64) -> i64 {
 /// An entry has a rank, from 1, and the draw that breaks the ties left at
 /// equal DEX: a number drawn at the launch and kept from then on, so the
 /// same participants always give the same order. That the ranks follow
-/// initiative, DEX and draw reads the combat's other entries.
+/// initiative, DEX and draw reads the combat's other entries. A rank step
+/// (`table.addParticipant`) on a row that holds no entry — a removed
+/// participant's tombstone reads as none — leaves an entry with no draw: it
+/// is refused, and brings no row back.
 fn initiative_tiebreak(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     !holds_any(state, &ENTRY)
         || (integer(value(state, "rank")).is_some_and(|rank| rank >= 1)

@@ -48,10 +48,14 @@
 //! on the combat's partition.
 //! A start of an instance's combat (`table.startCombat`) is prepared
 //! against what the tables and the queue hold of the instance, which
-//! [`Rows`] reads: one command for the combat, then one per participant. Its
-//! end (`table.endCombat`) is prepared against the instance's combat still
-//! open, as the queue will leave it, which [`Rows`] reads: its end and no
-//! current turn, on the combat's partition.
+//! [`Rows`] reads: one command for the combat, then one per participant. A
+//! participant joining a running combat (`table.addParticipant`) is
+//! prepared against what the tables, the engine's rows and the queue hold of
+//! the instance's open combat and of the token's character, which [`Rows`]
+//! reads: its entry, and a step of the rank of each entry it lands ahead of,
+//! one command each. Its end (`table.endCombat`) is prepared against the
+//! instance's combat still open, as the queue will leave it, which [`Rows`]
+//! reads: its end and no current turn, on the combat's partition.
 //! An upload of a media
 //! (`media.uploadMedia`) is prepared against its place, which [`Rows`] reads:
 //! a place that is no lieu of the media's campaign is refused before it is
@@ -435,6 +439,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// it writes on the open combat's partition ([`ending`]).
 /// A participant taken out of the open combat is made the deletion of its
 /// entry's partition the same way ([`removal`]); its token stays.
+/// A participant joining a running combat is made its entry and the moves of
+/// the entries it lands ahead of, one command each ([`adding`]).
 /// A reset of an instance is made the deletions of its tokens, its combats
 /// and their entries, one command each ([`resetting`]).
 /// An upload
@@ -585,19 +591,22 @@ async fn submit<L: Llm>(
     } else if place_tokens::names(&body.data_capability) {
         let _placing = PLACING.lock().await;
         return placing(&served, body).await;
+    } else if add_participant::names(&body.data_capability) {
+        let _initiative = INITIATIVE.lock().await;
+        return adding(&served, body).await;
     } else if reorder_initiative::names(&body.data_capability) {
-        let _reordering = REORDERING.lock().await;
+        let _initiative = INITIATIVE.lock().await;
         return reordering(&served, body).await;
     } else if start_combat::names(&body.data_capability) {
-        let _starting = STARTING.lock().await;
+        let _initiative = INITIATIVE.lock().await;
         return starting(&served, body, &now()).await;
     } else if end_combat::names(&body.data_capability) {
-        let _ending = STARTING.lock().await;
+        let _initiative = INITIATIVE.lock().await;
         return ending(&served, body, &now()).await;
     } else if reset_battlemap::names(&body.data_capability) {
         // Neither a drop nor a start slips a row past the reset's read.
         let _placing = PLACING.lock().await;
-        let _starting = STARTING.lock().await;
+        let _initiative = INITIATIVE.lock().await;
         return resetting(&served, body, &now()).await;
     } else if set_token_visibility::names(&body.data_capability) {
         let unprocessable = |refusal: set_token_visibility::Refusal| {
@@ -891,10 +900,18 @@ static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// queued: two drops of a character sent at once never take the same
 /// numbers, nor place a PC twice.
 static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-/// One start or end of a combat at a time, from its judgement until its
-/// rows are queued: two starts of an instance sent at once never both pass,
-/// nor two ends of its combat (`one-active-combat`).
-static STARTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One change of a combat's order at a time — a start, a participant
+/// joining, a reorder, an end — from the read of the combat and its entries
+/// until its commands are queued: two starts of an instance sent at once
+/// never both pass, nor two ends of its combat (`one-active-combat`), two
+/// joining never take the same rank, a join never reads a combat a start is
+/// still queueing, and two reorders, or a join and a reorder, never
+/// interleave their ranks — each is judged against the participants the
+/// other leaves.
+/// A reset holds it too, beside [`PLACING`]: no start slips a row past its
+/// read.
+/// `removeParticipant` holds [`TURNING`] only.
+static INITIATIVE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One change of HP at a time, from its judgement until it is queued: two
 /// blows sent at once are each cut against the HP the other leaves. The
 /// applier is kept out of the judgement's read ([`versioning::APPLYING`]), so
@@ -906,10 +923,6 @@ static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// start from the same list, and none is lost.
 static MARKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// One reorder of the initiative at a time, from its judgement until its
-/// ranks are queued: two reorders sent at once never interleave their ranks,
-/// and each is judged against the participants the other leaves.
-static REORDERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One « Suivant » or one participant's removal at a time, from its judgement
 /// until it is queued: two « Suivant » sent at once each start from the turn
 /// the other leaves, and the round counts each lap once; two removals of one
@@ -1070,6 +1083,125 @@ async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted
             (StatusCode::ACCEPTED, Json(submitted))
         })
         .ok_or_else(|| refused(StatusCode::UNPROCESSABLE_ENTITY, &Refusal::Count))
+}
+
+/// `body`, a token joining the instance's open combat
+/// (`table.addParticipant`), made its entry and the moves of the entries it
+/// lands ahead of (`add_participant::prepare`) — the fixtures' slugs it names
+/// read as the ids the tables hold them by — its roll and its draw from
+/// [`Fair`] dice, and queued, one command per entry on its own partition,
+/// `BattlemapInstance/<its id>`: the moves first, the last entry of the
+/// order first, the newcomer's entry last, whose command is the answer. With
+/// an idempotency key, the entry is queued under it and each move under it
+/// followed by `#<the newcomer's entry id>#<its entry's id>`: the joining sent
+/// again under its key after it was queued whole is the engine's to replay,
+/// as it was, while one that failed half queued is planned again from the
+/// ranks as the queue leaves them — a move queued by the first attempt is
+/// already in those ranks, and no stale step of it is replayed.
+/// Refused, and nothing queued: ids that are none, or an initiative that is
+/// no whole number, 422; a token the engine does not hold on the instance
+/// targeted, or a character the tables do not hold, 404 — over the engine's
+/// memory, which reads no combat, an instance with none; an instance with no
+/// open combat, or a token in it already, applied or queued, 409; a PC sent
+/// with no initiative, or an NPC with one, 422. An NPC whose sheet gives no
+/// DEX rolls with `table.startCombat`'s default ([`add_participant::DEFAULT_DEX`]).
+async fn adding<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted> {
+    use add_participant::{DATA_CAPABILITY, Refusal};
+    use axum::http::StatusCode;
+    let failed = |e: Error| refused(status_of(&e), &e);
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return reply(StatusCode::ACCEPTED, served.engine.submit(body).await);
+    }
+    let unprocessable = |why: Refusal| {
+        let status = match why {
+            Refusal::UnknownToken | Refusal::UnknownCharacter => StatusCode::NOT_FOUND,
+            Refusal::NoOpenCombat | Refusal::AlreadyInCombat => StatusCode::CONFLICT,
+            Refusal::NoRandomness => StatusCode::SERVICE_UNAVAILABLE,
+            Refusal::NotAnId(_)
+            | Refusal::NotAnInitiative
+            | Refusal::PcInitiative
+            | Refusal::NpcRolls => StatusCode::UNPROCESSABLE_ENTITY,
+        };
+        refused(status, &why)
+    };
+    let wire = served.reads.stored(&body.payload);
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = add_participant::request(&wire, target.as_deref()).map_err(unprocessable)?;
+    let base = served
+        .rows
+        .standing(&add_participant::partition(&request.token))
+        .await
+        .map_err(failed)?;
+    let token = add_participant::token(&request, &base).map_err(unprocessable)?;
+    let seating = served
+        .rows
+        .seating(&token.instance, &token.character)
+        .await
+        .map_err(failed)?;
+    let entry = fresh_uuid().map_err(|_| unprocessable(Refusal::NoRandomness))?;
+    let prepared = add_participant::prepare(&request, &token, &seating, &mut Fair, &entry)
+        .map_err(unprocessable)?;
+    let key = body.idempotency_key.take();
+    let mut warnings = Vec::new();
+    // The moves before the entry, the last of the order first: each lands on a
+    // rank left free, so one the store failed to queue leaves a gap in the
+    // ranks, which orders no one wrongly — never two at one rank.
+    for (id, moved) in prepared.moves {
+        let one = Submission {
+            data_capability: body.data_capability.clone(),
+            payload: moved,
+            target_id: Some(id.clone()),
+            based_on: None,
+            idempotency_key: key.as_ref().map(|key| format!("{key}#{entry}#{id}")),
+            caller: body.caller.clone(),
+        };
+        warnings.extend(served.engine.submit(one).await.map_err(failed)?.warnings);
+    }
+    let (id, row) = prepared.entry;
+    body.payload = row;
+    body.target_id = Some(id);
+    body.idempotency_key = key;
+    let mut submitted = served.engine.submit(body).await.map_err(failed)?;
+    warnings.append(&mut submitted.warnings);
+    submitted.warnings = warnings;
+    Ok((StatusCode::ACCEPTED, Json(submitted)))
+}
+
+// One combat, one rule: an NPC with no DEX rolls alike, joining or starting.
+const _: () = assert!(add_participant::DEFAULT_DEX == start_combat::DEFAULT_DEX);
+
+/// The dice of the operating system's randomness, each face as likely: a
+/// draw past the last whole run of `sides` faces is drawn again.
+struct Fair;
+
+impl add_participant::Dice for Fair {
+    fn roll(&mut self, sides: u32) -> Option<i64> {
+        if sides == 0 {
+            return None;
+        }
+        loop {
+            let mut bytes = [0_u8; 4];
+            getrandom::fill(&mut bytes).ok()?;
+            if let Some(face) = fair_face(u32::from_le_bytes(bytes), sides) {
+                return Some(face);
+            }
+        }
+    }
+}
+
+/// The face, 1 to `sides`, a random `drawn` reads as; `None` past the last
+/// whole run of `sides` faces, which would favour the low faces.
+fn fair_face(drawn: u32, sides: u32) -> Option<i64> {
+    (drawn < u32::MAX - u32::MAX % sides).then(|| i64::from(drawn % sides) + 1)
 }
 
 /// `body`, a start of an instance's combat (`table.startCombat`), made the
@@ -1758,6 +1890,36 @@ mod tests {
         assert!(draws.len() > 190, "{draws:?}");
         assert!(draws.iter().all(|d| (0..=i64::from(i32::MAX)).contains(d)));
         assert!(draws.iter().any(|d| d % 2 == 1), "{draws:?}");
+    }
+
+    #[test]
+    fn a_draw_reads_as_a_face_from_1_to_its_sides_each_as_likely() {
+        assert_eq!(fair_face(0, 20), Some(1));
+        assert_eq!(fair_face(19, 20), Some(20));
+        assert_eq!(fair_face(20, 20), Some(1));
+        let last = u32::MAX - u32::MAX % 20;
+        assert_eq!(fair_face(last - 1, 20), Some(20));
+        assert_eq!(fair_face(last, 20), None);
+        assert_eq!(fair_face(u32::MAX, 20), None);
+        let sides = 1 << 31;
+        assert_eq!(fair_face(0, sides), Some(1));
+        assert_eq!(fair_face(sides - 1, sides), Some(i64::from(sides)));
+        assert_eq!(fair_face(sides, sides), None);
+    }
+
+    #[test]
+    fn the_fair_dice_are_random_and_in_range() {
+        use add_participant::Dice;
+        assert_eq!(Fair.roll(0), None);
+        let d20s = (0..2000)
+            .map(|_| Fair.roll(20).expect("randomness"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(d20s, (1..=20).collect::<BTreeSet<_>>());
+        let draws = (0..200)
+            .map(|_| Fair.roll(1 << 31).expect("randomness"))
+            .collect::<BTreeSet<_>>();
+        assert!(draws.len() > 190, "{draws:?}");
+        assert!(draws.iter().all(|d| (1..=1_i64 << 31).contains(d)));
     }
 
     #[test]

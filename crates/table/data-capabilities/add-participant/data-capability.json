@@ -1,0 +1,34 @@
+{
+  "dataCapability": "table.addParticipant",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": [
+    "BattlemapInstance.initiativeEntryId",
+    "BattlemapInstance.initiativeEntryCombatId",
+    "BattlemapInstance.initiativeEntryTokenId",
+    "BattlemapInstance.roll",
+    "BattlemapInstance.initiative",
+    "BattlemapInstance.dexScore",
+    "BattlemapInstance.tiebreak",
+    "BattlemapInstance.rank"
+  ],
+  "payload": {
+    "token": "uuid — the token of the instance that joins its open combat; when absent, the command's target is the token. It joins once: a token already in the combat is refused, and so is an instance with no open combat",
+    "initiative": "integer — a PC's initiative, the figure the DM entered, required for a PC and refused for an NPC: an NPC rolls a d20 and adds its DEX modifier (Initiative@1). The newcomer is ranked by initiative, then DEX, then a random draw, after every participant ranked before it; the participants it lands ahead of each move down one rank, a relative step on their own entries"
+  },
+  "mode": "relative",
+  "invariants": [
+    "instance-isolated",
+    "npc-initiative-bounds",
+    "initiative-tiebreak",
+    "hidden-keeps-rank"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

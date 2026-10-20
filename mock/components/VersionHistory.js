@@ -831,6 +831,50 @@
       }
       return void 0;
     },
+    // table.addParticipant: one token joins the instance's open combat, `payload.token` on the instance `targetId`
+    // — or the token itself as the target, or no target. An NPC rolls d20 + its DEX modifier and is given no
+    // initiative; a PC's initiative is the DM's figure, `payload.initiative`, a whole number (`npc-initiative-bounds`).
+    // It goes after every participant ranked before it or tied with it — initiative, then DEX, then a draw
+    // (`initiative-tiebreak`) — the turn and the round untouched. No open combat, a token already in it, or a
+    // character that is no PC or NPC is refused. Ids are compared in any case, as the server does.
+    "table.addParticipant": async (server2, { payload, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const named = payload.token !== void 0;
+      const tokenId = named ? payload.token : targetId;
+      if (typeof tokenId !== "string") return ["not-found"];
+      const instance = named && targetId && !same2(targetId, tokenId) ? targetId : null;
+      const fixture = await server2.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server2.instances ? server2.instances.values() : []];
+      const inst = instances.find((i) => (instance == null || same2(i.id, instance)) && i.state.tokens.some((t) => same2(t.id, tokenId)));
+      if (!inst) return ["not-found"];
+      const token = inst.state.tokens.find((t) => same2(t.id, tokenId));
+      const combat = inst.state.combat;
+      if (!combat) return ["one-active-combat"];
+      if (combat.order.some((o) => same2(o.id, token.id))) return ["instance-isolated"];
+      const characters = await server2.load("campaign.listCharacters");
+      const dexOf = (c) => c && c.stats && Number.isInteger(c.stats.DEX) ? c.stats.DEX : null;
+      const sheetOf = (t) => t && characters.find((c) => same2(c.id, t.char));
+      const character = sheetOf(token);
+      if (!character || !["pj", "pnj"].includes(character.kind)) return ["not-found"];
+      const dex = dexOf(character);
+      let init;
+      if (character.kind === "pj") {
+        if (!Number.isInteger(payload.initiative)) return ["npc-initiative-bounds"];
+        init = payload.initiative;
+      } else {
+        if (payload.initiative != null || dex == null) return ["npc-initiative-bounds"];
+        init = 1 + Math.floor(Math.random() * 20) + Math.floor((dex - 10) / 2);
+      }
+      const draw = 1 + Math.floor(Math.random() * 100);
+      const dexScoreOf = (o) => o.dexScore !== void 0 ? o.dexScore : dexOf(sheetOf(inst.state.tokens.find((t) => same2(t.id, o.id))));
+      const before = (o) => o.init > init || o.init === init && ((dexScoreOf(o) ?? -Infinity) > (dex ?? -Infinity) || dexScoreOf(o) === dex && (o.draw ?? 0) >= draw);
+      let at = 0;
+      combat.order.forEach((o, i) => {
+        if (before(o)) at = i + 1;
+      });
+      combat.order.splice(at, 0, { id: token.id, init, dex: dex == null ? 0 : Math.floor((dex - 10) / 2), dexScore: dex, draw });
+      return void 0;
+    },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
     // battlemap or an illustration added to the library, the path the DM chose
     // recorded and no file copied. A battlemap arrives with its default grid

@@ -47,7 +47,11 @@
 //! nullified). A reorder of a combat's initiative (`table.reorderInitiative`)
 //! writes each entry's partition with its rank alone: [`ProjectingStore`]
 //! writes `initiative_entry.rank`, and no other column ([`ranks`]).
-//! A participant taken out of the combat
+//! A participant joining a running combat (`table.addParticipant`) writes its
+//! entry's partition, `BattlemapInstance/<its id>`, and each partition of an
+//! entry it lands ahead of with a step of its rank: [`ProjectingStore`]
+//! inserts the entry's `initiative_entry` row, or writes the rank of one the
+//! table holds ([`combats`]). A participant taken out of the combat
 //! (`table.removeParticipant`) tombstones its entry's partition:
 //! [`ProjectingStore`] deletes its `initiative_entry` row, its token stays,
 //! and a turn on it is nullified ([`combats`]). A reset of an instance
@@ -698,6 +702,18 @@ impl ProjectingStore {
     ) -> std::result::Result<place_tokens::Roster, tokio_postgres::Error> {
         let client = self.inner.client().lock().await;
         tokens::roster(&client, instance, character).await
+    }
+
+    /// What the tables and the engine's rows hold of the combats of the
+    /// instance, and of the character, a participant joining names
+    /// (`table.addParticipant`).
+    pub async fn seating(
+        &self,
+        instance: &str,
+        character: &str,
+    ) -> std::result::Result<combats::Tabled, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        combats::seating(&client, instance, character).await
     }
 
     /// The combats the engine holds of the instance a « Suivant » or a
