@@ -427,6 +427,25 @@ fn naming(name: &str) -> String {
     format!("{server}/{name}{query}")
 }
 
+/// The SQL of an element of `campaign` with its first version
+/// (`every-change-versioned`).
+fn element(id: &str, campaign: &str, kind: &str, name: &str) -> String {
+    format!(
+        "INSERT INTO entity (id, campaign_id, type, name) VALUES ('{id}', '{campaign}', '{kind}', '{name}'); \
+         INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff) \
+         VALUES ('{id}', 1, 'dm', '{{}}', '[]');"
+    )
+}
+
+/// The SQL of the grid a battlemap has from its upload
+/// (`grid-only-for-battlemap`).
+fn grid(media: &str) -> String {
+    format!(
+        "INSERT INTO battlemap_grid (media_id, hex_size_px, offset_x, offset_y, orientation, color, opacity) \
+         VALUES ('{media}', 70, 12.5, 0, 'pointe', '#202020', 0.5);"
+    )
+}
+
 /// A database of its own, migrated, holding what the fixtures wrote:
 /// Valombre and Brume, Valombre's sessions 3 and 4 and their scenes — the
 /// arrival linking the tower already — the places, the PNJ, the media.
@@ -456,11 +475,10 @@ impl Scratch {
                 "INSERT INTO campaign (id, name, kind) VALUES
                      ('{VALOMBRE}', 'Les Cendres de Valombre', 'campagne'),
                      ('{BRUME}', 'Les Brumes de Corbière', 'campagne');
-                 INSERT INTO entity (id, campaign_id, type, name) VALUES
-                     ('{TAVERNE}', '{VALOMBRE}', 'lieu', 'La Taverne du Sanglier'),
-                     ('{TOUR}', '{VALOMBRE}', 'lieu', 'La Tour d''Ébène'),
-                     ('{VESNA}', '{VALOMBRE}', 'pnj', 'Vesna'),
-                     ('{PHARE}', '{BRUME}', 'lieu', 'Le Phare');
+                 {}
+                 {}
+                 {}
+                 {}
                  INSERT INTO session (id, campaign_id, position, title, status, microphone_on) VALUES
                      ('{SEANCE_3}', '{VALOMBRE}', 3, 'Le prologue', 'closed', false),
                      ('{SEANCE_4}', '{VALOMBRE}', 4, 'La foire', 'prep', false);
@@ -474,7 +492,15 @@ impl Scratch {
                      ('{CARTE}', '{VALOMBRE}', 'battlemap', 'La salle', 'salle.png', 1400, 1000, '{TAVERNE}'),
                      ('{ENSEIGNE}', '{VALOMBRE}', 'illustration', 'L''enseigne', 'enseigne.png', 1400, 1000, '{TAVERNE}'),
                      ('{DONJON}', '{VALOMBRE}', 'battlemap', 'Le donjon', 'donjon.png', 1400, 1000, '{TOUR}'),
-                     ('{BROUILLARD}', '{VALOMBRE}', 'illustration', 'Le brouillard', 'brouillard.png', 1400, 1000, NULL);"
+                     ('{BROUILLARD}', '{VALOMBRE}', 'illustration', 'Le brouillard', 'brouillard.png', 1400, 1000, NULL);
+                 {}
+                 {}",
+                element(TAVERNE, VALOMBRE, "lieu", "La Taverne du Sanglier"),
+                element(TOUR, VALOMBRE, "lieu", "La Tour d''Ébène"),
+                element(VESNA, VALOMBRE, "pnj", "Vesna"),
+                element(PHARE, BRUME, "lieu", "Le Phare"),
+                grid(CARTE),
+                grid(DONJON),
             ))
             .await
             .expect("the fixtures");
