@@ -558,7 +558,13 @@ async fn a_reorder_sent_again_under_its_key_is_the_engine_s_to_replay() {
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{first}");
-    let (status, again) = sent(&app, "table.reorderInitiative@1", payload, Some("k")).await;
+    let (status, again) = sent(
+        &app,
+        "table.reorderInitiative@1",
+        payload.clone(),
+        Some("k"),
+    )
+    .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{again}");
     assert_eq!(again["commandId"], first["commandId"]);
     assert_eq!(applied(&engine).await, 4);
@@ -566,6 +572,17 @@ async fn a_reorder_sent_again_under_its_key_is_the_engine_s_to_replay() {
         s.engine_ranks().await,
         [json!(2), json!(1), json!(3), json!(4)]
     );
+    // Bandit 3 leaves the map: sent again under its key, the reorder is still
+    // the one the engine holds, replayed as it was — not judged anew against
+    // the three left, which would refuse it.
+    let bandit_3 = s.token("Bandit 3").await;
+    let (status, body) = command(&app, "table.removeToken@1", json!({ "token": bandit_3 })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(applied(&engine).await, 1);
+    let (status, late) = sent(&app, "table.reorderInitiative@1", payload, Some("k")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{late}");
+    assert_eq!(late["commandId"], first["commandId"]);
+    assert_eq!(applied(&engine).await, 0);
     s.drop().await;
 }
 
