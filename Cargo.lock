@@ -261,9 +261,22 @@ dependencies = [
  "async-trait",
  "axum",
  "data",
+ "export-campaign",
+ "get-campaign",
+ "get-entity",
  "get-settings",
+ "getrandom 0.4.3",
  "harness-dataguard",
+ "list-campaigns",
+ "list-characters",
+ "list-entity-versions",
+ "list-events",
+ "list-places",
+ "list-players",
+ "platform-conformance",
  "ports-llm",
+ "restore-entity-version",
+ "save-entity",
  "save-settings",
  "serde",
  "serde_json",
@@ -311,6 +324,13 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "export-campaign"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -383,6 +403,21 @@ dependencies = [
 
 [[package]]
 name = "get-battlemap"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-campaign"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "get-entity"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
@@ -761,7 +796,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-campaigns"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-characters"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-entity-versions"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "list-events"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "list-media"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-places"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-players"
 version = "0.1.0"
 dependencies = [
  "serde_json",
@@ -949,6 +1027,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1166,6 +1245,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "restore-entity-version"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1282,6 +1369,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "save-entity"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1403,7 +1499,14 @@ dependencies = [
  "thiserror",
  "tokio",
  "tower",
+ "uuid",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -1789,6 +1892,15 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+
+[[package]]
+name = "uuid"
+version = "1.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
+dependencies = [
+ "sha1_smol",
+]
 
 [[package]]
 name = "walkdir"

@@ -107,7 +107,11 @@ async fn the_migration_replays_as_a_no_op() {
     let applied = data::migrate(&mut s.client, std::path::Path::new(dir))
         .await
         .expect("replayed by the Data layer");
-    assert_eq!(applied, ["0001_ai_settings.sql"]);
+    // Every file of the folder is new to the applier; this one among them.
+    assert!(
+        applied.iter().any(|file| file == "0001_ai_settings.sql"),
+        "{applied:?}"
+    );
     assert_eq!(s.snapshot().await, first);
     s.drop().await;
 }

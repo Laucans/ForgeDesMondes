@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "746573bb695401a7"
+      "builtFrom": "69feb5136fd0e919"
     },
     {
       "name": "CampaignOverview",
@@ -145,7 +145,11 @@
       "actions": [
         "campaign.exportCampaign"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
+      },
+      "source": "apps/campaign/campaign-overview",
+      "builtFrom": "91e3e872a66acee7"
     },
     {
       "name": "SessionList",
@@ -254,7 +258,7 @@
     {
       "name": "VersionHistory",
       "system": "campaign",
-      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour en arrière",
+      "description": "Le bouton « Mis à jour » d’une fiche modifiée par l’IA, son diff champ par champ et l’historique des versions avec retour à une version antérieure",
       "fragment": "components/VersionHistory.html",
       "fixtures": [
         "fixtures/campaign.listEntityVersions.json"
@@ -268,7 +272,9 @@
       "props": {
         "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse",
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
-      }
+      },
+      "source": "apps/campaign/version-history",
+      "builtFrom": "54432cd7a06d1f7b"
     },
     {
       "name": "PreviousSummary",
@@ -409,7 +415,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "c2c57e006228e2a6"
+      "builtFrom": "9d5a22909649a5b4"
     },
     {
       "name": "SoundLibrary",
