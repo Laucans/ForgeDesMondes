@@ -1,0 +1,10 @@
+[package]
+name = "reorder-initiative"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.reorderInitiative: the ranks of every participant of a battlemap instance's open combat rewritten in the order the DM gives, 1 to n without gap — each entry's rank alone, on its own BattlemapInstance partition; no participant added or removed, the turn unmoved."
+publish = false
+
+[dependencies]
+serde_json = "1"
