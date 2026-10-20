@@ -18,6 +18,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use dataguard_server::{Engine, Planted, planted, router};
 use harness_dataguard::command::State;
+use harness_dataguard::manifest::DataCapability;
 use serde_json::{Value, json};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
@@ -31,6 +32,8 @@ const CARTE: &str = "6d000000-0000-4000-8000-000000000001";
 const SEANCE: &str = "5e000000-0000-4000-8000-000000000001";
 const ARRIVEE: &str = "5c000000-0000-4000-8000-000000000001";
 const BAGARRE: &str = "5c000000-0000-4000-8000-000000000002";
+/// A scene with no instance yet.
+const FUITE: &str = "5c000000-0000-4000-8000-000000000003";
 const INSTANCE: &str = "b1a00000-0000-4000-8000-000000000001";
 /// The instance of another scene, of the same battlemap.
 const AUTRE_INSTANCE: &str = "b1a00000-0000-4000-8000-000000000002";
@@ -127,7 +130,8 @@ impl Scratch {
                  INSERT INTO session (id, campaign_id, position, title, status, microphone_on)
                  VALUES ('{SEANCE}', '{VALOMBRE}', 1, 'Le Sanglier', 'live', true);
                  INSERT INTO scene (id, session_id, position, title) VALUES
-                     ('{ARRIVEE}', '{SEANCE}', 1, 'Arrivée'), ('{BAGARRE}', '{SEANCE}', 2, 'Bagarre');
+                     ('{ARRIVEE}', '{SEANCE}', 1, 'Arrivée'), ('{BAGARRE}', '{SEANCE}', 2, 'Bagarre'),
+                     ('{FUITE}', '{SEANCE}', 3, 'Fuite');
                  INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
                      ('{INSTANCE}', '{CARTE}', '{SEANCE}', '{ARRIVEE}'),
                      ('{AUTRE_INSTANCE}', '{CARTE}', '{SEANCE}', '{BAGARRE}');
@@ -156,6 +160,48 @@ impl Scratch {
             Arc::new(ports_llm::fake::FakeLlm::new()),
         );
         (engine, app)
+    }
+
+    /// [`Scratch::serve`], with the test-only DataCapability `test.addEntry`
+    /// writing an initiative entry whatever its combat.
+    async fn serve_writing_entries(&self) -> (Arc<Engine>, Router) {
+        let Planted { engine, rows } = planted(&self.url)
+            .await
+            .expect("the engine over PostgreSQL");
+        let manifest = json!({
+            "dataCapability": "test.addEntry",
+            "owner": "dataguard",
+            "version": 1,
+            "effect": "insert",
+            "target": { "aggregate": "BattlemapInstance", "id": "$initiativeEntryId" },
+            "mode": "overwrite",
+            "callableBy": ["*"],
+        });
+        let engine = Arc::new(engine.with_data_capability(
+            DataCapability::parse(&manifest.to_string()).expect("contract F"),
+        ));
+        let app = router(
+            engine.clone(),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+        );
+        (engine, app)
+    }
+
+    /// The partitions the reset's deletions are queued on.
+    async fn deleted(&self) -> Vec<String> {
+        self.client
+            .query(
+                "SELECT partition FROM dataguard_queue
+                 WHERE split_part(data_capability, '@', 1) = 'table.resetBattlemap'
+                 ORDER BY partition",
+                &[],
+            )
+            .await
+            .expect("the queue")
+            .iter()
+            .map(|row| row.get(0))
+            .collect()
     }
 
     /// One JSON text per row of `sql`, whose one column is that text.
@@ -651,5 +697,83 @@ async fn while_its_deletion_is_queued_a_combat_is_none_to_end_and_a_new_one_may_
     assert_eq!(applied(&engine).await, 6 + 5);
     let [tokens, combats, entries] = s.map(INSTANCE).await;
     assert_eq!((tokens.len(), combats.len(), entries.len()), (2, 1, 2));
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn an_instance_whose_creation_is_queued_is_one_with_nothing_to_wipe_and_no_other_insert_makes_one()
+ {
+    let s = Scratch::new("created").await;
+    let (engine, app) = s.serve().await;
+    // A drop queued on the first instance: an insert, of another partition.
+    dropped(&app, INSTANCE, 1).await;
+    let (status, body) = command(
+        &app,
+        "table.createBattlemapInstance@1",
+        INSTANCE,
+        json!({ "session": SEANCE, "scene": FUITE, "battlemap": CARTE }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let created = body["partition"]
+        .as_str()
+        .and_then(|partition| partition.strip_prefix("BattlemapInstance/"))
+        .expect("the instance's partition")
+        .to_string();
+    // Queued, not applied: the tables hold it not, the queue does.
+    let (status, body) = reset(&app, &created).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(
+        body,
+        json!({ "error": "la carte n'a rien à réinitialiser" })
+    );
+    let (status, body) = reset(&app, "b1a00000-0000-4000-8000-0000000000ff").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    // The drop's 2 tokens and the creation, and no deletion.
+    assert_eq!(applied(&engine).await, 3);
+    assert_eq!(s.deleted().await, Vec::<String>::new());
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn an_entry_queued_of_a_token_of_the_instance_is_wiped_whatever_its_combat() {
+    let s = Scratch::new("stray").await;
+    let (engine, app) = s.serve_writing_entries().await;
+    dropped(&app, INSTANCE, 1).await;
+    assert_eq!(applied(&engine).await, 2);
+    let token = s
+        .client
+        .query_one("SELECT id::text FROM token WHERE name = 'Bandit 1'", &[])
+        .await
+        .expect("the token")
+        .get::<_, String>(0);
+    // An entry of the Bandit's in a combat no table nor queue holds, queued.
+    let stray = "1e000000-0000-4000-8000-0000000000aa";
+    let (status, body) = command(
+        &app,
+        "test.addEntry",
+        INSTANCE,
+        json!({
+            "initiativeEntryId": stray,
+            "initiativeEntryCombatId": "c0000000-0000-4000-8000-0000000000ff",
+            "initiativeEntryTokenId": token,
+            "roll": 10,
+            "initiative": 11,
+            "dexScore": 12,
+            "tiebreak": 0.5,
+            "rank": 1,
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let (status, body) = reset(&app, INSTANCE).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(
+        s.deleted()
+            .await
+            .contains(&format!("BattlemapInstance/{stray}")),
+        "{:?}",
+        s.deleted().await
+    );
     s.drop().await;
 }
