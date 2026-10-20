@@ -26,7 +26,7 @@ use serde_json::Value;
 
 use crate::aliases::Aliases;
 use crate::history::History;
-use crate::projection::ProjectingStore;
+use crate::projection::{Placing, ProjectingStore};
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -150,7 +150,8 @@ impl Store for Versioning {
 }
 
 /// The rows the engine holds, as a command about to be submitted sees them,
-/// and — over a database — what its tables hold of a campaign or a place.
+/// and — over a database — what its tables hold of a campaign, a media and
+/// its place.
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
@@ -257,6 +258,49 @@ impl Rows {
             .by_idempotency_key(id, key)
             .await
             .map(|command| command.is_some())
+    }
+
+    /// The media `media` names and the element `place` names, as a change of
+    /// place (`media.setMediaPlace`) is judged against them: over a database
+    /// the tables' rows, which hold the fixtures' and judge the place again,
+    /// under the engine's as the commands queued on them will leave them — a
+    /// lieu or a media created a moment ago is there, and a field the engine
+    /// holds wins. `None` when there is no such media, and the place `None`
+    /// when there is no such element — or none is named.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn placed(&self, media: &str, place: Option<&str>) -> Result<Option<Placing>> {
+        let held = |row: BTreeMap<String, Value>| Some(row).filter(|row| !row.is_empty());
+        let engine_media = held(self.projected(&format!("Media/{media}")).await?);
+        let engine_place = match place {
+            Some(place) => held(self.projected(&format!("{ENTITY}{place}")).await?),
+            None => None,
+        };
+        let Some(tables) = &self.tables else {
+            return Ok(engine_media.map(|media| (media, engine_place)));
+        };
+        let found = tables.placing(media, place).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "media not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        let (table_media, table_place) = found.unzip();
+        let over = |under: Option<BTreeMap<String, Value>>,
+                    row: Option<BTreeMap<String, Value>>| {
+            match (under, row) {
+                (Some(mut under), Some(row)) => {
+                    under.extend(row);
+                    Some(under)
+                }
+                (under, row) => under.or(row),
+            }
+        };
+        Ok(over(table_media, engine_media)
+            .map(|media| (media, over(table_place.flatten(), engine_place))))
     }
 
     /// The versions of `element` a restoration can name, oldest first.

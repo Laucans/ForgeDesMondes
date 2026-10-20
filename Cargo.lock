@@ -281,6 +281,7 @@ dependencies = [
  "save-settings",
  "serde",
  "serde_json",
+ "set-media-place",
  "test-connection",
  "thiserror",
  "tokio",
@@ -1509,6 +1510,13 @@ dependencies = [
  "tokio",
  "tower",
  "uuid",
+]
+
+[[package]]
+name = "set-media-place"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

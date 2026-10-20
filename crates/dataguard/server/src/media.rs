@@ -7,7 +7,9 @@
 //!
 //! What a media's own row can say is judged here. `media-place-is-lieu`
 //! reads the place, an element of the Entity aggregate the engine does not
-//! hold beside the media: its table's constraint trigger alone judges it.
+//! hold beside the media: a change of place (`media.setMediaPlace`) is judged
+//! against it before it is queued (`set_media_place::prepare`), and its
+//! table's constraint trigger judges it again.
 
 use std::collections::BTreeMap;
 

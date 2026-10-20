@@ -525,6 +525,21 @@
       battlemap.grid = { size, ox, oy, orient, color, opacity: Math.round(opacity * 100) };
       return void 0;
     },
+    // media.setMediaPlace (crates/media/data-capabilities/set-media-place): a
+    // media — battlemap or illustration — attached to one of the campaign's
+    // places, or detached with `place: null`, and nothing else of it changes. A
+    // place that is no lieu the fixtures list is refused by
+    // `media-place-is-lieu`; an unknown media is `not-found`.
+    "media.setMediaPlace": async (server, { payload: payload2, targetId }) => {
+      const id = targetId || payload2.media;
+      const listed = [await server.load("media"), await server.load("media.listMedia")];
+      const found = listed.flatMap((media) => media.battlemaps.concat(media.illustrations)).filter((m) => m.id === id);
+      if (!found.length) return ["not-found"];
+      const place = payload2.place ?? null;
+      if (place !== null && !(await server.load("campaign.listPlaces")).some((p) => p.id === place)) return ["media-place-is-lieu"];
+      for (const medium of found) medium.place = place;
+      return void 0;
+    },
     // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
     // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
     // version after it are undone, each field back to what it was. Either way the restoration is a new version

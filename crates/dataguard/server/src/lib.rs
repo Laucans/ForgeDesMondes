@@ -35,7 +35,9 @@
 //! a place that is no lieu of the media's campaign is refused before it is
 //! queued. A save of a battlemap's grid (`media.saveGridSettings`) is judged
 //! against the media's row as its tables hold it — its kind first — and
-//! reaches `battlemap_grid`.
+//! reaches `battlemap_grid`. A change of a media's place
+//! (`media.setMediaPlace`) is judged against the media and the place as
+//! [`Rows`] reads them — `media-place-is-lieu` first — before it is queued.
 
 use std::sync::Arc;
 
@@ -356,12 +358,18 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// battlemap with its default grid; its place is read first
 /// ([`Rows::place`]), and an upload whose place is no lieu of its campaign
 /// is refused, 422, naming `media-place-is-lieu`, as is one the tables could
-/// never hold — neither is queued. Its replay, under an idempotency key
-/// already submitted, is answered as the upload was queued. A save of a
-/// battlemap's grid (`save_grid_settings::prepare`) is made the six fields it
-/// writes on the battlemap's partition: one naming no battlemap, carrying
-/// another field, lacking one, or holding a value no grid can is refused,
-/// 422, and not queued.
+/// never hold — neither is queued. A change of a media's place
+/// (`set_media_place::prepare`) is made the `placeId` it writes on the
+/// media's partition, judged against the media and the place as
+/// [`Rows::placed`] reads them: one of a media there is not — or named by
+/// anything but a uuid — is refused, 404; one naming a place that is no lieu
+/// of the media's campaign (`media-place-is-lieu`), or no media, or a
+/// malformed place, 422 — neither is queued. The replay of either, under an
+/// idempotency key already submitted, is answered as it was queued. A save
+/// of a battlemap's grid (`save_grid_settings::prepare`) is made the six
+/// fields it writes on the battlemap's partition: one naming no battlemap,
+/// carrying another field, lacking one, or holding a value no grid can is
+/// refused, 422, and not queued.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -482,6 +490,50 @@ async fn submit<L: Llm>(
                     status,
                     Json(serde_json::json!({ "error": refusal.to_string() })),
                 ));
+            }
+        }
+    } else if set_media_place::names(&body.data_capability) {
+        // A replay is the engine's to answer, as the change was queued: its
+        // place, since retyped, is not judged again.
+        let replayed = match &body.idempotency_key {
+            Some(key) => match served.rows.replayed(&body.data_capability, key).await {
+                Ok(replayed) => replayed,
+                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+            },
+            None => false,
+        };
+        if !replayed {
+            // A media there is not is not found; anything else is unprocessable.
+            let refused = |refusal: set_media_place::Refusal| {
+                let status = if refusal == set_media_place::Refusal::UnknownMedia {
+                    axum::http::StatusCode::NOT_FOUND
+                } else {
+                    axum::http::StatusCode::UNPROCESSABLE_ENTITY
+                };
+                Err((
+                    status,
+                    Json(serde_json::json!({ "error": refusal.to_string() })),
+                ))
+            };
+            let asked = match set_media_place::asked(&body.payload, body.target_id.as_deref()) {
+                Ok(asked) => asked,
+                Err(refusal) => return refused(refusal),
+            };
+            let found = match served
+                .rows
+                .placed(&asked.media, asked.place.as_deref())
+                .await
+            {
+                Ok(found) => found,
+                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
+            };
+            let (media, place) = found.map_or((None, None), |(media, place)| (Some(media), place));
+            match set_media_place::prepare(&asked, media.as_ref(), place.as_ref()) {
+                Ok(prepared) => {
+                    body.payload = prepared.payload;
+                    body.target_id = Some(prepared.target_id);
+                }
+                Err(refusal) => return refused(refusal),
             }
         }
     } else if save_grid_settings::names(&body.data_capability) {
