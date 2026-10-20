@@ -24,12 +24,14 @@
 //! partition, `Sound/<its id>`, whole, and an edit (`soundbox.updateSound`)
 //! the fields it changes on it: [`ProjectingStore`] adds the sound's `sound`
 //! row, or writes on the one the table holds the name, the file, the tags and
-//! the volume the engine's row holds, and no other column.
-//! A stop of « Tout arrêter » (`soundbox.stopAll`) writes a playback's
-//! partition, `SoundPlayback/<its id>`, with its stop time alone:
-//! [`ProjectingStore`] writes `sound_playback.stopped_at` when the row has
-//! none ([`stops`]). A campaign's row is its table's over the engine's, and
-//! an archive is read from the tables ([`ProjectingStore::archived`]). Every
+//! the volume the engine's row holds, and no other column. A playback of a
+//! sound (`soundbox.playSound`) writes its partition, `SoundPlayback/<its
+//! id>`: [`ProjectingStore`] inserts its `sound_playback` row
+//! ([`playbacks`]). A stop of « Tout arrêter » (`soundbox.stopAll`) writes
+//! the same partition with its stop time alone: [`ProjectingStore`] writes
+//! `sound_playback.stopped_at` when the row has none ([`stops`]). A
+//! campaign's row is its table's over the engine's, and an archive is read
+//! from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
@@ -63,6 +65,7 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
+use crate::playbacks;
 use crate::stops;
 use crate::versioning::{ENTITY, element_of};
 
@@ -358,6 +361,7 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        playbacks::repair(&*self.inner.client().lock().await).await;
         self.repair_master_volumes(None).await;
         self.repair_sounds().await;
         self.repair_stops(None).await;
@@ -432,6 +436,17 @@ impl ProjectingStore {
                 db.and_then(|db| db.constraint()).unwrap_or_default()
             );
         }
+    }
+
+    /// What the tables hold of the sound a playback names, and of the
+    /// session it names if any (`soundbox.playSound`).
+    pub async fn stage(
+        &self,
+        sound: &str,
+        session: Option<&str>,
+    ) -> std::result::Result<play_sound::Stage, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        playbacks::stage(&client, sound, session).await
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -864,7 +879,9 @@ impl Store for ProjectingStore {
             self.record_test(&write.partition, provider, false).await;
         } else if element(write) {
             self.repair_elements().await;
-        } else if !write.tombstone && write.partition.starts_with(stops::PLAYBACK) {
+        } else if !write.tombstone && playbacks::of_aggregate(&write.partition) {
+            // A start inserts the row; a stop writes its time on it.
+            playbacks::project(&*self.inner.client().lock().await, &write.partition).await;
             self.repair_stops(Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing, and sets no volume:
