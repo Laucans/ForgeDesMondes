@@ -17,14 +17,16 @@
 //! element's campaign again. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. A token dropped on a battlemap instance (`table.placeTokens`)
+//! column. A scene's battlemap instance (`table.createBattlemapInstance`)
 //! writes its partition, `BattlemapInstance/<its id>`: [`ProjectingStore`]
-//! inserts its `token` row ([`tokens`]). A rename of a token
-//! (`table.renameToken`) writes the same partition with its name alone:
-//! [`ProjectingStore`] writes `token.name`, and no other column. A campaign's
-//! row is its table's over the engine's, and an archive is read from the
-//! tables ([`ProjectingStore::archived`]). Every other method is the inner
-//! store's.
+//! inserts its `battlemap_instance` row ([`instances`]). A token dropped on
+//! a battlemap instance (`table.placeTokens`) writes its partition,
+//! `BattlemapInstance/<its id>`: [`ProjectingStore`] inserts its `token` row
+//! ([`tokens`]). A rename of a token (`table.renameToken`) writes the same
+//! partition with its name alone: [`ProjectingStore`] writes `token.name`, and
+//! no other column. A campaign's row is its table's over the engine's, and an
+//! archive is read from the tables ([`ProjectingStore::archived`]). Every
+//! other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -56,6 +58,7 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
+use crate::instances;
 use crate::tokens;
 use crate::versioning::{ENTITY, element_of};
 
@@ -315,6 +318,7 @@ impl ProjectingStore {
         self.repair_settings().await;
         self.repair_elements().await;
         self.repair_exports(None).await;
+        instances::repair(&*self.inner.client().lock().await).await;
         tokens::repair(&*self.inner.client().lock().await).await;
         self.repair_names(None).await;
     }
@@ -333,6 +337,18 @@ impl ProjectingStore {
                 e.as_db_error().map_or("-", |db| db.code().code())
             );
         }
+    }
+
+    /// What the tables hold of the session, the scene and the battlemap a
+    /// creation of an instance names (`table.createBattlemapInstance`).
+    pub async fn placement(
+        &self,
+        session: &str,
+        scene: &str,
+        battlemap: &str,
+    ) -> std::result::Result<create_battlemap_instance::Placement, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        instances::placement(&client, session, scene, battlemap).await
     }
 
     /// What the tables hold of the instance and the character a drop of
@@ -755,9 +771,15 @@ impl Store for ProjectingStore {
         } else if element(write) {
             self.repair_elements().await;
         } else if !write.tombstone && tokens::of_aggregate(&write.partition) {
-            // A drop inserts the token's row; a rename, or any later write,
-            // makes its name follow the engine's.
-            tokens::project(&*self.inner.client().lock().await, &write.partition).await;
+            // An instance and its tokens share the aggregate's partitions:
+            // each projection inserts only the row whose id the partition names.
+            {
+                let client = self.inner.client().lock().await;
+                instances::project(&client, &write.partition).await;
+                tokens::project(&client, &write.partition).await;
+            }
+            // A rename, or any later write, makes the token's name follow the
+            // engine's.
             self.repair_names(Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
