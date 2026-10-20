@@ -1,0 +1,23 @@
+# fields: imported_note.id, imported_note.campaignId, imported_note.rawText, imported_note.createdAt, imported_note.analyzedAt, note_proposal.noteId, note_proposal.type, note_proposal.name, note_proposal.excerpt, note_proposal.existingEntityId, note_proposal.checked, note_proposal.createdEntityId
+# A campaign's imported notes, newest first, each with its length, how many
+# elements were proposed from it and how many became real ones; and, on the
+# latest analysed note when none of its proposals has been validated yet, those
+# proposals with the element each recognises, if any, and its checked state.
+query ListImportedNotes($campaign: ID!) {
+  importedNotes(campaign: $campaign) {
+    id
+    campaignId
+    rawText
+    createdAt
+    analyzedAt
+    proposals {
+      id
+      type
+      name
+      excerpt
+      existingEntityId
+      checked
+      createdEntityId
+    }
+  }
+}

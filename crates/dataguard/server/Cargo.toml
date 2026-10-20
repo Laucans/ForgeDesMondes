@@ -40,6 +40,7 @@ list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
 list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
 list-events = { path = "../../campaign/capabilities/list-events" }
+list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
 # --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
