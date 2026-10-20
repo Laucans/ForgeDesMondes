@@ -144,9 +144,9 @@ impl Scratch {
     }
 }
 
-/// Submits the session `payload` describes as the DM, approver of their own
-/// campaign: its id, queued.
-async fn submit(app: &Router, payload: Value) -> String {
+/// Posts the session `payload` describes as the DM, approver of their own
+/// campaign: the status and the answer.
+async fn post(app: &Router, payload: Value) -> (StatusCode, Value) {
     let body = json!({
         "dataCapability": "session.createSession@1",
         "payload": payload,
@@ -157,11 +157,17 @@ async fn submit(app: &Router, payload: Value) -> String {
         .body(Body::from(body.to_string()))
         .expect("a request");
     let response = app.clone().oneshot(request).await.expect("an answer");
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("a body");
-    let answer: Value = serde_json::from_slice(&bytes).expect("JSON");
+    (status, serde_json::from_slice(&bytes).expect("JSON"))
+}
+
+/// Submits the session `payload` describes as the DM: its id, queued.
+async fn submit(app: &Router, payload: Value) -> String {
+    let (status, answer) = post(app, payload).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
     answer["partition"]
         .as_str()
         .and_then(|p| p.strip_prefix("Session/"))
@@ -284,5 +290,70 @@ async fn a_session_queued_before_a_restart_is_judged_and_placed_against_the_tabl
         ))
         .await;
     assert_eq!(sessions, [json!({ "position": 4, "elowen": 1 })]);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_restart_leaves_a_session_the_tables_hold_as_they_hold_it() {
+    let s = Scratch::new("reprojected").await;
+    let (engine, app) = s.serve().await;
+    let (id, result) = create(
+        &engine,
+        &app,
+        json!({ "campaign": VALOMBRE, "title": "La tour", "present": [ELOWEN] }),
+    )
+    .await;
+    assert_eq!(result.status, State::Applied, "{result:?}");
+    // Kael is ticked present by another path than the engine's.
+    s.client
+        .batch_execute(&format!(
+            "INSERT INTO session_present_character (session_id, character_id)
+             VALUES ('{id}', '{KAEL}')"
+        ))
+        .await
+        .expect("Kael present");
+    // The server starts again: the session is projected already.
+    drop(app);
+    let _ = s.serve().await;
+    let present = s
+        .rows(&format!(
+            "SELECT character_id::text FROM session_present_character
+             WHERE session_id = '{id}' ORDER BY character_id"
+        ))
+        .await;
+    assert_eq!(
+        present,
+        [
+            json!({ "character_id": ELOWEN }),
+            json!({ "character_id": KAEL })
+        ]
+    );
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_session_of_a_campaign_the_engine_removed_is_refused_404_and_not_queued() {
+    let s = Scratch::new("removed").await;
+    let (_, app) = s.serve().await;
+    // The engine removed Valombre: its row tombstoned, the tables' row kept.
+    s.client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned)
+             VALUES ('Campaign/{VALOMBRE}', true)"
+        ))
+        .await
+        .expect("Valombre removed");
+    drop(app);
+    let (engine, app) = s.serve().await;
+    let (status, answer) = post(
+        &app,
+        json!({ "campaign": VALOMBRE, "title": "Après la fin", "present": [] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
+    assert!(
+        engine.run_once().await.expect("the applier ran").is_empty(),
+        "nothing was queued"
+    );
     s.drop().await;
 }

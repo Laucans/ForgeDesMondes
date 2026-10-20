@@ -136,9 +136,9 @@ impl Session {
         Self { sessions }
     }
 
-    /// The PCs a command ticks present are each a PC of the session's
-    /// campaign: one of another campaign, an NPC, an id no element has is
-    /// not.
+    /// The PCs a command ticks present are a list, each a PC of the
+    /// session's campaign: one of another campaign, an NPC, an id no element
+    /// has is not, nor a lone id the tables would read as no one.
     fn present_are_pcs(&self, state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
         if !written(entry).any(|field| field == PRESENT) {
             return true;
@@ -146,7 +146,7 @@ impl Session {
         let present = match value(state, PRESENT) {
             Value::Null => Vec::new(),
             Value::Array(ids) => ids.iter().collect(),
-            one => vec![one],
+            _ => return false,
         };
         let campaign = value(state, CAMPAIGN).as_str();
         present.iter().all(|id| {
@@ -391,19 +391,21 @@ mod tests {
                 json!({ CAMPAIGN: VALOMBRE, STATUS: "prep", PRESENT: present }),
             )
         };
-        for present in [json!([]), json!([ELOWEN]), json!(ELOWEN.to_uppercase())] {
+        for present in [json!([]), json!([ELOWEN]), json!([ELOWEN.to_uppercase()])] {
             let entry = ticking(present.clone());
             assert!(
                 judge.violated("Session", &left(&entry), &entry).is_empty(),
                 "{present}"
             );
         }
-        // An NPC, a PC of another campaign, an id no element has.
+        // An NPC, a PC of another campaign, an id no element has, a lone id
+        // not in a list.
         for present in [
             json!([ELOWEN, MORLOX]),
             json!([VESNA]),
             json!(["elowen"]),
             json!([7]),
+            json!(ELOWEN),
         ] {
             let entry = ticking(present.clone());
             assert!(

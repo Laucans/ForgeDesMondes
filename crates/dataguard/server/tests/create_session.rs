@@ -22,6 +22,9 @@ use tower::ServiceExt;
 /// the product creates one yet.
 const CREATE_CAMPAIGN: &str = r#"{"dataCapability":"test.createCampaign","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 
+/// A campaign removed: its row tombstoned.
+const DELETE_CAMPAIGN: &str = r#"{"dataCapability":"test.deleteCampaign","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
+
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BRUME: &str = "c1000000-0000-4000-8000-000000000002";
 const ONESHOT: &str = "c1000000-0000-4000-8000-000000000003";
@@ -36,7 +39,9 @@ struct Served {
 async fn served() -> Served {
     let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
     let engine = Arc::new(
-        engine.with_data_capability(DataCapability::parse(CREATE_CAMPAIGN).expect("contract F")),
+        engine
+            .with_data_capability(DataCapability::parse(CREATE_CAMPAIGN).expect("contract F"))
+            .with_data_capability(DataCapability::parse(DELETE_CAMPAIGN).expect("contract F")),
     );
     let app = router(
         engine.clone(),
@@ -78,12 +83,23 @@ impl Served {
     /// A campaign of `kind`, written as the tables would hold it.
     async fn campaign(&self, id: &str, kind: &str) {
         let payload = json!({ "id": id, "name": format!("La campagne {id}"), "kind": kind });
+        self.campaign_write("test.createCampaign", payload).await;
+    }
+
+    /// The campaign `id`, removed.
+    async fn remove_campaign(&self, id: &str) {
+        self.campaign_write("test.deleteCampaign", json!({ "id": id }))
+            .await;
+    }
+
+    /// A write of `data_capability` on a campaign, by the DM, applied.
+    async fn campaign_write(&self, data_capability: &str, payload: Value) {
         let Value::Object(payload) = payload else {
             unreachable!()
         };
         self.engine
             .submit(Submission {
-                data_capability: "test.createCampaign".to_string(),
+                data_capability: data_capability.to_string(),
                 payload: payload.into_iter().collect(),
                 target_id: None,
                 based_on: None,
@@ -316,6 +332,22 @@ async fn a_session_of_a_campaign_the_product_does_not_hold_is_refused_404_and_no
     let served = served().await;
     served.campaign(VALOMBRE, "campagne").await;
     let (status, answer) = served.submit(titled(BRUME, "Ailleurs", &[]), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
+    assert_eq!(
+        answer["error"],
+        json!(create_session::Refusal::UnknownCampaign.to_string())
+    );
+    assert!(served.settle().await.is_empty(), "nothing was queued");
+}
+
+#[tokio::test]
+async fn a_session_of_a_campaign_removed_is_refused_404_and_not_queued() {
+    let served = served().await;
+    served.campaign(VALOMBRE, "campagne").await;
+    served.remove_campaign(VALOMBRE).await;
+    let (status, answer) = served
+        .submit(titled(VALOMBRE, "Après la fin", &[]), None)
+        .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
     assert_eq!(
         answer["error"],

@@ -76,9 +76,10 @@ impl Sessions {
         }
     }
 
-    /// The session or element `id` is no more.
+    /// The campaign, session or element `id` is no more.
     pub fn forget(&self, id: &str) {
         if let (Some(id), Ok(mut facts)) = (parsed(id), self.facts.write()) {
+            facts.kinds.remove(&id);
             facts.sessions.remove(&id);
             facts.elements.remove(&id);
         }
@@ -253,5 +254,9 @@ mod tests {
         // What another aggregate's row says is not a campaign's kind.
         sessions.record("Media", VALOMBRE, &row(json!({ "kind": "oneshot" })));
         assert!(!sessions.oneshot(VALOMBRE));
+        // A campaign removed is no longer known.
+        sessions.forget(BRUME);
+        assert!(!sessions.known(BRUME));
+        assert!(!sessions.oneshot(BRUME));
     }
 }

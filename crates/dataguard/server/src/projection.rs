@@ -323,7 +323,7 @@ const UNPROJECTED_SESSIONS: &str = "SELECT r.partition FROM dataguard_rows r
     WHERE r.partition LIKE 'Session/%' AND NOT r.tombstoned
         AND r.fields ->> 'sessionCampaignId' IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM session s
-            WHERE 'Session/' || s.id::text = lower(r.partition))
+            WHERE 'session/' || s.id::text = lower(r.partition))
     ORDER BY r.partition";
 
 /// What the tables hold of the campaign `$1` (in whatever case) — of every
@@ -333,7 +333,9 @@ const UNPROJECTED_SESSIONS: &str = "SELECT r.partition FROM dataguard_rows r
 /// whatever case.
 const CAMPAIGN_FACTS: &str =
     "SELECT 'Campaign', c.id::text, jsonb_build_object('kind', c.kind)::text
-        FROM campaign c WHERE $1::text IS NULL OR c.id::text = lower($1)
+        FROM campaign c WHERE ($1::text IS NULL OR c.id::text = lower($1))
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE lower(r.partition) = 'campaign/' || c.id::text AND r.tombstoned)
     UNION ALL
     SELECT 'Session', s.id::text, jsonb_build_object(
             'sessionCampaignId', s.campaign_id, 'sessionPosition', s.position)::text
