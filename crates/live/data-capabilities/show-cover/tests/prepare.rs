@@ -47,7 +47,16 @@ fn a_payload_naming_no_campaign_or_no_uuid_is_refused() {
         campaign(&wire(json!({ "campaign": null }))),
         Err(Refusal::NoCampaign)
     );
-    for not_an_id in [json!("valombre"), json!(42), json!([VALOMBRE])] {
+    // A uuid's digits too few, and a uuid's length with a letter no digit.
+    let short = &VALOMBRE[..8];
+    let lettered = VALOMBRE.replace('c', "z");
+    for not_an_id in [
+        json!("valombre"),
+        json!(short),
+        json!(lettered),
+        json!(42),
+        json!([VALOMBRE]),
+    ] {
         assert_eq!(
             campaign(&wire(json!({ "campaign": not_an_id }))),
             Err(Refusal::NotAnId),
