@@ -260,8 +260,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "data",
  "export-campaign",
+ "extract-from-notes",
  "get-campaign",
  "get-entity",
  "get-settings",
@@ -276,6 +278,7 @@ dependencies = [
  "list-players",
  "platform-conformance",
  "ports-llm",
+ "ports-speech-to-text",
  "restore-entity-version",
  "save-entity",
  "save-settings",
@@ -332,6 +335,19 @@ name = "export-campaign"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "extract-from-notes"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "platform-conformance",
+ "ports-llm",
+ "ports-speech-to-text",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1494,6 +1510,7 @@ dependencies = [
  "data",
  "dataguard-server",
  "ports-llm",
+ "ports-speech-to-text",
  "serde_json",
  "thiserror",
  "tokio",
