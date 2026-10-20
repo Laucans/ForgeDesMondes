@@ -1,0 +1,10 @@
+[package]
+name = "list-imported-notes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability campaign.listImportedNotes: a campaign's past note imports and the proposals of the latest analysed note awaiting validation — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"

@@ -1,0 +1,9 @@
+{
+  "capability": "campaign.listImportedNotes",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "The notes a campaign's DM has imported and what is waiting on them: the imports, newest first, each with its id, its date, its title (the first line of the raw note, which is always kept), its length in characters (chars), how many elements were proposed from it (proposed) and how many became real ones (created); and the proposals of the latest analysed note while none of them has been validated, each with its id, its type (pj, pnj, lieu or événement), its name, the excerpt of the note it comes from, the id of the element the campaign already has under that name (existing, else null; a duplicate is unchecked) and its checked state. A campaign with no import has empty lists; another campaign's notes never appear.",
+  "input": { "campaign": "string" },
+  "output": "{ imports: { id: string, date: string, title: string, chars: number, proposed: number, created: number }[], proposals: { id: string, type: 'pj' | 'pnj' | 'lieu' | 'événement', name: string, excerpt: string, existing: string | null, checked: boolean }[] }",
+  "reads": ["queries/list-imported-notes.graphql"]
+}

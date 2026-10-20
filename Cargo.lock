@@ -271,6 +271,7 @@ dependencies = [
  "list-characters",
  "list-entity-versions",
  "list-events",
+ "list-imported-notes",
  "list-places",
  "list-players",
  "platform-conformance",
@@ -811,6 +812,13 @@ dependencies = [
 
 [[package]]
 name = "list-events"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-imported-notes"
 version = "0.1.0"
 dependencies = [
  "serde_json",

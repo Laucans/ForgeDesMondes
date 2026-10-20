@@ -32,7 +32,7 @@ type Answer = fn(&Value, &str) -> Value;
 /// SQL of its persisted query, the one variable it binds to `$1` (none when
 /// the query takes no parameter), and its answer. A Capability that lands
 /// is one more row here and one dependency line in `Cargo.toml`.
-const CAMPAIGN: [(&str, &str, Option<&str>, Answer); 8] = [
+const CAMPAIGN: [(&str, &str, Option<&str>, Answer); 9] = [
     (
         list_campaigns::CAPABILITY,
         list_campaigns::SQL,
@@ -80,6 +80,12 @@ const CAMPAIGN: [(&str, &str, Option<&str>, Answer); 8] = [
         list_entity_versions::SQL,
         Some("entity"),
         |rows, entity| list_entity_versions::answer(rows, entity).unwrap_or(Value::Null),
+    ),
+    (
+        list_imported_notes::CAPABILITY,
+        list_imported_notes::SQL,
+        Some("campaign"),
+        list_imported_notes::answer,
     ),
 ];
 
@@ -283,6 +289,11 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(listed, serde_json::json!([]));
+        let notes = reads
+            .run("campaign.listImportedNotes", &variables)
+            .await
+            .expect("an answer");
+        assert_eq!(notes, serde_json::json!({ "imports": [], "proposals": [] }));
         for unknown in ["campaign.getCampaign", "campaign.getEntity"] {
             assert_eq!(
                 reads.run(unknown, &variables).await.expect("an answer"),
