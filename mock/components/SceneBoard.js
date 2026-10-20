@@ -651,6 +651,22 @@
       inst.state.combat = null;
       return void 0;
     },
+    // table.resetBattlemap: « Réinitialiser la carte » — the instance `targetId` — or `payload.instance` — loses
+    // every token, its combat and their initiative; the instance itself, its battlemap and every other instance
+    // stay as they are (`instance-isolated`). No such instance resets none, and one with no token and no combat
+    // has nothing to reset, as the server refuses both. Ids are compared in any case, as the server does.
+    "table.resetBattlemap": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const id = targetId || payload.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const inst = instances.find((i) => same2(i.id, id));
+      if (!inst) return ["not-found"];
+      if (!inst.state.tokens.length && !inst.state.combat) return ["state-persisted-reset"];
+      inst.state.tokens = [];
+      inst.state.combat = null;
+      return void 0;
+    },
     // table.setTokenCondition: the badge `payload.state` put on (`on: true`) or taken off (`on: false`) one token,
     // `payload.token` on the instance `targetId` — or the token itself as the target, or no target. The other
     // tokens of its character keep their badges (`instance-isolated`); a badge put on twice is there once, and one

@@ -50,7 +50,12 @@
 //! A participant taken out of the combat
 //! (`table.removeParticipant`) tombstones its entry's partition:
 //! [`ProjectingStore`] deletes its `initiative_entry` row, its token stays,
-//! and a turn on it is nullified ([`combats`]).
+//! and a turn on it is nullified ([`combats`]). A reset of an instance
+//! (`table.resetBattlemap`) tombstones each of its tokens, its combats and
+//! their entries: [`ProjectingStore`] deletes their rows — a combat's
+//! entries cascade with it — and stamps the instance's `reset_at` with the
+//! time its deletions carry ([`instances`]); the instance's row, its
+//! battlemap's and its grid's stay as they are.
 //! A campaign's row is its table's over the engine's, and an archive is read
 //! from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
@@ -376,6 +381,8 @@ impl ProjectingStore {
             instances::repair(&client).await;
             tokens::remove(&client, None).await;
             combats::leave(&client, None).await;
+            combats::wipe(&client, None).await;
+            instances::stamp(&client, None).await;
             tokens::repair(&client).await;
             tokens::show(&client, None).await;
             tokens::hit_points(&client, None).await;
@@ -473,6 +480,19 @@ impl ProjectingStore {
     ) -> std::result::Result<(start_combat::Lineup, Vec<String>), tokio_postgres::Error> {
         let client = self.inner.client().lock().await;
         combats::lineup(&client, instance, queued).await
+    }
+
+    /// What the tables hold of the instance a reset names
+    /// (`table.resetBattlemap`), with the tokens and the combats queued on
+    /// it: what it takes off.
+    pub async fn reset_map(
+        &self,
+        instance: &str,
+        tokens: &[String],
+        combats: &[String],
+    ) -> std::result::Result<reset_battlemap::Map, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        instances::map(&client, instance, tokens, combats).await
     }
 
     /// The combats of the instance an end names (`table.endCombat`) that
@@ -928,10 +948,13 @@ impl Store for ProjectingStore {
             self.repair_conditions(Some(&write.partition)).await;
         } else if tokens::of_aggregate(&write.partition) {
             // A tombstone: a token taken off the map leaves the table, a
-            // participant taken out of the combat its order.
+            // participant taken out of the combat its order, a combat wiped
+            // by a reset the instance — whose row the reset stamps.
             let client = self.inner.client().lock().await;
             tokens::remove(&client, Some(&write.partition)).await;
             combats::leave(&client, Some(&write.partition)).await;
+            combats::wipe(&client, Some(&write.partition)).await;
+            instances::stamp(&client, Some(&result.command_id)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;

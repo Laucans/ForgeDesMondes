@@ -60,3 +60,4 @@ remove-token = { path = "../../table/data-capabilities/remove-token" }
 reorder-initiative = { path = "../../table/data-capabilities/reorder-initiative" }
 end-combat = { path = "../../table/data-capabilities/end-combat" }
 remove-participant = { path = "../../table/data-capabilities/remove-participant" }
+reset-battlemap = { path = "../../table/data-capabilities/reset-battlemap" }
