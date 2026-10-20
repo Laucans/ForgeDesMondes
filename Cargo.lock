@@ -277,6 +277,7 @@ dependencies = [
  "ports-llm",
  "restore-entity-version",
  "save-entity",
+ "save-grid-settings",
  "save-settings",
  "serde",
  "serde_json",
@@ -1378,6 +1379,13 @@ dependencies = [
  "platform-conformance",
  "serde_json",
  "unicode-normalization",
+]
+
+[[package]]
+name = "save-grid-settings"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
