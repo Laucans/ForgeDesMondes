@@ -131,7 +131,8 @@ impl Scratch {
     }
 
     /// `media`'s grid as the table holds it: its six settings and its feet
-    /// per hex, as JSON.
+    /// per hex, as JSON. `jsonb` writes a whole number without its `.0`, so
+    /// a size of 48 reads back as the integer `48`.
     async fn grid(&self, media: &str) -> Option<Value> {
         self.client
             .query_opt(
@@ -221,9 +222,9 @@ async fn hex_is_five_feet_a_save_holds_exactly_its_values_and_a_hex_is_still_fiv
     assert_eq!(
         scratch.grid(CARTE).await,
         Some(json!({
-            "hexSizePx": 48.0,
-            "offsetX": 30.0,
-            "offsetY": 25.0,
+            "hexSizePx": 48,
+            "offsetX": 30,
+            "offsetY": 25,
             "orientation": "plat",
             "color": "#c8a24b",
             "opacity": 0.2,
@@ -357,7 +358,7 @@ async fn two_saves_at_once_both_queue_on_the_battlemap_and_neither_is_rejected()
         later
     };
     let grid = scratch.grid(CARTE).await.expect("the grid");
-    assert_eq!(grid["hexSizePx"], json!(kept["size"].as_f64()));
+    assert_eq!(grid["hexSizePx"], kept["size"]);
     assert_eq!(grid["feetPerHex"], 5);
     scratch.drop().await;
 }
