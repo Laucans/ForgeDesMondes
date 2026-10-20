@@ -295,30 +295,25 @@ impl Rows {
     /// `partition`'s row as the commands queued on it will leave it: the row
     /// applied, then each pending command's payload, in queue order — a
     /// relative command's numbers added to the row's, as the engine composes
-    /// them (`guard::projected`, `table.changeHitPoints`). The row is read
-    /// again after the queue until it is the same: a command applied between
-    /// the two reads would otherwise be in neither.
+    /// them (`guard::projected`, `table.changeHitPoints`). The row and the
+    /// queue are read while the applier is still ([`APPLYING`]): it writes a
+    /// row before it marks its command applied, and a command read in both
+    /// would be counted twice.
     ///
     /// # Errors
     ///
     /// The store's.
     pub async fn projected(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
-        let mut row = self.store.row(partition).await?;
-        let mut ahead = Vec::new();
-        for _ in 0..SNAPSHOTS {
-            ahead = self
-                .store
-                .pending()
-                .await?
-                .into_iter()
-                .filter(|entry| entry.partition == partition)
-                .collect();
-            let again = self.store.row(partition).await?;
-            if again == row {
-                break;
-            }
-            row = again;
-        }
+        let applying = APPLYING.lock().await;
+        let row = self.store.row(partition).await?;
+        let mut ahead: Vec<Entry> = self
+            .store
+            .pending()
+            .await?
+            .into_iter()
+            .filter(|entry| entry.partition == partition)
+            .collect();
+        drop(applying);
         ahead.sort_by_key(|entry| entry.position);
         Ok(ahead
             .iter()
@@ -326,9 +321,11 @@ impl Rows {
     }
 }
 
-/// How many times [`Rows::projected`] reads the queue for a row the applier
-/// leaves as it is meanwhile.
-const SNAPSHOTS: usize = 3;
+/// Held by the applier for each of its runs ([`crate::applier`]), and by
+/// [`Rows::projected`] while it reads a row and the queue: a run writes a
+/// command's row, then marks it applied, and the two reads never fall
+/// between.
+pub(crate) static APPLYING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[cfg(test)]
 mod tests {
@@ -530,5 +527,35 @@ mod tests {
         assert_eq!(row["name"], "Morlox");
         assert_eq!(row["notes"], "last");
         assert_eq!(row["hpMax"], 21);
+    }
+
+    #[tokio::test]
+    async fn a_row_projected_mid_run_of_the_applier_waits_for_it_and_counts_its_blow_once() {
+        const TOKEN: &str = "BattlemapInstance/70000000-0000-4000-8000-000000000002";
+        let store: Arc<dyn Store> = Arc::new(MemoryStore::default());
+        let hp = |current: i64| Write {
+            partition: TOKEN.to_owned(),
+            values: BTreeMap::from([("hpCurrent".to_owned(), json!(current))]),
+            tombstone: false,
+        };
+        store.apply(&hp(10), &result()).await.expect("dropped");
+        let mut blow = pending("c_2", TOKEN, 2, json!({ "hpCurrent": -6 }));
+        blow.mode = harness_dataguard::command::Mode::Relative;
+        store.save(&blow).await.expect("queued");
+        // The applier, between the write of the blow's row and its mark.
+        let applying = APPLYING.lock().await;
+        store.apply(&hp(4), &result()).await.expect("written");
+        let rows = Rows::new(store.clone());
+        let read = tokio::spawn(async move { rows.projected(TOKEN).await });
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!read.is_finished(), "read while the applier ran");
+        blow.state = State::Applied;
+        store.save(&blow).await.expect("marked");
+        drop(applying);
+        let row = read.await.expect("joined").expect("projected");
+        // 4, not 4 - 6: a second blow cut against -2 would heal.
+        assert_eq!(row["hpCurrent"], 4);
     }
 }

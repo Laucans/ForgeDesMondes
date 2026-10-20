@@ -308,11 +308,18 @@ pub fn applier(engine: Arc<Engine>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            if let Err(e) = engine.run_once().await {
+            if let Err(e) = applied(&engine).await {
                 eprintln!("applier: {e}");
             }
         }
     })
+}
+
+/// One run of the applier, [`versioning::APPLYING`] held from its first
+/// write to its last mark: a row projected is never read between the two.
+async fn applied(engine: &Engine) -> Result<Vec<harness_dataguard::command::CommandResult>, Error> {
+    let _applying = versioning::APPLYING.lock().await;
+    engine.run_once().await
 }
 
 fn status_of(error: &Error) -> axum::http::StatusCode {
@@ -642,8 +649,10 @@ static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// numbers, nor place a PC twice.
 static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One change of HP at a time, from its judgement until it is queued: two
-/// blows sent at once are each cut against the HP the other leaves, so
-/// neither takes a token below 0 nor above its HP max.
+/// blows sent at once are each cut against the HP the other leaves. The
+/// applier is kept out of the judgement's read ([`versioning::APPLYING`]), so
+/// a blow it applies meanwhile is counted once: neither takes a token below 0
+/// nor above its HP max, and no damage heals.
 static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A refusal before a command is queued: its status, and why in words.
@@ -1020,6 +1029,19 @@ mod tests {
     async fn the_memory_url_plants_the_in_memory_engine() {
         let engine = plant(MEMORY).await.expect("no database is reached");
         assert_eq!(engine.data_version().await.expect("a version"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_run_of_the_applier_waits_while_a_row_is_projected() {
+        let engine = Arc::new(plant(MEMORY).await.expect("the in-memory engine"));
+        let projecting = versioning::APPLYING.lock().await;
+        let run = tokio::spawn(async move { applied(&engine).await });
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!run.is_finished(), "ran while a row was projected");
+        drop(projecting);
+        run.await.expect("joined").expect("the applier ran");
     }
 
     #[tokio::test]
