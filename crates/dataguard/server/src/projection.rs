@@ -688,6 +688,12 @@ fn element(write: &Write) -> bool {
     !write.tombstone && element_of(write).is_some()
 }
 
+/// Whether `write` reaches the `sound` table: a live write of a
+/// `Sound/<id>` partition.
+fn sound(write: &Write) -> bool {
+    !write.tombstone && write.partition.starts_with(SOUND)
+}
+
 /// The provider whose last test `write` records: a live write of a
 /// provider's partition, `AiSettings/<uuid>`.
 fn tested(write: &Write) -> Option<&str> {
@@ -770,7 +776,7 @@ impl Store for ProjectingStore {
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
-        } else if !write.tombstone && write.partition.starts_with(SOUND) {
+        } else if sound(write) {
             self.add_sound(&write.partition).await;
         } else if let Some(element) = element_of(write) {
             // A removal: tombstones are not projected, its terms and its
@@ -863,6 +869,20 @@ mod tests {
         assert!(!element(&write(morlox, true)));
         assert!(!element(&write(AI_SETTINGS, false)));
         assert!(!element(&write(AI_SETTINGS, true)));
+    }
+
+    #[test]
+    fn only_a_live_write_of_a_sound_s_partition_reaches_its_table() {
+        let write = |partition: &str, tombstone| Write {
+            partition: partition.to_string(),
+            values: BTreeMap::new(),
+            tombstone,
+        };
+        let crowd = "Sound/50000000-0000-4000-8000-000000000001";
+        assert!(sound(&write(crowd, false)));
+        assert!(!sound(&write(crowd, true)));
+        assert!(!sound(&write(AI_SETTINGS, false)));
+        assert!(!sound(&write(AI_SETTINGS, true)));
     }
 
     async fn connect(url: &str) -> Client {
