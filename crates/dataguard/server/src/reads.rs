@@ -168,6 +168,15 @@ impl Reads {
             .collect()
     }
 
+    /// `id` as the tables hold it: its stored id when it is a wire name,
+    /// else `id` itself.
+    pub(crate) fn stored_id(&self, id: &str) -> String {
+        self.names
+            .stored
+            .get(id)
+            .map_or_else(|| id.to_string(), String::clone)
+    }
+
     /// The reads over the database `url` names — or [`none`](Self::none) for
     /// [`MEMORY`].
     ///

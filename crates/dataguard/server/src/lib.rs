@@ -562,7 +562,11 @@ async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted
         return reply(StatusCode::ACCEPTED, served.engine.submit(body).await);
     }
     let wire = served.reads.stored(&body.payload);
-    let request = place_tokens::request(&wire, body.target_id.as_deref())
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = place_tokens::request(&wire, target.as_deref())
         .map_err(|why| refused(StatusCode::UNPROCESSABLE_ENTITY, &why))?;
     let roster = served
         .rows
@@ -953,6 +957,34 @@ mod tests {
         assert_eq!(
             body,
             serde_json::json!({ "error": "le nombre de tokens va de 1 à 12" })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_drop_on_an_instance_named_by_its_slug_is_judged_on_its_stored_id() {
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        let reads = Reads::none().named([("taverne-arrivee".to_string(), INSTANCE.to_string())]);
+        let app = router_reading(
+            Arc::new(engine),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+            Arc::new(reads),
+        );
+        let payload = serde_json::json!({ "character": BANDIT, "q": 3, "r": 4 });
+        let response = app
+            .oneshot(placement(Some("taverne-arrivee"), payload, None))
+            .await
+            .expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+        // An id, looked up: over the engine's memory no instance is held.
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "cette instance de battlemap n'existe pas" })
         );
     }
 

@@ -66,8 +66,8 @@ async fn connect(config: &tokio_postgres::Config) -> Client {
     client
 }
 
-/// The SQL adding element `id` of `campaign`, with its sheet for a PC or an
-/// NPC.
+/// The SQL adding element `id` of `campaign`, with the version every element
+/// is written with, and its sheet for a PC or an NPC.
 fn element(id: &str, campaign: &str, kind: &str, name: &str, hp_max: Option<i16>) -> String {
     let sheet = if kind == "lieu" {
         String::new()
@@ -78,7 +78,10 @@ fn element(id: &str, campaign: &str, kind: &str, name: &str, hp_max: Option<i16>
         )
     };
     format!(
-        "INSERT INTO entity (id, campaign_id, type, name) VALUES ('{id}', '{campaign}', '{kind}', '{name}'); {sheet}"
+        "INSERT INTO entity (id, campaign_id, type, name) VALUES ('{id}', '{campaign}', '{kind}', '{name}'); \
+         {sheet} \
+         INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff) \
+         VALUES ('{id}', 1, 'dm', '{{}}', '[]');"
     )
 }
 
@@ -115,6 +118,8 @@ impl Scratch {
                      ('{BRUME}', 'La Brume', 'oneshot');
                  {}{}{}{}{}
                  INSERT INTO entity (id, campaign_id, type, name) VALUES ('{OMBRE}', '{VALOMBRE}', 'pnj', 'Ombre');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
+                 VALUES ('{OMBRE}', 1, 'dm', '{{}}', '[]');
                  INSERT INTO media (id, campaign_id, kind, title, file_path, width_px, height_px, place_id)
                  VALUES ('{CARTE}', '{VALOMBRE}', 'battlemap', 'Taverne', 'carte.png', 2048, 1536, '{TAVERNE}');
                  INSERT INTO session (id, campaign_id, position, title, status, microphone_on)
