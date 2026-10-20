@@ -39,7 +39,10 @@
 //! [`Rows`] reads: its visibility, or its name, alone, on its partition. A
 //! change of an NPC's HP (`table.changeHitPoints`) is prepared the same way:
 //! the step of its current HP alone, cut so they land between 0 and its HP
-//! max. A « Suivant » (`table.nextTurn`) is prepared against the instance's
+//! max. A reorder of the initiative (`table.reorderInitiative`) is prepared
+//! against the instance's open combat and its participants as the queue
+//! will leave them, which [`Rows`] reads: one command per entry, its rank
+//! alone. A « Suivant » (`table.nextTurn`) is prepared against the instance's
 //! open combat and its participants as the queue will leave them, which
 //! [`Rows`] reads: the next living participant's turn, and the round's step,
 //! on the combat's partition.
@@ -82,6 +85,7 @@ mod media;
 mod note_import;
 mod player;
 mod projection;
+mod ranks;
 mod reads;
 mod session;
 mod sound;
@@ -416,6 +420,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// of the token's partition, which writes no field, the same way: one naming
 /// no uuid, 422; one of a token not on the instance, 404; one sent again
 /// under the key of a removal the engine holds, the engine's to replay.
+/// A reorder of the initiative is made the ranks it writes, one command per
+/// entry ([`reordering`]).
 /// The token commands judge the token's row as none once its removal is
 /// queued (`Rows::standing`). An end of an instance's combat is made the end
 /// it writes on the open combat's partition ([`ending`]).
@@ -554,6 +560,9 @@ async fn submit<L: Llm>(
     } else if place_tokens::names(&body.data_capability) {
         let _placing = PLACING.lock().await;
         return placing(&served, body).await;
+    } else if reorder_initiative::names(&body.data_capability) {
+        let _reordering = REORDERING.lock().await;
+        return reordering(&served, body).await;
     } else if start_combat::names(&body.data_capability) {
         let _starting = STARTING.lock().await;
         return starting(&served, body, &now()).await;
@@ -800,6 +809,10 @@ static CHANGING_HP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// start from the same list, and none is lost.
 static MARKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// One reorder of the initiative at a time, from its judgement until its
+/// ranks are queued: two reorders sent at once never interleave their ranks,
+/// and each is judged against the participants the other leaves.
+static REORDERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One « Suivant » or one participant's removal at a time, from its judgement
 /// until it is queued: two « Suivant » sent at once each start from the turn
 /// the other leaves, and the round counts each lap once; two removals of one
@@ -1246,6 +1259,85 @@ fn draw() -> Result<i64, getrandom::Error> {
     let mut bytes = [0_u8; 4];
     getrandom::fill(&mut bytes)?;
     Ok(i64::from(u32::from_le_bytes(bytes) >> 1))
+}
+
+/// `body`, a reorder of the initiative of an instance's open combat
+/// (`table.reorderInitiative`), made the ranks it writes
+/// (`reorder_initiative::prepare`) — the fixtures' slugs it names read as the
+/// ids the tables hold them by — against the combat's participants as the
+/// queue will leave them ([`Rows::open_lineup`]), and queued, one command per
+/// entry on its own partition, `BattlemapInstance/<its id>`: the engine
+/// writes one partition per command. The answer is the last rank's command,
+/// queued after the others; with an idempotency key, the last rank's command
+/// is queued under it and each other under it followed by `#<its rank>`, so
+/// the reorder sent again under its key is the engine's to replay, as it
+/// was. Refused, and nothing queued: an instance or a participant that is no
+/// uuid, an order that is no list or an empty one, or one that omits,
+/// repeats or adds a participant, 422; an instance with no open combat —
+/// over the engine's memory, every one — 409.
+async fn reordering<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted> {
+    use axum::http::StatusCode;
+    use reorder_initiative::{DATA_CAPABILITY, Refusal};
+    let failed = |e: Error| refused(status_of(&e), &e);
+    let unprocessable = |why: Refusal| {
+        let status = if why == Refusal::NoOpenCombat {
+            StatusCode::CONFLICT
+        } else {
+            StatusCode::UNPROCESSABLE_ENTITY
+        };
+        refused(status, &why)
+    };
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return reply(StatusCode::ACCEPTED, served.engine.submit(body).await);
+    }
+    let wire = served.reads.stored(&body.payload);
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = reorder_initiative::request(&wire, target.as_deref()).map_err(unprocessable)?;
+    let combat = served
+        .rows
+        .open_lineup(&request.instance)
+        .await
+        .map_err(failed)?;
+    let ranks = reorder_initiative::prepare(&request, combat.as_deref()).map_err(unprocessable)?;
+    let key = body.idempotency_key.take();
+    let last = ranks.len();
+    let mut submitted: Option<Submitted> = None;
+    // What the engine said of each rank queued before the last one.
+    let mut warnings = Vec::new();
+    for (rank, one) in (1..).zip(ranks) {
+        let one = Submission {
+            data_capability: body.data_capability.clone(),
+            payload: one.payload,
+            target_id: Some(one.target_id),
+            based_on: None,
+            idempotency_key: key.as_ref().map(|key| {
+                if rank == last {
+                    key.clone()
+                } else {
+                    format!("{key}#{rank}")
+                }
+            }),
+            caller: body.caller.clone(),
+        };
+        warnings.extend(submitted.take().into_iter().flat_map(|one| one.warnings));
+        submitted = Some(served.engine.submit(one).await.map_err(failed)?);
+    }
+    submitted
+        .map(|mut submitted| {
+            warnings.append(&mut submitted.warnings);
+            submitted.warnings = warnings;
+            (StatusCode::ACCEPTED, Json(submitted))
+        })
+        .ok_or_else(|| unprocessable(Refusal::NoOrder))
 }
 
 /// `body`, a participant taken out of the open combat
