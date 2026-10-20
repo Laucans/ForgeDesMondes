@@ -21,9 +21,13 @@
 //! partition, `Sound/<its id>`, whole, and an edit (`soundbox.updateSound`)
 //! the fields it changes on it: [`ProjectingStore`] adds the sound's `sound`
 //! row, or writes on the one the table holds the name, the file, the tags and
-//! the volume the engine's row holds, and no other column. A campaign's row
-//! is its table's over the engine's, and an archive is read from the tables
-//! ([`ProjectingStore::archived`]). Every other method is the inner store's.
+//! the volume the engine's row holds, and no other column.
+//! A stop of « Tout arrêter » (`soundbox.stopAll`) writes a playback's
+//! partition, `SoundPlayback/<its id>`, with its stop time alone:
+//! [`ProjectingStore`] writes `sound_playback.stopped_at` when the row has
+//! none ([`stops`]). A campaign's row is its table's over the engine's, and
+//! an archive is read from the tables ([`ProjectingStore::archived`]). Every
+//! other method is the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
@@ -56,6 +60,7 @@ use test_connection::NO_PROVIDER;
 use crate::ai_settings::uuid;
 use crate::aliases::Aliases;
 use crate::history::History;
+use crate::stops;
 use crate::versioning::{ENTITY, element_of};
 
 /// The partition whose writes reach the tables: the one settings row.
@@ -334,6 +339,36 @@ impl ProjectingStore {
         self.repair_elements().await;
         self.repair_exports(None).await;
         self.repair_sounds().await;
+        self.repair_stops(None).await;
+    }
+
+    /// The playbacks still playing in the campaign `scope` names — in its
+    /// session only, when it names one (`soundbox.stopAll`).
+    pub async fn running(
+        &self,
+        scope: &stop_all::Scope,
+    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+        let client = self.inner.client().lock().await;
+        let rows = client
+            .query(stops::RUNNING, &[&scope.campaign, &scope.session])
+            .await?;
+        Ok(rows.iter().map(|row| row.get(0)).collect())
+    }
+
+    /// Writes the stop the engine applied on the playback `partition` names —
+    /// on every playback, `None` — logging a failure: after each apply of a
+    /// playback, and at a start.
+    async fn repair_stops(&self, partition: Option<&str>) {
+        let written = {
+            let client = self.inner.client().lock().await;
+            client.execute(stops::PROJECT, &[&partition]).await
+        };
+        if let Err(e) = written {
+            eprintln!(
+                "projection: playback not stopped: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            );
+        }
     }
 
     /// Writes every sound the engine holds and the `sound` table does not,
@@ -788,6 +823,8 @@ impl Store for ProjectingStore {
             self.record_test(&write.partition, provider, false).await;
         } else if element(write) {
             self.repair_elements().await;
+        } else if !write.tombstone && write.partition.starts_with(stops::PLAYBACK) {
+            self.repair_stops(Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;

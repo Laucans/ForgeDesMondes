@@ -33,7 +33,10 @@
 //! the command's result once its stamp is applied. An addition of a sound
 //! (`soundbox.addSound`) is prepared against the campaign it names, which
 //! [`Rows`] reads, and an edit of one (`soundbox.updateSound`) against the
-//! sound's row.
+//! sound's row. A stop-all
+//! (`soundbox.stopAll`) is prepared against the playbacks the tables hold
+//! still playing, each with its row as the queue will leave it, which
+//! [`Rows`] reads: one command per playback.
 
 use std::sync::Arc;
 
@@ -69,6 +72,7 @@ mod reads;
 mod session;
 mod sound;
 mod sound_playback;
+mod stops;
 mod suggestion;
 mod versioning;
 
@@ -93,6 +97,7 @@ struct Served<L> {
     llm: Arc<L>,
     reads: Arc<Reads>,
     exports: Arc<exports::Exports>,
+    stops: Arc<stops::Stops>,
 }
 
 impl<L> Clone for Served<L> {
@@ -103,6 +108,7 @@ impl<L> Clone for Served<L> {
             llm: self.llm.clone(),
             reads: self.reads.clone(),
             exports: self.exports.clone(),
+            stops: self.stops.clone(),
         }
     }
 }
@@ -110,6 +116,12 @@ impl<L> Clone for Served<L> {
 impl<L> FromRef<Served<L>> for Arc<exports::Exports> {
     fn from_ref(served: &Served<L>) -> Self {
         served.exports.clone()
+    }
+}
+
+impl<L> FromRef<Served<L>> for Arc<stops::Stops> {
+    fn from_ref(served: &Served<L>) -> Self {
+        served.stops.clone()
     }
 }
 
@@ -291,6 +303,7 @@ pub fn router_reading<L: Llm + 'static>(
             llm,
             reads,
             exports: Arc::default(),
+            stops: Arc::default(),
         })
 }
 
@@ -358,6 +371,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// no sound the engine holds — a sound queued for addition is one — is
 /// refused, 404, and one with a blank name or file, or nothing to change,
 /// 422.
+/// A stop-all is queued as the commands stopping each playback still
+/// playing ([`stop_all_submitted`]).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -397,6 +412,9 @@ async fn submit<L: Llm>(
             elapsed.subsec_millis()
         )
     };
+    if stop_all::names(&body.data_capability) {
+        return stop_all_submitted(&served, body, &now()).await;
+    }
     if save_settings::names(&body.data_capability) {
         let prepared = save_settings::prepare(served.llm.as_ref(), &body.payload, &now()).await;
         body.payload = prepared.payload;
@@ -590,6 +608,88 @@ async fn submit<L: Llm>(
     reply(axum::http::StatusCode::ACCEPTED, submitted)
 }
 
+/// A stop-all (`stop_all::prepare`): one command per playback of its scope
+/// that the tables hold still playing and whose row the queue does not stop
+/// already, each on `SoundPlayback/<its id>` writing its stop time — the
+/// first answered, the others kept under its id ([`stops::Stops`]), so its
+/// result is the whole stop-all's. With none, nothing is queued and the
+/// answer is applied at once: nothing plays, nothing is written. One naming
+/// no campaign, or an id that is no uuid, is refused, 422. The same
+/// idempotency key again is the engine's to replay: the first command's; the
+/// others are keyed after it and their playback.
+async fn stop_all_submitted<L>(
+    served: &Served<L>,
+    body: Submission,
+    now: &str,
+) -> Reply<harness_dataguard::api::Submitted> {
+    use axum::http::StatusCode;
+    if let Some(key) = body.idempotency_key.as_deref() {
+        match served.rows.replays(stop_all::DATA_CAPABILITY, key).await {
+            Ok(true) => return reply(StatusCode::ACCEPTED, served.engine.submit(body).await),
+            Ok(false) => {}
+            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
+        }
+    }
+    let scope = match stop_all::scope(&body.payload, body.target_id.as_deref()) {
+        Ok(scope) => scope,
+        Err(refusal) => {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": refusal.to_string() })),
+            ));
+        }
+    };
+    let running = match served.rows.running(&scope).await {
+        Ok(running) => running,
+        Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
+    };
+    let mut answered: Option<harness_dataguard::api::Submitted> = None;
+    let mut others = Vec::new();
+    for stop in stop_all::prepare(&running, now) {
+        let key = body.idempotency_key.as_ref().map(|key| match answered {
+            None => key.clone(),
+            Some(_) => format!("{key}/{}", stop.target_id),
+        });
+        let submission = Submission {
+            data_capability: body.data_capability.clone(),
+            payload: stop.payload,
+            target_id: Some(stop.target_id),
+            based_on: None,
+            idempotency_key: key,
+            caller: body.caller.clone(),
+        };
+        match (served.engine.submit(submission).await, &mut answered) {
+            (Ok(submitted), None) => answered = Some(submitted),
+            (Ok(submitted), Some(_)) => others.push(submitted.command_id),
+            (Err(e), None) => return reply(StatusCode::ACCEPTED, Err(e)),
+            // The playbacks queued keep their stop: the DM is told the others'.
+            (Err(e), Some(first)) => first.warnings.push(e.to_string()),
+        }
+    }
+    let Some(answered) = answered else {
+        return Ok((StatusCode::ACCEPTED, Json(nothing_to_stop())));
+    };
+    served.stops.keep(&answered.command_id, others);
+    Ok((StatusCode::ACCEPTED, Json(answered)))
+}
+
+/// What a stop-all answers when nothing plays: applied, nothing queued.
+fn nothing_to_stop() -> harness_dataguard::api::Submitted {
+    harness_dataguard::api::Submitted {
+        command_id: String::new(),
+        partition: String::new(),
+        replayed: false,
+        result: harness_dataguard::command::CommandResult {
+            command_id: String::new(),
+            data_version: None,
+            review_id: None,
+            status: harness_dataguard::command::State::Applied,
+            violations: Vec::new(),
+        },
+        warnings: Vec::new(),
+    }
+}
+
 /// A random (version 4) uuid: a new element's id, a version's.
 fn fresh_uuid() -> Result<String, getrandom::Error> {
     let mut bytes = [0_u8; 16];
@@ -615,12 +715,24 @@ fn fresh_uuid() -> Result<String, getrandom::Error> {
 async fn status(
     State(engine): State<Shared>,
     State(exports): State<Arc<exports::Exports>>,
+    State(stops): State<Arc<stops::Stops>>,
     Path(id): Path<String>,
 ) -> Reply<serde_json::Value> {
+    // A stop-all's: as its every command stands.
+    let mut others = Vec::new();
+    for other in stops.of(&id) {
+        match engine.status(&other).await {
+            Ok(result) => others.push(serde_json::json!(result)),
+            Err(e) => return reply(axum::http::StatusCode::OK, Err(e)),
+        }
+    }
     reply(
         axum::http::StatusCode::OK,
         engine.status(&id).await.map(|r| {
             let mut answer = serde_json::json!({ "result": r });
+            if !others.is_empty() {
+                answer["result"] = stops::settled(answer["result"].take(), &others);
+            }
             let applied = answer["result"]["status"] == "applied";
             if let Some(archive) = exports.of(&id).filter(|_| applied) {
                 answer["result"]["archive"] =

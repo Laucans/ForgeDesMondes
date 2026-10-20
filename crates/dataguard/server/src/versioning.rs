@@ -27,6 +27,7 @@ use serde_json::Value;
 use crate::aliases::Aliases;
 use crate::history::History;
 use crate::projection::ProjectingStore;
+use crate::stops::PLAYBACK;
 
 /// The partitions of the Entity aggregate: `Entity/<element id>`.
 pub const ENTITY: &str = "Entity/";
@@ -195,6 +196,50 @@ impl Rows {
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })
+    }
+
+    /// The playbacks still playing in the campaign `scope` names, each with
+    /// its row as the commands queued on it will leave it
+    /// (`soundbox.stopAll`). Over the engine's memory, which has no table,
+    /// none.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn running(
+        &self,
+        scope: &stop_all::Scope,
+    ) -> Result<Vec<(String, BTreeMap<String, Value>)>> {
+        let Some(tables) = &self.tables else {
+            return Ok(Vec::new());
+        };
+        let ids = tables.running(scope).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "playbacks not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?;
+        let mut running = Vec::with_capacity(ids.len());
+        for id in ids {
+            let row = self.projected(&format!("{PLAYBACK}{id}")).await?;
+            running.push((id, row));
+        }
+        Ok(running)
+    }
+
+    /// Whether a command of `data_capability` was submitted under `key`
+    /// already: the engine's to replay, not judged again.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn replays(&self, data_capability: &str, key: &str) -> Result<bool> {
+        Ok(self
+            .store
+            .by_idempotency_key(data_capability, key)
+            .await?
+            .is_some())
     }
 
     /// The versions of `element` a restoration can name, oldest first.

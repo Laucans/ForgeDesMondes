@@ -50,3 +50,4 @@ restore-entity-version = { path = "../../campaign/data-capabilities/restore-enti
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 add-sound = { path = "../../soundbox/data-capabilities/add-sound" }
 update-sound = { path = "../../soundbox/data-capabilities/update-sound" }
+stop-all = { path = "../../soundbox/data-capabilities/stop-all" }
