@@ -1,0 +1,26 @@
+{
+  "dataCapability": "soundbox.playSound",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "SoundPlayback",
+    "id": "$sound"
+  },
+  "touches": [
+    "SoundPlayback.id",
+    "SoundPlayback.sessionId",
+    "SoundPlayback.soundId",
+    "SoundPlayback.origin",
+    "SoundPlayback.startedAt"
+  ],
+  "payload": {
+    "source": "'soundbox' | 'suggestion' — optional, 'soundbox' by default: the DM view's surface it is triggered from, the suggestion's pastille stored as origin 'pastille'; any other source (the player view's) is refused by dm-side-only",
+    "session": "uuid — optional: the session it plays in, of the sound's campaign; by default the campaign's live session, else its latest one not closed, else its latest"
+  },
+  "mode": "overwrite",
+  "invariants": ["simultaneous-playback", "dm-side-only"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

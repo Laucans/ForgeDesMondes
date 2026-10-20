@@ -517,7 +517,7 @@ mod tests {
     async fn a_soundbox_command_goes_to_the_engine_like_an_ai_one() {
         // Neither is registered in the in-memory engine of this test: both are
         // answered by the engine's queue (`POST /commands`), the same way.
-        for data_capability in ["soundbox.playSound", "ai.noSuchCapability"] {
+        for data_capability in ["soundbox.noSuchCapability", "ai.noSuchCapability"] {
             let (status, body) = answer(
                 Method::POST,
                 "/commands",

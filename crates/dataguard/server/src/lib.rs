@@ -34,7 +34,10 @@
 //! volume (`soundbox.setMasterVolume`) is made the fraction it writes on its
 //! campaign's partition. An addition of a sound (`soundbox.addSound`) is
 //! prepared against the campaign it names, which [`Rows`] reads, and an edit
-//! of one (`soundbox.updateSound`) against the sound's row.
+//! of one (`soundbox.updateSound`) against the sound's row. A playback of a
+//! sound (`soundbox.playSound`) is prepared against what the tables hold of
+//! the sound and its campaign's sessions, which [`Rows`] reads: a new row of
+//! its own, beside whatever plays already.
 
 use std::sync::Arc;
 
@@ -43,7 +46,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
-use harness_dataguard::api::{HoldRequest, ReadResponse, ReviewDecision, Submission};
+use harness_dataguard::api::{HoldRequest, ReadResponse, ReviewDecision, Submission, Submitted};
 use harness_dataguard::command::Entry;
 pub use harness_dataguard::engine::Engine;
 use harness_dataguard::guard::Invariants;
@@ -64,6 +67,7 @@ mod exports;
 mod history;
 mod media;
 mod note_import;
+mod playbacks;
 mod player;
 mod projection;
 mod reads;
@@ -362,14 +366,15 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// changes, its tags normalised and its volume a fraction of 1: one naming
 /// no sound the engine holds — a sound queued for addition is one — is
 /// refused, 404, and one with a blank name or file, or nothing to change,
-/// 422.
+/// 422. A playback of a sound is made the row it inserts, on a partition of
+/// its own ([`playing`]).
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
 async fn submit<L: Llm>(
     State(served): State<Served<L>>,
     Json(raw): Json<serde_json::Value>,
-) -> Reply<harness_dataguard::api::Submitted> {
+) -> Reply<Submitted> {
     let target = raw
         .get("target")
         .and_then(|target| target.get("id"))
@@ -485,6 +490,14 @@ async fn submit<L: Llm>(
                 ));
             }
         }
+    } else if play_sound::names(&body.data_capability) {
+        // Under a key, from its replay check until it is queued: the same
+        // trigger sent twice at once starts one playback.
+        let _keyed = match body.idempotency_key {
+            Some(_) => Some(PLAYING.lock().await),
+            None => None,
+        };
+        return playing(&served, body, &now()).await;
     } else if export_campaign::names(&body.data_capability) {
         let id = body
             .target_id
@@ -621,6 +634,77 @@ async fn submit<L: Llm>(
         submitted
     });
     reply(axum::http::StatusCode::ACCEPTED, submitted)
+}
+
+/// One trigger under an idempotency key at a time, from its replay check
+/// until it is queued.
+static PLAYING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A refusal before a command is queued: its status, and why in words.
+type Refused = (axum::http::StatusCode, Json<serde_json::Value>);
+
+fn refused(status: axum::http::StatusCode, why: &impl std::fmt::Display) -> Refused {
+    (
+        status,
+        Json(serde_json::json!({ "error": why.to_string() })),
+    )
+}
+
+/// `body`, a sound triggered (`soundbox.playSound`) — the sound its target,
+/// the fixtures' slugs read as the ids the tables hold them by — made the
+/// playback row it inserts (`play_sound::prepare`) and queued on its own
+/// partition, `SoundPlayback/<its id>`, the id fresh: it stops nothing that
+/// plays (`simultaneous-playback`). Its origin is the DataGuard's to judge
+/// (`dm-side-only`). Sent again under its idempotency key, it is the
+/// engine's to replay, as it was. A caller that is not the DM is the player
+/// side, whatever its source. Refused, and nothing queued: a sound or a
+/// session that is no id, 422; a sound or a session named the tables do not
+/// hold, 404 — over the engine's memory, every sound; a session of another
+/// campaign, or a campaign with no session to play in, 422. It starts `now`.
+async fn playing<L>(served: &Served<L>, mut body: Submission, now: &str) -> Reply<Submitted> {
+    use axum::http::StatusCode;
+    use play_sound::{DATA_CAPABILITY, Refusal};
+    let failed = |e: Error| refused(status_of(&e), &e);
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return reply(StatusCode::ACCEPTED, served.engine.submit(body).await);
+    }
+    let mut wire = body.payload.clone();
+    if let Some(session) = wire.get("session").and_then(serde_json::Value::as_str) {
+        let session = served.reads.stored_id(session);
+        wire.insert("session".to_string(), serde_json::json!(session));
+    }
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = play_sound::request(&wire, target.as_deref(), &body.caller.by)
+        .map_err(|why| refused(StatusCode::UNPROCESSABLE_ENTITY, &why))?;
+    let stage = served
+        .rows
+        .stage(&request.sound, request.session.as_deref())
+        .await
+        .map_err(failed)?;
+    let id =
+        fresh_uuid().map_err(|_| failed(Error::Store("no randomness for an id".to_string())))?;
+    let fresh = play_sound::Fresh { id: &id, now };
+    let row = play_sound::prepare(&request, &stage, fresh).map_err(|why| {
+        let status = match why {
+            Refusal::UnknownSound | Refusal::UnknownSession => StatusCode::NOT_FOUND,
+            Refusal::NotAnId(_) | Refusal::SessionOfAnotherCampaign | Refusal::NoSession => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
+        };
+        refused(status, &why)
+    })?;
+    body.payload = row;
+    body.target_id = Some(id);
+    reply(StatusCode::ACCEPTED, served.engine.submit(body).await)
 }
 
 /// A random (version 4) uuid: a new element's id, a version's.
@@ -843,6 +927,195 @@ mod tests {
     async fn the_memory_url_plants_the_in_memory_engine() {
         let engine = plant(MEMORY).await.expect("no database is reached");
         assert_eq!(engine.data_version().await.expect("a version"), 0);
+    }
+
+    const PORTE: &str = "50000000-0000-4000-8000-0000000000b2";
+    const FOULE: &str = "50000000-0000-4000-8000-0000000000b1";
+    const SEANCE: &str = "5e000000-0000-4000-8000-000000000001";
+
+    /// `POST /commands` of soundbox.playSound on `target` with `payload`,
+    /// from the LiveSoundbox, under `key` when one is given: the DM, approver
+    /// of their own campaign — `sessionId` and `soundId` are critical.
+    fn trigger(
+        target: Option<&str>,
+        payload: serde_json::Value,
+        key: Option<&str>,
+    ) -> Request<Body> {
+        let mut body = serde_json::json!({
+            "dataCapability": "soundbox.playSound@1",
+            "payload": payload,
+            "caller": { "by": "dm", "from": "LiveSoundbox", "roles": ["role:approver"] },
+        });
+        if let Some(target) = target {
+            body["target"] = serde_json::json!({ "id": target });
+        }
+        if let Some(key) = key {
+            body["idempotencyKey"] = serde_json::json!(key);
+        }
+        Request::post("/commands")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    /// The playback of `sound` from `source` in Valombre's live session, as
+    /// the server prepares it, under the id `n` gives.
+    fn playback(sound: &str, source: serde_json::Value, n: u8) -> (String, play_sound::Row) {
+        let wire = play_sound::Row::from([("source".to_string(), source)]);
+        let request = play_sound::request(&wire, Some(sound), "dm").expect("a request");
+        let stage = play_sound::Stage {
+            campaign: Some("c1000000-0000-4000-8000-000000000001".to_string()),
+            current: Some(SEANCE.to_string()),
+            named: None,
+        };
+        let id = format!("70000000-0000-4000-8000-{n:012}");
+        let fresh = play_sound::Fresh {
+            id: &id,
+            now: "2026-10-20T20:15:00.000Z",
+        };
+        let row = play_sound::prepare(&request, &stage, fresh).expect("prepared");
+        (id, row)
+    }
+
+    fn played(id: String, payload: play_sound::Row, key: Option<&str>) -> Submission {
+        Submission {
+            data_capability: "soundbox.playSound@1".to_string(),
+            payload,
+            target_id: Some(id),
+            based_on: None,
+            idempotency_key: key.map(str::to_string),
+            caller: harness_dataguard::guard::Caller {
+                by: "dm".to_string(),
+                from: "LiveSoundbox".to_string(),
+                permissions: Vec::new(),
+                roles: vec!["role:approver".to_string()],
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn a_trigger_is_judged_on_the_tables_before_it_is_queued() {
+        // Over the engine's memory the tables hold no sound: none is queued.
+        let (status, body) = answer(trigger(Some(PORTE), serde_json::json!({}), None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body, serde_json::json!({ "error": "ce son n'existe pas" }));
+        // The sound is the command's target.
+        let (status, body) = answer(trigger(None, serde_json::json!({}), None)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "sound n'est pas un identifiant" })
+        );
+        let named = serde_json::json!({ "session": "seance-1" });
+        let (status, body) = answer(trigger(Some(PORTE), named, None)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "session n'est pas un identifiant" })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_trigger_of_a_sound_named_by_its_slug_is_judged_on_its_stored_id() {
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        let reads = Reads::none().named([
+            ("snd-porte".to_string(), PORTE.to_string()),
+            ("seance-1".to_string(), SEANCE.to_string()),
+        ]);
+        let app = router_reading(
+            Arc::new(engine),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+            Arc::new(reads),
+        );
+        let payload = serde_json::json!({ "session": "seance-1" });
+        let response = app
+            .oneshot(trigger(Some("snd-porte"), payload, None))
+            .await
+            .expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+        // Ids, looked up: over the engine's memory no sound is held.
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body, serde_json::json!({ "error": "ce son n'existe pas" }));
+    }
+
+    #[tokio::test]
+    async fn simultaneous_playback_the_dataguard_applies_a_second_playback_beside_the_first() {
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        // « Bruit de foule » from the soundbox, then « Porte qui grince » from
+        // the pill: two partitions, the first one left playing.
+        let (crowd, from_soundbox) = playback(FOULE, serde_json::Value::Null, 1);
+        let (door, from_pill) = playback(PORTE, serde_json::json!("suggestion"), 2);
+        for (id, row) in [(crowd.clone(), from_soundbox), (door.clone(), from_pill)] {
+            engine.submit(played(id, row, None)).await.expect("queued");
+        }
+        let applied = engine.run_once().await.expect("the applier ran");
+        assert_eq!(applied.len(), 2, "{applied:?}");
+        for result in &applied {
+            assert_eq!(result.status, State::Applied, "{result:?}");
+        }
+        let first = rows
+            .projected(&format!("SoundPlayback/{crowd}"))
+            .await
+            .expect("the first playback");
+        let second = rows
+            .projected(&format!("SoundPlayback/{door}"))
+            .await
+            .expect("the second playback");
+        assert_eq!(first["origin"], "soundbox");
+        assert_eq!(second["origin"], "pastille");
+        for row in [&first, &second] {
+            assert!(
+                row.get("stoppedAt").is_none_or(serde_json::Value::is_null),
+                "{row:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn dm_side_only_the_dataguard_rejects_a_playback_from_the_player_side() {
+        let Planted { engine, .. } = planted(MEMORY).await.expect("the in-memory engine");
+        let (id, row) = playback(PORTE, serde_json::json!("player"), 3);
+        engine.submit(played(id, row, None)).await.expect("queued");
+        let applied = engine.run_once().await.expect("the applier ran");
+        let [result] = applied.as_slice() else {
+            panic!("one command: {applied:?}");
+        };
+        assert_eq!(result.status, State::Rejected, "{result:?}");
+        assert_eq!(result.violations, ["dm-side-only"], "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn a_trigger_sent_again_under_its_key_is_replayed() {
+        let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
+        let key = "soundbox.playSound:porte-1";
+        let (id, row) = playback(PORTE, serde_json::Value::Null, 4);
+        let first = engine
+            .submit(played(id, row, Some(key)))
+            .await
+            .expect("queued");
+        let app = router(
+            Arc::new(engine),
+            rows,
+            Arc::new(ports_llm::fake::FakeLlm::new()),
+        );
+        let response = app
+            .oneshot(trigger(Some(PORTE), serde_json::json!({}), Some(key)))
+            .await
+            .expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        let answer: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+        // Not judged again — over the engine's memory it would be a 404.
+        assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+        assert_eq!(answer["replayed"], true, "{answer}");
+        assert_eq!(answer["commandId"], first.command_id.as_str(), "{answer}");
     }
 
     #[tokio::test]

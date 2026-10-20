@@ -489,10 +489,14 @@
       return void 0;
     },
     // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
-    // playback of the sound starts, whatever else plays (`simultaneous-playback`).
-    "soundbox.playSound": async (server, { targetId }) => {
+    // playback of the sound starts, whatever else plays (`simultaneous-playback`),
+    // from the soundbox (the default) or a suggestion's pastille; any other
+    // source, the player view's, is refused (`dm-side-only`).
+    "soundbox.playSound": async (server, { payload, targetId }) => {
       const library = await server.load("soundbox.listSounds");
       if (!library.sounds.some((sound) => sound.id === targetId)) return ["not-found"];
+      const source = payload?.source ?? "soundbox";
+      if (!["soundbox", "suggestion", "pastille"].includes(source)) return ["dm-side-only"];
       (server.playing = server.playing || /* @__PURE__ */ new Set()).add(targetId);
       return void 0;
     },

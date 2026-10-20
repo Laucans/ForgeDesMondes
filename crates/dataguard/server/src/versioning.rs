@@ -197,6 +197,39 @@ impl Rows {
         })
     }
 
+    /// What the tables hold of the sound a playback names, and of the
+    /// session it names if any (`soundbox.playSound`). Over the engine's
+    /// memory, which has no table, no sound.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    pub async fn stage(&self, sound: &str, session: Option<&str>) -> Result<play_sound::Stage> {
+        let Some(tables) = &self.tables else {
+            return Ok(play_sound::Stage::default());
+        };
+        tables.stage(sound, session).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "sound not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })
+    }
+
+    /// Whether a command of `data_capability` was submitted under `key`
+    /// already: the engine's to replay, not judged again.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    pub async fn replays(&self, data_capability: &str, key: &str) -> Result<bool> {
+        Ok(self
+            .store
+            .by_idempotency_key(data_capability, key)
+            .await?
+            .is_some())
+    }
+
     /// The versions of `element` a restoration can name, oldest first.
     pub fn versions(&self, element: &str) -> Vec<Kept> {
         self.history.of(element)
