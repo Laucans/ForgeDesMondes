@@ -319,8 +319,7 @@ async fn seed(engine: &Engine, id: &str, payload: Value) {
 
 /// Bandit 1 to 3 and Chef bandit 1 dropped on the instance, in combat in
 /// that order at round 1, on the first — ended at `ended` when one is given
-/// —, the engine's rows laid in the tables as a start's projection lays
-/// them.
+/// —, the engine's rows laid in the tables by the server's own projection.
 async fn fight(s: &Scratch, engine: &Engine, app: &Router, ended: Option<&str>) {
     for (character, count) in [(BANDIT, 3), (VESNA, 1)] {
         let (status, body) = command(
@@ -364,24 +363,6 @@ async fn fight(s: &Scratch, engine: &Engine, app: &Router, ended: Option<&str>) 
         .await;
     }
     assert_eq!(applied(engine).await, 5);
-    let ended = ended.map_or("NULL".to_string(), |at| format!("'{at}'"));
-    let mut sql = format!(
-        "INSERT INTO combat (id, instance_id, round, started_at, ended_at)
-         VALUES ('{COMBAT}', '{INSTANCE}', 1, '2026-10-20T20:00:00Z', {ended});"
-    );
-    for ((entry, name), rank) in ENTRIES.iter().zip(PARTICIPANTS).zip(1..) {
-        let token = s.token(name).await;
-        sql.push_str(&format!(
-            "INSERT INTO initiative_entry (id, combat_id, token_id, initiative, tiebreak, rank)
-             VALUES ('{entry}', '{COMBAT}', '{token}', {}, 0.5, {rank});",
-            20 - rank
-        ));
-    }
-    sql.push_str(&format!(
-        "UPDATE combat SET current_entry_id = '{}' WHERE id = '{COMBAT}';",
-        ENTRIES[0]
-    ));
-    s.client.batch_execute(&sql).await.expect("the combat laid");
 }
 
 /// The tokens of `names`, by id, in that order.
@@ -610,5 +591,83 @@ async fn a_rank_the_table_lost_is_written_again_at_the_next_start() {
     let _ = s.serve().await;
     assert_eq!(s.carousel().await, after);
     assert_eq!(after[0], place("Bandit 3", 1, true));
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_removal_queued_on_another_token_leaves_the_others_in_the_order() {
+    let s = Scratch::new("queued_removal").await;
+    let (engine, app) = s.serve().await;
+    fight(&s, &engine, &app, None).await;
+    let bandit_2 = s.token("Bandit 2").await;
+    // Queued, not applied: the lineup reads it as the queue will leave it.
+    let (status, body) = command(&app, "table.removeToken@1", json!({ "token": bandit_2 })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let rest = order(&s, &["Bandit 3", "Chef bandit 1", "Bandit 1"]).await;
+    let (status, body) = command(&app, "table.reorderInitiative@1", json!({ "order": rest })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_reorder_queued_ahead_still_counts_every_participant() {
+    let s = Scratch::new("queued_reorder").await;
+    let (engine, app) = s.serve().await;
+    fight(&s, &engine, &app, None).await;
+    let first = order(&s, &["Bandit 3", "Bandit 2", "Bandit 1", "Chef bandit 1"]).await;
+    let (status, body) =
+        command(&app, "table.reorderInitiative@1", json!({ "order": first })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // Sent again before the first one is applied: its ranks are queued, not
+    // applied, and no participant is lost for it.
+    let second = order(&s, &["Chef bandit 1", "Bandit 1", "Bandit 2", "Bandit 3"]).await;
+    let (status, body) = command(
+        &app,
+        "table.reorderInitiative@1",
+        json!({ "order": second }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // Judged against the four, not refused: the engine parks its ranks for
+    // their author, one per entry, behind the first reorder's.
+    assert_eq!(body["result"]["status"], "awaiting_confirmation");
+    assert_eq!(applied(&engine).await, 4);
+    assert_eq!(
+        s.carousel().await,
+        [
+            place("Bandit 3", 1, true),
+            place("Bandit 2", 2, true),
+            place("Bandit 1", 3, true),
+            place("Chef bandit 1", 4, true),
+        ]
+    );
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn an_entry_queued_into_another_combat_is_not_a_participant() {
+    let s = Scratch::new("queued_move").await;
+    let (engine, app) = s.serve().await;
+    fight(&s, &engine, &app, None).await;
+    let token = s.token("Chef bandit 1").await;
+    // The engine holds the entry in the combat; the queue moves it out.
+    seed(
+        &engine,
+        ENTRIES[3],
+        json!({
+            "initiativeEntryId": ENTRIES[3],
+            "initiativeEntryCombatId": "c0000000-0000-4000-8000-000000000002",
+            "initiativeEntryTokenId": token,
+            "roll": null,
+            "initiative": 16,
+            "dexScore": null,
+            "tiebreak": 0.5,
+            "rank": 4,
+        }),
+    )
+    .await;
+    let rest = order(&s, &["Bandit 3", "Bandit 1", "Bandit 2"]).await;
+    let (status, body) = command(&app, "table.reorderInitiative@1", json!({ "order": rest })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
     s.drop().await;
 }

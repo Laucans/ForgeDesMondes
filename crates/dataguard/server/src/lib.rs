@@ -42,7 +42,9 @@
 //! max. A reorder of the initiative (`table.reorderInitiative`) is prepared
 //! against the instance's open combat and its participants as the queue
 //! will leave them, which [`Rows`] reads: one command per entry, its rank
-//! alone.
+//! alone. A start of an instance's combat (`table.startCombat`) is prepared
+//! against what the tables and the queue hold of the instance, which
+//! [`Rows`] reads: one command for the combat, then one per participant.
 
 use std::sync::Arc;
 
@@ -66,6 +68,7 @@ mod ai_settings;
 mod aliases;
 mod battlemap_instance;
 mod campaign;
+mod combats;
 mod diffusion;
 mod entity;
 mod exports;
@@ -396,7 +399,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
 /// token's partition, the same way — the fixtures' slugs it names read as
 /// the ids the tables hold them by, one at a time until it is queued
 /// ([`MARKING`]): one naming no uuid, no condition, or no `on`, 422; one of a
-/// token not on the instance, 404.
+/// token not on the instance, 404. A start of an instance's combat is made
+/// the combat's row and its entries', one command each ([`starting`]).
 /// A token taken off the map (`remove_token::prepare`) is made the deletion
 /// of the token's partition, which writes no field, the same way: one naming
 /// no uuid, 422; one of a token not on the instance, 404; one sent again
@@ -539,6 +543,9 @@ async fn submit<L: Llm>(
     } else if reorder_initiative::names(&body.data_capability) {
         let _reordering = REORDERING.lock().await;
         return reordering(&served, body).await;
+    } else if start_combat::names(&body.data_capability) {
+        let _starting = STARTING.lock().await;
+        return starting(&served, body, &now()).await;
     } else if set_token_visibility::names(&body.data_capability) {
         let unprocessable = |refusal: set_token_visibility::Refusal| {
             let status = if refusal == set_token_visibility::Refusal::UnknownToken {
@@ -739,6 +746,10 @@ static CREATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// queued: two drops of a character sent at once never take the same
 /// numbers, nor place a PC twice.
 static PLACING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One start of a combat at a time, from its judgement until its rows are
+/// queued: two starts of an instance sent at once never both pass
+/// (`one-active-combat`).
+static STARTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// One change of HP at a time, from its judgement until it is queued: two
 /// blows sent at once are each cut against the HP the other leaves. The
 /// applier is kept out of the judgement's read ([`versioning::APPLYING`]), so
@@ -909,11 +920,174 @@ async fn placing<L>(served: &Served<L>, mut body: Submission) -> Reply<Submitted
         .ok_or_else(|| refused(StatusCode::UNPROCESSABLE_ENTITY, &Refusal::Count))
 }
 
+/// `body`, a start of an instance's combat (`table.startCombat`), made the
+/// combat's row and its entries' (`start_combat::prepare`) — the fixtures'
+/// slugs it names, as values and as the keys of its initiatives and its
+/// rolls, read as the ids the tables hold them by — and queued, one command
+/// per row on its own partition, `BattlemapInstance/<its id>`: its entries by
+/// rank, then the combat — a start that fails half queued leaves no open
+/// combat, and may be sent again. The NPCs' d20s and every participant's
+/// draw are thrown here ([`Thrown`]). The answer is the combat's command,
+/// queued after the others; with an idempotency key, it alone is queued
+/// under it, so the start sent again under its key is the engine's to
+/// replay, as it was. Its entries are queued under none: a start half queued
+/// left entries of a combat never queued, which no table holds, and the same
+/// start sent again under its key makes its own (`a_start_half_queued_…`).
+/// Refused, and nothing
+/// queued: ids that are none, initiatives or rolls the tables cannot hold, a
+/// roll of no NPC of the instance, a PC with no initiative, no token or a
+/// token of no PC nor NPC, 422; an instance the tables do not hold, 404 —
+/// over the engine's memory, every instance; an instance whose combat is
+/// still open, applied or queued, 409 (`one-active-combat`).
+async fn starting<L>(served: &Served<L>, mut body: Submission, now: &str) -> Reply<Submitted> {
+    use axum::http::StatusCode;
+    use start_combat::{DATA_CAPABILITY, Refusal};
+    let failed = |e: Error| refused(status_of(&e), &e);
+    let unrandom = || failed(Error::Store("no randomness for a draw".to_string()));
+    if let Some(key) = &body.idempotency_key
+        && served
+            .rows
+            .replays(DATA_CAPABILITY, key)
+            .await
+            .map_err(failed)?
+    {
+        return reply(StatusCode::ACCEPTED, served.engine.submit(body).await);
+    }
+    let mut wire = served.reads.stored(&body.payload);
+    for field in ["initiative", "rolls"] {
+        if let Some(serde_json::Value::Object(figures)) = wire.get_mut(field) {
+            *figures = std::mem::take(figures)
+                .into_iter()
+                .map(|(id, figure)| (served.reads.stored_id(&id), figure))
+                .collect();
+        }
+    }
+    let target = body
+        .target_id
+        .as_deref()
+        .map(|id| served.reads.stored_id(id));
+    let request = start_combat::request(&wire, target.as_deref())
+        .map_err(|why| refused(StatusCode::UNPROCESSABLE_ENTITY, &why))?;
+    let lineup = served
+        .rows
+        .lineup(&request.instance)
+        .await
+        .map_err(failed)?;
+    let combat = fresh_uuid().map_err(|_| unrandom())?;
+    let entries = lineup
+        .tokens
+        .iter()
+        .map(|_| fresh_uuid())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| unrandom())?;
+    let mut dice = Thrown::new(lineup.tokens.len()).map_err(|_| unrandom())?;
+    let fresh = start_combat::Fresh {
+        combat: &combat,
+        entries: &entries,
+        now,
+    };
+    let prepared = start_combat::prepare(&request, &lineup, fresh, &mut dice).map_err(|why| {
+        let status = match why {
+            Refusal::UnknownInstance => StatusCode::NOT_FOUND,
+            Refusal::CombatOpen => StatusCode::CONFLICT,
+            Refusal::NotAnId(_)
+            | Refusal::NotAnInitiative
+            | Refusal::NotARoll
+            | Refusal::NoParticipant
+            | Refusal::UnknownCharacter
+            | Refusal::MissingInitiative(_)
+            | Refusal::RollOfNoNpc => StatusCode::UNPROCESSABLE_ENTITY,
+        };
+        refused(status, &why)
+    })?;
+    let key = body.idempotency_key.take();
+    let rows: Vec<(String, start_combat::Row)> = prepared
+        .entries
+        .into_iter()
+        .chain(std::iter::once(prepared.combat))
+        .collect();
+    let last = rows.len();
+    let mut submitted: Option<Submitted> = None;
+    // What the engine said of each row queued before the last one.
+    let mut warnings = Vec::new();
+    for (place, (id, row)) in (1..).zip(rows) {
+        let one = Submission {
+            data_capability: body.data_capability.clone(),
+            payload: row,
+            target_id: Some(id),
+            based_on: None,
+            idempotency_key: key.clone().filter(|_| place == last),
+            caller: body.caller.clone(),
+        };
+        warnings.extend(submitted.take().into_iter().flat_map(|one| one.warnings));
+        submitted = Some(served.engine.submit(one).await.map_err(failed)?);
+    }
+    submitted
+        .map(|mut submitted| {
+            warnings.append(&mut submitted.warnings);
+            submitted.warnings = warnings;
+            (StatusCode::ACCEPTED, Json(submitted))
+        })
+        .ok_or_else(|| refused(StatusCode::UNPROCESSABLE_ENTITY, &Refusal::NoParticipant))
+}
+
+/// The dice a start throws (`start_combat::Dice`), thrown before it is
+/// prepared: a d20 and a draw per token, which it takes in order.
+struct Thrown {
+    d20s: Vec<i64>,
+    draws: Vec<i64>,
+}
+
+impl Thrown {
+    /// `n` d20s and `n` draws.
+    fn new(n: usize) -> Result<Self, getrandom::Error> {
+        let d20s = (0..n).map(|_| d20()).collect::<Result<_, _>>()?;
+        let draws = (0..n).map(|_| draw()).collect::<Result<_, _>>()?;
+        Ok(Self { d20s, draws })
+    }
+}
+
+impl start_combat::Dice for Thrown {
+    fn d20(&mut self) -> i64 {
+        self.d20s.pop().unwrap_or(1)
+    }
+
+    fn draw(&mut self) -> i64 {
+        self.draws.pop().unwrap_or(0)
+    }
+}
+
+/// A d20, each face as likely: a random byte, thrown again until it reads
+/// as a face ([`face`]).
+fn d20() -> Result<i64, getrandom::Error> {
+    loop {
+        let mut byte = [0_u8; 1];
+        getrandom::fill(&mut byte)?;
+        if let Some(face) = face(byte[0]) {
+            return Ok(face);
+        }
+    }
+}
+
+/// The d20's face a random byte reads as, 1 to 20; `None` above the last
+/// multiple of 20 a byte holds, which would favour the low faces.
+fn face(byte: u8) -> Option<i64> {
+    (byte < 240).then(|| i64::from(byte % 20) + 1)
+}
+
+/// A draw a tie is settled by: a random whole number from 0 to 2³¹ - 1, which
+/// the table's `double precision` holds exactly.
+fn draw() -> Result<i64, getrandom::Error> {
+    let mut bytes = [0_u8; 4];
+    getrandom::fill(&mut bytes)?;
+    Ok(i64::from(u32::from_le_bytes(bytes) >> 1))
+}
+
 /// `body`, a reorder of the initiative of an instance's open combat
 /// (`table.reorderInitiative`), made the ranks it writes
 /// (`reorder_initiative::prepare`) — the fixtures' slugs it names read as the
 /// ids the tables hold them by — against the combat's participants as the
-/// queue will leave them ([`Rows::lineup`]), and queued, one command per
+/// queue will leave them ([`Rows::open_lineup`]), and queued, one command per
 /// entry on its own partition, `BattlemapInstance/<its id>`: the engine
 /// writes one partition per command. The answer is the last rank's command,
 /// queued after the others; with an idempotency key, the last rank's command
@@ -952,7 +1126,7 @@ async fn reordering<L>(served: &Served<L>, mut body: Submission) -> Reply<Submit
     let request = reorder_initiative::request(&wire, target.as_deref()).map_err(unprocessable)?;
     let combat = served
         .rows
-        .lineup(&request.instance)
+        .open_lineup(&request.instance)
         .await
         .map_err(failed)?;
     let ranks = reorder_initiative::prepare(&request, combat.as_deref()).map_err(unprocessable)?;
@@ -1176,12 +1350,56 @@ async fn version(State(engine): State<Shared>) -> Reply<serde_json::Value> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use harness_dataguard::command::State;
     use tower::ServiceExt;
 
     use super::*;
+
+    #[test]
+    fn a_byte_reads_as_a_face_from_1_to_20_each_as_likely() {
+        assert_eq!(face(0), Some(1));
+        assert_eq!(face(19), Some(20));
+        assert_eq!(face(20), Some(1));
+        assert_eq!(face(239), Some(20));
+        assert_eq!(face(240), None);
+        assert_eq!(face(u8::MAX), None);
+        let faces = (0..=u8::MAX).filter_map(face).collect::<Vec<_>>();
+        for n in 1..=20 {
+            assert_eq!(faces.iter().filter(|&&f| f == n).count(), 12, "face {n}");
+        }
+    }
+
+    #[test]
+    fn the_dice_thrown_are_random_and_in_range() {
+        let d20s = (0..2000)
+            .map(|_| d20().expect("randomness"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(d20s, (1..=20).collect::<BTreeSet<_>>());
+        let draws = (0..200)
+            .map(|_| draw().expect("randomness"))
+            .collect::<BTreeSet<_>>();
+        assert!(draws.len() > 190, "{draws:?}");
+        assert!(draws.iter().all(|d| (0..=i64::from(i32::MAX)).contains(d)));
+        assert!(draws.iter().any(|d| d % 2 == 1), "{draws:?}");
+    }
+
+    #[test]
+    fn a_start_takes_the_dice_thrown_for_it_then_falls_back() {
+        use start_combat::Dice;
+        let mut thrown = Thrown {
+            d20s: vec![7, 13],
+            draws: vec![5, 9],
+        };
+        assert_eq!((thrown.d20(), thrown.d20(), thrown.d20()), (13, 7, 1));
+        assert_eq!((thrown.draw(), thrown.draw(), thrown.draw()), (9, 5, 0));
+        let mut fresh = Thrown::new(3).expect("randomness");
+        assert_eq!((fresh.d20s.len(), fresh.draws.len()), (3, 3));
+        assert!((1..=20).contains(&fresh.d20()));
+    }
 
     /// What `router` answers to one request, over the in-memory engine.
     async fn answer(request: Request<Body>) -> (StatusCode, serde_json::Value) {

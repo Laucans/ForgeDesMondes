@@ -6,7 +6,7 @@
 //! row alone, and the combat and each of its entries are one. Which combats
 //! the instance has, and which entries a combat has, are the engine's rows'
 //! ([`combats`], [`entries`]) — the queue's, and each row as the queue will
-//! leave it, [`crate::Rows::lineup`] adds. A combat is on
+//! leave it, [`crate::Rows::open_lineup`] adds. A combat is on
 //! `BattlemapInstance/<its id>`, an entry on `BattlemapInstance/<its id>`;
 //! one the engine tombstoned is none. Once the engine applied an entry,
 //! [`rank`] writes its rank on its row: the carousel's places follow
