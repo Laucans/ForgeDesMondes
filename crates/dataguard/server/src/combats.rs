@@ -20,9 +20,18 @@
 //! comes last. A row the table holds already is left as it is. The combat's
 //! current entry is an entry's key: [`current`] points it at the entry the
 //! engine names once the table holds that entry — after each entry
-//! inserted, after each apply of a combat, and at a start. A participant
-//! taken out of the combat (`table.removeParticipant`) is a tombstone on its
-//! entry's partition: [`leave`] takes its row out of the table.
+//! inserted, after each apply of a combat, and at a start.
+//!
+//! An end (`table.endCombat`) is judged against the combats of the instance
+//! not ended ([`open`]), which [`crate::Rows::open_combat`] reads again as
+//! the queue will leave them. Once the engine applied it on the combat's
+//! partition, [`end`] writes the combat's `ended_at` and its current entry —
+//! none —, and no other column: its entries, the instance's tokens, their
+//! HP and their conditions stay as they are.
+//!
+//! A participant taken out of the combat (`table.removeParticipant`) is a
+//! tombstone on its entry's partition: [`leave`] takes its row out of the
+//! table.
 
 use start_combat::{Lineup, Participant};
 use tokio_postgres::Client;
@@ -125,6 +134,23 @@ const CURRENT: &str = "UPDATE combat c
         AND (e.id IS NOT NULL OR r.fields ->> 'currentEntryId' IS NULL)
         AND c.current_entry_id IS DISTINCT FROM e.id";
 
+/// The end the engine holds of the combat partition `$1` names — of every
+/// combat when it is null — written on its row: the one column an end writes
+/// beside its current entry (`table.endCombat`), and never back to none
+/// (`one-active-combat`). After each apply of an end, and at a start,
+/// so an end whose projection failed after its apply is written again. The
+/// combat is found by its key, the id its partition names; one the table
+/// does not hold yet is the start's to insert, end and all.
+const END: &str = "UPDATE combat c
+    SET ended_at = (r.fields ->> 'endedAt')::timestamptz
+    FROM dataguard_rows r
+    WHERE NOT r.tombstoned AND r.partition LIKE 'BattlemapInstance/%'
+        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'combatId')
+        AND c.id::text = lower(r.fields ->> 'combatId')
+        AND r.fields ->> 'endedAt' IS NOT NULL
+        AND c.ended_at IS DISTINCT FROM (r.fields ->> 'endedAt')::timestamptz";
+
 /// The entry of the partition `$1` — of every entry when it is null — the
 /// engine holds tombstoned, out of the table: the row is the read side's, the
 /// tombstone the engine keeps (a soft delete, reversible through its journal)
@@ -181,18 +207,29 @@ pub async fn lineup(
             dex: row.get(3),
         })
         .collect();
-    let combats = client
-        .query(COMBATS, &[&instance])
-        .await?
-        .iter()
-        .map(|row| row.get(0))
-        .collect();
+    let combats = open(client, instance).await?;
     let lineup = Lineup {
         instance: known,
         tokens,
         open: false,
     };
     Ok((lineup, combats))
+}
+
+/// The combats of the instance an end names — an id the tables can read,
+/// lowercase — that the table, or the engine, holds with no end: the ones
+/// that may be open.
+///
+/// # Errors
+///
+/// The database's, when it cannot be read.
+pub async fn open(client: &Client, instance: &str) -> Result<Vec<String>, tokio_postgres::Error> {
+    Ok(client
+        .query(COMBATS, &[&instance])
+        .await?
+        .iter()
+        .map(|row| row.get(0))
+        .collect())
 }
 
 /// Projects the combat of `partition`, logging a failure — an instance reset
@@ -245,6 +282,21 @@ pub async fn current(client: &Client, combat: Option<&str>) {
     }
 }
 
+/// Writes the end the engine holds of the combat `partition` names — of
+/// every combat, `None` — and points it at its current entry, none once it
+/// ended, logging a failure: after each apply of an end, and at a start.
+/// Tables not migrated yet hold none.
+pub async fn end(client: &Client, partition: Option<&str>) {
+    if let Err(e) = client.execute(END, &[&partition]).await {
+        eprintln!(
+            "projection: combat's end not written: {}",
+            e.as_db_error().map_or("-", |db| db.code().code())
+        );
+    }
+    let combat = partition.map(|partition| partition.trim_start_matches("BattlemapInstance/"));
+    current(client, combat).await;
+}
+
 /// Takes the entry `partition` names out of the table once the engine holds
 /// it tombstoned — every such entry, `None` — logging a failure: after each
 /// tombstone of the aggregate, and at a start, so a removal whose projection
@@ -260,8 +312,8 @@ pub async fn leave(client: &Client, partition: Option<&str>) {
 
 /// Projects every combat, then every entry, the engine holds and the table
 /// does not, one by one, so one the table refuses keeps none of the others
-/// out, then points each combat at its current entry: at a start. Tables not
-/// migrated yet hold none.
+/// out, then writes each combat's end and points it at its current entry:
+/// at a start. Tables not migrated yet hold none.
 pub async fn repair(client: &Client) {
     for sql in [UNPROJECTED, UNENTERED] {
         match client.query(sql, &[]).await {
@@ -281,5 +333,5 @@ pub async fn repair(client: &Client) {
             ),
         }
     }
-    current(client, None).await;
+    end(client, None).await;
 }
