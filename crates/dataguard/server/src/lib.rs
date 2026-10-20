@@ -616,14 +616,10 @@ async fn submit<L: Llm>(
             Err(refusal) => return unprepared(refusal),
         };
         // The sound as the commands queued ahead leave it: an addition still
-        // queued is one.
-        match served
-            .rows
-            .projected(&format!("Sound/{}", prepared.target_id))
-            .await
-        {
-            Ok(row) if row.is_empty() => return unprepared(update_sound::Refusal::NoSound),
-            Ok(_) => {}
+        // queued is one, a removal still queued leaves none.
+        match sound_standing(&served.rows, &prepared.target_id).await {
+            Ok(false) => return unprepared(update_sound::Refusal::NoSound),
+            Ok(true) => {}
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         }
         body.payload = prepared.payload;
@@ -640,9 +636,9 @@ async fn submit<L: Llm>(
         };
         // The sound as the commands queued ahead leave it: an addition still
         // queued is one, a sound removed already is none.
-        match served.rows.projected(&format!("Sound/{sound}")).await {
-            Ok(row) if row.is_empty() => return no_sound(),
-            Ok(_) => {}
+        match sound_standing(&served.rows, &sound).await {
+            Ok(false) => return no_sound(),
+            Ok(true) => {}
             Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
         }
         body.target_id = Some(sound);
@@ -655,6 +651,16 @@ async fn submit<L: Llm>(
         submitted
     });
     reply(axum::http::StatusCode::ACCEPTED, submitted)
+}
+
+/// Whether the sound `id` stands once the commands queued ahead are applied:
+/// an addition still queued makes one, a removal still queued takes it away.
+async fn sound_standing(rows: &Rows, id: &str) -> harness_dataguard::Result<bool> {
+    let partition = format!("Sound/{id}");
+    if rows.removal_queued(&partition).await? {
+        return Ok(false);
+    }
+    Ok(!rows.projected(&partition).await?.is_empty())
 }
 
 /// One trigger under an idempotency key at a time, from its replay check
