@@ -1,0 +1,10 @@
+[package]
+name = "show-window-on-player-view"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.showWindowOnPlayerView: the DM opens an illustration of the campaign in a floating window over the live session's player view, on the session's Diffusion partition — its media, position and width set together, its height left to the illustration's proportions, the base untouched."
+publish = false
+
+[dependencies]
+serde_json = "1"
