@@ -151,7 +151,7 @@ impl Store for Versioning {
 }
 
 /// An instance's open combat as the commands queued will leave it
-/// ([`Rows::open_combat`]).
+/// ([`Rows::seated_combat`]).
 struct OpenCombat {
     /// Its id, lowercase.
     id: String,
@@ -336,7 +336,7 @@ impl Rows {
         &self,
         instance: &str,
     ) -> Result<(Option<next_turn::Combat>, Vec<next_turn::Participant>)> {
-        let Some(combat) = self.open_combat(instance).await? else {
+        let Some(combat) = self.seated_combat(instance).await? else {
             return Ok((None, Vec::new()));
         };
         let participants = combat
@@ -422,16 +422,62 @@ impl Rows {
                 .any(|gone| gone.eq_ignore_ascii_case(&p.token))
         });
         combats.extend(held);
+        lineup.open = self.first_open(combats).await?.is_some();
+        Ok(lineup)
+    }
+
+    /// The combat of the instance an end names (`table.endCombat`) that is
+    /// still open — in the tables, in the engine's rows, or queued — as the
+    /// commands queued on it will leave it: none once its end is queued.
+    /// Over the engine's memory, which has no table, none.
+    ///
+    /// # Errors
+    ///
+    /// [`harness_dataguard::Error::Store`] when the tables cannot be read;
+    /// the store's.
+    pub async fn open_combat(&self, instance: &str) -> Result<Option<String>> {
+        let Some(tables) = &self.tables else {
+            return Ok(None);
+        };
+        // The queue before the tables, as a start reads them: a combat
+        // applied between the two reads is then read twice rather than
+        // missed by both.
+        let mut combats: Vec<String> = self
+            .store
+            .pending()
+            .await?
+            .iter()
+            .filter(|entry| {
+                entry
+                    .payload
+                    .get("combatInstanceId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id.eq_ignore_ascii_case(instance))
+            })
+            .filter_map(|entry| entry.payload.get("combatId")?.as_str())
+            .map(str::to_ascii_lowercase)
+            .collect();
+        combats.extend(tables.open_combats(instance).await.map_err(|e| {
+            harness_dataguard::Error::Store(format!(
+                "combats not read: {}",
+                e.as_db_error().map_or("-", |db| db.code().code())
+            ))
+        })?);
+        self.first_open(combats).await
+    }
+
+    /// The first of `combats`, by id, whose row has no end as the commands
+    /// queued on it will leave it (`one-active-combat`).
+    async fn first_open(&self, mut combats: Vec<String>) -> Result<Option<String>> {
         combats.sort_unstable();
         combats.dedup();
         for combat in combats {
             let row = self.projected(&start_combat::partition(&combat)).await?;
             if row.get("endedAt").is_none_or(Value::is_null) {
-                lineup.open = true;
-                break;
+                return Ok(Some(combat));
             }
         }
-        Ok(lineup)
+        Ok(None)
     }
 
     /// The participants of the open combat of the instance `instance` a
@@ -455,7 +501,7 @@ impl Rows {
         &self,
         instance: &str,
     ) -> Result<Option<Vec<reorder_initiative::Participant>>> {
-        Ok(self.open_combat(instance).await?.map(|combat| {
+        Ok(self.seated_combat(instance).await?.map(|combat| {
             combat
                 .seats
                 .into_iter()
@@ -478,7 +524,7 @@ impl Rows {
     /// ([`APPLYING`]). A combat is open while it names the instance and has
     /// no end; an entry is a seat while it names the combat, a rank and a
     /// token. Over the engine's memory, which has no table, none.
-    async fn open_combat(&self, instance: &str) -> Result<Option<OpenCombat>> {
+    async fn seated_combat(&self, instance: &str) -> Result<Option<OpenCombat>> {
         let Some(tables) = &self.tables else {
             return Ok(None);
         };

@@ -1,0 +1,10 @@
+[package]
+name = "end-combat"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.endCombat: a battlemap instance's open combat closed, on its own BattlemapInstance partition — its end stamped and no turn current, its tokens, HP and conditions left as they are; an instance with no combat open ends none (one-active-combat)."
+publish = false
+
+[dependencies]
+serde_json = "1"

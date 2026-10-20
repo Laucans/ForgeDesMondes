@@ -655,6 +655,20 @@
       inst.state.combat = { round: 1, current: order[0].id, order };
       return void 0;
     },
+    // table.endCombat: the open combat of the instance `targetId` — or `payload.instance` — ends: the carousel
+    // goes, no turn is current, and the tokens, their HP and their badges stay as they are. An instance with no
+    // combat open — or no such instance, which the server does not tell apart — ends none (`one-active-combat`);
+    // a new combat may start once it ended. Ids are compared in any case, as the server does.
+    "table.endCombat": async (server, { payload: payload2, targetId }) => {
+      const same2 = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+      const id = targetId || payload2.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const inst = instances.find((i) => same2(i.id, id));
+      if (!inst || !inst.state.combat) return ["one-active-combat"];
+      inst.state.combat = null;
+      return void 0;
+    },
     // table.setTokenCondition: the badge `payload.state` put on (`on: true`) or taken off (`on: false`) one token,
     // `payload.token` on the instance `targetId` — or the token itself as the target, or no target. The other
     // tokens of its character keep their badges (`instance-isolated`); a badge put on twice is there once, and one
