@@ -1,14 +1,18 @@
 //! The media system's read crate: what a media Capability reads through
 //! (rule 2). It opens one connection, the read-only one — the database
 //! `DATABASE_URL_READONLY` names, whose role holds no write privilege — and
-//! runs a persisted query's SQL in a `READ ONLY` transaction. It has no
-//! insert, no update, no delete, and no other URL to open: writing media is a
-//! DataCapability's, through the DataGuard.
+//! runs a persisted query's SQL in a `READ ONLY` transaction. It holds no
+//! database driver: the connection is the Data layer's
+//! ([`data::read_only_at`]), the one crate of the product that reaches
+//! PostgreSQL for a read, and the query runs through
+//! [`data::ReadOnly::query_json`]. It has no insert, no update, no delete,
+//! and no other URL to open: writing media is a DataCapability's, through
+//! the DataGuard.
 
 use serde_json::Value;
 
 /// The variable naming the read-only database.
-pub const READ_ONLY_URL: &str = "DATABASE_URL_READONLY";
+pub const READ_ONLY_URL: &str = data::READ_ONLY_URL;
 
 /// Why a read does not happen.
 #[derive(Debug, thiserror::Error)]
@@ -19,7 +23,7 @@ pub enum Error {
     Unset,
     /// The database could not be reached.
     #[error("cannot reach the read-only database: {0}")]
-    Connect(#[source] tokio_postgres::Error),
+    Connect(#[source] data::Error),
     /// The database refused the query, or its answer is not JSON.
     #[error("read: {0}")]
     Query(String),
@@ -27,12 +31,12 @@ pub enum Error {
 
 /// The read-only connection of the media system.
 pub struct MediaRead {
-    client: tokio_postgres::Client,
+    reader: data::ReadOnly,
 }
 
 impl MediaRead {
     /// Opens the connection `DATABASE_URL_READONLY` names, as `var` gives it
-    /// — `std::env::var` in a binary.
+    /// — `std::env::var` in a binary — through the Data layer.
     ///
     /// # Errors
     ///
@@ -42,20 +46,16 @@ impl MediaRead {
         let url = var(READ_ONLY_URL)
             .filter(|url| !url.is_empty())
             .ok_or(Error::Unset)?;
-        let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
-            .await
-            .map_err(Error::Connect)?;
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("postgres (media reads): {e}");
-            }
-        });
-        Ok(Self { client })
+        let reader = data::read_only_at(&url).await.map_err(Error::Connect)?;
+        Ok(Self { reader })
     }
 
     /// The rows `sql` selects — the text of a persisted query, never a value
     /// a request carries — as a JSON array of objects keyed by column,
-    /// read in a `READ ONLY` transaction that is rolled back after.
+    /// read in a `READ ONLY` transaction that is rolled back after. Every
+    /// column type PostgreSQL can turn to JSON is read: the rows are
+    /// aggregated by the database (`to_jsonb`), as the server reads them for
+    /// a Capability.
     ///
     /// # Errors
     ///
@@ -63,20 +63,25 @@ impl MediaRead {
     /// included.
     pub async fn rows(&mut self, sql: &str) -> Result<Value, Error> {
         let wrapped = format!(
-            "SELECT coalesce(jsonb_agg(to_jsonb(q)), '[]'::jsonb)::text FROM (\n{}\n) q",
+            "SELECT coalesce(jsonb_agg(to_jsonb(q)), '[]'::jsonb) AS rows FROM (\n{}\n) q",
             sql.trim().trim_end_matches(';')
         );
-        let failed = |e: tokio_postgres::Error| Error::Query(e.to_string());
-        let tx = self
-            .client
-            .build_transaction()
-            .read_only(true)
-            .start()
+        let mut answer = self
+            .reader
+            .query_json(&wrapped, &[])
             .await
-            .map_err(failed)?;
-        let row = tx.query_one(&wrapped, &[]).await.map_err(failed)?;
-        tx.rollback().await.map_err(failed)?;
-        serde_json::from_str(&row.get::<_, String>(0)).map_err(|e| Error::Query(e.to_string()))
+            .map_err(|e| Error::Query(e.to_string()))?;
+        // One row, one column: the array the aggregate built.
+        match answer
+            .get_mut(0)
+            .and_then(|row| row.get_mut("rows"))
+            .map(Value::take)
+        {
+            Some(rows @ Value::Array(_)) => Ok(rows),
+            other => Err(Error::Query(format!(
+                "the rows came back as {other:?}, not as a JSON array"
+            ))),
+        }
     }
 }
 
@@ -111,6 +116,30 @@ mod tests {
             .await
             .expect("a read");
         assert_eq!(none, serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn every_column_type_the_database_turns_to_json_is_read() {
+        let Some(mut media) = database().await else {
+            return;
+        };
+        // uuid, a timestamp and numeric have no reading of their own in the
+        // Data layer: the media tables hold all three.
+        let rows = media
+            .rows(
+                "SELECT '00000000-0000-0000-0000-000000000001'::uuid AS id, \
+                 '2026-01-02T03:04:05'::timestamp AS at, 1.50::numeric(7,2) AS size",
+            )
+            .await
+            .expect("a read");
+        assert_eq!(
+            rows,
+            serde_json::json!([{
+                "id": "00000000-0000-0000-0000-000000000001",
+                "at": "2026-01-02T03:04:05",
+                "size": 1.50
+            }])
+        );
     }
 
     #[tokio::test]
