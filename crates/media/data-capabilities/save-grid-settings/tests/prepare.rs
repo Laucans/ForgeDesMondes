@@ -122,6 +122,20 @@ fn a_size_of_zero_or_an_opacity_out_of_range_is_left_to_grid_values_range() {
 }
 
 #[test]
+fn an_opacity_is_judged_by_grid_values_range_not_by_the_table_s_largest_number() {
+    // Beyond what the table holds a size is refused here; an opacity is not
+    // bound by it, so the engine rejects it by name once queued.
+    let mut save = adjusted();
+    save["opacity"] = json!(1_000_000);
+    let payload = saved(save).expect("submitted");
+    assert_eq!(payload["opacity"], json!(1_000_000));
+
+    let mut save = adjusted();
+    save["size"] = json!(1_000_000);
+    assert_eq!(saved(save), Err(Refusal::Invalid("size")));
+}
+
+#[test]
 fn negative_offsets_and_the_largest_the_table_holds_are_kept() {
     let mut save = adjusted();
     save["ox"] = json!(-12.5);
