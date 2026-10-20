@@ -277,11 +277,16 @@ impl Rows {
     /// combat of the instance `instance`, its entries, and the character
     /// `character` a participant joining is (`table.addParticipant`): each
     /// combat and entry as the queue will leave it, the table's row under
-    /// the engine's. A combat is open when the engine's row of it says it
-    /// has no end — when it holds none, when the table says so; of two, the
-    /// first by id, which `one-active-combat` never lets be. An entry queued
-    /// and not applied yet is one of the combat too. Over the engine's
-    /// memory, which has no table, no combat.
+    /// the engine's, as [`Rows::turn`] folds them. One snapshot: the applier
+    /// is kept still from the queue's read to the last row's ([`APPLYING`]).
+    /// A combat is open when the engine's row of it says it has no end — when
+    /// it holds none, when the table says so, and a combat only queued
+    /// (`table.startCombat`) is; of two, the first by id, which
+    /// `one-active-combat` never lets be. A combat or an entry whose deletion
+    /// is queued is gone, and so is an entry whose token's removal is
+    /// (`table.removeParticipant`, `table.removeToken`): no move lands on its
+    /// tombstone to lift it. An entry queued and not applied yet is one of the
+    /// combat too. Over the engine's memory, which has no table, no combat.
     ///
     /// # Errors
     ///
@@ -301,28 +306,55 @@ impl Rows {
                 .and_then(Value::as_str)
                 .map(str::to_lowercase)
         };
-        // The queue before the tables: an entry applied between the two reads
-        // is then read twice, as one id, rather than missed by both.
-        let queued: Vec<(String, String)> = self
-            .store
-            .pending()
-            .await?
-            .iter()
-            .filter_map(|entry| {
-                let id = text(&entry.payload, "initiativeEntryId")?;
-                let combat = text(&entry.payload, "initiativeEntryCombatId")?;
-                (entry.partition == add_participant::partition(&id)).then_some((combat, id))
-            })
-            .collect();
+        let _applying = APPLYING.lock().await;
+        let mut queued = self.store.pending().await?;
+        queued.sort_by_key(|entry| entry.position);
+        let gone = |id: &str| {
+            let partition = add_participant::partition(id);
+            queued
+                .iter()
+                .any(|entry| entry.partition == partition && entry.effect == Effect::Delete)
+        };
+        // The engine's row of `id` as the queue will leave it; none once its
+        // deletion is queued.
+        let folded = async |id: &str| -> Result<Option<BTreeMap<String, Value>>> {
+            if gone(id) {
+                return Ok(None);
+            }
+            let partition = add_participant::partition(id);
+            let row = self.store.row(&partition).await?;
+            Ok(Some(
+                queued
+                    .iter()
+                    .filter(|entry| entry.partition == partition)
+                    .fold(row, |row, entry| guard::projected(&row, entry)),
+            ))
+        };
         let tabled = tables.seating(instance, character).await.map_err(|e| {
             harness_dataguard::Error::Store(format!(
                 "seating not read: {}",
                 e.as_db_error().map_or("-", |db| db.code().code())
             ))
         })?;
+        let mut combats = tabled.combats;
+        combats.extend(
+            queued
+                .iter()
+                .filter(|entry| {
+                    text(&entry.payload, "combatInstanceId").as_deref() == Some(instance)
+                })
+                .filter_map(|entry| {
+                    let id = text(&entry.payload, "combatId")?;
+                    (entry.partition == add_participant::partition(&id)).then_some((id, true))
+                }),
+        );
+        combats.sort();
+        combats.dedup_by(|a, b| a.0 == b.0);
         let mut combat = None;
-        for (id, running) in &tabled.combats {
-            let row = self.projected(&add_participant::partition(id)).await?;
+        for (id, running) in &combats {
+            let Some(row) = folded(id).await? else {
+                continue;
+            };
             if row.get("endedAt").map_or(*running, Value::is_null) {
                 combat = Some(id.clone());
                 break;
@@ -340,16 +372,27 @@ impl Rows {
                 rows.entry(id).or_default().extend(row);
             }
         }
-        for (of, id) in queued {
-            if of == combat {
+        for entry in &queued {
+            let (Some(id), Some(of)) = (
+                text(&entry.payload, "initiativeEntryId"),
+                text(&entry.payload, "initiativeEntryCombatId"),
+            ) else {
+                continue;
+            };
+            if of == combat && entry.partition == add_participant::partition(&id) {
                 rows.entry(id).or_default();
             }
         }
         let mut entries = Vec::new();
         for (id, mut row) in rows {
-            let held = self.projected(&add_participant::partition(&id)).await?;
+            let Some(held) = folded(&id).await? else {
+                continue;
+            };
             let is_held = !held.is_empty();
             row.extend(held);
+            if text(&row, "initiativeEntryTokenId").is_some_and(|token| gone(&token)) {
+                continue;
+            }
             let number = |field: &str| row.get(field).and_then(Value::as_i64);
             let (Some(token), Some(initiative), Some(tiebreak), Some(rank)) = (
                 text(&row, "initiativeEntryTokenId"),

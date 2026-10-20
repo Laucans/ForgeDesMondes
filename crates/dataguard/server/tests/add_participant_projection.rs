@@ -224,7 +224,7 @@ impl Scratch {
             .expect("the combat");
     }
 
-    /// The carousel of the combat, in order.
+    /// The carousel of the instance's combat, in order.
     async fn carousel(&self) -> Vec<Place> {
         self.client
             .query(
@@ -232,8 +232,9 @@ impl Scratch {
                  FROM initiative_order_view o
                  JOIN initiative_entry e ON e.id = o.entry_id
                  JOIN token t ON t.id = e.token_id
-                 WHERE o.combat_id = $1::text::uuid ORDER BY o.order_index",
-                &[&COMBAT],
+                 JOIN combat c ON c.id = o.combat_id
+                 WHERE c.instance_id = $1::text::uuid ORDER BY o.order_index",
+                &[&INSTANCE],
             )
             .await
             .expect("the carousel")
@@ -279,6 +280,39 @@ impl Scratch {
             .await
             .expect("the engine's row")
             .map(|row| row.get(0))
+    }
+
+    /// The entry of a bandit the instance's combat seats and whose turn it
+    /// is not: its id, its combat's and its token's.
+    async fn bandit_entry(&self) -> (String, String, String) {
+        let row = self
+            .client
+            .query_one(
+                "SELECT e.id::text, e.combat_id::text, e.token_id::text
+                 FROM initiative_entry e
+                 JOIN token t ON t.id = e.token_id
+                 JOIN combat c ON c.id = e.combat_id
+                 WHERE c.instance_id = $1::text::uuid AND t.name LIKE 'Bandit %'
+                     AND e.id IS DISTINCT FROM c.current_entry_id
+                 ORDER BY t.name LIMIT 1",
+                &[&INSTANCE],
+            )
+            .await
+            .expect("a bandit's entry");
+        (row.get(0), row.get(1), row.get(2))
+    }
+
+    /// Whether the engine holds the partition `id` names tombstoned.
+    async fn tombstoned(&self, id: &str) -> bool {
+        self.client
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM dataguard_rows
+                     WHERE partition = 'BattlemapInstance/' || $1 AND tombstoned)",
+                &[&id],
+            )
+            .await
+            .expect("the engine's rows")
+            .get(0)
     }
 
     async fn drop(self) {
@@ -392,6 +426,35 @@ async fn join(app: &Router, token: &str, initiative: Option<i64>) -> (StatusCode
         payload["initiative"] = json!(initiative);
     }
     command(app, "table.addParticipant@1", payload).await
+}
+
+/// `count` tokens of `character` dropped on the instance, queued: the last
+/// one's id.
+async fn place(app: &Router, character: &str, count: i64) -> String {
+    let placing = json!({ "character": character, "q": 5, "r": 5, "count": count });
+    let (status, body) = command(app, "table.placeTokens@1", placing).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    body["partition"]
+        .as_str()
+        .and_then(|partition| partition.strip_prefix("BattlemapInstance/"))
+        .expect("a token's partition")
+        .to_string()
+}
+
+/// A start of the instance's combat, Elowen at 18, queued.
+async fn start(app: &Router) {
+    let starting = json!({ "initiative": { ELOWEN: 18 } });
+    let (status, body) = command(app, "table.startCombat@1", starting).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+}
+
+/// Elowen and Bandit 1 and 2 dropped, then the combat started, all applied.
+async fn started(engine: &Engine, app: &Router) {
+    place(app, ELOWEN, 1).await;
+    place(app, BANDIT, 2).await;
+    applied(engine).await;
+    start(app).await;
+    applied(engine).await;
 }
 
 /// `places` in the order Initiative@1 gives them: initiative descending,
@@ -709,6 +772,125 @@ async fn a_start_and_a_join_sent_together_seat_no_token_twice_nor_two_at_one_ran
     assert_eq!(distinct.len(), 6, "{tokens:?}");
     assert_eq!(tokens.len(), 6, "a token seated twice: {tokens:?}");
     assert_eq!(ranks, (1..=6).collect::<Vec<i32>>(), "{ranks:?}");
+    drop(engine);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_join_after_a_removal_queued_steps_no_tombstone_and_the_next_join_still_passes() {
+    let scratch = Scratch::new("removed").await;
+    let (engine, app) = scratch.serve().await;
+    started(&engine, &app).await;
+    let kael = place(&app, KAEL, 1).await;
+    let chef = place(&app, VESNA, 1).await;
+    applied(&engine).await;
+    // A bandit out of the combat, queued; then Kael at 30, ahead of all: the
+    // bandit's entry is no one to move down.
+    let (removed, _, _) = scratch.bandit_entry().await;
+    let (status, body) = command(
+        &app,
+        "table.removeParticipant@1",
+        json!({ "entry": removed }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let (status, body) = join(&app, &kael, Some(30)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // Every command applied: no step queued on the tombstone.
+    applied(&engine).await;
+    assert!(scratch.tombstoned(&removed).await);
+    // The next join reads every entry still seated.
+    let (status, body) = join(&app, &chef, None).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    applied(&engine).await;
+    assert!(scratch.tombstoned(&removed).await);
+    let carousel = scratch.carousel().await;
+    assert_eq!(carousel.len(), 4, "{carousel:?}");
+    assert_eq!(carousel[0].name, "Kael");
+    assert_eq!(names(&carousel), by_initiative(&carousel));
+    let mut ranks: Vec<i32> = carousel.iter().map(|place| place.rank).collect();
+    ranks.dedup();
+    assert_eq!(ranks.len(), 4, "two at one rank: {carousel:?}");
+    drop(engine);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_join_right_after_a_start_queued_is_ranked_among_its_entries() {
+    let scratch = Scratch::new("queued_start").await;
+    let (engine, app) = scratch.serve().await;
+    place(&app, ELOWEN, 1).await;
+    place(&app, BANDIT, 2).await;
+    place(&app, VESNA, 1).await;
+    applied(&engine).await;
+    // The start queued, not applied; Kael dropped after it, then joining.
+    start(&app).await;
+    let kael = place(&app, KAEL, 1).await;
+    let (status, body) = join(&app, &kael, Some(30)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    applied(&engine).await;
+    let carousel = scratch.carousel().await;
+    assert_eq!(carousel.len(), 5, "{carousel:?}");
+    assert_eq!(carousel[0].name, "Kael");
+    assert!(contiguous(&carousel), "{carousel:?}");
+    assert_eq!(names(&carousel), by_initiative(&carousel));
+    drop(engine);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_rank_step_on_a_removed_entry_is_refused_and_lifts_no_tombstone() {
+    let scratch = Scratch::new("step_tombstone").await;
+    let (engine, app) = scratch.serve().await;
+    started(&engine, &app).await;
+    let (removed, combat, token) = scratch.bandit_entry().await;
+    let (status, body) = command(
+        &app,
+        "table.removeParticipant@1",
+        json!({ "entry": removed }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    applied(&engine).await;
+    // A step one rank down, as a join sends it, on the tombstone.
+    let step = json!({
+        "initiativeEntryId": removed,
+        "initiativeEntryCombatId": combat,
+        "initiativeEntryTokenId": token,
+        "rank": 1,
+    });
+    let Value::Object(payload) = step else {
+        panic!("a payload is an object");
+    };
+    engine
+        .submit(Submission {
+            data_capability: "table.addParticipant@1".to_string(),
+            payload: payload.into_iter().collect(),
+            target_id: Some(removed.clone()),
+            based_on: None,
+            idempotency_key: None,
+            caller: Caller {
+                by: "dm".to_string(),
+                from: "table.battlemap".to_string(),
+                permissions: Vec::new(),
+                roles: vec!["role:approver".to_string()],
+            },
+        })
+        .await
+        .expect("queued");
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0].status, State::Rejected, "{results:?}");
+    // The tombstone reads as no row: the step leaves an entry with no draw.
+    assert!(
+        results[0]
+            .violations
+            .contains(&"initiative-tiebreak".to_string()),
+        "{results:?}"
+    );
+    assert!(scratch.tombstoned(&removed).await);
+    let carousel = scratch.carousel().await;
+    assert_eq!(carousel.len(), 2, "{carousel:?}");
     drop(engine);
     scratch.drop().await;
 }
