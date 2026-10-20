@@ -1,0 +1,10 @@
+[package]
+name = "remove-token"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.removeToken: one token of a battlemap instance taken off the map, its own BattlemapInstance partition tombstoned (a soft delete) and nothing else written — the order closes up by itself, and a turn held by the token is moved first by table.nextTurn, sent before it."
+publish = false
+
+[dependencies]
+serde_json = "1"
