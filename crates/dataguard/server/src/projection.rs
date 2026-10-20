@@ -47,7 +47,10 @@
 //! entry's partition, `BattlemapInstance/<its id>`, and each partition of an
 //! entry it lands ahead of with a step of its rank: [`ProjectingStore`]
 //! inserts the entry's `initiative_entry` row, or writes the rank of one the
-//! table holds ([`combats`]).
+//! table holds ([`combats`]). A participant taken out of the combat
+//! (`table.removeParticipant`) tombstones its entry's partition:
+//! [`ProjectingStore`] deletes its `initiative_entry` row, its token stays,
+//! and a turn on it is nullified ([`combats`]).
 //! A campaign's row is its table's over the engine's, and an archive is read
 //! from the tables ([`ProjectingStore::archived`]). Every
 //! other method is the inner store's.
@@ -371,6 +374,7 @@ impl ProjectingStore {
             let client = self.inner.client().lock().await;
             instances::repair(&client).await;
             tokens::remove(&client, None).await;
+            combats::leave(&client, None).await;
             tokens::repair(&client).await;
             tokens::show(&client, None).await;
             tokens::hit_points(&client, None).await;
@@ -917,9 +921,11 @@ impl Store for ProjectingStore {
             self.repair_names(Some(&write.partition)).await;
             self.repair_conditions(Some(&write.partition)).await;
         } else if tokens::of_aggregate(&write.partition) {
-            // A tombstone: a token taken off the map leaves the table.
+            // A tombstone: a token taken off the map leaves the table, a
+            // participant taken out of the combat its order.
             let client = self.inner.client().lock().await;
             tokens::remove(&client, Some(&write.partition)).await;
+            combats::leave(&client, Some(&write.partition)).await;
         } else if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;

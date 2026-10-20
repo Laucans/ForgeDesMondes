@@ -1,0 +1,10 @@
+[package]
+name = "remove-participant"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.removeParticipant: one participant taken out of a battlemap instance's open combat, its own initiative entry's BattlemapInstance partition tombstoned (a soft delete) and nothing else written — its token stays on the map, the order closes up by itself, and a turn held by the participant is moved first by table.nextTurn, sent before it."
+publish = false
+
+[dependencies]
+serde_json = "1"
