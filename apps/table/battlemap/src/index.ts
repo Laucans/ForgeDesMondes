@@ -8,27 +8,52 @@
 // network call of its own. A token's (q, r) is the only position there is
 // (`single-position-source`): a drop sends it, and the map is read again.
 
-import { GET_BATTLEMAP, GET_BATTLEMAP_INSTANCE, LIST_CHARACTERS, MOVE_TOKEN, PLACE_TOKENS, REMOVE_TOKEN, RENAME_TOKEN, SET_TOKEN_CONDITION, SET_TOKEN_VISIBILITY, SHOW_ON_PLAYER_VIEW } from './ids.ts';
+import {
+  ADD_PARTICIPANT,
+  CHANGE_HIT_POINTS,
+  END_COMBAT,
+  GET_BATTLEMAP,
+  GET_BATTLEMAP_INSTANCE,
+  LIST_CHARACTERS,
+  MOVE_TOKEN,
+  NEXT_TURN,
+  PLACE_TOKENS,
+  REMOVE_PARTICIPANT,
+  REMOVE_TOKEN,
+  RENAME_TOKEN,
+  REORDER_INITIATIVE,
+  RESET_BATTLEMAP,
+  SET_TOKEN_CONDITION,
+  SET_TOKEN_VISIBILITY,
+  SHOW_ON_PLAYER_VIEW,
+  START_COMBAT,
+} from './ids.ts';
 import { distance, gridPath, label, line, onMap, toHex } from './hexgrid.ts';
 import {
   commandBody,
   commandId,
   countOf,
   existingToken,
+  hitPointsAfter,
+  initiativeOf,
+  inserted,
   isFinal,
   parseCharacters,
   parseInstance,
   parseMap,
   parseProps,
   reasons,
+  reordered,
   settled,
   shown,
   tableCommand,
+  turnAfter,
   withCondition,
+  without,
   numbering,
   type Settled,
 } from './model.ts';
-import { dropForm, hexMap, inspector, pathMarkup, roster, skeleton, toolbar, tokenItem } from './render.ts';
+import { carousel, dropForm, hexMap, inspector, pathMarkup, resetDialog, roster, skeleton, startDialog, toolbar, tokenItem, type Starter } from './render.ts';
 import { STYLE } from './style.ts';
 import type { Character, Frame, Hex, Instance, MapInfo, Props, Shell, Token } from './types.ts';
 
@@ -40,9 +65,11 @@ export interface Timing {
   polls: number;
   /** How often the data version is asked: a drop shows on the other view within a second. */
   watchMs: number;
+  /** The d20 an NPC rolls for its initiative, 1 to 20. */
+  roll?: () => number;
 }
 
-const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 500 };
+const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 500, roll: () => 1 + Math.floor(Math.random() * 20) };
 
 /** What the shell keeps of a mounted Micro-UI: new props follow the screen's context. */
 export interface Mounted {
@@ -51,6 +78,8 @@ export interface Mounted {
 
 const DRAG_THRESHOLD = 4;
 const CHARACTER_TYPE = 'text/fdm-character';
+const PARTICIPANT_TYPE = 'text/fdm-participant';
+const DM_ONLY = new Set(['bm-start-combat', 'bm-end-combat', 'bm-reset', 'combat-start-submit', 'battlemap-reset-submit', 'combat-next', 'combat-earlier', 'combat-later', 'combat-drop', 'combat-add', 'inspector-damage', 'inspector-heal']);
 
 function ensureStyle(doc: Document): void {
   if (doc.querySelector('style[data-micro-ui="Battlemap"]')) return;
@@ -161,6 +190,18 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       .join('');
   }
 
+  function paintCarousel(): void {
+    const box = part('initiative-carousel');
+    if (!box) return;
+    const combat = instance?.combat ?? null;
+    box.hidden = combat === null || !instance;
+    if (box.hidden || !combat || !instance) {
+      box.innerHTML = '';
+      return;
+    }
+    box.innerHTML = carousel(combat, instance.tokens, { view: props.view, selected, characters, pjInitiative: instance.pjInitiative });
+  }
+
   function paintInspector(): void {
     const box = part('token-inspector');
     if (!box) return;
@@ -171,10 +212,17 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       return;
     }
     // A refresh does not take the field from under the DM's keys.
-    if (!box.hidden && host.ownerDocument.activeElement?.id === 'inspector-name' && box.dataset.token === t.id) return;
+    const typing = host.ownerDocument.activeElement?.id;
+    const same = !box.hidden && box.dataset.token === t.id;
+    if (same && (typing === 'inspector-name' || typing === 'inspector-hp-amount')) return;
+    // The amount typed stays for the next change of this token — never for another one's sheet (hp-change-one-token).
+    const amount = same ? box.querySelector<HTMLInputElement>('#inspector-hp-amount')?.value : undefined;
     box.hidden = false;
     box.dataset.token = t.id;
-    box.innerHTML = inspector(t, instance.tokens.filter((x) => x.char === t.char), characters[t.char]);
+    const rank = instance.combat?.order.find((o) => o.id === t.id);
+    box.innerHTML = inspector(t, instance.tokens.filter((x) => x.char === t.char), characters[t.char], rank?.init ?? null);
+    const field = box.querySelector<HTMLInputElement>('#inspector-hp-amount');
+    if (field && amount !== undefined) field.value = amount;
   }
 
   function paintRoster(): void {
@@ -224,6 +272,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   function paintAll(): void {
     paintToolbar();
     paintTokens();
+    paintCarousel();
     paintInspector();
     paintRoster();
   }
@@ -338,6 +387,125 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       t.q = hex.q;
       t.r = hex.r;
     });
+
+  /** hp-change-one-token: the change goes to the token whose sheet is open, and to it alone. */
+  const changeHitPoints = (t: Token, delta: number): Promise<void> =>
+    act('Le changement de PV', CHANGE_HIT_POINTS, { token: t.id, delta }, () => {
+      if (t.kind !== 'pnj' || t.hp === null || t.hpMax === null) return;
+      t.hp = hitPointsAfter(t.hp, t.hpMax, delta);
+      t.dead = t.hp === 0;
+    });
+
+  /** next-turn: the next living participant by rank. */
+  const nextTurn = (): Promise<void> => {
+    const current = instance;
+    if (!current?.combat) return Promise.resolve();
+    const combat = current.combat;
+    return act('Le tour suivant', NEXT_TURN, {}, () => Object.assign(combat, turnAfter(combat, current.tokens)));
+  };
+
+  /** The participant moves to the rank `position`; the others keep their relative order. */
+  const reorder = (id: string, position: number): Promise<void> => {
+    const combat = instance?.combat;
+    if (!combat || position < 0 || position >= combat.order.length || combat.order[position]?.id === id) return Promise.resolve();
+    return act('Le réordonnancement', REORDER_INITIATIVE, { token: id, position }, () => {
+      combat.order = reordered(combat.order, id, position);
+    });
+  };
+
+  const removeParticipant = (id: string): Promise<void> => {
+    const current = instance;
+    const combat = current?.combat;
+    if (!current || !combat) return Promise.resolve();
+    return act('Le retrait du combat', REMOVE_PARTICIPANT, { token: id }, () => {
+      current.combat = without(combat, current.tokens, id);
+    });
+  };
+
+  /** A newcomer: an NPC rolls its d20, a PC takes the initiative the DM entered. */
+  function addParticipant(id: string, entered: number): Promise<void> {
+    const combat = instance?.combat;
+    const added = instance?.tokens.find((t) => t.id === id);
+    if (!combat || !added) return Promise.resolve();
+    const dexMod = characters[added.char]?.dexMod ?? 0;
+    const roll = (timing.roll ?? (() => 10))();
+    const init = added.kind === 'pnj' ? initiativeOf(roll, dexMod) : entered;
+    return act('L’ajout au combat', ADD_PARTICIPANT, added.kind === 'pnj' ? { token: id, roll } : { token: id, initiative: entered }, () => {
+      combat.order = inserted(combat.order, { id, init, dex: dexMod });
+    });
+  }
+
+  const endCombat = (): Promise<void> =>
+    act('La fin du combat', END_COMBAT, {}, () => {
+      if (instance) instance.combat = null;
+    });
+
+  // ---------- dialogs ----------
+  let starters: Starter[] = [];
+
+  const closeDialog = (): void => {
+    const box = part('battlemap-dialog');
+    if (box) box.innerHTML = '';
+    starters = [];
+  };
+
+  /** « Lancer le combat » : the NPC roll their d20 where the DM can see it, and he enters the PCs' initiative. */
+  function askStart(): void {
+    const current = instance;
+    const box = part('battlemap-dialog');
+    if (!current || !box || current.combat) return;
+    const roll = timing.roll ?? (() => 10);
+    starters = current.tokens
+      .filter((t) => !t.dead)
+      .map((token) => ({ token, roll: token.kind === 'pnj' ? roll() : 0, dexMod: characters[token.char]?.dexMod ?? 0, entered: token.kind === 'pj' ? (current.pjInitiative[token.char] ?? null) : null }));
+    box.innerHTML = startDialog(starters);
+    box.querySelector<HTMLInputElement>('[data-init]')?.focus();
+  }
+
+  /** The combat starts as the dialog shows it: NPC rolls by token, PC initiative by character. */
+  function startCombat(): Promise<void> {
+    const box = part('battlemap-dialog');
+    const rolled = starters;
+    if (!box || rolled.length === 0) return Promise.resolve();
+    // A PC's initiative is the DM's to enter: the dialog stays open on the one that is missing.
+    const blank = Array.from(box.querySelectorAll<HTMLInputElement>('[data-init]')).find((f) => !(Math.floor(Number(f.value)) >= 1));
+    if (blank) {
+      const error = part('combat-start-error');
+      if (error) {
+        error.hidden = false;
+        error.textContent = `Saisissez l’initiative de ${rolled.find((s) => s.token.id === blank.dataset.init)?.token.name ?? 'ce PJ'} (1 ou plus).`;
+      }
+      blank.focus();
+      return Promise.resolve();
+    }
+    const fields = new Map(Array.from(box.querySelectorAll<HTMLInputElement>('[data-init]')).map((f) => [f.dataset.init ?? '', Math.floor(Number(f.value))]));
+    const initiative: Record<string, number> = {};
+    const rolls: Record<string, number> = {};
+    const lines = rolled.map((s, rank) => {
+      const init = s.token.kind === 'pnj' ? initiativeOf(s.roll, s.dexMod) : (fields.get(s.token.id) ?? 1);
+      if (s.token.kind === 'pnj') rolls[s.token.id] = s.roll;
+      else initiative[s.token.char] = init;
+      return { id: s.token.id, init, dex: s.dexMod, rank };
+    });
+    closeDialog();
+    // The ties the table breaks at random are broken by the order the dialog listed.
+    const order = lines.sort((a, b) => b.init - a.init || b.dex - a.dex || a.rank - b.rank).map(({ id, init, dex }) => ({ id, init, dex }));
+    return act('Le lancement du combat', START_COMBAT, { initiative, rolls }, () => {
+      if (instance && order[0]) instance.combat = { round: 1, current: order[0].id, order };
+    });
+  }
+
+  function askReset(): void {
+    const box = part('battlemap-dialog');
+    if (box) box.innerHTML = resetDialog();
+  }
+
+  /** state-persisted-reset: the table empties the instance — tokens, combat, initiative — and the map is read again. */
+  function resetMap(): Promise<void> {
+    closeDialog();
+    selected = null;
+    return act('La réinitialisation', RESET_BATTLEMAP, {});
+  }
 
   /** Dropping a character: a PC with a token on the map is moved, anything else placed `count` times. */
   async function place(character: Character, hex: Hex, count: number): Promise<void> {
@@ -483,6 +651,12 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   host.addEventListener('dragstart', (event) => {
     const e = event;
+    const carried = (e.target as Element).closest<HTMLElement>('[data-participant]');
+    if (carried && e.dataTransfer) {
+      e.dataTransfer.setData(PARTICIPANT_TYPE, carried.dataset.participant ?? '');
+      e.dataTransfer.effectAllowed = 'move';
+      return;
+    }
     const chip = (e.target as Element).closest<HTMLElement>('[data-char]');
     if (!chip || !e.dataTransfer) return;
     e.dataTransfer.setData(CHARACTER_TYPE, chip.dataset.char ?? '');
@@ -491,14 +665,36 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   host.addEventListener('dragover', (event) => {
     const e = event;
+    if (dm() && (e.target as Element).closest('[data-participant]') && Array.from(e.dataTransfer?.types ?? []).includes(PARTICIPANT_TYPE)) {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      const over = (e.target as Element).closest('[data-participant]');
+      for (const item of host.querySelectorAll('.bm-drag-over')) if (item !== over) item.classList.remove('bm-drag-over');
+      over?.classList.add('bm-drag-over');
+      return;
+    }
     if (dm() && (e.target as Element).closest('.hm-view') && Array.from(e.dataTransfer?.types ?? []).includes(CHARACTER_TYPE)) {
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     }
   });
 
+  host.addEventListener('dragend', () => {
+    for (const item of host.querySelectorAll('.bm-drag-over')) item.classList.remove('bm-drag-over');
+  });
+
   host.addEventListener('drop', (event) => {
     const e = event;
+    for (const item of host.querySelectorAll('.bm-drag-over')) item.classList.remove('bm-drag-over');
+    // A participant dropped on another takes its rank.
+    const carried = e.dataTransfer?.getData(PARTICIPANT_TYPE) ?? '';
+    const over = (e.target as Element).closest<HTMLElement>('[data-participant]');
+    if (dm() && carried !== '' && over) {
+      e.preventDefault();
+      const position = instance?.combat?.order.findIndex((o) => o.id === over.dataset.participant) ?? -1;
+      if (position >= 0) void reorder(carried, position);
+      return;
+    }
     const character = characters[e.dataTransfer?.getData(CHARACTER_TYPE) ?? ''];
     if (!dm() || !character || !map || !(e.target as Element).closest('.hm-view')) return;
     e.preventDefault();
@@ -509,8 +705,18 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   });
 
   host.addEventListener('click', (event) => {
-    const button = (event.target as Element | null)?.closest('button');
+    const target = event.target as Element | null;
+    // A participant of the carousel opens the sheet of that very instance.
+    const listed = target?.closest<HTMLElement>('#initiative-carousel .kit-token__item');
+    if (listed && dm()) {
+      selected = listed.dataset.token ?? null;
+      paintAll();
+      return;
+    }
+    const button = target?.closest('button');
     if (!button) return;
+    // The combat, the reset and the sheet are the DM's: a player view mounts none of them, and a stray click on one does nothing.
+    if (!dm() && DM_ONLY.has(button.id)) return;
     const t = instance?.tokens.find((x) => x.id === selected);
     const zoomBox = part('battlemap-view');
     const [cx, cy] = [(zoomBox?.clientWidth ?? 0) / 2, (zoomBox?.clientHeight ?? 0) / 2];
@@ -518,6 +724,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     if (gesture === 'in') zoomAt(1.25, cx, cy);
     else if (gesture === 'out') zoomAt(1 / 1.25, cx, cy);
     else if (gesture === 'reset') fit();
+    else if (gesture === 'dialog-close') closeDialog();
     else if (gesture === 'close') {
       selected = null;
       paintAll();
@@ -532,6 +739,24 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
         const hex = toHex(map.grid, w);
         askPlace(character, onMap(map.grid, hex, map.width, map.height) ? hex : toHex(map.grid, { x: map.width / 2, y: map.height / 2 }), w);
       }
+    } else if (button.id === 'bm-start-combat') askStart();
+    else if (button.id === 'combat-start-submit') void startCombat();
+    else if (button.id === 'combat-start-cancel' || button.id === 'battlemap-reset-cancel') closeDialog();
+    else if (button.id === 'bm-reset') askReset();
+    else if (button.id === 'battlemap-reset-submit') void resetMap();
+    else if (button.id === 'bm-end-combat') void endCombat();
+    else if (button.id === 'combat-next') void nextTurn();
+    else if ((button.id === 'combat-earlier' || button.id === 'combat-later') && selected !== null) {
+      const at = instance?.combat?.order.findIndex((o) => o.id === selected) ?? -1;
+      if (at >= 0 && selected !== null) void reorder(selected, at + (button.id === 'combat-earlier' ? -1 : 1));
+    } else if (button.id === 'combat-drop' && selected !== null) void removeParticipant(selected);
+    else if (button.id === 'combat-add') {
+      const id = part<HTMLSelectElement>('combat-add-select')?.value ?? '';
+      const entered = Math.max(1, Math.floor(Number(part<HTMLInputElement>('combat-add-init')?.value)) || 10);
+      if (id !== '') void addParticipant(id, entered);
+    } else if (t && t.kind === 'pnj' && (button.id === 'inspector-damage' || button.id === 'inspector-heal')) {
+      const amount = Math.max(0, Math.floor(Number(part<HTMLInputElement>('inspector-hp-amount')?.value)) || 0);
+      if (amount > 0) void changeHitPoints(t, button.id === 'inspector-damage' ? -amount : amount);
     } else if (button.dataset.writes === SHOW_ON_PLAYER_VIEW) void showOnPlayerView();
     else if (t && button.dataset.state) {
       const state = button.dataset.state;
@@ -566,6 +791,9 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   });
 
   host.addEventListener('submit', (event) => event.preventDefault());
+  host.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeDialog();
+  });
 
   void start();
   return {
