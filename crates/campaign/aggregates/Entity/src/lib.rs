@@ -363,15 +363,17 @@ fn dex_modifier_derived(state: &BTreeMap<String, Value>, entry: &Entry) -> bool 
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
+    use harness_dataguard::command::{BasedOn, Effect, Entry, Mode, Projection, State};
     use harness_dataguard::plugins::Project;
     use harness_dataguard::store::Write;
     use serde_json::json;
 
     use super::{
         ABILITIES, ALIAS_UNIQUE, Aliases, BOOKKEEPING, CHECKS, DEX_MODIFIER, History, PROPOSAL,
-        RESYNC, Recorded, SHEET, VERSION, WHOLE,
+        RESYNC, Recorded, SHEET, VERSION, WHOLE, dex_modifier_derived,
     };
 
     const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
@@ -408,6 +410,62 @@ mod tests {
         recorded.observe(&write(morlox, true));
         assert!(aliases.known(VALOMBRE).is_empty());
         assert!(history.of(&morlox[7..]).is_empty());
+    }
+
+    /// A save touching `touches`, which the engine would have queued.
+    fn touching(touches: &[&str]) -> Entry {
+        Entry {
+            command: "c1".to_owned(),
+            data_capability: "test.saveEntity@1".to_owned(),
+            by: "dm".to_owned(),
+            partition: "Entity/e1000000-0000-4000-8000-000000000001".to_owned(),
+            position: 0,
+            based_on: BasedOn::default(),
+            payload: BTreeMap::new(),
+            effect: Effect::Update,
+            touches: touches.iter().map(|touch| (*touch).to_owned()).collect(),
+            mode: Mode::Overwrite,
+            projection: Projection::default(),
+            state: State::Queued,
+            confirmation: None,
+            at_head_since: None,
+            parked: None,
+            requeued_from: None,
+            idempotency_key: None,
+            attachment: None,
+        }
+    }
+
+    #[test]
+    fn dex_modifier_derived_holds_only_when_neither_the_row_nor_a_touch_carries_the_modifier() {
+        let row = |fields: serde_json::Value| -> BTreeMap<String, serde_json::Value> {
+            serde_json::from_value(fields).expect("a row")
+        };
+        let score = row(json!({ "dexterity": 16 }));
+        let typed = row(json!({ "dexterity": 16, DEX_MODIFIER: 3 }));
+        // The score alone, written or touched: the modifier is left to be computed.
+        assert!(dex_modifier_derived(&score, &touching(&[])));
+        assert!(dex_modifier_derived(
+            &score,
+            &touching(&["Entity.dexterity"])
+        ));
+        // The modifier on the row breaks it, whatever the command touches.
+        assert!(!dex_modifier_derived(&typed, &touching(&[])));
+        assert!(!dex_modifier_derived(
+            &typed,
+            &touching(&["Entity.dexterity"])
+        ));
+        // The modifier touched breaks it, though the row does not carry it.
+        assert!(!dex_modifier_derived(
+            &score,
+            &touching(&["Entity.dexterity", "Entity.dexterityModifier"])
+        ));
+        assert!(!dex_modifier_derived(&score, &touching(&[DEX_MODIFIER])));
+        // A touch that only ends like the modifier is another field.
+        assert!(dex_modifier_derived(
+            &score,
+            &touching(&["Entity.notDexterityModifier"])
+        ));
     }
 
     fn aggregate() -> serde_json::Value {
