@@ -13,6 +13,7 @@ build = "build.rs"
 # machete does not read.
 [package.metadata.cargo-machete]
 ignored = [
+    "add-scene",
     "aggregate-ai-settings",
     "aggregate-battlemap-instance",
     "aggregate-campaign",
@@ -51,6 +52,7 @@ ignored = [
 
 [dependencies]
 harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v5", features = ["postgres", "uuid"] }
+add-scene = { path = "../../session/data-capabilities/add-scene" }
 aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
 aggregate-battlemap-instance = { path = "../../table/aggregates/BattlemapInstance" }
 aggregate-campaign = { path = "../../campaign/aggregates/Campaign" }

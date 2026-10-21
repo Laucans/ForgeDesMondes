@@ -793,6 +793,36 @@
       for (const medium of found) medium.place = place;
       return void 0;
     },
+    // session.addScene (crates/session/data-capabilities/add-scene): a new
+    // scene, ranked after the session's last (`scene-order-contiguous`), with
+    // its title, its notes and the places it links — each a place of the
+    // fixtures' campaign, else `scene-links-same-campaign` — whose media
+    // follow it to the session (`session-media-by-place`, derived, never
+    // stored). A blank title is `scene-title-required`: the mock answers
+    // violation ids, where the server answers 422.
+    "session.addScene": async (server, { payload: payload2 }) => {
+      const title2 = String(payload2.title || "").trim();
+      if (!title2) return ["scene-title-required"];
+      const known = new Set((await server.load("campaign.listPlaces")).map((p) => p.id));
+      const places = [...new Set(Array.isArray(payload2.places) ? payload2.places : [])];
+      if (places.some((id) => !known.has(id))) return ["scene-links-same-campaign"];
+      const library = await server.load("media.listMedia");
+      const media = library.battlemaps.concat(library.illustrations).filter((m) => places.includes(m.place)).map((m) => m.id);
+      const scenes = await server.load("session.listScenes");
+      scenes.push({
+        id: server.uuid(),
+        order: scenes.reduce((last, sc) => Math.max(last, sc.order), 0) + 1,
+        title: title2,
+        places,
+        characters: [],
+        events: [],
+        media,
+        toCreate: [],
+        battlemap: null,
+        notes: String(payload2.notes || "").trim() || null
+      });
+      return void 0;
+    },
     // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
     // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
     // version after it are undone, each field back to what it was. Either way the restoration is a new version
