@@ -189,6 +189,64 @@ mod tests {
         assert!(Media.violated(&state, &entry("Media", "delete")).is_empty());
     }
 
+    /// A battlemap with its whole grid, `feetPerHex` set to `feet`.
+    fn battlemap_with(feet: Value) -> BTreeMap<String, Value> {
+        [
+            ("id", json!("a1")),
+            ("kind", json!("battlemap")),
+            ("hexSizePx", json!(40)),
+            ("offsetX", json!(0)),
+            ("offsetY", json!(0)),
+            ("orientation", json!("flat")),
+            ("color", json!("#000000")),
+            ("opacity", json!(0.5)),
+            ("mediaId", json!("a1")),
+            ("feetPerHex", feet),
+        ]
+        .into_iter()
+        .map(|(field, value)| (field.to_string(), value))
+        .collect()
+    }
+
+    #[test]
+    fn a_hex_worth_five_feet_holds_however_the_row_writes_it() {
+        for feet in [json!(5), json!(5.0), json!("5"), json!(" 5.00 ")] {
+            let state = battlemap_with(feet.clone());
+            assert!(
+                Media.violated(&state, &entry("Media", "update")).is_empty(),
+                "{feet}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hex_worth_anything_else_breaks_hex_is_five_feet() {
+        for feet in [
+            json!(6),
+            json!(0),
+            json!(4.99),
+            json!("6"),
+            json!("five"),
+            json!("inf"),
+            json!(true),
+        ] {
+            let state = battlemap_with(feet.clone());
+            assert_eq!(
+                Media.violated(&state, &entry("Media", "update")),
+                ["hex-is-five-feet"],
+                "{feet}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_that_says_nothing_of_the_hex_holds_hex_is_five_feet() {
+        let mut state = battlemap_with(Value::Null);
+        assert!(Media.violated(&state, &entry("Media", "update")).is_empty());
+        state.remove("feetPerHex");
+        assert!(Media.violated(&state, &entry("Media", "update")).is_empty());
+    }
+
     #[test]
     fn grid_only_for_battlemap_knows_the_grid_fields_the_aggregate_declares() {
         let aggregate: serde_json::Value =
