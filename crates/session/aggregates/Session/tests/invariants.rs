@@ -599,6 +599,45 @@ async fn text_only_no_audio_rejects_audio_or_anything_but_a_column_s_value() {
     );
 }
 
+/// The tavern scene of session 1, linking `links` under `entityId`.
+fn arrivee(links: Value) -> Value {
+    json!({
+        "sceneId": ARRIVEE,
+        "sceneSessionId": SEANCE,
+        "sceneTitle": "L'arrivée",
+        "entityId": links,
+    })
+}
+
+#[tokio::test]
+async fn text_only_no_audio_admits_one_list_the_ids_a_scene_links() {
+    let engine = session("prep").await;
+    for payload in [
+        // A list of anything but ids, even under `entityId`: a text, hex
+        // digits too few for a uuid, a number, a list.
+        arrivee(json!(["UklGRiQAAABXQVZF"])),
+        arrivee(json!(["e1000000"])),
+        arrivee(json!([42])),
+        arrivee(json!([[TAVERNE]])),
+        // A list of ids under any other field.
+        with(arrivee(json!([])), "sceneTitle", json!([TAVERNE])),
+    ] {
+        rejected_by(
+            &written(&engine, "test.updateSession", payload).await,
+            &["text-only-no-audio"],
+        );
+    }
+    // The ids of the elements it links, in either case: kept.
+    applied(
+        &written(
+            &engine,
+            "test.updateSession",
+            arrivee(json!([TAVERNE, ELOWEN.to_uppercase()])),
+        )
+        .await,
+    );
+}
+
 #[tokio::test]
 async fn the_session_invariants_leave_a_session_s_removal_to_the_tombstone() {
     let engine = session("closed").await;

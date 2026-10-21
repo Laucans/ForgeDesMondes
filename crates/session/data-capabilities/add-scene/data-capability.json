@@ -1,0 +1,36 @@
+{
+  "dataCapability": "session.addScene",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "Session",
+    "id": "$sceneId"
+  },
+  "touches": [
+    "Session.sceneId",
+    "Session.sceneSessionId",
+    "Session.scenePosition",
+    "Session.sceneTitle",
+    "Session.notes",
+    "Session.sceneEntitySceneId",
+    "Session.entityId",
+    "Session.sceneEntityPosition"
+  ],
+  "payload": {
+    "session": "uuid — the session the scene is added to; its rank is the session's last + 1 (scene-order-contiguous), settled when it is applied",
+    "title": "string — the scene's title, not blank",
+    "notes": "string | null — optional, the DM's notes on the scene",
+    "places": "uuid[] — optional, the places the scene links, in order, each an element of the session's campaign (scene-links-same-campaign); their media are the session's through session_media_view, never stored (session-media-by-place)"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "scene-order-contiguous",
+    "scene-links-same-campaign",
+    "session-media-by-place",
+    "text-only-no-audio"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
