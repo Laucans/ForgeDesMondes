@@ -448,6 +448,7 @@ dependencies = [
  "list-places",
  "list-players",
  "move-window",
+ "resize-window",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -1477,6 +1478,18 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "resize-window"
+version = "0.1.0"
+dependencies = [
+ "aggregate-diffusion",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
