@@ -601,7 +601,7 @@ fn medium_of(value: &Value, kind: &'static str) -> Result<Medium, String> {
         (_, _, "illustration") => {
             let ratio = value["ratio"]
                 .as_f64()
-                .filter(|r| r.is_finite() && *r > 0.0 && *r < 100.0)
+                .filter(|r| *r > 0.0 && *r < 100.0)
                 .ok_or_else(|| format!("{slug} has no size and no ratio"))?;
             // Below 100, a ratio times 1000 is a whole number of pixels.
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -919,8 +919,11 @@ mod tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures/entities.json"),
         )
         .expect("the fixture");
+        // A folder of its own each time: the tests run side by side.
+        static PLANNED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = PLANNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = folder(
-            &format!("library-{}", media.to_string().len()),
+            &format!("library-{n}"),
             &[
                 ("entities.json", &entities),
                 ("media.json", &media.to_string()),
@@ -937,6 +940,84 @@ mod tests {
             "width": 960, "height": 640, "place": place,
             "grid": { "size": 30, "ox": 0, "oy": 0, "orient": orient, "color": "text",
                 "opacity": 40 } })
+    }
+
+    /// The library of Valombre holding `battlemap` and `illustration`.
+    fn holding(battlemap: Value, illustration: Value) -> Value {
+        json!({ "campaign": "cendres-valombre", "battlemaps": [battlemap],
+            "illustrations": [illustration] })
+    }
+
+    /// An illustration, its size or ratio given by `size`.
+    fn illustration(size: Value) -> Value {
+        let mut illustration =
+            json!({ "id": "ill-x", "title": "X", "file": "x.png", "uploadedAt": "2026-10-14" });
+        for (key, value) in size.as_object().into_iter().flatten() {
+            illustration[key] = value.clone();
+        }
+        illustration
+    }
+
+    #[test]
+    fn a_medium_is_sized_in_whole_pixels_or_by_a_ratio_below_one_hundred() {
+        let fits = |plan: &Fixtures| plan.loaded.iter().any(|name| name == "media.json");
+        let plain = || battlemap(Value::Null, "flat");
+        for (size, width) in [
+            (json!({ "width": 640, "height": 480 }), 640),
+            // A size of no pixel is no size: the ratio says it.
+            (json!({ "width": 0, "height": 480, "ratio": 1.5 }), 1500),
+            (json!({ "ratio": 99.5 }), 99_500),
+        ] {
+            let plan = library(&holding(plain(), illustration(size.clone())));
+            assert!(fits(&plan), "{size}: {:?}", plan.skipped);
+            let media = rows(&plan, "media");
+            let planned = media
+                .iter()
+                .find(|m| m["id"] == id("media", "ill-x"))
+                .expect("the illustration");
+            assert_eq!(planned["width_px"], width, "{size}");
+        }
+        for size in [
+            json!({ "ratio": 0.0 }),
+            json!({ "ratio": 100.0 }),
+            json!({}),
+        ] {
+            let plan = library(&holding(plain(), illustration(size.clone())));
+            assert!(!fits(&plan), "{size}");
+            assert!(plan.skipped[0].1.contains("no size and no ratio"), "{size}");
+        }
+        let mut flat = plain();
+        flat["width"] = json!(0);
+        let plan = library(&holding(flat, illustration(json!({ "ratio": 1.5 }))));
+        assert!(!fits(&plan));
+        assert!(
+            plan.skipped[0].1.contains("no size in pixels"),
+            "{:?}",
+            plan.skipped
+        );
+    }
+
+    #[test]
+    fn a_grid_has_a_size_and_an_opacity_of_at_most_one_hundred() {
+        let plain = || illustration(json!({ "ratio": 1.5 }));
+        let grid = |size: f64, opacity: f64| {
+            let mut map = battlemap(Value::Null, "flat");
+            map["grid"]["size"] = json!(size);
+            map["grid"]["opacity"] = json!(opacity);
+            library(&holding(map, plain()))
+        };
+        for (size, opacity) in [(0.0, 40.0), (30.0, 101.0), (30.0, -1.0)] {
+            let plan = grid(size, opacity);
+            assert!(
+                plan.skipped
+                    .iter()
+                    .any(|(name, why)| name == "media.json" && why.contains("out of range")),
+                "{size} {opacity}: {:?}",
+                plan.skipped
+            );
+        }
+        let full = grid(30.0, 100.0);
+        assert_eq!(rows(&full, "battlemap_grid")[0]["opacity"], 1.0);
     }
 
     #[test]
