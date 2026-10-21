@@ -6,14 +6,16 @@
 //! whose `scenePosition` is the session's scenes' ids in the order they
 //! play. Each write of it is a reorder: two reorders of one session queue
 //! on it, and no other write of the session — its own row's, a scene's —
-//! carries an order that a later write would replay.
+//! carries an order that a later write would replay. No other row may hold
+//! one: the judge refuses a list anywhere else (`scene-order-contiguous`).
 //!
 //! The ranks it leaves go from 1 to n whatever was applied since the order
-//! was asked (`scene-order-contiguous`): every scene of the session takes
-//! its rank in one statement, the scenes the order lists first, in its
-//! order, then any added since, in their ranks; a scene listed and removed
-//! since is no longer ranked. The order itself — every scene once, none of
-//! another session — is the DataCapability's to judge when it is submitted.
+//! was asked (`scene-order-contiguous`): every scene the table holds for
+//! the session takes its rank in one statement, the scenes the order lists
+//! first, in its order, then any added since, in their ranks; a scene
+//! listed and removed since is no longer ranked. The order itself — every
+//! scene once, none of another session — is the DataCapability's to judge
+//! when it is submitted.
 
 use async_trait::async_trait;
 use harness_dataguard::plugins::{ProjectPg, ProjectionError};
@@ -26,7 +28,7 @@ use crate::SCENE_POSITION;
 /// The partitions of the aggregate: `Session/<id>`.
 const PARTITION: &str = "Session/";
 
-/// Where a uuid writes its version, and the bit an order id flips there.
+/// Where a uuid writes its version, and the bit an order id sets there.
 const VERSION_AT: usize = 14;
 const ORDER_BIT: u32 = 8;
 
@@ -45,12 +47,25 @@ const REORDER: &str = "UPDATE scene s SET position = ranked.rank::integer
             WHERE sc.session_id = $1::text::uuid) ranked
     WHERE s.id = ranked.id";
 
-/// The id of the row the scene order of `session` is written on — and, given
-/// that id, the session's: the uuid with its version digit's high bit
-/// flipped, a version no row of the product is written with (theirs are 4
-/// and 7). `None` when `id` is no uuid.
+/// The id of the row the scene order of `session` is written on: the
+/// session's uuid, lowercase, its version digit's high bit set — a version
+/// (8 to f) no row of the product is written with (theirs are 4 and 7).
+/// `None` when `session` is no uuid, or one of those versions already.
 #[must_use]
-pub fn order_id(id: &str) -> Option<String> {
+pub fn order_id(session: &str) -> Option<String> {
+    flipped(session, false)
+}
+
+/// The session whose scene order is written on the row `order`: the
+/// inverse of [`order_id`]. `None` when `order` is no order's id.
+#[must_use]
+pub fn session_of(order: &str) -> Option<String> {
+    flipped(order, true)
+}
+
+/// `id`, lowercase, its version digit's high bit flipped, when it is a
+/// uuid whose bit is `set`.
+fn flipped(id: &str, set: bool) -> Option<String> {
     if !is_uuid(id) {
         return None;
     }
@@ -58,14 +73,17 @@ pub fn order_id(id: &str) -> Option<String> {
         .map(|(at, c)| match at {
             VERSION_AT => c
                 .to_digit(16)
+                .filter(|digit| (digit & ORDER_BIT != 0) == set)
                 .and_then(|digit| char::from_digit(digit ^ ORDER_BIT, 16)),
             _ => Some(c.to_ascii_lowercase()),
         })
         .collect()
 }
 
-/// A uuid written 8-4-4-4-12 in hex digits, in either case.
-pub(crate) fn is_uuid(id: &str) -> bool {
+/// A uuid written 8-4-4-4-12 in hex digits, in either case: what a
+/// session's or a scene's id is.
+#[must_use]
+pub fn is_uuid(id: &str) -> bool {
     id.len() == 36
         && id.char_indices().all(|(at, c)| match at {
             8 | 13 | 18 | 23 => c == '-',
@@ -90,6 +108,11 @@ impl ProjectPg for SceneOrder {
     }
 }
 
+/// The session whose order `partition` holds: `None` for any other row.
+pub(crate) fn order_of(partition: &str) -> Option<String> {
+    session_of(partition.strip_prefix(PARTITION)?)
+}
+
 /// The session an order's write is of, and the scenes' ids it lists,
 /// lowercase as the tables write them: `None` for a tombstone, a row that
 /// holds no order, or one whose partition is no order id.
@@ -98,7 +121,7 @@ fn ordered(write: &Write) -> Option<(String, Vec<String>)> {
         return None;
     }
     let order = write.values.get(SCENE_POSITION)?.as_array()?;
-    let session = order_id(write.partition.strip_prefix(PARTITION)?)?;
+    let session = order_of(&write.partition)?;
     let order = order
         .iter()
         .filter_map(Value::as_str)
@@ -114,7 +137,7 @@ mod tests {
     use harness_dataguard::store::Write;
     use serde_json::{Value, json};
 
-    use super::{is_uuid, order_id, ordered};
+    use super::{is_uuid, order_id, order_of, ordered, session_of};
 
     const SEANCE: &str = "51000000-0000-4000-8000-000000000004";
 
@@ -138,20 +161,33 @@ mod tests {
     }
 
     #[test]
-    fn an_order_id_flips_the_version_digit_and_flips_back_to_its_session() {
-        assert_eq!(
-            order_id(SEANCE).as_deref(),
-            Some("51000000-0000-c000-8000-000000000004")
-        );
-        assert_eq!(
-            order_id("51000000-0000-c000-8000-000000000004").as_deref(),
-            Some(SEANCE)
-        );
-        // A v7 scene's id, written in capitals: lowercase, its version 7 → f.
+    fn an_order_id_sets_the_version_digit_s_high_bit_and_its_session_clears_it() {
+        const ORDER: &str = "51000000-0000-c000-8000-000000000004";
+        assert_eq!(order_id(SEANCE).as_deref(), Some(ORDER));
+        assert_eq!(session_of(ORDER).as_deref(), Some(SEANCE));
+        // An order's id is no session's, a session's no order's.
+        assert_eq!(order_id(ORDER), None);
+        assert_eq!(session_of(SEANCE), None);
+        // A v7 id, written in capitals: lowercase, its version 7 → f.
         assert_eq!(
             order_id("0192AB00-0000-7ABC-8DEF-0123456789AB").as_deref(),
             Some("0192ab00-0000-fabc-8def-0123456789ab")
         );
+        assert_eq!(
+            session_of("0192AB00-0000-FABC-8DEF-0123456789AB").as_deref(),
+            Some("0192ab00-0000-7abc-8def-0123456789ab")
+        );
+        assert_eq!(
+            order_of(&format!("Session/{ORDER}")).as_deref(),
+            Some(SEANCE)
+        );
+        for not_one in [
+            &format!("Session/{SEANCE}"),
+            ORDER,
+            &format!("Entity/{ORDER}"),
+        ] {
+            assert_eq!(order_of(not_one), None, "{not_one}");
+        }
         for not_one in [
             "",
             "seance-4",
@@ -160,6 +196,7 @@ mod tests {
             "51000000-0000-g000-8000-000000000004",
         ] {
             assert_eq!(order_id(not_one), None, "{not_one}");
+            assert_eq!(session_of(not_one), None, "{not_one}");
             assert!(!is_uuid(not_one), "{not_one}");
         }
     }
@@ -181,6 +218,7 @@ mod tests {
         // A partition that is no order id is no session's order.
         for partition in [
             "Session/seance-4",
+            "Session/51000000-0000-4000-8000-000000000004",
             "Entity/51000000-0000-c000-8000-000000000004",
         ] {
             assert_eq!(

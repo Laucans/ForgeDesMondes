@@ -67,6 +67,11 @@ fn a_request_without_a_session_or_an_order_of_scene_ids_is_refused() {
             json!({ "session": &SEANCE[..35], "order": [A] }),
             Refusal::UnknownSession,
         ),
+        // A scene order's own id is no session's.
+        (
+            json!({ "session": "51000000-0000-c000-8000-000000000004", "order": [A] }),
+            Refusal::UnknownSession,
+        ),
         (
             json!({ "session": SEANCE, "order": [A, format!("{B}0")] }),
             Refusal::NoOrder,

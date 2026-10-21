@@ -30,7 +30,7 @@ use serde_json::Value;
 
 mod order;
 
-pub use order::{SceneOrder, order_id};
+pub use order::{SceneOrder, is_uuid, order_id, session_of};
 
 const AGGREGATE: &str = "Session";
 
@@ -172,11 +172,12 @@ fn present_only_pj(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A scene's rank, when the row has one, is one of 1 to n: a whole number
-/// from 1. A session's scene order names each of its scenes once, at its
-/// rank less one: some scenes' ids, none repeated.
-fn scene_order_contiguous(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
+/// from 1. A session's scene order, on its own row alone, names each of its
+/// scenes once, at its rank less one: some scenes' ids, none repeated.
+fn scene_order_contiguous(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     match value(state, SCENE_POSITION) {
         Value::Null => true,
+        Value::Array(_) if order::order_of(&entry.partition).is_none() => false,
         Value::Array(order) => {
             let ids: Vec<&str> = order.iter().filter_map(Value::as_str).collect();
             let mut once = ids.clone();
@@ -261,8 +262,7 @@ fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
             && match value {
                 Value::Object(_) => false,
                 Value::Array(ids) => {
-                    field == SCENE_POSITION
-                        && ids.iter().all(|id| id.as_str().is_some_and(order::is_uuid))
+                    field == SCENE_POSITION && ids.iter().all(|id| id.as_str().is_some_and(is_uuid))
                 }
                 _ => true,
             }

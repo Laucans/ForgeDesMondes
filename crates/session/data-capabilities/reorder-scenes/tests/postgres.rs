@@ -276,22 +276,32 @@ async fn a_session_the_tables_do_not_hold_live_is_not_found() {
 }
 
 #[tokio::test]
-async fn a_scene_removed_by_its_tombstone_is_no_longer_one_the_order_must_name() {
-    let scratch = Scratch::new("tombstone").await;
+async fn the_scenes_an_order_must_name_are_those_the_table_ranks() {
+    let scratch = Scratch::new("table").await;
     let engine = scratch.serve().await;
+    // A removed — its row taken out of the table — and Q still queued: the
+    // engine holds Q's row, the table none yet.
+    const Q: &str = "5c000000-0000-4000-8000-00000000000e";
     scratch
         .client
         .batch_execute(&format!(
-            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Session/{A}', true)"
+            "DELETE FROM scene WHERE id = '{A}';
+             INSERT INTO dataguard_rows (partition, fields) VALUES
+                 ('Session/{Q}', '{{\"sceneId\": \"{Q}\", \"sceneSessionId\": \"{SEANCE}\"}}')"
         ))
         .await
-        .expect("A's tombstone");
+        .expect("A removed, Q queued");
+    for (order, named) in [(&[C, A, B][..], A), (&[Q, C, B][..], Q)] {
+        let refusal = reorder(&engine, order).await;
+        assert!(
+            matches!(&refusal, Err(Error::Refused(r))
+                if r.kind == RefusalKind::Unprocessable && r.message.contains(named)),
+            "{order:?}: {refusal:?}"
+        );
+    }
     reorder(&engine, &[C, B]).await.expect("queued");
-    let refusal = reorder(&engine, &[C, A, B]).await;
-    assert!(
-        matches!(&refusal, Err(Error::Refused(r)) if r.message.contains(A)),
-        "{refusal:?}"
-    );
+    assert_eq!(applied(&engine).await.len(), 1);
+    assert_eq!(scratch.ranks(SEANCE).await, ranked(&[("C", 1), ("B", 2)]));
     scratch.drop().await;
 }
 

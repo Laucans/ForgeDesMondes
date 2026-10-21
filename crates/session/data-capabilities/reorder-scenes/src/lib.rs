@@ -9,8 +9,9 @@
 //! `{ "session", "order": [sceneId] }`, and it becomes the order's row in
 //! two steps:
 //!
-//! - [`asked`] reads the request: the session is a uuid — no session has
-//!   any other id ([`Refusal::UnknownSession`]); the order a list of uuids,
+//! - [`asked`] reads the request: the session is a uuid that is no order's
+//!   id — no session has any other ([`Refusal::UnknownSession`]); the order
+//!   a list of uuids,
 //!   lowercase as the tables write them, none repeated
 //!   ([`Refusal::Repeated`]). Any other field is refused
 //!   ([`Refusal::Unknown`]).
@@ -20,18 +21,20 @@
 //!   `scene-order-contiguous`. Nothing is queued.
 //!
 //! The ranks are not written here: the Session aggregate rewrites them all
-//! in one statement when the order is applied ([`aggregate_session::SceneOrder`]),
-//! 1 to n, so a scene added or removed while it was queued leaves no gap
-//! nor duplicate.
+//! in one statement when the order is applied
+//! ([`aggregate_session::SceneOrder`]), 1 to n, so a scene added or removed
+//! while it was queued leaves no gap nor duplicate.
 //!
-//! The session's scenes are those the tables hold live, the fixtures'
-//! among them, and those still queued that the order names, by their
-//! engine row's `sceneSessionId`. Over memory no table lists them: only an
-//! order that repeats a scene or names another session's is refused there.
+//! The session's scenes are those its ranks are written on: over
+//! PostgreSQL, the rows of `scene` — the fixtures' among them; a scene still
+//! queued has none yet, and an order naming it is refused. Over memory no
+//! table lists them: the scenes the order names are the session's by their
+//! engine row's `sceneSessionId`, and only an order that repeats a scene or
+//! names another session's is refused there.
 
 use std::collections::BTreeMap;
 
-use aggregate_session::{SCENE_POSITION, order_id};
+use aggregate_session::{SCENE_POSITION, is_uuid, order_id};
 use async_trait::async_trait;
 use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::Value;
@@ -44,7 +47,7 @@ const SESSION: &str = "session";
 const ORDER: &str = "order";
 const FIELDS: [&str; 2] = [SESSION, ORDER];
 
-/// The session a queued scene's row is of, under the aggregate's field.
+/// The session a scene's engine row is of, under the aggregate's field.
 pub const SCENE_SESSION_ID: &str = "sceneSessionId";
 
 /// The partitions of the Session aggregate: `Session/<id>`.
@@ -60,12 +63,8 @@ const SESSION_ROW: &str = "SELECT s.id::text AS id
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned)";
 
-/// The scenes of the session `$1` the tables hold live: each one's id.
-const SCENE_ROWS: &str = "SELECT sc.id::text AS id
-    FROM scene sc
-    WHERE sc.session_id = $1::uuid
-        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
-            WHERE r.partition = 'Session/' || sc.id::text AND r.tombstoned)";
+/// The scenes of the session `$1` the table ranks: each one's id.
+const SCENE_ROWS: &str = "SELECT sc.id::text AS id FROM scene sc WHERE sc.session_id = $1::uuid";
 
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
@@ -187,15 +186,15 @@ async fn session(context: &Context<'_>, id: &str) -> Result<bool, plugins::Refus
         || !context.row(&format!("{PARTITION}{id}")).await?.is_empty())
 }
 
-/// The scenes of `asked`'s session as the store holds them: those the
-/// tables hold live, then those the order names that are still queued, by
-/// their engine row's session.
+/// The scenes of `asked`'s session, those its ranks are written on: over
+/// PostgreSQL, the rows of `scene`; over memory, the scenes the order names
+/// whose engine row is of the session.
 async fn scenes(context: &Context<'_>, asked: &Asked) -> Result<Vec<String>, plugins::Refusal> {
-    let mut scenes = ids(context, SCENE_ROWS, &asked.session).await?;
+    if context.rows.is_some() {
+        return ids(context, SCENE_ROWS, &asked.session).await;
+    }
+    let mut scenes = Vec::new();
     for scene in &asked.order {
-        if scenes.contains(scene) {
-            continue;
-        }
         let row = context.row(&format!("{PARTITION}{scene}")).await?;
         if row.get(SCENE_SESSION_ID).and_then(Value::as_str) == Some(asked.session.as_str()) {
             scenes.push(scene.clone());
@@ -204,18 +203,12 @@ async fn scenes(context: &Context<'_>, asked: &Asked) -> Result<Vec<String>, plu
     Ok(scenes)
 }
 
-/// An id as the tables write it: a uuid, 8-4-4-4-12 hex digits, lowercase.
+/// An id as the tables write it: a uuid, lowercase.
 fn uuid(value: &Value) -> Option<String> {
     value
         .as_str()
         .map(str::trim)
-        .filter(|id| {
-            id.len() == 36
-                && id.char_indices().all(|(at, c)| match at {
-                    8 | 13 | 18 | 23 => c == '-',
-                    _ => c.is_ascii_hexdigit(),
-                })
-        })
+        .filter(|id| is_uuid(id))
         .map(str::to_ascii_lowercase)
 }
 
@@ -224,7 +217,8 @@ fn uuid(value: &Value) -> Option<String> {
 /// # Errors
 ///
 /// [`Refusal`] when `wire` carries another field, names its session by
-/// something other than a uuid ([`Refusal::UnknownSession`]), gives no
+/// something other than a session's uuid ([`Refusal::UnknownSession`]),
+/// gives no
 /// non-empty list of uuids as its order ([`Refusal::NoOrder`]), or names a
 /// scene twice ([`Refusal::Repeated`]).
 pub fn asked(wire: &Row) -> Result<Asked, Refusal> {
@@ -234,6 +228,7 @@ pub fn asked(wire: &Row) -> Result<Asked, Refusal> {
     let session = wire
         .get(SESSION)
         .and_then(uuid)
+        .filter(|session| order_id(session).is_some())
         .ok_or(Refusal::UnknownSession)?;
     let listed = wire
         .get(ORDER)
