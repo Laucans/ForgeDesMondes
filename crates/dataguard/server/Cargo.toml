@@ -25,10 +25,6 @@ tower = { version = "0.5", default-features = false, features = ["util"] }
 [dependencies]
 harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v4", features = ["postgres", "uuid"] }
 dataguard-registry = { path = "../registry" }
-# The AiSettings aggregate's stamp, to the millisecond, which the legacy
-# submit chain stamps every command with.
-aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
-async-trait = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 serde = { version = "1", default-features = false, features = ["derive"] }
 serde_json = "1"
@@ -40,16 +36,4 @@ tokio-postgres = { version = "0.7", default-features = false, features = ["runti
 ports-llm = { path = "../../ports/llm" }
 # The port a dictation of notes is transcribed by, locally.
 ports-speech-to-text = { path = "../../ports/speech-to-text" }
-# --- Capabilities (the reads `reads.rs` still serves) ---
-get-campaign = { path = "../../campaign/capabilities/get-campaign" }
-get-entity = { path = "../../campaign/capabilities/get-entity" }
-list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
-list-characters = { path = "../../campaign/capabilities/list-characters" }
-list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
-list-events = { path = "../../campaign/capabilities/list-events" }
-list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes" }
-list-places = { path = "../../campaign/capabilities/list-places" }
-list-players = { path = "../../campaign/capabilities/list-players" }
 
-# --- DataCapabilities (the branches of the legacy submit chain) ---
-export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }

@@ -1,4 +1,4 @@
-//! The rows the legacy chain reads.
+//! The rows the engine holds, as the wire's callers read them.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -8,47 +8,16 @@ use harness_dataguard::command::Entry;
 use harness_dataguard::store::Store;
 use serde_json::Value;
 
-use crate::projection::ProjectingStore;
-
-/// The rows the engine holds, as a command about to be submitted sees them,
-/// and — over a database — what its tables hold of a campaign.
+/// The rows the engine holds, as a command about to be submitted sees them.
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
-    tables: Option<Arc<ProjectingStore>>,
 }
 
 impl Rows {
     /// The rows of `store`.
     pub fn new(store: Arc<dyn Store>) -> Self {
-        Self {
-            store,
-            tables: None,
-        }
-    }
-
-    /// The same, a campaign's archive read from `tables`.
-    pub(crate) fn reading(self, tables: Option<Arc<ProjectingStore>>) -> Self {
-        Self { tables, ..self }
-    }
-
-    /// What the tables hold of the campaign `id` names, as an archive holds
-    /// it (`campaign.exportCampaign`): `None` when they hold no such
-    /// campaign — and over the engine's memory, which has no table.
-    ///
-    /// # Errors
-    ///
-    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
-    pub async fn archived(&self, id: &str) -> Result<Option<Value>> {
-        let Some(tables) = &self.tables else {
-            return Ok(None);
-        };
-        tables.archived(id).await.map_err(|e| {
-            harness_dataguard::Error::Store(format!(
-                "campaign not read: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            ))
-        })
+        Self { store }
     }
 
     /// `partition`'s row as the commands queued on it will leave it: the row

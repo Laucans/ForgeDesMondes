@@ -27,6 +27,8 @@ pub const CAPABILITY: &str = "media.listMedia";
 /// What the persisted query `listMedia.graphql` selects: every media, newest
 /// first, with the grid of a battlemap and whether it is its campaign's cover.
 /// The campaign is kept by [`answer_rows`], not by the query.
+/// The grid's `numeric` columns are read as `float8`: the engine's reads keep
+/// a `numeric` exact, as text, and a grid is told in numbers.
 pub const SQL: &str = r#"SELECT m.id::text AS id,
     m.campaign_id::text AS campaign_id,
     m.kind,
@@ -37,12 +39,12 @@ pub const SQL: &str = r#"SELECT m.id::text AS id,
     m.place_id::text AS place_id,
     to_char(m.uploaded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS uploaded_at,
     coalesce(c.cover_media_id = m.id, false) AS is_cover,
-    g.hex_size_px,
-    g.offset_x,
-    g.offset_y,
+    g.hex_size_px::float8 AS hex_size_px,
+    g.offset_x::float8 AS offset_x,
+    g.offset_y::float8 AS offset_y,
     g.orientation,
     g.color,
-    g.opacity
+    g.opacity::float8 AS opacity
 FROM media m
 JOIN campaign c ON c.id = m.campaign_id
 LEFT JOIN battlemap_grid g ON g.media_id = m.id
@@ -391,5 +393,13 @@ mod tests {
         assert_ne!(answered, Value::Null);
         assert_eq!(answered, answer_rows(&rows, CAMPAIGN));
         assert_ne!(answer(&rows, &BTreeMap::new()), answered);
+    }
+
+    #[test]
+    fn the_grid_s_numbers_are_read_as_numbers() {
+        for column in ["hex_size_px", "offset_x", "offset_y", "opacity"] {
+            let cast = format!("g.{column}::float8 AS {column}");
+            assert!(SQL.contains(&cast), "{cast} in {SQL}");
+        }
     }
 }

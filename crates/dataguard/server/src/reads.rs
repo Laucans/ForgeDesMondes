@@ -2,20 +2,19 @@
 //! answers, from the Capabilities of the product.
 //!
 //! A Capability is a pure function from the rows of its persisted query to
-//! its answer. The server runs the query here, over a connection of its own
-//! that reads and does not write: `DATABASE_URL_READONLY` when it names one,
-//! else the read-write URL — and every read then runs in a `READ ONLY`
-//! transaction, which the database itself holds to. Over the in-memory store
+//! its answer. Every read is the registry's: every Capability crate's answer
+//! (`dataguard_registry`), run by the engine's reads over a connection of
+//! their own that reads and does not write — `DATABASE_URL_READONLY` when it
+//! names one, else the read-write URL, every read then in a `READ ONLY`
+//! transaction, which the database itself holds to. The query binds the
+//! request's variables in the order of its `$1`, `$2`…; a variable the
+//! caller did not give is `null`, which no row is, and the Capability
+//! answers its "nothing" — null, or an empty list. Over the in-memory store
 //! there is no table to read: a Capability answers from no row.
 //!
-//! A read is routed by the system its identifier names (`campaign.…`) and
-//! carries its variables, which the query binds in the order of its `$1`,
-//! `$2`… A variable the caller did not give is the empty text: no row is
-//! that, and the Capability answers its "nothing" — null, or an empty list.
-//! A read of any other system is the registry's: every
-//! Capability crate's answer (`dataguard_registry`), run by the engine's
-//! reads over a read-only connection of their own — the strangler's root,
-//! which takes each system's reads over as this module lets them go.
+//! The names ids go by on the wire, where they are not the ones the store
+//! holds (the mock-up's fixture slugs), are the product server's own
+//! (`crates/server`), around this module.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -23,9 +22,7 @@ use std::sync::Arc;
 use harness_dataguard::postgres::ReadOnly;
 use harness_dataguard::{Error, Result};
 use serde_json::Value;
-use tokio::sync::Mutex;
 use tokio_postgres::Client;
-use tokio_postgres::types::ToSql;
 
 use crate::MEMORY;
 
@@ -40,77 +37,9 @@ async fn connect(url: &str) -> std::result::Result<Client, tokio_postgres::Error
     Ok(client)
 }
 
-/// How a Capability turns the rows of its query, and the variable it was
-/// given, into its answer.
-type Answer = fn(&Value, &str) -> Value;
-
-/// The Capabilities of the campaign system that are served: identifier, the
-/// SQL of its persisted query, the one variable it binds to `$1` (none when
-/// the query takes no parameter), and its answer. A Capability that lands
-/// is one more row here and one dependency line in `Cargo.toml`.
-const CAMPAIGN: [(&str, &str, Option<&str>, Answer); 9] = [
-    (
-        list_campaigns::CAPABILITY,
-        list_campaigns::SQL,
-        None,
-        |rows, _| list_campaigns::answer_rows(rows),
-    ),
-    (
-        get_campaign::CAPABILITY,
-        get_campaign::SQL,
-        Some("id"),
-        |rows, id| get_campaign::answer_rows(rows, id).unwrap_or(Value::Null),
-    ),
-    (
-        list_players::CAPABILITY,
-        list_players::SQL,
-        Some("campaign"),
-        list_players::answer_rows,
-    ),
-    (
-        list_characters::CAPABILITY,
-        list_characters::SQL,
-        Some("campaign"),
-        list_characters::answer_rows,
-    ),
-    (
-        list_places::CAPABILITY,
-        list_places::SQL,
-        Some("campaign"),
-        list_places::answer_rows,
-    ),
-    (
-        list_events::CAPABILITY,
-        list_events::SQL,
-        Some("campaign"),
-        list_events::answer_rows,
-    ),
-    (
-        get_entity::CAPABILITY,
-        get_entity::SQL,
-        Some("id"),
-        get_entity::answer_rows,
-    ),
-    (
-        list_entity_versions::CAPABILITY,
-        list_entity_versions::SQL,
-        Some("entity"),
-        |rows, entity| list_entity_versions::answer_rows(rows, entity).unwrap_or(Value::Null),
-    ),
-    (
-        list_imported_notes::CAPABILITY,
-        list_imported_notes::SQL,
-        Some("campaign"),
-        list_imported_notes::answer_rows,
-    ),
-];
-
-/// The connection reads go through, or none.
+/// The registry's Capabilities, over the connection reads go through, or
+/// none.
 pub struct Reads {
-    client: Option<Mutex<Client>>,
-    names: Names,
-    /// The registry's Capabilities, for the reads of the systems this
-    /// module does not route.
     registry: harness_dataguard::reads::Reads,
 }
 
@@ -120,73 +49,13 @@ fn registered() -> harness_dataguard::reads::Reads {
     harness_dataguard::reads::Reads::from(&dataguard_registry::plugins())
 }
 
-/// The names ids go by on the wire, where they are not the ones the store
-/// holds: what a caller sends is turned into the stored id before the query
-/// runs, and the stored id in an answer into the name the caller knows.
-#[derive(Default)]
-struct Names {
-    /// Wire name → stored id.
-    stored: BTreeMap<String, String>,
-    /// Stored id → wire name.
-    wire: BTreeMap<String, String>,
-}
-
-impl Names {
-    /// `value` with every text that is a wire name turned into its stored id.
-    fn to_stored(&self, value: &Value) -> Value {
-        Self::rename(&self.stored, value)
-    }
-
-    /// `value` with every text that is a stored id turned into its wire name;
-    /// with no name to give, `value` itself.
-    fn to_wire(&self, value: Value) -> Value {
-        if self.wire.is_empty() {
-            value
-        } else {
-            Self::rename(&self.wire, &value)
-        }
-    }
-
-    fn rename(by: &BTreeMap<String, String>, value: &Value) -> Value {
-        match value {
-            Value::String(text) => by
-                .get(text)
-                .map_or_else(|| value.clone(), |to| to.clone().into()),
-            Value::Array(items) => {
-                Value::Array(items.iter().map(|v| Self::rename(by, v)).collect())
-            }
-            Value::Object(fields) => Value::Object(
-                fields
-                    .iter()
-                    .map(|(k, v)| (k.clone(), Self::rename(by, v)))
-                    .collect(),
-            ),
-            _ => value.clone(),
-        }
-    }
-}
-
 impl Reads {
     /// No database: a Capability answers from no row.
     #[must_use]
     pub fn none() -> Self {
         Self {
-            client: None,
-            names: Names::default(),
             registry: registered(),
         }
-    }
-
-    /// These `(wire name, stored id)` pairs as the names ids go by on the
-    /// wire: the mock-up's fixtures name their rows by slug
-    /// (`cendres-valombre`) while the store holds a uuid for each.
-    #[must_use]
-    pub fn named(mut self, pairs: impl IntoIterator<Item = (String, String)>) -> Self {
-        for (wire, stored) in pairs {
-            self.names.wire.insert(stored.clone(), wire.clone());
-            self.names.stored.insert(wire, stored);
-        }
-        self
     }
 
     /// The reads over the database `url` names — or [`none`](Self::none) for
@@ -199,13 +68,8 @@ impl Reads {
         if url == MEMORY {
             return Ok(Self::none());
         }
-        let client = connect(url).await?;
         let registry = registered().with_connection(Arc::new(ReadOnly::new(connect(url).await?)));
-        Ok(Self {
-            client: Some(Mutex::new(client)),
-            names: Names::default(),
-            registry,
-        })
+        Ok(Self { registry })
     }
 
     /// What the Capability `id` answers to `variables`; `null` for one this
@@ -215,17 +79,6 @@ impl Reads {
     ///
     /// [`Error::Store`] when the database refuses the query.
     pub async fn run(&self, id: &str, variables: &Value) -> Result<Value> {
-        let variables = self.names.to_stored(variables);
-        let answer = match id.split_once('.') {
-            Some(("campaign", _)) => self.campaign(id, &variables).await?,
-            _ => self.registered(id, &variables).await?,
-        };
-        Ok(self.names.to_wire(answer))
-    }
-
-    /// What the registry's Capability `id` answers to `variables`; `null`
-    /// for one no unit answers.
-    async fn registered(&self, id: &str, variables: &Value) -> Result<Value> {
         let variables: BTreeMap<String, Value> = variables
             .as_object()
             .map(|given| given.clone().into_iter().collect())
@@ -234,45 +87,6 @@ impl Reads {
             Err(Error::UnregisteredQuery(_)) => Ok(Value::Null),
             answered => answered,
         }
-    }
-
-    async fn campaign(&self, id: &str, variables: &Value) -> Result<Value> {
-        let Some((_, sql, variable, answer)) = CAMPAIGN.iter().find(|(c, ..)| *c == id) else {
-            return Ok(Value::Null);
-        };
-        // The one variable a Capability reads, the empty text when not given.
-        let given = variable.map_or("", |name| variables[name].as_str().unwrap_or_default());
-        let params: &[&(dyn ToSql + Sync)] = if variable.is_some() { &[&given] } else { &[] };
-        Ok(answer(&self.rows(sql, params).await?, given))
-    }
-
-    /// The rows `sql` selects with `params` bound to its `$1`, `$2`…, as a
-    /// JSON array of objects keyed by column.
-    async fn rows(&self, sql: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Value> {
-        let Some(client) = &self.client else {
-            return Ok(Value::Array(Vec::new()));
-        };
-        let wrapped =
-            format!("SELECT coalesce(jsonb_agg(to_jsonb(q)), '[]'::jsonb)::text FROM ({sql}) q");
-        let mut client = client.lock().await;
-        // The database's own message says what a bare "db error" does not;
-        // its detail, which may quote a value, is left out.
-        let store = |e: tokio_postgres::Error| {
-            let why = e
-                .as_db_error()
-                .map_or_else(|| e.to_string(), |db| db.message().to_string());
-            Error::Store(format!("read: {why}"))
-        };
-        let tx = client
-            .build_transaction()
-            .read_only(true)
-            .start()
-            .await
-            .map_err(store)?;
-        let row = tx.query_one(&wrapped, params).await.map_err(store)?;
-        tx.rollback().await.map_err(store)?;
-        serde_json::from_str(&row.get::<_, String>(0))
-            .map_err(|e| Error::Store(format!("read: {e}")))
     }
 }
 
@@ -327,14 +141,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_systems_this_module_routes_never_reach_the_registry() {
-        // No Capability in the registry: what answers is this module's own.
-        let reads = Reads {
+    async fn the_campaign_reads_are_the_registry_s() {
+        // No Capability in the registry: nothing here answers a campaign read.
+        let unregistered = Reads {
             registry: harness_dataguard::reads::Reads::default(),
-            ..Reads::none()
         };
         let variables = serde_json::json!({ "campaign": "cendres-valombre" });
-        let listed = reads
+        for id in ["campaign.listPlayers", "campaign.listImportedNotes"] {
+            assert_eq!(
+                unregistered.run(id, &variables).await.expect("an answer"),
+                Value::Null,
+                "{id}"
+            );
+        }
+        let listed = Reads::none()
             .run("campaign.listPlayers", &variables)
             .await
             .expect("an answer");
@@ -346,7 +166,6 @@ mod tests {
         // No Capability in the registry: nothing here answers ai.getSettings.
         let unregistered = Reads {
             registry: harness_dataguard::reads::Reads::default(),
-            ..Reads::none()
         };
         assert_eq!(
             unregistered
@@ -374,27 +193,6 @@ mod tests {
             listed,
             serde_json::json!({ "cover": null, "battlemaps": [], "illustrations": [] }),
             "media.listMedia over no row, from its own crate"
-        );
-    }
-
-    #[test]
-    fn names_turn_the_callers_names_into_stored_ids_and_back() {
-        let reads = Reads::none().named([
-            ("elowen".to_string(), "uuid-elowen".to_string()),
-            ("julie".to_string(), "uuid-julie".to_string()),
-        ]);
-        let sent = serde_json::json!({ "id": "elowen", "other": "unnamed", "n": 3 });
-        assert_eq!(
-            reads.names.to_stored(&sent),
-            serde_json::json!({ "id": "uuid-elowen", "other": "unnamed", "n": 3 })
-        );
-        let answer = serde_json::json!([{ "id": "uuid-elowen", "player": "uuid-julie",
-            "aliases": ["elowen", "uuid-x"], "note": "uuid-elowen is a name inside a text" }]);
-        assert_eq!(
-            reads.names.to_wire(answer),
-            serde_json::json!([{ "id": "elowen", "player": "julie",
-                "aliases": ["elowen", "uuid-x"], "note": "uuid-elowen is a name inside a text" }]),
-            "a whole text is renamed, nested or not; a part of one never is"
         );
     }
 }

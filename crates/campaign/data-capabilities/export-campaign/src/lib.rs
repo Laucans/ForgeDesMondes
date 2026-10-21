@@ -5,34 +5,39 @@
 //! tables hold them now — and one command on `Campaign/<its id>` stamping
 //! `lastExportedAt`, which writes nothing else (`export-stamps-date`).
 //!
-//! The archive never leaves the product through this crate: it is answered
-//! with the command's result once the stamp is applied, and the shell hands
-//! it to the DM as a download. [`prepare`] turns what the tables hold of the
-//! campaign — one JSON document, `{campaign, players, elements}`, each row
-//! under its columns' names — into that archive and the command's payload:
+//! Its `Prepare` ([`plugin`]) reads what the tables hold of the campaign
+//! ([`ARCHIVE`], over the engine's read-only SQL) and makes the archive the
+//! command's attachment: the command's result answers it once the stamp is
+//! applied — never before, never for an export rejected — and the shell
+//! hands it to the DM as a download, `{file, content}`. [`prepare`] turns
+//! what the tables hold of the campaign — one JSON document, `{campaign,
+//! players, elements}`, each row under its columns' names — into that
+//! archive and the command's payload:
 //!
 //! - the archive is one self-contained JSON document: its [`FORMAT`] and
 //!   [`FORMAT_VERSION`], the campaign's id as `origin_campaign_id` (what an
-//!   import names the copy's original by), the export's time, and the rows
-//!   as the tables hold them — the campaign's own `last_exported_at` the one
-//!   before this export;
+//!   import names the copy's original by), the export's time, to the
+//!   millisecond, and the rows as the tables hold them — the campaign's own
+//!   `last_exported_at` the one before this export;
 //! - its file is named after the campaign and the time ([`file_name`]);
 //! - the command targets the campaign by its id, lowercase as the table
 //!   writes it — one partition per campaign whatever case the DM's request
 //!   used — and its payload stamps `lastExportedAt` with the export's time,
 //!   and nothing else;
-//! - what the tables answered but cannot be an archive — no campaign, a
-//!   campaign without its id, players or elements that are no list — is
-//!   refused before anything is queued ([`Refusal`]): the stamp is left as it
-//!   was.
+//! - a campaign the tables do not hold — or none at all, over the engine's
+//!   memory — is refused before anything is queued, 404; what they answered
+//!   but cannot be an archive — a campaign without its id, players or
+//!   elements that are no list — and tables that could not be read, 422
+//!   ([`Refusal`]): the stamp is left as it was.
 //!
 //! Media, sounds and sessions join the archive with their milestones; the
 //! import that reads it back is a DataCapability of its own.
 
 use std::collections::BTreeMap;
 
-use harness_dataguard::plugins::Plugin;
-use serde_json::{Map, Value};
+use async_trait::async_trait;
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
+use serde_json::{Map, Value, json};
 
 /// This DataCapability's id, as `data-capability.json` names it.
 pub const DATA_CAPABILITY: &str = "campaign.exportCampaign";
@@ -49,6 +54,28 @@ const STAMP: &str = "lastExportedAt";
 /// What a file is named after when the campaign has no name to give it.
 const UNNAMED: &str = "campagne";
 
+/// What an archive holds of the campaign `$1` names, in whatever case, as
+/// the tables hold it — the campaign, its players, its elements each with
+/// its sheet, its aliases and its versions — in one statement, so one
+/// snapshot: each row under its columns' names, in a stable order, in the
+/// one column `archive`. A campaign the engine deleted is none.
+pub const ARCHIVE: &str = "SELECT jsonb_build_object(
+        'campaign', to_jsonb(c),
+        'players', coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.created_at, p.id)
+            FROM player p WHERE p.campaign_id = c.id), '[]'),
+        'elements', coalesce((SELECT jsonb_agg(to_jsonb(e) || jsonb_build_object(
+                'character', (SELECT to_jsonb(ch) FROM character ch WHERE ch.entity_id = e.id),
+                'aliases', coalesce((SELECT jsonb_agg(a.alias ORDER BY a.alias, a.id)
+                    FROM entity_alias a WHERE a.entity_id = e.id), '[]'),
+                'versions', coalesce((SELECT jsonb_agg(to_jsonb(v) ORDER BY v.version_number)
+                    FROM entity_version v WHERE v.entity_id = e.id), '[]'))
+            ORDER BY e.created_at, e.id)
+            FROM entity e WHERE e.campaign_id = c.id), '[]')
+    ) AS archive
+    FROM campaign c WHERE c.id::text = lower($1)
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+            WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
+
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
 
@@ -60,6 +87,16 @@ pub enum Refusal {
     /// The campaign's players or elements are not a list: no archive holds
     /// them.
     Unreadable(&'static str),
+}
+
+impl From<Refusal> for plugins::Refusal {
+    /// No campaign is a 404; the rest, 422.
+    fn from(refusal: Refusal) -> Self {
+        match refusal {
+            Refusal::NoCampaign => Self::not_found(refusal.to_string()),
+            Refusal::Unreadable(_) => Self::unprocessable(refusal.to_string()),
+        }
+    }
 }
 
 impl std::fmt::Display for Refusal {
@@ -85,6 +122,15 @@ pub struct Archive {
     pub content: Value,
 }
 
+impl Archive {
+    /// The archive as the command's result answers it once applied:
+    /// `{file, content}`.
+    #[must_use]
+    pub fn attachment(self) -> Value {
+        json!({ "file": self.file, "content": self.content })
+    }
+}
+
 /// What an export becomes before it is submitted: what the command writes
 /// on `Campaign/<target_id>`, and the archive it answers once applied.
 #[derive(Clone, Debug, PartialEq)]
@@ -103,12 +149,46 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new().prepare(DATA_CAPABILITY, Exporting)
+}
+
+/// The export's `Prepare`: what the tables hold of the campaign, made the
+/// stamp the command writes and the archive it answers once applied.
+struct Exporting;
+
+#[async_trait]
+impl Prepare for Exporting {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        target_id: Option<&str>,
+    ) -> Result<plugins::Prepared, plugins::Refusal> {
+        let id = target_id
+            .map(str::to_owned)
+            .or_else(|| campaign_id(payload))
+            .unwrap_or_default();
+        // Over the engine's memory there is no table: no campaign is held.
+        let tables = context.rows.ok_or(Refusal::NoCampaign)?;
+        let rows = tables
+            .rows(ARCHIVE, &[Value::from(id)])
+            .await
+            .map_err(|e| plugins::Refusal::unprocessable(format!("campaign not read: {e}")))?;
+        let archived = rows
+            .get(0)
+            .and_then(|row| row.get("archive"))
+            .ok_or(Refusal::NoCampaign)?;
+        let prepared = prepare(archived, &timestamp(context.now_millis))?;
+        Ok(plugins::Prepared {
+            payload: prepared.payload,
+            target_id: Some(prepared.target_id),
+            attachment: Some(prepared.archive.attachment()),
+            ..plugins::Prepared::default()
+        })
+    }
 }
 
 /// The campaign a request names in its payload, when it names one there —
@@ -194,4 +274,30 @@ pub fn file_name(name: &str, now: &str) -> String {
     let slug = if slug.is_empty() { UNNAMED } else { slug };
     let time = now.trim_end_matches('Z').replace([':', '.'], "-");
     format!("{slug}-{time}Z.json")
+}
+
+/// `unix_millis` as RFC 3339 in UTC, to the millisecond
+/// (`2026-10-18T09:30:00.123Z`): two exports in a second are two stamps,
+/// and two files.
+#[must_use]
+pub fn timestamp(unix_millis: u64) -> String {
+    let unix_seconds = unix_millis / 1000;
+    // Howard Hinnant's civil_from_days.
+    let days = i64::try_from(unix_seconds / 86_400).unwrap_or_default() + 719_468;
+    let seconds = unix_seconds % 86_400;
+    let era = days.div_euclid(146_097);
+    let doe = days.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        seconds / 3600,
+        seconds % 3600 / 60,
+        seconds % 60,
+        unix_millis % 1000
+    )
 }

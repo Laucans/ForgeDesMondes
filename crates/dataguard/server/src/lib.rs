@@ -16,22 +16,18 @@
 //! `scripts/register.sh` writes): the aggregates' judges — the invariants
 //! beyond `aggregate.json`'s rules — and each DataCapability's `Prepare`
 //! once it has one, with what the server shares with them
-//! ([`planted_with`]). A DataCapability the legacy chain still prepares has
-//! its own module under `legacy/`, deleted when its `Prepare` moves to its
-//! crate; the projection and the reads below go the same way, aggregate by
-//! aggregate and system by system.
+//! ([`planted_with`]). Every DataCapability is prepared by its own crate's
+//! `Prepare`, and every aggregate projects its own writes: what is left here
+//! is the wire protocol and the reads, until the installed server replaces
+//! it.
 //!
 //! A read (`POST /capabilities/<id>`) is answered by the Capability of the
 //! product that [`Reads`] serves — this server's own reads, then the
 //! registry's — over the connection of its own that [`router_reading`] is
 //! given; [`router`] serves none.
 //!
-//! Over a database, the engine's writes reach the product's tables: an
-//! aggregate whose crate projects them does so in the apply transaction
-//! (its `ProjectPg`, which the store runs), the others through
-//! [`projection::ProjectingStore`], after the apply. What each
-//! DataCapability of the legacy chain is prepared against — the rows
-//! [`Rows`] reads, the ports the router is given — is told by its module.
+//! Over a database, the engine's writes reach the product's tables in the
+//! apply transaction: each aggregate's `ProjectPg`, which the store runs.
 
 use std::sync::Arc;
 
@@ -53,9 +49,6 @@ use ports_llm::Llm;
 use ports_speech_to_text::SpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 
-mod exports;
-mod legacy;
-mod projection;
 mod reads;
 mod versioning;
 
@@ -78,7 +71,6 @@ struct Served<L, S> {
     rows: Rows,
     ports: std::marker::PhantomData<fn() -> (L, S)>,
     reads: Arc<Reads>,
-    exports: Arc<exports::Exports>,
 }
 
 impl<L, S> Clone for Served<L, S> {
@@ -88,14 +80,7 @@ impl<L, S> Clone for Served<L, S> {
             rows: self.rows.clone(),
             ports: std::marker::PhantomData,
             reads: self.reads.clone(),
-            exports: self.exports.clone(),
         }
-    }
-}
-
-impl<L, S> FromRef<Served<L, S>> for Arc<exports::Exports> {
-    fn from_ref(served: &Served<L, S>) -> Self {
-        served.exports.clone()
     }
 }
 
@@ -181,7 +166,6 @@ pub async fn planted_with(
     shared: harness_dataguard::plugins::Shared,
 ) -> Result<Planted, PlantError> {
     let plugins = plugins();
-    let mut tables = None;
     // The Prepares' read-only SQL over the tables (`Context::rows`): none
     // over memory.
     let mut reads: Option<Arc<dyn harness_dataguard::reads::Rows>> = None;
@@ -201,17 +185,13 @@ pub async fn planted_with(
             }
         });
         reads = Some(Arc::new(ReadOnly::new(reading)));
-        // The aggregates' projections in the apply transaction, each landed
-        // with its aggregate's move out of this server.
-        let inner = PgStore::open(client)
-            .await?
-            .with_projections(&plugins)
-            .await?;
-        let store = projection::ProjectingStore::new(inner);
-        store.repair().await;
-        let store = Arc::new(store);
-        tables = Some(store.clone());
-        store
+        // The aggregates' projections in the apply transaction.
+        Arc::new(
+            PgStore::open(client)
+                .await?
+                .with_projections(&plugins)
+                .await?,
+        )
     };
     // A new row's id, and a version's, is a random uuid, as the tables key
     // their rows.
@@ -228,7 +208,7 @@ pub async fn planted_with(
     engine.load().await?;
     Ok(Planted {
         engine,
-        rows: Rows::new(store).reading(tables),
+        rows: Rows::new(store),
     })
 }
 
@@ -304,7 +284,6 @@ pub fn router_reading<L: Llm + 'static, S: SpeechToText + 'static>(
             rows,
             ports: std::marker::PhantomData,
             reads,
-            exports: Arc::default(),
         })
 }
 
@@ -350,10 +329,8 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
     })
 }
 
-/// A command enters the queue. A DataCapability the legacy chain still
-/// prepares is first made what it writes by its own module of [`legacy`] —
-/// its arm below, deleted with the module once its `Prepare` moves to its
-/// crate; any other is the engine's alone, its `Prepare` included.
+/// A command enters the queue: the engine's alone, its DataCapability's
+/// `Prepare` included.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -370,91 +347,23 @@ async fn submit<L: Llm, S: SpeechToText>(
             ));
         }
     };
-    let now = now();
-    let served = &served;
-    match body.data_capability.split('@').next().unwrap_or_default() {
-        // ---
-        export_campaign::DATA_CAPABILITY => {
-            legacy::export_campaign::submit(served, body, &now).await
-        }
-        // ---
-        _ => reply(
-            axum::http::StatusCode::ACCEPTED,
-            served.engine.submit(body).await,
-        ),
-    }
+    reply(
+        axum::http::StatusCode::ACCEPTED,
+        served.engine.submit(body).await,
+    )
 }
 
-/// Now, to the millisecond (RFC 3339), as the AiSettings aggregate stamps
-/// it (`aggregate_ai_settings::timestamp`).
-fn now() -> String {
-    let elapsed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    aggregate_ai_settings::timestamp(u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
-}
-
-/// `body` queued by the engine, as the legacy chain leaves it: `warning`
-/// told after the engine's own, `archive` kept until the command is applied
-/// ([`status`]).
-async fn queued<L, S>(
-    served: &Served<L, S>,
-    body: Submission,
-    warning: Option<&str>,
-    archive: Option<export_campaign::Archive>,
-) -> Reply<harness_dataguard::api::Submitted> {
-    let submitted = submit_prepared(served, body).await.map(|mut submitted| {
-        submitted.warnings.extend(warning.map(str::to_string));
-        if let Some(archive) = archive {
-            served.exports.keep(&submitted.command_id, archive);
-        }
-        submitted
-    });
-    reply(axum::http::StatusCode::ACCEPTED, submitted)
-}
-
-/// What the engine answers to `body`, which the legacy chain prepared: its
-/// payload is the fields the command writes, never the wire's, so the
-/// engine's check of the wire's keys — `payload key(s) … not declared by
-/// <id>` — says nothing of it and is left out.
-async fn submit_prepared<L, S>(
-    served: &Served<L, S>,
-    body: Submission,
-) -> Result<harness_dataguard::api::Submitted, Error> {
-    let undeclared = format!(
-        " not declared by {}",
-        body.data_capability.split('@').next().unwrap_or_default()
-    );
-    served.engine.submit(body).await.map(|mut submitted| {
-        submitted.warnings.retain(|warning| {
-            warning
-                .strip_prefix("payload key(s) ")
-                .is_none_or(|keys| !keys.ends_with(&undeclared))
-        });
-        submitted
-    })
-}
-
-/// A command's result; an export's, once applied, with its archive —
-/// `result.archive.file`, the file's name, and `result.archive.content`, the
-/// document —
-/// which the shell hands to the DM as a download.
-async fn status(
-    State(engine): State<Shared>,
-    State(exports): State<Arc<exports::Exports>>,
-    Path(id): Path<String>,
-) -> Reply<serde_json::Value> {
+/// A command's result; once applied, with what its `Prepare` attached for
+/// its author — an export's archive, `result.attachment.file` and
+/// `result.attachment.content`, which the shell hands to the DM as a
+/// download.
+async fn status(State(engine): State<Shared>, Path(id): Path<String>) -> Reply<serde_json::Value> {
     reply(
         axum::http::StatusCode::OK,
-        engine.status(&id).await.map(|r| {
-            let mut answer = serde_json::json!({ "result": r });
-            let applied = answer["result"]["status"] == "applied";
-            if let Some(archive) = exports.of(&id).filter(|_| applied) {
-                answer["result"]["archive"] =
-                    serde_json::json!({ "file": archive.file, "content": archive.content });
-            }
-            answer
-        }),
+        engine
+            .status(&id)
+            .await
+            .map(|r| serde_json::json!({ "result": r })),
     )
 }
 
@@ -667,15 +576,6 @@ mod tests {
             .body(Body::from(body.to_string()))
             .unwrap();
         answer(request).await
-    }
-
-    #[test]
-    fn now_is_rfc_3339_to_the_millisecond() {
-        let now = now();
-        assert_eq!(now.len(), 24, "{now}");
-        assert_eq!(now.get(19..20), Some("."), "{now}");
-        assert!(now.ends_with('Z'), "{now}");
-        assert!(now.as_str() > "2026-10-21", "{now}");
     }
 
     #[test]

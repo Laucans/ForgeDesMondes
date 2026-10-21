@@ -31,8 +31,12 @@
 //! DataCapability is — each slice by its folder, no route to add here. The
 //! fixtures are the one exception on the write side: rows the mock-up's data
 //! describes, inserted as the tables' own constraints and triggers judge them.
+//! Their rows go by their slugs on the wire, as the mock-up names them, and by
+//! a uuid in the store: [`renaming`] turns one into the other around the
+//! reads.
 
 mod fixtures;
+mod names;
 
 use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -45,6 +49,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use dataguard_server::{Engine, Reads, Rows};
 pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
+pub use names::{Names, renaming};
 use ports_llm::Llm;
 use ports_llm::fake::FakeLlm;
 use ports_speech_to_text::SpeechToText;

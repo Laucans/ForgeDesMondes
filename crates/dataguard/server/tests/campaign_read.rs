@@ -1,9 +1,10 @@
 //! The campaign Capabilities read from the tables the migrations build
-//! (`DATABASE_URL`), through the connection `Reads` opens: their variables
-//! are bound to the query, a Capability answers for the id it is given and
-//! no other, and an id goes by the name the caller knows it by. The rows go
-//! in through the Data layer. A scratch database of its own, dropped when
-//! the test ends.
+//! (`DATABASE_URL`), through the registry's reads `Reads` opens: their
+//! variables are bound to the query, and a Capability answers for the id it
+//! is given and no other. (The names an id goes by on the wire are the
+//! product server's, `crates/server/tests/fixture_names.rs`.) The rows go in
+//! through the Data layer. A scratch database of its own, dropped when the
+//! test ends.
 
 use std::path::Path;
 
@@ -195,43 +196,6 @@ async fn a_capability_answers_for_the_id_it_is_given_and_no_other() {
         Value::Null,
         "a Capability the product does not serve answers null"
     );
-
-    drop(reads);
-    drop_scratch(&name, client).await;
-}
-
-#[tokio::test]
-async fn an_id_goes_by_the_name_the_caller_knows_it_by() {
-    let (name, client) = scratch("campaign_names").await;
-    let reads = Reads::open(&named(&name))
-        .await
-        .expect("the reads open")
-        .named([
-            ("cendres".to_string(), CENDRES.to_string()),
-            ("julie".to_string(), JULIE.to_string()),
-            ("elowen".to_string(), ELOWEN.to_string()),
-        ]);
-
-    let characters = reads
-        .run("campaign.listCharacters", &json!({ "campaign": "cendres" }))
-        .await
-        .expect("an answer");
-    assert_eq!(characters[0]["id"], "elowen");
-    assert_eq!(characters[0]["player"], "julie");
-    // An id with no name is the stored one.
-    assert_eq!(characters[1]["id"], MORLOX);
-
-    // The name and the stored id reach the same rows.
-    let by_uuid = reads
-        .run("campaign.getEntity", &json!({ "id": ELOWEN }))
-        .await
-        .expect("an answer");
-    assert_eq!(by_uuid["id"], "elowen");
-    let by_name = reads
-        .run("campaign.getEntity", &json!({ "id": "elowen" }))
-        .await
-        .expect("an answer");
-    assert_eq!(by_name, by_uuid);
 
     drop(reads);
     drop_scratch(&name, client).await;
