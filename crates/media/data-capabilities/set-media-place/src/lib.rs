@@ -25,7 +25,8 @@
 
 use std::collections::BTreeMap;
 
-use harness_dataguard::plugins::Plugin;
+use async_trait::async_trait;
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::Value;
 
 /// This DataCapability's id, as `data-capability.json` names it.
@@ -109,12 +110,81 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new().prepare(DATA_CAPABILITY, Changes)
+}
+
+/// The partitions of the Media aggregate.
+const MEDIA_PARTITION: &str = "Media/";
+
+/// The partitions of the Entity aggregate, whose elements a place is one of.
+const ENTITY_PARTITION: &str = "Entity/";
+
+/// A change of place made the `placeId` it writes on the media's partition,
+/// judged against the media and the place ([`placed`]): one of a media
+/// there is not — or named by anything but a uuid — is refused, 404; one
+/// naming a place that is no lieu of the media's campaign
+/// (`media-place-is-lieu`), or no media, or a malformed place, 422 — neither
+/// is queued.
+struct Changes;
+
+#[async_trait]
+impl Prepare for Changes {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        target_id: Option<&str>,
+    ) -> Result<plugins::Prepared, plugins::Refusal> {
+        let asked = asked(payload, target_id).map_err(refused)?;
+        let (media, place) = placed(context, &asked).await?;
+        let prepared = prepare(&asked, Some(&media), place.as_ref()).map_err(refused)?;
+        Ok(plugins::Prepared {
+            payload: prepared.payload,
+            target_id: Some(prepared.target_id),
+            ..plugins::Prepared::default()
+        })
+    }
+}
+
+/// A refusal as the server answers it: a media there is not is not found,
+/// anything else unprocessable.
+fn refused(refusal: Refusal) -> plugins::Refusal {
+    if refusal == Refusal::UnknownMedia {
+        plugins::Refusal::not_found(refusal.to_string())
+    } else {
+        plugins::Refusal::unprocessable(refusal.to_string())
+    }
+}
+
+/// The media `asked` names and the element it places it at, as a change of
+/// place is judged against them: the engine's rows as the commands queued
+/// on them will leave them — a media only the tables hold is hydrated by
+/// its aggregate, and a lieu saved a moment ago is there — and, over
+/// PostgreSQL, the element under them as the tables hold it, the fixtures'
+/// among them. The media's row is empty when there is no such media, the
+/// place `None` when there is no such element, or none is named.
+async fn placed(
+    context: &Context<'_>,
+    asked: &Asked,
+) -> Result<(Row, Option<Row>), plugins::Refusal> {
+    let media = context
+        .row(&format!("{MEDIA_PARTITION}{}", asked.media))
+        .await?;
+    let Some(id) = &asked.place else {
+        return Ok((media, None));
+    };
+    let mut place = match context.rows {
+        Some(rows) => aggregate_media::place(rows, id)
+            .await
+            .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?
+            .unwrap_or_default(),
+        None => Row::new(),
+    };
+    place.extend(context.row(&format!("{ENTITY_PARTITION}{id}")).await?);
+    Ok((media, Some(place).filter(|place| !place.is_empty())))
 }
 
 /// What `wire` asks of the media `target` names — or, with no target or a

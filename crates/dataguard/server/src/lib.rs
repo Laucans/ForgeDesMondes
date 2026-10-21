@@ -46,9 +46,9 @@ pub use harness_dataguard::engine::Engine;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::plugins::{Plugins, RefusalKind};
-use harness_dataguard::postgres::{PgStore, SystemClock};
+use harness_dataguard::postgres::{PgStore, ReadOnly, SystemClock};
 use harness_dataguard::registry::Registry;
-use harness_dataguard::store::Store;
+use harness_dataguard::store::{RandomIds, Store};
 use ports_llm::Llm;
 use ports_speech_to_text::SpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
@@ -185,6 +185,9 @@ pub async fn planted_with(
     let notes = Arc::new(notes::Notes::default());
     let plugins = plugins(&aliases);
     let mut tables = None;
+    // The Prepares' read-only SQL over the tables (`Context::rows`): none
+    // over memory.
+    let mut reads: Option<Arc<dyn harness_dataguard::reads::Rows>> = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
     } else {
@@ -194,8 +197,15 @@ pub async fn planted_with(
                 eprintln!("postgres: {e}");
             }
         });
-        // The aggregates' projections in the apply transaction: none yet,
-        // each lands with its aggregate's move out of this server.
+        let (reading, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls).await?;
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("postgres: {e}");
+            }
+        });
+        reads = Some(Arc::new(ReadOnly::new(reading)));
+        // The aggregates' projections in the apply transaction, each landed
+        // with its aggregate's move out of this server.
         let inner = PgStore::open(client)
             .await?
             .with_projections(&plugins)
@@ -219,15 +229,17 @@ pub async fn planted_with(
             .keeping(versions)
             .noting(notes.clone()),
     );
-    let engine = bound(
-        Engine::new(
-            store.clone(),
-            Arc::new(MemoryNotifier::default()),
-            Arc::new(SystemClock),
-        ),
-        plugins,
-        shared,
-    )?;
+    // A new row's id is a random uuid, as the tables key their rows.
+    let mut engine = Engine::new(
+        store.clone(),
+        Arc::new(MemoryNotifier::default()),
+        Arc::new(SystemClock),
+    )
+    .with_ids(Arc::new(RandomIds));
+    if let Some(reads) = reads {
+        engine = engine.with_rows(reads);
+    }
+    let engine = bound(engine, plugins, shared)?;
     engine.load().await?;
     Ok(Planted {
         engine,
@@ -406,19 +418,9 @@ async fn submit<L: Llm, S: SpeechToText>(
             legacy::restore_entity_version::submit(served, body, &now).await
         }
         // ---
-        set_media_place::DATA_CAPABILITY => {
-            legacy::set_media_place::submit(served, body, &now).await
-        }
-        // ---
-        save_grid_settings::DATA_CAPABILITY => {
-            legacy::save_grid_settings::submit(served, body, &now).await
-        }
-        // ---
         export_campaign::DATA_CAPABILITY => {
             legacy::export_campaign::submit(served, body, &now).await
         }
-        // ---
-        upload_media::DATA_CAPABILITY => legacy::upload_media::submit(served, body, &now).await,
         // ---
         _ => reply(
             axum::http::StatusCode::ACCEPTED,

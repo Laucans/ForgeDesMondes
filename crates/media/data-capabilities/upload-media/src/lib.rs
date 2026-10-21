@@ -25,10 +25,19 @@
 //!   engine does not hold beside the media, and an upload naming another is
 //!   refused under the invariant's id. The table's trigger judges it again
 //!   when the upload is applied.
+//!
+//! Its `Prepare` ([`plugin`]) reads what an upload is judged against: over
+//! PostgreSQL its campaign and its place as the tables hold them — the
+//! fixtures' among them — and over the engine's memory, which has no table,
+//! every campaign is held and the place is the engine's row. The media's id
+//! is a fresh one, its time the engine's to the millisecond. A replay under
+//! an idempotency key already submitted is the engine's to answer, before
+//! anything is read again.
 
 use std::collections::BTreeMap;
 
-use harness_dataguard::plugins::Plugin;
+use async_trait::async_trait;
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::{Value, json};
 
 /// This DataCapability's id, as `data-capability.json` names it.
@@ -144,12 +153,132 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new().prepare(DATA_CAPABILITY, Uploads)
+}
+
+/// A live campaign the tables hold, `$1` its id in whatever case. A
+/// campaign the engine deleted (its tombstone) is none.
+const CAMPAIGN: &str = "SELECT c.id::text AS id FROM campaign c WHERE c.id::text = lower($1)
+    AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+        WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
+
+/// The partitions of the Entity aggregate, whose elements a place is one of.
+const ENTITY: &str = "Entity/";
+
+/// An upload made the media it writes on a new media's partition: checked
+/// first, then its campaign and its place read. What the tables could never
+/// hold, a campaign they do not hold, or a place that is no lieu of the
+/// campaign is refused, 422 — and so is a read that fails.
+struct Uploads;
+
+#[async_trait]
+impl Prepare for Uploads {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        _target_id: Option<&str>,
+    ) -> Result<plugins::Prepared, plugins::Refusal> {
+        let upload = checked(payload).map_err(refused)?;
+        if !held(context, upload.campaign()).await? {
+            return Err(refused(Refusal::UnknownCampaign));
+        }
+        let place = match upload.place() {
+            Some(id) => placed(context, id).await?,
+            None => None,
+        };
+        let media = context.ids.fresh();
+        let now = stamp(context.now_millis);
+        let prepared = upload
+            .prepare(
+                place.as_ref(),
+                Fresh {
+                    media: &media,
+                    now: &now,
+                },
+            )
+            .map_err(refused)?;
+        // The payload's `id` is the new media's: the manifest's `target.id`
+        // (`$id`) names its partition from it.
+        Ok(plugins::Prepared {
+            payload: prepared.payload,
+            ..plugins::Prepared::default()
+        })
+    }
+}
+
+/// An upload refused: 422, saying why.
+fn refused(refusal: Refusal) -> plugins::Refusal {
+    plugins::Refusal::unprocessable(refusal.to_string())
+}
+
+/// A read that failed: nothing is queued.
+fn unread(error: harness_dataguard::Error) -> plugins::Refusal {
+    plugins::Refusal::unprocessable(error.to_string())
+}
+
+/// Whether the tables hold the campaign `id` names, live — over the
+/// engine's memory, which has no table, every campaign is held.
+async fn held(context: &Context<'_>, id: &str) -> Result<bool, plugins::Refusal> {
+    let Some(rows) = context.rows else {
+        return Ok(true);
+    };
+    let found = rows
+        .rows(CAMPAIGN, &[Value::from(id)])
+        .await
+        .map_err(unread)?;
+    Ok(found.as_array().is_some_and(|found| !found.is_empty()))
+}
+
+/// The element `id` names as a media's place reads it — its type and its
+/// campaign — from the tables over PostgreSQL, which hold the fixtures'
+/// elements and every one applied; from the engine's row over its memory.
+/// `None` when there is no such live element.
+async fn placed(context: &Context<'_>, id: &str) -> Result<Option<Place>, plugins::Refusal> {
+    let row = match context.rows {
+        Some(rows) => aggregate_media::place(rows, id).await.map_err(unread)?,
+        // The ids the server makes are lower case.
+        None => Some(
+            context
+                .row(&format!("{ENTITY}{}", id.to_ascii_lowercase()))
+                .await?,
+        ),
+    };
+    let text = |row: &Row, field: &str| row.get(field).and_then(Value::as_str).map(str::to_owned);
+    Ok(row.and_then(|row| {
+        text(&row, "type")
+            .zip(text(&row, "entityCampaignId"))
+            .map(|(kind, campaign)| Place { kind, campaign })
+    }))
+}
+
+/// `millis` since the epoch as RFC 3339 in UTC, to the millisecond
+/// (`2026-10-21T09:00:00.123Z`): what `media.uploaded_at` takes.
+#[must_use]
+pub fn stamp(millis: u64) -> String {
+    let unix_seconds = millis / 1000;
+    // Howard Hinnant's civil_from_days.
+    // A day count since 1970 is far below `i64::MAX`.
+    let days = (unix_seconds / 86_400).cast_signed() + 719_468;
+    let seconds = unix_seconds % 86_400;
+    let era = days.div_euclid(146_097);
+    let doe = days.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        seconds / 3600,
+        seconds % 3600 / 60,
+        seconds % 60,
+        millis % 1000
+    )
 }
 
 /// An upload whose wire payload the tables could hold, its place not read

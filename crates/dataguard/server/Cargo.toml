@@ -68,6 +68,3 @@ restore-entity-version = { path = "../../campaign/data-capabilities/restore-enti
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
-save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
-set-media-place = { path = "../../media/data-capabilities/set-media-place" }
-upload-media = { path = "../../media/data-capabilities/upload-media" }
