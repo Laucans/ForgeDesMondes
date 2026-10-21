@@ -26,9 +26,10 @@
 //! registry's — over the connection of its own that [`router_reading`] is
 //! given; [`router`] serves none.
 //!
-//! Over a database, the engine's writes reach the product's tables through
-//! [`projection::ProjectingStore`], after the apply, and an element's version
-//! is settled when it is applied ([`versioning::Versioning`]). What each
+//! Over a database, the engine's writes reach the product's tables: an
+//! aggregate whose crate projects them does so in the apply transaction
+//! (its `ProjectPg`, which the store runs), the others through
+//! [`projection::ProjectingStore`], after the apply. What each
 //! DataCapability of the legacy chain is prepared against — the rows
 //! [`Rows`] reads, the ports the router is given — is told by its module.
 
@@ -54,7 +55,6 @@ use ports_speech_to_text::SpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 
 mod exports;
-mod history;
 mod legacy;
 mod notes;
 mod projection;
@@ -180,10 +180,11 @@ pub async fn planted_with(
     url: &str,
     shared: harness_dataguard::plugins::Shared,
 ) -> Result<Planted, PlantError> {
+    // The elements' terms an analysis of notes recognises (`Rows::known`),
+    // kept here until `ai.extractFromNotes` reads them itself.
     let aliases = Arc::new(Aliases::default());
-    let history = Arc::new(history::History::default());
     let notes = Arc::new(notes::Notes::default());
-    let plugins = plugins(&aliases);
+    let plugins = plugins();
     let mut tables = None;
     // The Prepares' read-only SQL over the tables (`Context::rows`): none
     // over memory.
@@ -210,26 +211,18 @@ pub async fn planted_with(
             .await?
             .with_projections(&plugins)
             .await?;
-        let store =
-            projection::ProjectingStore::new(inner, aliases.clone()).keeping(history.clone());
+        let store = projection::ProjectingStore::new(inner, aliases.clone());
         store.repair().await;
         store.elements().await;
-        store.versions(None).await;
         store.notes(&notes).await;
         let store = Arc::new(store);
         tables = Some(store.clone());
         store
     };
-    // Over memory, the engine's rows are the tables: they keep the terms and
-    // the versions.
-    let kept = (url == MEMORY).then(|| aliases.clone());
-    let versions = (url == MEMORY).then(|| history.clone());
-    let store: Arc<dyn Store> = Arc::new(
-        versioning::Versioning::new(store, kept)
-            .keeping(versions)
-            .noting(notes.clone()),
-    );
-    // A new row's id is a random uuid, as the tables key their rows.
+    let store: Arc<dyn Store> =
+        Arc::new(versioning::Versioning::new(store, aliases.clone()).noting(notes.clone()));
+    // A new row's id, and a version's, is a random uuid, as the tables key
+    // their rows.
     let mut engine = Engine::new(
         store.clone(),
         Arc::new(MemoryNotifier::default()),
@@ -243,34 +236,20 @@ pub async fn planted_with(
     engine.load().await?;
     Ok(Planted {
         engine,
-        rows: Rows::keeping(store, history)
+        rows: Rows::new(store)
             .reading(tables)
             .knowing(aliases)
             .noting(notes),
     })
 }
 
-/// The Entity aggregate's folder, as the registry names its unit.
-const ENTITY: &str = "crates/campaign/aggregates/Entity";
-
-/// Every unit's plugin, as the registry gathers them — but the Entity
-/// aggregate's judge reads `aliases`, which this server keeps after its
-/// tables ([`projection::ProjectingStore`], [`versioning::Versioning`]),
-/// where the aggregate's own plugin would keep the engine's writes: a save
-/// the tables refused takes no term.
-fn plugins(aliases: &Arc<Aliases>) -> Plugins {
+/// Every unit's plugin, as the registry gathers them.
+fn plugins() -> Plugins {
     dataguard_registry::AGGREGATES
         .iter()
         .chain(dataguard_registry::DATA_CAPABILITIES)
         .chain(dataguard_registry::CAPABILITIES)
-        .filter_map(|unit| {
-            let plugin = unit.plugin?;
-            Some(if unit.folder == ENTITY {
-                aggregate_entity::judging(aliases.clone())
-            } else {
-                plugin()
-            })
-        })
+        .filter_map(|unit| unit.plugin.map(|plugin| plugin()))
         .collect()
 }
 
@@ -410,12 +389,6 @@ async fn submit<L: Llm, S: SpeechToText>(
         // ---
         create_entities_from_note::DATA_CAPABILITY => {
             legacy::create_entities_from_note::submit(served, body, &now).await
-        }
-        // ---
-        save_entity::DATA_CAPABILITY => legacy::save_entity::submit(served, body, &now).await,
-        // ---
-        restore_entity_version::DATA_CAPABILITY => {
-            legacy::restore_entity_version::submit(served, body, &now).await
         }
         // ---
         export_campaign::DATA_CAPABILITY => {

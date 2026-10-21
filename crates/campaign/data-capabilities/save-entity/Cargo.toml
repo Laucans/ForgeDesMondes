@@ -9,9 +9,13 @@ publish = false
 [dependencies]
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 harness-dataguard = { workspace = true }
+# Its target aggregate: how an element's dates are written.
+aggregate-entity = { path = "../../aggregates/Entity" }
+async-trait = "0.1"
 serde_json = "1"
 unicode-normalization = "0.1"
 
 [dev-dependencies]
 # The Concepts' fixtures `version` and `normalized` are held to.
 platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

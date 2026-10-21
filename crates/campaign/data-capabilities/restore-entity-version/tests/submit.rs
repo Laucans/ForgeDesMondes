@@ -1,18 +1,24 @@
-//! campaign.restoreEntityVersion through the wire protocol, over the
-//! in-memory engine as the server plants it: a restoration is prepared
-//! against the element's row and the versions it has, judged, queued on the
-//! element and applied with the version it adds (EntityVersion@1). The tables
-//! it reaches are `restore_entity_version_projection.rs`'s.
+//! campaign.restoreEntityVersion through the engine, over its in-memory
+//! store, as the server plants it with the Entity aggregate and
+//! campaign.saveEntity: a restoration is prepared against the element's row
+//! and the versions the aggregate keeps, judged, queued on the element and
+//! applied with the version it adds (EntityVersion@1). The tables it
+//! reaches are the Entity aggregate's `tests/projection.rs`.
 
 use std::sync::Arc;
 
-use axum::Router;
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use dataguard_server::{Engine, MEMORY, Planted, Rows, planted, router};
+use aggregate_entity::History;
+use harness_dataguard::Error;
+use harness_dataguard::aggregate::Aggregate;
+use harness_dataguard::api::Submission;
 use harness_dataguard::command::{CommandResult, State};
+use harness_dataguard::engine::Engine;
+use harness_dataguard::manifest::DataCapability;
+use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
+use harness_dataguard::plugins::RefusalKind;
+use harness_dataguard::postgres::SystemClock;
+use harness_dataguard::store::{RandomIds, Store};
 use serde_json::{Map, Value, json};
-use tower::ServiceExt;
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 
@@ -45,39 +51,72 @@ const SNAPSHOT: [&str; 24] = [
     "dndbeyondSyncedAt",
 ];
 
-/// The engine as the server plants it, its rows and its wire protocol.
+/// What became of a submission: queued, or refused before it was — as the
+/// server answers it, 202, 404 or 422.
+#[derive(Debug, PartialEq, Eq)]
+enum Status {
+    Accepted,
+    NotFound,
+    Unprocessable,
+}
+
+/// The engine as the server plants these DataCapabilities and their
+/// aggregate, its store and the versions the aggregate keeps.
 struct Served {
-    engine: Arc<Engine>,
-    rows: Rows,
-    app: Router,
+    engine: Engine,
+    store: Arc<MemoryStore>,
+    history: Arc<History>,
 }
 
 async fn served() -> Served {
-    let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
-    let engine = Arc::new(engine);
-    let app = router(
-        engine.clone(),
-        rows.clone(),
-        Arc::new(ports_llm::fake::FakeLlm::new()),
+    let store = Arc::new(MemoryStore::default());
+    let history = Arc::new(History::default());
+    let engine = Engine::new(
+        store.clone(),
+        Arc::new(MemoryNotifier::default()),
+        Arc::new(SystemClock),
+    )
+    .with_aggregate(Aggregate::parse(aggregate_entity::MANIFEST).expect("contract I"))
+    .with_data_capability(
+        DataCapability::parse(restore_entity_version::MANIFEST).expect("contract F"),
+    )
+    .with_data_capability(DataCapability::parse(save_entity::MANIFEST).expect("contract F"))
+    .with_ids(Arc::new(RandomIds))
+    .with_plugins(
+        [
+            aggregate_entity::keeping(history.clone()),
+            save_entity::plugin(),
+            restore_entity_version::plugin(),
+        ]
+        .into_iter()
+        .collect(),
     );
-    Served { engine, rows, app }
+    engine.load().await.expect("the units fit");
+    Served {
+        engine,
+        store,
+        history,
+    }
 }
 
 impl Served {
-    async fn post(&self, body: Value) -> (StatusCode, Value) {
-        let request = Request::post("/commands")
-            .header("content-type", "application/json")
-            .body(Body::from(body.to_string()))
-            .expect("a request");
-        let response = self.app.clone().oneshot(request).await.expect("an answer");
-        let status = response.status();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("a body");
-        (
-            status,
-            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
-        )
+    /// Submits `body`: what became of it, and the answer.
+    async fn post(&self, body: Value) -> (Status, Value) {
+        let submission: Submission = serde_json::from_value(body).expect("a submission");
+        match self.engine.submit(submission).await {
+            Ok(submitted) => (
+                Status::Accepted,
+                serde_json::to_value(submitted).expect("JSON"),
+            ),
+            Err(Error::Refused(refusal)) => (
+                match refusal.kind {
+                    RefusalKind::NotFound => Status::NotFound,
+                    RefusalKind::Unprocessable => Status::Unprocessable,
+                },
+                json!({ "error": refusal.message }),
+            ),
+            Err(e) => panic!("{e}"),
+        }
     }
 
     /// One pass of the single applier, which settles one command.
@@ -96,7 +135,7 @@ impl Served {
                 "caller": { "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] },
             }))
             .await;
-        assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+        assert_eq!(status, Status::Accepted, "{answer}");
         let result = self.settled().await;
         assert_eq!(result.status, State::Applied, "{result:?}");
         answer["partition"]
@@ -109,17 +148,12 @@ impl Served {
     /// Asks the restoration of `element` that `payload` says, from the
     /// VersionHistory panel, by the DM — who approves their own campaign's
     /// critical fields, as a save of theirs does: the answer.
-    async fn restore(&self, element: &str, payload: Value) -> (StatusCode, Value) {
+    async fn restore(&self, element: &str, payload: Value) -> (Status, Value) {
         self.restore_as(&["role:approver"], element, payload).await
     }
 
     /// The same by a caller of `roles`.
-    async fn restore_as(
-        &self,
-        roles: &[&str],
-        element: &str,
-        payload: Value,
-    ) -> (StatusCode, Value) {
+    async fn restore_as(&self, roles: &[&str], element: &str, payload: Value) -> (Status, Value) {
         self.post(json!({
             "dataCapability": "campaign.restoreEntityVersion@1",
             "target": { "aggregate": "Entity", "id": element },
@@ -133,24 +167,24 @@ impl Served {
     /// The same, accepted, and what the applier made of it.
     async fn restored(&self, element: &str, payload: Value) -> CommandResult {
         let (status, answer) = self.restore(element, payload).await;
-        assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+        assert_eq!(status, Status::Accepted, "{answer}");
         self.settled().await
     }
 
     /// The row the engine holds for `element`.
     async fn row(&self, element: &str) -> Map<String, Value> {
-        self.rows
-            .projected(&format!("Entity/{element}"))
+        self.store
+            .row(&format!("Entity/{element}"))
             .await
             .expect("the row")
             .into_iter()
             .collect()
     }
 
-    /// `element`'s versions, oldest first: number, id, source, snapshot.
+    /// `element`'s versions, oldest first: number, id, snapshot.
     fn versions(&self, element: &str) -> Vec<(u64, String, Map<String, Value>)> {
-        self.rows
-            .versions(element)
+        self.history
+            .of(element)
             .into_iter()
             .map(|v| (v.number, v.id, v.snapshot))
             .collect()
@@ -291,7 +325,7 @@ async fn undoing_some_changes_of_a_version_sets_those_fields_alone_back_to_the_v
     let versions = s.versions(&id);
     let (_, v2, before) = versions[1].clone();
     // Version 3's diff: aliases, hpMax, notes — undo the HP and the notes.
-    let v3 = s.rows.versions(&id)[2].diff.clone();
+    let v3 = s.history.of(&id)[2].diff.clone();
     let at = |field: &str| {
         v3.iter()
             .position(|change| change["field"] == field)
@@ -347,7 +381,7 @@ async fn a_version_of_another_element_or_none_is_refused_before_it_is_queued() {
         json!({ "version": "f0000000-0000-4000-8000-000000000000" }),
     ] {
         let (status, answer) = s.restore(&id, payload.clone()).await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "{payload}: {answer}");
+        assert_eq!(status, Status::NotFound, "{payload}: {answer}");
         assert!(answer["error"].is_string(), "{answer}");
     }
     // An element with no version has none to restore, nor does one named in
@@ -357,7 +391,7 @@ async fn a_version_of_another_element_or_none_is_refused_before_it_is_queued() {
         id.to_uppercase(),
     ] {
         let (status, answer) = s.restore(&element, json!({ "version": 1 })).await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "{element}: {answer}");
+        assert_eq!(status, Status::NotFound, "{element}: {answer}");
     }
     // A request naming no element at all.
     let (status, answer) = s
@@ -367,7 +401,7 @@ async fn a_version_of_another_element_or_none_is_refused_before_it_is_queued() {
             "caller": { "by": "dm", "from": "VersionHistory", "roles": ["role:approver"] },
         }))
         .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{answer}");
+    assert_eq!(status, Status::Unprocessable, "{answer}");
     for payload in [
         json!({}),
         json!({ "version": 2, "changes": [] }),
@@ -376,11 +410,7 @@ async fn a_version_of_another_element_or_none_is_refused_before_it_is_queued() {
         json!({ "version": 4, "changes": [0] }),
     ] {
         let (status, answer) = s.restore(&id, payload.clone()).await;
-        assert_eq!(
-            status,
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "{payload}: {answer}"
-        );
+        assert_eq!(status, Status::Unprocessable, "{payload}: {answer}");
     }
     assert!(
         s.engine
@@ -423,7 +453,7 @@ async fn a_restoration_by_a_caller_who_approves_nothing_waits_for_its_review() {
     let s = served().await;
     let id = at_version_4(&s).await;
     let (status, answer) = s.restore_as(&[], &id, json!({ "version": 2 })).await;
-    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+    assert_eq!(status, Status::Accepted, "{answer}");
     assert_eq!(answer["result"]["status"], "awaiting_review", "{answer}");
     assert!(
         s.engine
@@ -451,5 +481,23 @@ async fn the_same_idempotency_key_twice_is_one_restoration() {
             .expect("the applier ran")
             .is_empty()
     );
+    assert_eq!(s.versions(&id).len(), 5);
+}
+
+#[tokio::test]
+async fn an_element_its_payload_alone_names_is_restored_as_the_one_targeted_would_be() {
+    let s = served().await;
+    let id = at_version_4(&s).await;
+    let (status, answer) = s
+        .post(json!({
+            "dataCapability": "campaign.restoreEntityVersion@1",
+            "payload": { "entity": id, "version": 2 },
+            "caller": { "by": "dm", "from": "VersionHistory", "roles": ["role:approver"] },
+        }))
+        .await;
+    assert_eq!(status, Status::Accepted, "{answer}");
+    assert_eq!(answer["partition"], format!("Entity/{id}"));
+    assert_eq!(s.settled().await.status, State::Applied);
+    assert_eq!(s.row(&id).await["notes"], "Connaît le passage.");
     assert_eq!(s.versions(&id).len(), 5);
 }

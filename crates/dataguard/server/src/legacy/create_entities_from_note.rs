@@ -94,7 +94,7 @@ pub(crate) async fn submit<L: Llm, S: SpeechToText>(
         }
         let submitted = match submit_prepared(
             served,
-            command(save_entity::DATA_CAPABILITY, element.command),
+            command(save_entity::DATA_CAPABILITY, saved(element.command)),
         )
         .await
         {
@@ -146,6 +146,33 @@ pub(crate) async fn submit<L: Llm, S: SpeechToText>(
         submitted
     });
     reply(StatusCode::ACCEPTED, submitted)
+}
+
+/// The element `command` makes, as its save is submitted: the wire payload
+/// `campaign.saveEntity`'s `Prepare` maps — its campaign, and its id, type,
+/// name and excerpt — which writes it with its first version.
+fn saved(command: create_entities_from_note::Command) -> create_entities_from_note::Command {
+    let field = |name: &str| command.payload.get(name).cloned();
+    let mut entity = serde_json::Map::new();
+    entity.insert("id".into(), command.target_id.clone().into());
+    for (wire, name) in [
+        ("kind", "type"),
+        ("name", "name"),
+        ("description", "description"),
+    ] {
+        if let Some(value) = field(name) {
+            entity.insert(wire.into(), value);
+        }
+    }
+    let mut payload = std::collections::BTreeMap::new();
+    if let Some(campaign) = field("entityCampaignId") {
+        payload.insert("campaign".to_owned(), campaign);
+    }
+    payload.insert("entity".to_owned(), serde_json::Value::Object(entity));
+    create_entities_from_note::Command {
+        target_id: command.target_id,
+        payload,
+    }
 }
 
 /// The warning the DataGuard gives a command whose state, as queued, breaks

@@ -3,15 +3,23 @@ name = "aggregate-entity"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Aggregate Entity: a campaign's element, its sheet, its aliases and its versions — its invariants judged as code, alias-unique-in-campaign against the names and aliases of the campaign's other elements (AliasMatch@1)."
+description = "Aggregate Entity: a campaign's element, its sheet, its aliases and its versions — its invariants judged as code, alias-unique-in-campaign against the names and aliases of the campaign's other elements (AliasMatch@1); its writes projected into its tables in the apply transaction, each version settled after the element's last (EntityVersion@1)."
 publish = false
 
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 [dependencies]
 harness-dataguard = { workspace = true }
+async-trait = "0.1"
 serde_json = "1"
 # AliasMatch@1: a term normalised, its accents dropped.
 unicode-normalization = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+# The migrations the projection's tables come from, applied to a scratch database.
+data = { path = "../../../data" }
+# The two DataCapabilities that write an element, as the server plants them.
+save-entity = { path = "../../data-capabilities/save-entity" }
+restore-entity-version = { path = "../../data-capabilities/restore-entity-version" }
+# The Concept a version is held to (EntityVersion@1).
+platform-conformance = { path = "../../../platform/conformance" }

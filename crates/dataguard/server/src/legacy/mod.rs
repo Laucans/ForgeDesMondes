@@ -11,7 +11,3 @@ pub(crate) mod export_campaign;
 // ---
 pub(crate) mod extract_from_notes;
 // ---
-pub(crate) mod restore_entity_version;
-// ---
-pub(crate) mod save_entity;
-// ---
