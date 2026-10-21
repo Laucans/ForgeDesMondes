@@ -34,7 +34,7 @@
 
 use std::collections::BTreeMap;
 
-use aggregate_session::{SCENE_POSITION, is_uuid, order_id};
+use aggregate_session::{SCENE_POSITION, order_id, uuid as is_uuid};
 use async_trait::async_trait;
 use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::Value;

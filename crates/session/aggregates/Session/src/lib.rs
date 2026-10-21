@@ -16,6 +16,11 @@
 //! is a read: the tables keep a closed session's summary and journal for the
 //! next one.
 //!
+//! A scene is a row of its own, written into its tables in the transaction
+//! that applies it ([`Scenes`]): its rank is settled there, after the
+//! session's last, and the elements it links are judged there against the
+//! session's campaign.
+//!
 //! A session's scene order is a row of its own, its scenes' ids under
 //! `scenePosition`, rewritten into their ranks in the transaction that
 //! applies it ([`SceneOrder`]): every rank at once, 1 to n.
@@ -29,8 +34,12 @@ use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
 mod order;
+mod scenes;
 
-pub use order::{SceneOrder, is_uuid, order_id, session_of};
+pub use order::{SceneOrder, order_id, session_of};
+pub use scenes::{
+    LINKS, NOTES, PARTITION, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, Scenes,
+};
 
 const AGGREGATE: &str = "Session";
 
@@ -133,12 +142,13 @@ impl Judge for Session {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge, and its scene
-/// orders written in the transaction that applies them.
+/// What the aggregate plugs into the engine: its judge, and its scenes and
+/// scene orders written in the transaction that applies them.
 #[must_use]
 pub fn plugin() -> Plugin {
     Plugin::new()
         .judge(AGGREGATE, Session)
+        .project_pg(AGGREGATE, Scenes)
         .project_pg(AGGREGATE, SceneOrder)
 }
 
@@ -254,19 +264,32 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 
 /// A command writes only fields the aggregate declares, each a text, a
 /// number, a boolean or a null: no field holds audio, nor anything but what
-/// a column types. One list is a column's values: a session's scene order,
-/// its scenes' ids, one `scene.position` each.
+/// a column types. Two lists are a column's values: the ids of the elements a
+/// scene links, one `scene_entity` row each, and a session's scene order, its
+/// scenes' ids, one `scene.position` each.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
         DECLARED.contains(field)
             && match value {
                 Value::Object(_) => false,
                 Value::Array(ids) => {
-                    field == SCENE_POSITION && ids.iter().all(|id| id.as_str().is_some_and(is_uuid))
+                    (field == LINKS || field == SCENE_POSITION)
+                        && ids.iter().all(|id| id.as_str().is_some_and(uuid))
                 }
                 _ => true,
             }
     })
+}
+
+/// A uuid written 8-4-4-4-12 in hex digits, in either case: what a
+/// session's, a scene's or an element's id is.
+#[must_use]
+pub fn uuid(id: &str) -> bool {
+    id.len() == 36
+        && id.char_indices().all(|(at, c)| match at {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
 }
 
 #[cfg(test)]

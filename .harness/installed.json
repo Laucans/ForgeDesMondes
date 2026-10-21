@@ -1,8 +1,8 @@
 {
   "files": {
-    ".cargo/mutants.toml": "ab79d2ee9283103e",
-    ".github/workflows/ci.yml": "4124844744e7431e",
-    ".github/workflows/gates.yml": "9a161522914b664f",
+    ".cargo/mutants.toml": "d871b19df11c581e",
+    ".github/workflows/ci.yml": "40e10e1fb044a780",
+    ".github/workflows/gates.yml": "4da1b679be3fb441",
     ".gitignore": "600d6171799bdb07",
     ".sops.yaml": "561c8b897521edab",
     "contracts/README.md": "5f31f9c862da553c",
@@ -30,7 +30,7 @@
     "crates/dataguard/server/src/lib.rs": "a8d9952659554756",
     "crates/platform/conformance/Cargo.toml": "cdc993103aadd4ff",
     "data/model.json": "648bb79d0211ab3a",
-    "docs/ARCHITECTURE.md": "f3adb08bda9f2c5c",
+    "docs/ARCHITECTURE.md": "98698a1b096596f7",
     "docs/DATA-INTEGRITY.md": "cc6a3f51dc51816b",
     "mock/build.mjs": "e8064496c4c0c0b6",
     "mock/build.sh": "459136bdf084ac81",

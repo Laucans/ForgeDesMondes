@@ -23,10 +23,7 @@ use harness_dataguard::store::Write;
 use harness_dataguard::tokio_postgres::Transaction;
 use serde_json::Value;
 
-use crate::SCENE_POSITION;
-
-/// The partitions of the aggregate: `Session/<id>`.
-const PARTITION: &str = "Session/";
+use crate::{PARTITION, SCENE_POSITION, uuid};
 
 /// Where a uuid writes its version, and the bit an order id sets there.
 const VERSION_AT: usize = 14;
@@ -66,7 +63,7 @@ pub fn session_of(order: &str) -> Option<String> {
 /// `id`, lowercase, its version digit's high bit flipped, when it is a
 /// uuid whose bit is `set`.
 fn flipped(id: &str, set: bool) -> Option<String> {
-    if !is_uuid(id) {
+    if !uuid(id) {
         return None;
     }
     id.char_indices()
@@ -78,17 +75,6 @@ fn flipped(id: &str, set: bool) -> Option<String> {
             _ => Some(c.to_ascii_lowercase()),
         })
         .collect()
-}
-
-/// A uuid written 8-4-4-4-12 in hex digits, in either case: what a
-/// session's or a scene's id is.
-#[must_use]
-pub fn is_uuid(id: &str) -> bool {
-    id.len() == 36
-        && id.char_indices().all(|(at, c)| match at {
-            8 | 13 | 18 | 23 => c == '-',
-            _ => c.is_ascii_hexdigit(),
-        })
 }
 
 /// The Session aggregate's projection of its scene orders into `scene`.
@@ -137,7 +123,7 @@ mod tests {
     use harness_dataguard::store::Write;
     use serde_json::{Value, json};
 
-    use super::{is_uuid, order_id, order_of, ordered, session_of};
+    use super::{order_id, order_of, ordered, session_of, uuid};
 
     const SEANCE: &str = "51000000-0000-4000-8000-000000000004";
 
@@ -197,7 +183,7 @@ mod tests {
         ] {
             assert_eq!(order_id(not_one), None, "{not_one}");
             assert_eq!(session_of(not_one), None, "{not_one}");
-            assert!(!is_uuid(not_one), "{not_one}");
+            assert!(!uuid(not_one), "{not_one}");
         }
     }
 

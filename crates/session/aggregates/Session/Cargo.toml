@@ -3,16 +3,17 @@ name = "aggregate-session"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Aggregate Session: a session, its scenes, its brief and its journal — its invariants judged as code."
+description = "Aggregate Session: a session, its scenes, its brief and its journal — its invariants judged as code, its scenes (scene, scene_entity) written in the transaction that applies them."
 publish = false
 
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+# Its PostgreSQL client is the engine's re-export, never a driver of this crate.
 [dependencies]
 harness-dataguard = { workspace = true }
 async-trait = "0.1"
 serde_json = "1"
 
 [dev-dependencies]
-# The migrations' applier the server runs: the tables its scene orders' tests write.
+# The migrations' applier the server runs: the tables the projections write.
 data = { path = "../../../data" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
