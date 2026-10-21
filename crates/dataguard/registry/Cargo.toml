@@ -41,6 +41,7 @@ ignored = [
     "list-media",
     "list-places",
     "list-players",
+    "list-scenes",
     "list-sessions",
     "restore-entity-version",
     "save-entity",
@@ -81,6 +82,7 @@ list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes"
 list-media = { path = "../../media/capabilities/list-media" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
+list-scenes = { path = "../../session/capabilities/list-scenes" }
 list-sessions = { path = "../../session/capabilities/list-sessions" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }

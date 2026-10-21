@@ -890,6 +890,9 @@
       const { opacity, ...grid } = battlemap.grid;
       return { ...battlemap, grid: { ...grid, opacity: opacity / 100, feetPerHex: 5 } };
     },
+    // session.listScenes (crates/session/capabilities/list-scenes): a session's scenes by rank. The fixture
+    // is the scenes of session 4, the one in preparation; another session has none yet.
+    "session.listScenes": async (server, { session }) => session === "s4" ? await server.load("session.listScenes") : [],
     // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
     // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
     "campaign.listEntityVersions": async (server, { entity }) => {
