@@ -90,10 +90,10 @@ export const COMMANDS = {
   // on top of the history — source restauration, restoredFrom the version — whose changes are what moved since
   // the version it replaces; versions 1..n stay as they were. A version the element does not have is refused.
   // table.createBattlemapInstance (crates/table/data-capabilities/create-battlemap-instance):
-  // the scene's own copy of a battlemap of the campaign, empty; the battlemap and its grid
-  // are left as they are (`instance-isolated`). A scene of another session, or a battlemap the
-  // campaign's library does not list, is `not-found`; a scene that has its instance is refused
-  // (`one-instance-per-scene`).
+  // the scene's own copy of a battlemap of the campaign, empty; the battlemap, its grid and
+  // the scene's media are left as they are (`instance-isolated`). A scene of another session,
+  // or a battlemap the campaign's library does not list, is `not-found`; a scene that has its
+  // instance is refused (`one-instance-per-scene`).
   'table.createBattlemapInstance': async (server, { payload }) => {
     const session = await server.load('session.getSession');
     const scene = (await server.load('session.listScenes')).find((sc) => sc.id === payload.scene);
@@ -104,7 +104,6 @@ export const COMMANDS = {
     server.instances = server.instances || new Map();
     server.instances.set(id, { id, battlemap: map.id, session: payload.session, scene: scene.id, label: scene.title, roster: [], pjInitiative: {}, state: { tokens: [], combat: null } });
     scene.battlemap = id;
-    if (!scene.media.includes(map.id)) scene.media.push(map.id);
     return undefined;
   },
   'campaign.restoreEntityVersion': async (server, { payload, targetId }) => {

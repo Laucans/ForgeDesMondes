@@ -426,6 +426,45 @@ async fn instance_isolated_the_battlemap_and_its_grid_read_the_same_after_a_crea
 }
 
 #[tokio::test]
+async fn what_the_engine_deleted_is_not_there_any_more() {
+    let scratch = Scratch::new("tombstoned").await;
+    let engine = scratch.serve().await;
+    let tombstone = |partition: String| {
+        let client = &scratch.client;
+        async move {
+            client
+                .execute(
+                    "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ($1, true)",
+                    &[&partition],
+                )
+                .await
+                .expect("a tombstone");
+        }
+    };
+
+    // The scene's instance the tables hold, deleted: the scene has none.
+    tombstone(format!("BattlemapInstance/{DEJA_INSTANCE}")).await;
+    let result = create(&engine, asked(SEANCE, DEJA, GUE)).await;
+    assert_eq!(result.status, State::Applied, "{result:?}");
+    // A deleted battlemap, scene or session is no longer found.
+    tombstone(format!("Media/{GUE}")).await;
+    tombstone(format!("Session/{GUE_SCENE}")).await;
+    tombstone(format!("Session/{AUTRE_SEANCE}")).await;
+    for (payload, words) in [
+        (asked(SEANCE, ARRIVEE, GUE), "battlemap"),
+        (asked(SEANCE, GUE_SCENE, GUE), "scène"),
+        (asked(AUTRE_SEANCE, AILLEURS, GUE), "séance"),
+    ] {
+        let message = refused(
+            post(&engine, payload.clone(), None).await,
+            RefusalKind::NotFound,
+        );
+        assert!(message.contains(words), "{payload}: {message}");
+    }
+    scratch.drop().await;
+}
+
+#[tokio::test]
 async fn over_memory_no_table_holds_the_session() {
     let engine = Engine::new(
         Arc::new(MemoryStore::default()),

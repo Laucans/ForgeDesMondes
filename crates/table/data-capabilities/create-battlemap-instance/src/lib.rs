@@ -39,15 +39,20 @@ const NAMESPACE: Uuid = Uuid::from_u128(0x6f1c_2b7e_4a53_5d0e_9b8a_3c41_d2e5_f60
 /// What the tables hold of the session `$1`, the scene `$2` and the
 /// battlemap `$3`: the session's campaign, the scene's session, the
 /// battlemap's campaign — a media of another kind is no battlemap — and the
-/// scene's instance, each null when there is none; and the engine's clock
-/// `$4` (milliseconds since the epoch) as the table writes a time.
-pub const PLACEMENT: &str = "SELECT
-        (SELECT campaign_id::text FROM session WHERE id = $1::text::uuid) AS session_campaign,
-        (SELECT session_id::text FROM scene WHERE id = $2::text::uuid) AS scene_session,
-        (SELECT campaign_id::text FROM media
-            WHERE id = $3::text::uuid AND kind = 'battlemap') AS battlemap_campaign,
+/// scene's instance, each null when there is none or the engine tombstoned
+/// its partition; and the engine's clock `$4` (milliseconds since the epoch)
+/// as the table writes a time.
+pub const PLACEMENT: &str = "WITH gone AS (SELECT partition FROM dataguard_rows WHERE tombstoned)
+    SELECT
+        (SELECT campaign_id::text FROM session WHERE id = $1::text::uuid
+            AND 'Session/' || id::text NOT IN (SELECT partition FROM gone)) AS session_campaign,
+        (SELECT session_id::text FROM scene WHERE id = $2::text::uuid
+            AND 'Session/' || id::text NOT IN (SELECT partition FROM gone)) AS scene_session,
+        (SELECT campaign_id::text FROM media WHERE id = $3::text::uuid AND kind = 'battlemap'
+            AND 'Media/' || id::text NOT IN (SELECT partition FROM gone)) AS battlemap_campaign,
         (SELECT id::text FROM battlemap_instance WHERE scene_id = $2::text::uuid
-            ORDER BY created_at, id LIMIT 1) AS instance,
+            AND 'BattlemapInstance/' || id::text NOT IN (SELECT partition FROM gone)
+            LIMIT 1) AS instance,
         to_timestamp($4::int8 / 1000.0) AS now";
 
 /// One partition's row, as the engine holds it.
@@ -280,7 +285,8 @@ impl Prepare for Creates {
                     .then(|| id.clone())
             }),
         };
-        let now = text("now").unwrap_or_default();
+        let now = text("now")
+            .ok_or_else(|| plugins::Refusal::unprocessable("l'heure n'a pas pu être lue"))?;
         let prepared = prepare(&request, &placement, &now).map_err(refused)?;
         Ok(plugins::Prepared {
             payload: prepared.payload,
