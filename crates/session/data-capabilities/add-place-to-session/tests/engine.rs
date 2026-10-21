@@ -260,3 +260,24 @@ async fn a_session_or_a_scene_there_is_not_is_not_found_and_nothing_is_queued() 
         "place : l'identifiant d'un lieu"
     );
 }
+
+#[tokio::test]
+async fn a_session_or_a_scene_that_is_no_uuid_is_unprocessable_and_nothing_is_queued() {
+    let (engine, _) = valombre().await;
+    for (payload, said) in [
+        (
+            json!({ "session": "séance 4", "scene": BOURG, "place": TAVERNE }),
+            "session : l'identifiant d'une séance",
+        ),
+        (
+            json!({ "session": SEANCE, "scene": "la première", "place": TAVERNE }),
+            "scene : l'identifiant d'une scène",
+        ),
+    ] {
+        let answer = submit(&engine, "session.addPlaceToSession", payload).await;
+        assert_eq!(
+            refused(&engine, answer, RefusalKind::Unprocessable).await,
+            said
+        );
+    }
+}

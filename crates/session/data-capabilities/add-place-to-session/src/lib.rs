@@ -12,10 +12,10 @@
 //! and it becomes the scene's row in two steps:
 //!
 //! - [`asked`] reads the request: the session, the scene when it names one,
-//!   and the place are uuids, lowercase as the tables write them — no
-//!   session or scene has any other id ([`Refusal::UnknownSession`],
-//!   [`Refusal::UnknownScene`]). Any other field is refused
-//!   ([`Refusal::Unknown`]).
+//!   and the place are uuids, lowercase as the tables write them; one that
+//!   is no uuid is malformed ([`Refusal::InvalidSession`],
+//!   [`Refusal::InvalidScene`], [`Refusal::InvalidPlace`]). Any other field
+//!   is refused ([`Refusal::Unknown`]).
 //! - [`prepare`] judges it against the session's row, the scene's — the one
 //!   named, else the session's first ([`Refusal::NoScene`] when it has
 //!   none) — and the place's, as the store holds them: the scene must be
@@ -120,6 +120,10 @@ pub struct Asked {
 pub enum Refusal {
     /// The payload carries a field the command does not take.
     Unknown(String),
+    /// The session is no uuid.
+    InvalidSession,
+    /// The scene is named, by no uuid.
+    InvalidScene,
     /// The store holds no such session.
     UnknownSession,
     /// The store holds no such scene.
@@ -143,6 +147,8 @@ impl std::fmt::Display for Refusal {
                 f,
                 "{field} : un lieu rejoint une scène par session, scene et place"
             ),
+            Self::InvalidSession => write!(f, "session : l'identifiant d'une séance"),
+            Self::InvalidScene => write!(f, "scene : l'identifiant d'une scène"),
             Self::UnknownSession => write!(f, "séance introuvable"),
             Self::UnknownScene => write!(f, "scène introuvable"),
             Self::NoScene => write!(f, "la séance n'a pas encore de scène"),
@@ -276,17 +282,18 @@ fn id(value: Option<&Value>) -> Option<String> {
 ///
 /// # Errors
 ///
-/// [`Refusal`] when `wire` carries another field, names its session or its
-/// scene by something other than a uuid ([`Refusal::UnknownSession`],
-/// [`Refusal::UnknownScene`]), or no place by one.
+/// [`Refusal`] when `wire` carries another field, or names its session, its
+/// scene or its place by something other than a uuid
+/// ([`Refusal::InvalidSession`], [`Refusal::InvalidScene`],
+/// [`Refusal::InvalidPlace`]).
 pub fn asked(wire: &Row) -> Result<Asked, Refusal> {
     if let Some(field) = wire.keys().find(|field| !FIELDS.contains(&field.as_str())) {
         return Err(Refusal::Unknown(field.clone()));
     }
-    let session = id(wire.get(SESSION)).ok_or(Refusal::UnknownSession)?;
+    let session = id(wire.get(SESSION)).ok_or(Refusal::InvalidSession)?;
     let scene = match wire.get(SCENE) {
         None | Some(Value::Null) => None,
-        named => Some(id(named).ok_or(Refusal::UnknownScene)?),
+        named => Some(id(named).ok_or(Refusal::InvalidScene)?),
     };
     let place = id(wire.get(PLACE)).ok_or(Refusal::InvalidPlace)?;
     Ok(Asked {

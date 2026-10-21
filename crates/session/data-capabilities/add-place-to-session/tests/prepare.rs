@@ -90,13 +90,13 @@ fn a_request_with_another_field_or_ids_that_are_no_uuids_is_refused() {
     for session in [json!(null), json!("séance 4"), json!(4)] {
         assert_eq!(
             refusal(json!({ "session": session, "place": TAVERNE })),
-            Refusal::UnknownSession
+            Refusal::InvalidSession
         );
     }
     for scene in [json!("la première"), json!(1), json!("")] {
         assert_eq!(
             refusal(json!({ "session": SEANCE, "scene": scene, "place": TAVERNE })),
-            Refusal::UnknownScene
+            Refusal::InvalidScene
         );
     }
     for place in [json!(null), json!("la taverne")] {
@@ -106,6 +106,10 @@ fn a_request_with_another_field_or_ids_that_are_no_uuids_is_refused() {
         );
     }
     assert_eq!(refusal(json!({ "session": SEANCE })), Refusal::InvalidPlace);
+    assert_eq!(
+        refusal(json!({ "place": TAVERNE })),
+        Refusal::InvalidSession
+    );
 }
 
 #[test]
@@ -209,6 +213,11 @@ fn every_refusal_says_what_was_wrong() {
             Refusal::Unknown("media".to_owned()),
             "media : un lieu rejoint une scène par session, scene et place",
         ),
+        (
+            Refusal::InvalidSession,
+            "session : l'identifiant d'une séance",
+        ),
+        (Refusal::InvalidScene, "scene : l'identifiant d'une scène"),
         (Refusal::UnknownSession, "séance introuvable"),
         (Refusal::UnknownScene, "scène introuvable"),
         (Refusal::NoScene, "la séance n'a pas encore de scène"),
@@ -216,5 +225,28 @@ fn every_refusal_says_what_was_wrong() {
         (Refusal::NotAPlace, "place : seul un lieu de la campagne"),
     ] {
         assert_eq!(refusal.to_string(), said);
+    }
+}
+
+#[test]
+fn every_field_the_scene_row_writes_is_declared_in_touches() {
+    let manifest: Value =
+        serde_json::from_str(include_str!("../data-capability.json")).expect("contract F");
+    let touches: Vec<&str> = manifest["touches"]
+        .as_array()
+        .expect("touches")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let row = prepare(
+        &tavern(),
+        &session(),
+        &scene(SEANCE, json!([MOULIN])),
+        &element(VALOMBRE, "lieu"),
+    )
+    .expect("prepared");
+    for field in row.keys() {
+        let field = format!("Session.{field}");
+        assert!(touches.contains(&field.as_str()), "{field} not in touches");
     }
 }
