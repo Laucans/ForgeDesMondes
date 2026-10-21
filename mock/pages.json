@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "769a2e6932e9aa6b"
+      "builtFrom": "1efc3ede78754db8"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "0e575e8ede2b581d"
+      "builtFrom": "971f496a84957636"
     },
     {
       "name": "SessionList",
@@ -214,7 +214,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "e26a913b424384b9"
+      "builtFrom": "80844417ba42e852"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +278,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "95d57efbe1682dc9"
+      "builtFrom": "8bd51784877eefe2"
     },
     {
       "name": "PreviousSummary",
@@ -343,7 +343,7 @@
     {
       "name": "Battlemap",
       "system": "table",
-      "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », personnages déposés × N, menu du token (renommer, cacher, état, retirer) et envoi aux joueurs ; en player view, seulement ce que les joueurs peuvent voir",
+      "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », personnages déposés × N, fiche du token (renommer, cacher, état, PV, retirer), combat avec son carrousel d’initiative (Suivant, réordonner, ajouter, retirer, terminer), réinitialisation de la carte et envoi aux joueurs ; en player view, seulement ce que les joueurs peuvent voir",
       "fragment": "components/Battlemap.html",
       "fixtures": [
         "fixtures/table.getBattlemapInstance.json",
@@ -362,7 +362,15 @@
         "table.renameToken",
         "table.setTokenVisibility",
         "table.setTokenCondition",
-        "live.showOnPlayerView"
+        "live.showOnPlayerView",
+        "table.changeHitPoints",
+        "table.startCombat",
+        "table.nextTurn",
+        "table.reorderInitiative",
+        "table.addParticipant",
+        "table.removeParticipant",
+        "table.endCombat",
+        "table.resetBattlemap"
       ],
       "props": {
         "instance": "string — id de l’instance de battlemap",
@@ -372,7 +380,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "a82d4178ffd2972f"
+      "builtFrom": "35700386456af633"
     },
     {
       "name": "MediaLibrary",
@@ -414,7 +422,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "e7bdf630035adf5a"
+      "builtFrom": "79a8289e234af817"
     },
     {
       "name": "SoundLibrary",
@@ -561,7 +569,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "27560b602ac1613f"
+      "builtFrom": "e5bc907ad173abcc"
     }
   ]
 }
