@@ -7,7 +7,7 @@ use serde_json::Value;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
-const MIGRATION: &str = include_str!("../../../data/migrations/0001_ai_settings.sql");
+const MIGRATION: &str = include_str!("../migrations/0001_ai_settings.sql");
 
 const CLOUD: &str = "a1000000-0000-4000-8000-000000000001";
 
@@ -103,7 +103,7 @@ async fn the_migration_replays_as_a_no_op() {
     assert_eq!(s.snapshot().await, first);
     // The server's applier after the rules' runtime's psql, which records
     // nothing: it runs the file again, and nothing moves.
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/migrations");
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
     let applied = data::migrate(&mut s.client, std::path::Path::new(dir))
         .await
         .expect("replayed by the Data layer");
@@ -210,7 +210,7 @@ async fn mode_fields_is_kept_by_the_table() {
 async fn api_type_recognized_is_kept_by_the_table_with_the_concept_s_types() {
     let s = Scratch::new("api_type").await;
     let concept: Value = serde_json::from_str(include_str!(
-        "../../../../concepts/ProviderApiType/v1/concept.json"
+        "../../../concepts/ProviderApiType/v1/concept.json"
     ))
     .expect("ProviderApiType@1's concept.json");
     for kind in concept["output"]["type"]["enum"].as_array().expect("types") {

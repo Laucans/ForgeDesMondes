@@ -2,9 +2,9 @@
 //! holds.
 //!
 //! [`fixtures`] reads the folder and plans the load; it touches no database.
-//! A fixture a landed aggregate holds (the Campaign, Player and Entity
+//! A fixture a landed aggregate holds (the Campaign, Player, Entity and Media
 //! aggregates') becomes the rows of its tables, in the order the foreign keys
-//! and the Entity aggregate's triggers need; the others are skipped with their
+//! and the aggregates' triggers need; the others are skipped with their
 //! reason. What is planned is loaded whole, in one transaction, by
 //! [`data::insert_missing`]: the tables' CHECKs and invariants judge every row
 //! as they judge any write.
@@ -17,9 +17,13 @@
 //! `entity_alias:<element slug>:<alias>`, `entity_version:<element slug>:<n>`.
 //!
 //! What the tables have no column for is not loaded: the portrait and the
-//! crop (they point at a media row, which waits for the Media aggregate), the
-//! speed and the descriptive `type` line of a sheet, the art and illustration
-//! of a place, the links between places and characters.
+//! crop, the speed and the descriptive `type` line of a sheet, the art and
+//! illustration of a place, the links between places and characters; of a
+//! media, its weight, its terrain and its art. Nor is the campaign's cover:
+//! `campaign.cover_media_id` names a media row, and a media row names its
+//! campaign, so the one cannot be inserted before the other. An illustration
+//! is described by its ratio alone: it is loaded as 1000 pixels high, and as
+//! wide as its ratio says.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -96,6 +100,26 @@ const CHARACTER: &[&str] = &[
     "dndbeyond_synced_at",
 ];
 const ALIAS: &[&str] = &["id", "entity_id", "alias"];
+const MEDIA: &[&str] = &[
+    "id",
+    "campaign_id",
+    "kind",
+    "title",
+    "file_path",
+    "width_px",
+    "height_px",
+    "place_id",
+    "uploaded_at",
+];
+const GRID: &[&str] = &[
+    "media_id",
+    "hex_size_px",
+    "offset_x",
+    "offset_y",
+    "orientation",
+    "color",
+    "opacity",
+];
 const VERSION: &[&str] = &[
     "id",
     "entity_id",
@@ -156,6 +180,7 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             "campaign.listCampaigns.json" => read.campaign_list(&value),
             "campaign.getCampaign.json" => read.campaign_details(&value),
             "entities.json" => read.entities(&value),
+            "media.json" => read.media(&value),
             _ => {
                 plan.skipped
                     .push((name, "no aggregate holds it".to_string()));
@@ -169,9 +194,18 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
                 .push((name, format!("cannot be mapped: {why}"))),
         }
     }
+    if let Err(why) = read.library_fits() {
+        read.library = None;
+        plan.loaded.retain(|name| name != LIBRARY);
+        plan.skipped
+            .push((LIBRARY.to_string(), format!("cannot be mapped: {why}")));
+    }
     read.plan(&mut plan);
     Ok(plan)
 }
+
+/// The fixture of a campaign's media.
+const LIBRARY: &str = "media.json";
 
 /// What the files that mapped say. A file maps whole or not at all: nothing
 /// of one that fails is kept.
@@ -181,6 +215,29 @@ struct Read {
     /// when a fixture gives them.
     campaigns: BTreeMap<String, Map<String, Value>>,
     entities: Option<Entities>,
+    library: Option<Library>,
+}
+
+/// The `media.json` document, mapped: a campaign's battlemaps and
+/// illustrations.
+struct Library {
+    campaign: String,
+    media: Vec<Medium>,
+}
+
+/// A battlemap or an illustration.
+struct Medium {
+    slug: String,
+    kind: &'static str,
+    title: String,
+    file: String,
+    width: u64,
+    height: u64,
+    uploaded_at: Value,
+    /// Its place, by slug.
+    place: Option<String>,
+    /// A battlemap's grid: the columns of `battlemap_grid` but its media.
+    grid: Option<Value>,
 }
 
 /// The `entities.json` document, mapped.
@@ -289,6 +346,68 @@ impl Read {
         Ok(())
     }
 
+    fn media(&mut self, value: &Value) -> Result<(), String> {
+        let campaign = required(value, "campaign")?.to_string();
+        let mut media = Vec::new();
+        for (key, kind) in [
+            ("battlemaps", "battlemap"),
+            ("illustrations", "illustration"),
+        ] {
+            for medium in array(&value[key], key)? {
+                media.push(medium_of(medium, kind)?);
+            }
+        }
+        let mut slugs = BTreeSet::new();
+        if let Some(twice) = media.iter().find(|m| !slugs.insert(&m.slug)) {
+            return Err(format!("the slug {:?} names two rows", twice.slug));
+        }
+        self.library = Some(Library { campaign, media });
+        Ok(())
+    }
+
+    /// Whether the media read fit what the other files say: their campaign
+    /// is one of them, each place a « lieu » of that campaign, and no slug
+    /// of theirs names another row. Checked once every file is read.
+    fn library_fits(&self) -> Result<(), String> {
+        let Some(library) = &self.library else {
+            return Ok(());
+        };
+        if !self.campaigns.contains_key(&library.campaign) {
+            return Err(format!(
+                "no fixture describes the campaign {:?}",
+                library.campaign
+            ));
+        }
+        let entities = self.entities.as_ref();
+        let lieu = |slug: &str| {
+            entities.is_some_and(|e| {
+                e.campaign == library.campaign
+                    && e.elements
+                        .iter()
+                        .any(|element| element.slug == slug && element.kind == "lieu")
+            })
+        };
+        let taken = |slug: &String| {
+            self.campaigns.contains_key(slug)
+                || entities.is_some_and(|e| {
+                    e.players.iter().any(|p| &p.slug == slug)
+                        || e.elements.iter().any(|element| &element.slug == slug)
+                })
+        };
+        for medium in &library.media {
+            if let Some(place) = medium.place.as_deref().filter(|place| !lieu(place)) {
+                return Err(format!(
+                    "the place {place:?} of {:?} is no lieu of its campaign",
+                    medium.slug
+                ));
+            }
+            if taken(&medium.slug) {
+                return Err(format!("the slug {:?} names two rows", medium.slug));
+            }
+        }
+        Ok(())
+    }
+
     /// The rows of everything read, in the order they are inserted.
     fn plan(self, plan: &mut Fixtures) {
         let campaign_row = |slug: &String, row: &Map<String, Value>| {
@@ -339,6 +458,30 @@ impl Read {
                 table("character", "entity_id", CHARACTER, rows.characters),
                 table("entity_alias", "id", ALIAS, rows.aliases),
                 table("entity_version", "id", VERSION, rows.versions),
+            ]);
+        }
+        if let Some(library) = self.library {
+            let campaign = id("campaign", &library.campaign);
+            let mut media = Vec::new();
+            let mut grids = Vec::new();
+            for medium in library.media {
+                let row = id("media", &medium.slug);
+                media.push(json!({
+                    "id": row, "campaign_id": campaign, "kind": medium.kind,
+                    "title": medium.title, "file_path": medium.file,
+                    "width_px": medium.width, "height_px": medium.height,
+                    "place_id": medium.place.map(|place| id("entity", &place)),
+                    "uploaded_at": medium.uploaded_at,
+                }));
+                if let Some(mut grid) = medium.grid {
+                    grid["media_id"] = json!(row);
+                    grids.push(grid);
+                }
+                names.push((medium.slug, row));
+            }
+            tables.extend([
+                table("media", "id", MEDIA, media),
+                table("battlemap_grid", "media_id", GRID, grids),
             ]);
         }
         names.sort();
@@ -442,6 +585,75 @@ fn element_of(value: &Value, kind: Option<&'static str>) -> Result<Element, Stri
         aliases,
         sheet,
     })
+}
+
+/// One medium of `media.json`, mapped, of `kind`: a battlemap gives its
+/// size in pixels and its grid, an illustration its size or its ratio.
+fn medium_of(value: &Value, kind: &'static str) -> Result<Medium, String> {
+    let slug = required(value, "id")?.to_string();
+    let uploaded_at = date(value, "uploadedAt")?;
+    if uploaded_at.is_null() {
+        return Err(format!("{slug} has no uploadedAt"));
+    }
+    let pixels = |key: &str| value[key].as_u64().filter(|n| *n > 0);
+    let (width, height) = match (pixels("width"), pixels("height"), kind) {
+        (Some(width), Some(height), _) => (width, height),
+        (_, _, "illustration") => {
+            let ratio = value["ratio"]
+                .as_f64()
+                .filter(|r| r.is_finite() && *r > 0.0 && *r < 100.0)
+                .ok_or_else(|| format!("{slug} has no size and no ratio"))?;
+            // Below 100, a ratio times 1000 is a whole number of pixels.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let width = (ratio * 1000.0).round() as u64;
+            (width.max(1), 1000)
+        }
+        _ => return Err(format!("{slug} has no size in pixels")),
+    };
+    let grid = if kind == "battlemap" {
+        Some(grid_of(&slug, &value["grid"])?)
+    } else {
+        None
+    };
+    Ok(Medium {
+        title: required(value, "title")?.to_string(),
+        file: required(value, "file")?.to_string(),
+        place: value["place"].as_str().map(str::to_string),
+        slug,
+        kind,
+        width,
+        height,
+        uploaded_at,
+        grid,
+    })
+}
+
+/// A battlemap's grid as the columns of `battlemap_grid`: its orientation
+/// as the table names it, its opacity a fraction of 1 where the fixture
+/// gives a percentage.
+fn grid_of(slug: &str, grid: &Value) -> Result<Value, String> {
+    let number = |key: &str| {
+        grid[key]
+            .as_f64()
+            .ok_or_else(|| format!("the grid of {slug} has no {key}"))
+    };
+    let size = number("size")?;
+    let opacity = number("opacity")?;
+    if size <= 0.0 || !(0.0..=100.0).contains(&opacity) {
+        return Err(format!(
+            "the grid of {slug} is out of range: size {size}, opacity {opacity}"
+        ));
+    }
+    let orientation = match grid["orient"].as_str() {
+        Some("pointy") => "pointe",
+        Some("flat") => "plat",
+        other => return Err(format!("the grid of {slug} is oriented {other:?}")),
+    };
+    Ok(json!({
+        "hex_size_px": size, "offset_x": number("ox")?, "offset_y": number("oy")?,
+        "orientation": orientation, "color": required(grid, "color")?,
+        "opacity": opacity / 100.0,
+    }))
 }
 
 /// A character's sheet as the columns of `character` that do not point at
@@ -616,7 +828,8 @@ mod tests {
             [
                 "campaign.getCampaign.json",
                 "campaign.listCampaigns.json",
-                "entities.json"
+                "entities.json",
+                "media.json"
             ]
         );
         assert!(plan.skipped.len() > 30, "{}", plan.skipped.len());
@@ -637,9 +850,141 @@ mod tests {
                 "entity",
                 "character",
                 "entity_alias",
-                "entity_version"
+                "entity_version",
+                "media",
+                "battlemap_grid"
             ]
         );
+    }
+
+    #[test]
+    fn the_media_of_the_mock_up_are_planned_with_their_grids_and_places() {
+        let plan = mock();
+        let media = rows(&plan, "media");
+        assert_eq!(media.len(), 7, "two battlemaps, five illustrations");
+        let campaign = id("campaign", "cendres-valombre");
+        assert!(media.iter().all(|m| m["campaign_id"] == campaign));
+        let medium = |slug: &str| {
+            media
+                .iter()
+                .find(|m| m["id"] == id("media", slug))
+                .copied()
+                .expect("a planned media")
+        };
+        let moulin = medium("bm-moulin");
+        assert_eq!(moulin["kind"], "battlemap");
+        assert_eq!(moulin["file_path"], "ruines-du-moulin.jpg");
+        assert_eq!(
+            (&moulin["width_px"], &moulin["height_px"]),
+            (&json!(900), &json!(600))
+        );
+        assert_eq!(moulin["place_id"], id("entity", "moulin"));
+        assert_eq!(moulin["uploaded_at"], "2026-09-12T00:00:00Z");
+        assert_eq!(medium("bm-gue")["place_id"], Value::Null);
+        // An illustration has a ratio: 1000 pixels high, as wide as it says.
+        let cover = medium("ill-cover");
+        assert_eq!(cover["kind"], "illustration");
+        assert_eq!(
+            (&cover["width_px"], &cover["height_px"]),
+            (&json!(1780), &json!(1000))
+        );
+        assert_eq!(cover["place_id"], id("entity", "valombre"));
+
+        let grids = rows(&plan, "battlemap_grid");
+        assert_eq!(grids.len(), 2, "one grid per battlemap");
+        let grid = grids
+            .iter()
+            .find(|g| g["media_id"] == id("media", "bm-moulin"))
+            .expect("the mill's grid");
+        assert_eq!(
+            **grid,
+            json!({ "media_id": id("media", "bm-moulin"), "hex_size_px": 34.0,
+                "offset_x": 6.0, "offset_y": 10.0, "orientation": "plat",
+                "color": "accent", "opacity": 0.55 })
+        );
+        let gue = grids
+            .iter()
+            .find(|g| g["media_id"] == id("media", "bm-gue"))
+            .expect("the ford's grid");
+        assert_eq!(gue["orientation"], "pointe");
+        assert!(
+            plan.names
+                .contains(&("bm-gue".to_string(), id("media", "bm-gue")))
+        );
+    }
+
+    /// The plan of `entities.json` and `media` (as `media.json`), alone.
+    fn library(media: &Value) -> Fixtures {
+        let entities = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures/entities.json"),
+        )
+        .expect("the fixture");
+        let dir = folder(
+            &format!("library-{}", media.to_string().len()),
+            &[
+                ("entities.json", &entities),
+                ("media.json", &media.to_string()),
+            ],
+        );
+        let plan = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        plan
+    }
+
+    /// A battlemap of `place`, oriented `orient`.
+    fn battlemap(place: Value, orient: &str) -> Value {
+        json!({ "id": "bm-x", "title": "X", "file": "x.jpg", "uploadedAt": "2026-10-14",
+            "width": 960, "height": 640, "place": place,
+            "grid": { "size": 30, "ox": 0, "oy": 0, "orient": orient, "color": "text",
+                "opacity": 40 } })
+    }
+
+    #[test]
+    fn a_library_that_does_not_fit_is_skipped_whole_and_the_rest_is_loaded() {
+        let cases = [
+            (
+                json!({ "campaign": "cendres-valombre",
+                    "battlemaps": [battlemap(json!("elowen"), "flat")], "illustrations": [] }),
+                "no lieu",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre",
+                    "battlemaps": [battlemap(json!("moulin"), "sideways")], "illustrations": [] }),
+                "oriented",
+            ),
+            (
+                json!({ "campaign": "nowhere",
+                    "battlemaps": [battlemap(Value::Null, "flat")], "illustrations": [] }),
+                "no fixture describes the campaign",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "battlemaps": [],
+                    "illustrations": [{ "id": "elowen", "title": "E", "file": "e.png",
+                        "uploadedAt": "2026-10-14", "ratio": 1.5 }] }),
+                "names two rows",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "battlemaps": [],
+                    "illustrations": [{ "id": "ill-x", "title": "X", "file": "x.png",
+                        "uploadedAt": "2026-10-14" }] }),
+                "no size and no ratio",
+            ),
+        ];
+        for (media, why) in cases {
+            let plan = library(&media);
+            assert_eq!(plan.loaded, ["entities.json"], "{why}");
+            assert_eq!(plan.skipped.len(), 1, "{why}");
+            assert_eq!(plan.skipped[0].0, "media.json");
+            assert!(plan.skipped[0].1.contains(why), "{why}: {:?}", plan.skipped);
+            assert!(rows(&plan, "media").is_empty(), "{why}");
+            assert!(rows(&plan, "battlemap_grid").is_empty(), "{why}");
+            assert!(!plan.names.iter().any(|(slug, _)| slug == "bm-x"), "{why}");
+        }
+        let fits = library(&json!({ "campaign": "cendres-valombre",
+            "battlemaps": [battlemap(json!("moulin"), "pointy")], "illustrations": [] }));
+        assert_eq!(fits.loaded, ["entities.json", "media.json"]);
+        assert_eq!(rows(&fits, "battlemap_grid")[0]["orientation"], "pointe");
+        assert_eq!(rows(&fits, "battlemap_grid")[0]["opacity"], 0.4);
     }
 
     #[test]

@@ -10,10 +10,10 @@ use serde_json::Value;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
-const CAMPAIGN: &str = include_str!("../../../data/migrations/0002_campaign.sql");
-const PLAYER: &str = include_str!("../../../data/migrations/0003_player.sql");
-const ENTITY: &str = include_str!("../../../data/migrations/0004_entity.sql");
-const MIGRATION: &str = include_str!("../../../data/migrations/0008_note_import.sql");
+const CAMPAIGN: &str = include_str!("../migrations/0002_campaign.sql");
+const PLAYER: &str = include_str!("../migrations/0003_player.sql");
+const ENTITY: &str = include_str!("../migrations/0004_entity.sql");
+const MIGRATION: &str = include_str!("../migrations/0008_note_import.sql");
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BRUME: &str = "c1000000-0000-4000-8000-000000000002";
@@ -278,7 +278,7 @@ async fn the_migration_replays_as_a_no_op_over_the_campaign_and_entity_tables() 
     }
     // The server's applier after the rules' runtime's psql, which records
     // nothing: it runs every file again, in order, and nothing moves.
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/migrations");
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
     let applied = data::migrate(&mut s.client, std::path::Path::new(dir))
         .await
         .expect("replayed by the Data layer");
@@ -309,8 +309,8 @@ async fn the_migration_replays_as_a_no_op_over_the_campaign_and_entity_tables() 
 #[tokio::test]
 async fn the_tables_are_what_data_model_json_describes_and_the_design_kept() {
     let s = Scratch::new("model").await;
-    let described = model(include_str!("../../../../data/model.json"));
-    let designed = model(include_str!("../../../../mock/data/model.json"));
+    let described = model(include_str!("../../../data/model.json"));
+    let designed = model(include_str!("../../../mock/data/model.json"));
     for table in TABLES {
         let keys = s.foreign_keys(table).await;
         let real: Vec<(String, String, bool, Option<String>)> = s

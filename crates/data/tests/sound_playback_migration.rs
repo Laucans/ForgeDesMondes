@@ -54,7 +54,7 @@ impl Scratch {
             admin.batch_execute(&sql).await.expect("a scratch database");
         }
         let mut client = connect(config.clone().dbname(&name)).await;
-        let migrations = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/migrations");
+        let migrations = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
         data::migrate(&mut client, Path::new(migrations))
             .await
             .expect("migrated by the Data layer");

@@ -3,11 +3,13 @@
 //! Capability meets the real columns. A scratch database of its own, dropped
 //! when the test ends.
 
-use dataguard_server::Reads;
-use serde_json::json;
-use tokio_postgres::NoTls;
+mod common;
 
-const MIGRATION: &str = include_str!("../../../data/migrations/0001_ai_settings.sql");
+use common::Reads;
+use dataguard_server::engine::tokio_postgres::{self, NoTls};
+use serde_json::json;
+
+const MIGRATION: &str = include_str!("../../data/migrations/0001_ai_settings.sql");
 
 const CLOUD: &str = "a1000000-0000-4000-8000-000000000001";
 const HOME: &str = "a1000000-0000-4000-8000-000000000002";

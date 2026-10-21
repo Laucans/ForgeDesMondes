@@ -14,16 +14,22 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use dataguard_server::{Engine, MEMORY, Planted, planted, router};
-use harness_dataguard::command::{CommandResult, State};
+use dataguard_server::MEMORY;
+use dataguard_server::engine::command::{CommandResult, State};
+use dataguard_server::engine::engine::Engine;
+use dataguard_server::engine::tokio_postgres::{self, Client, NoTls};
+use ports_llm::SharedLlm;
+use ports_llm::fake::FakeLlm;
+use ports_speech_to_text::SharedSpeechToText;
+use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Value, json};
-use tokio_postgres::{Client, NoTls};
+use server::{Config, app, plant, shared};
 use tower::ServiceExt;
 
 const MIGRATIONS: [&str; 3] = [
-    include_str!("../../../data/migrations/0002_campaign.sql"),
-    include_str!("../../../data/migrations/0003_player.sql"),
-    include_str!("../../../data/migrations/0004_entity.sql"),
+    include_str!("../../data/migrations/0002_campaign.sql"),
+    include_str!("../../data/migrations/0003_player.sql"),
+    include_str!("../../data/migrations/0004_entity.sql"),
 ];
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
@@ -113,14 +119,14 @@ impl Scratch {
 
 /// The engine as the server plants it over `url`, and its wire protocol.
 async fn serve(url: &str) -> (Arc<Engine>, Router) {
-    let Planted { engine, rows } = planted(url).await.expect("the engine");
-    let engine = Arc::new(engine);
-    let app = router(
-        engine.clone(),
-        rows,
-        Arc::new(ports_llm::fake::FakeLlm::new()),
-    );
-    (engine, app)
+    let config = Config::read(|var| (var == "DATABASE_URL").then(|| url.to_string()))
+        .expect("a valid configuration");
+    let llm = SharedLlm::new(FakeLlm::new());
+    let speech = SharedSpeechToText::new(FakeSpeechToText::new(String::new()));
+    let planted = plant(&config, shared(&llm, &speech))
+        .await
+        .expect("the engine");
+    (Arc::clone(&planted.engine), app(&planted, Arc::new(llm)))
 }
 
 /// `body` sent to `uri` — `POST` with a body, `GET` without — and the answer.

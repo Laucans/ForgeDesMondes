@@ -26,4 +26,4 @@ edition = "2024"
 rust-version = "1.99"
 
 [workspace.dependencies]
-harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v4", features = ["postgres", "uuid"] }
+harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v5", features = ["postgres", "uuid"] }

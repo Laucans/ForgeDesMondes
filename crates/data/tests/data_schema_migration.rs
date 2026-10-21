@@ -93,11 +93,7 @@ fn url() -> String {
 }
 
 fn migrations() -> PathBuf {
-    Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../data/migrations"
-    ))
-    .to_path_buf()
+    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")).to_path_buf()
 }
 
 fn migration(file: &str) -> String {
@@ -510,8 +506,8 @@ async fn each_table_a_migration_references_exists_before_it_applies() {
 #[tokio::test]
 async fn the_tables_and_views_are_what_data_model_json_describes_and_the_design_kept() {
     let s = Scratch::new("model").await;
-    let described = model(include_str!("../../../../data/model.json"));
-    let designed = model(include_str!("../../../../mock/data/model.json"));
+    let described = model(include_str!("../../../data/model.json"));
+    let designed = model(include_str!("../../../mock/data/model.json"));
     for table in TABLES {
         let keys = s.foreign_keys(table).await;
         let real: Vec<(String, String, bool, Option<String>)> = s

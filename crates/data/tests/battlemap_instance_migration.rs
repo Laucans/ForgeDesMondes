@@ -10,12 +10,16 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use dataguard_server::{Engine, MEMORY, plant};
+use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::api::Submission;
 use harness_dataguard::command::{CommandResult, State};
+use harness_dataguard::engine::Engine;
 use harness_dataguard::guard::Caller;
 use harness_dataguard::manifest::DataCapability;
+use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
+use harness_dataguard::postgres::SystemClock;
 use serde_json::{Value, json};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
@@ -109,11 +113,7 @@ fn url() -> String {
 }
 
 fn migrations() -> PathBuf {
-    Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../data/migrations"
-    ))
-    .to_path_buf()
+    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")).to_path_buf()
 }
 
 async fn connect(config: &tokio_postgres::Config) -> Client {
@@ -122,11 +122,10 @@ async fn connect(config: &tokio_postgres::Config) -> Client {
     client
 }
 
+const AGGREGATE: &str = include_str!("../../table/aggregates/BattlemapInstance/aggregate.json");
+
 fn aggregate() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../table/aggregates/BattlemapInstance/aggregate.json"
-    ))
-    .expect("contract I")
+    serde_json::from_str(AGGREGATE).expect("contract I")
 }
 
 /// The column `field` is.
@@ -244,9 +243,17 @@ fn tavern() -> Vec<(&'static str, Value)> {
     ]
 }
 
-/// The engine as the server plants it, with the test-only DataCapabilities.
+/// The engine as the server plants the aggregate — its manifest and its
+/// plugin — over the in-memory store, with the test-only DataCapabilities.
 async fn engine() -> Engine {
-    let mut engine = plant(MEMORY).await.expect("the in-memory engine");
+    let mut engine = Engine::new(
+        Arc::new(MemoryStore::default()),
+        Arc::new(MemoryNotifier::default()),
+        Arc::new(SystemClock),
+    )
+    .with_aggregate(Aggregate::parse(AGGREGATE).expect("contract I"))
+    .with_plugins(std::iter::once(aggregate_battlemap_instance::plugin()).collect());
+    engine.load().await.expect("the in-memory engine");
     for (name, effect, id) in MANIFESTS {
         let manifest = json!({
             "dataCapability": name,

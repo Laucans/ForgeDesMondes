@@ -1,16 +1,16 @@
-//! The Player migration (`crates/data/migrations/0003_player.sql`) against
-//! the harness's PostgreSQL (`DATABASE_URL`): replayed over the campaign
-//! table it needs, it is what `data/model.json` says it is, a campaign's
-//! deletion takes its players with it, and the table has nothing to make a
-//! player a campaign element. Each test works in a scratch database of its
-//! own, dropped when it ends.
+//! The Sound migration (`crates/data/migrations/0007_sound.sql`) against the
+//! harness's PostgreSQL (`DATABASE_URL`): replayed over the campaign table it
+//! needs, it is what `data/model.json` says it is, a campaign's deletion
+//! takes its sounds with it, and the table refuses a volume out of range or
+//! tags not normalized under the invariant's own id. Each test works in a
+//! scratch database of its own, dropped when it ends.
 
 use serde_json::Value;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
-const CAMPAIGN: &str = include_str!("../../../data/migrations/0002_campaign.sql");
-const MIGRATION: &str = include_str!("../../../data/migrations/0003_player.sql");
+const CAMPAIGN: &str = include_str!("../migrations/0002_campaign.sql");
+const MIGRATION: &str = include_str!("../migrations/0007_sound.sql");
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BRUME: &str = "c1000000-0000-4000-8000-000000000002";
@@ -26,7 +26,7 @@ async fn connect(config: &tokio_postgres::Config) -> Client {
 }
 
 /// A database of its own, holding the campaign table, migrated once, with
-/// Valombre and Brume and a player at each table.
+/// Valombre and Brume and sounds in each.
 struct Scratch {
     client: Client,
     name: String,
@@ -34,7 +34,7 @@ struct Scratch {
 
 impl Scratch {
     async fn new(name: &str) -> Scratch {
-        let name = format!("player_test_{name}_{}", std::process::id());
+        let name = format!("sound_test_{name}_{}", std::process::id());
         let config: tokio_postgres::Config = url().parse().expect("a PostgreSQL URL");
         let admin = connect(&config).await;
         for sql in [
@@ -54,25 +54,25 @@ impl Scratch {
                 "INSERT INTO campaign (id, name, kind) VALUES \
                  ('{VALOMBRE}', 'Les Cendres de Valombre', 'campagne'), \
                  ('{BRUME}', 'La Brume', 'oneshot'); \
-                 INSERT INTO player (campaign_id, name, notes) VALUES \
-                 ('{VALOMBRE}', 'Claire', 'Préfère les scènes d''enquête.'), \
-                 ('{VALOMBRE}', 'Marc', NULL), \
-                 ('{BRUME}', 'Inès', NULL)"
+                 INSERT INTO sound (campaign_id, name, file_path, tags, volume) VALUES \
+                 ('{VALOMBRE}', 'Porte qui grince', 'sons/porte.ogg', '{{porte,taverne}}', 0.8), \
+                 ('{VALOMBRE}', 'Taverne animée', 'sons/taverne.ogg', '{{taverne}}', 0.5), \
+                 ('{BRUME}', 'Corne de brume', 'sons/corne.ogg', '{{}}', 1)"
             ))
             .await
-            .expect("two campaigns and their players");
+            .expect("two campaigns and their sounds");
         Scratch { client, name }
     }
 
-    /// The names of the players at `campaign`'s table, sorted.
-    async fn players(&self, campaign: &str) -> Vec<String> {
+    /// The names of `campaign`'s sounds, sorted.
+    async fn sounds(&self, campaign: &str) -> Vec<String> {
         self.client
             .query(
-                "SELECT name FROM player WHERE campaign_id = $1::text::uuid ORDER BY name",
+                "SELECT name FROM sound WHERE campaign_id = $1::text::uuid ORDER BY name",
                 &[&campaign],
             )
             .await
-            .expect("the players read")
+            .expect("the sounds read")
             .iter()
             .map(|row| row.get(0))
             .collect()
@@ -81,7 +81,7 @@ impl Scratch {
     /// Every row, as text: what a replay must leave as it was.
     async fn snapshot(&self) -> Vec<String> {
         self.client
-            .query("SELECT row_to_json(p)::text FROM player p ORDER BY 1", &[])
+            .query("SELECT row_to_json(s)::text FROM sound s ORDER BY 1", &[])
             .await
             .expect("the table reads")
             .iter()
@@ -94,7 +94,7 @@ impl Scratch {
         self.client
             .query(
                 "SELECT a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull \
-                 FROM pg_attribute a WHERE a.attrelid = 'player'::regclass \
+                 FROM pg_attribute a WHERE a.attrelid = 'sound'::regclass \
                  AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum",
                 &[],
             )
@@ -120,7 +120,7 @@ impl Scratch {
                  FROM pg_constraint c \
                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1] \
                  JOIN pg_attribute r ON r.attrelid = c.confrelid AND r.attnum = c.confkey[1] \
-                 WHERE c.conrelid = 'player'::regclass AND c.contype = 'f' ORDER BY 1",
+                 WHERE c.conrelid = 'sound'::regclass AND c.contype = 'f' ORDER BY 1",
                 &[],
             )
             .await
@@ -128,6 +128,13 @@ impl Scratch {
             .iter()
             .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3)))
             .collect()
+    }
+
+    /// The constraint `sql` is refused under: a CHECK names its invariant.
+    async fn refused_by(&self, sql: &str) -> (SqlState, Option<String>) {
+        let error = self.client.batch_execute(sql).await.expect_err(sql);
+        let db = error.as_db_error().expect("a refusal of the database");
+        (db.code().clone(), db.constraint().map(str::to_string))
     }
 
     async fn drop(self) {
@@ -141,17 +148,17 @@ impl Scratch {
     }
 }
 
-/// `player` as `data/model.json` describes it: each field's name, type,
+/// `sound` as `data/model.json` describes it: each field's name, type,
 /// nullability and reference, in the table's order.
 fn modelled() -> Vec<(String, String, bool, Option<String>)> {
-    let model: Value = serde_json::from_str(include_str!("../../../../data/model.json"))
+    let model: Value = serde_json::from_str(include_str!("../../../data/model.json"))
         .expect("data/model.json is JSON");
     let table = model["tables"]
         .as_array()
         .expect("tables")
         .iter()
-        .find(|table| table["name"] == "player")
-        .expect("data/model.json describes player");
+        .find(|table| table["name"] == "sound")
+        .expect("data/model.json describes sound");
     table["fields"]
         .as_array()
         .expect("fields")
@@ -165,6 +172,14 @@ fn modelled() -> Vec<(String, String, bool, Option<String>)> {
             )
         })
         .collect()
+}
+
+/// An insert of one of Valombre's sounds with `tags` and `volume` as SQL.
+fn sound_with(tags: &str, volume: &str) -> String {
+    format!(
+        "INSERT INTO sound (campaign_id, name, file_path, tags, volume) VALUES \
+         ('{VALOMBRE}', 'Écho', 'sons/echo.ogg', {tags}, {volume})"
+    )
 }
 
 #[tokio::test]
@@ -181,7 +196,7 @@ async fn the_migration_replays_as_a_no_op_over_the_campaign_table() {
     }
     // The server's applier after the rules' runtime's psql, which records
     // nothing: it runs every file again, in order, and nothing moves.
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/migrations");
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
     let applied = data::migrate(&mut s.client, std::path::Path::new(dir))
         .await
         .expect("replayed by the Data layer");
@@ -192,7 +207,7 @@ async fn the_migration_replays_as_a_no_op_over_the_campaign_table() {
             .unwrap_or_else(|| panic!("{file} is applied: {applied:?}"))
     };
     assert!(
-        at("0002_campaign.sql") < at("0003_player.sql"),
+        at("0002_campaign.sql") < at("0007_sound.sql"),
         "{applied:?}"
     );
     assert_eq!(s.snapshot().await, first);
@@ -220,9 +235,9 @@ async fn the_table_is_what_data_model_json_describes() {
 }
 
 #[tokio::test]
-async fn deleting_a_campaign_deletes_its_players_and_theirs_alone() {
+async fn deleting_a_campaign_deletes_its_sounds_and_theirs_alone() {
     let s = Scratch::new("cascade").await;
-    // Relation Player.campaignId: onDelete cascade, onUpdate propagate.
+    // Relation Sound.campaignId: onDelete cascade, onUpdate propagate.
     assert_eq!(
         s.foreign_keys().await,
         [(
@@ -235,14 +250,14 @@ async fn deleting_a_campaign_deletes_its_players_and_theirs_alone() {
     s.client
         .batch_execute(&format!("DELETE FROM campaign WHERE id = '{VALOMBRE}'"))
         .await
-        .expect("a campaign with players is deleted");
-    assert!(s.players(VALOMBRE).await.is_empty());
-    assert_eq!(s.players(BRUME).await, ["Inès"]);
+        .expect("a campaign with sounds is deleted");
+    assert!(s.sounds(VALOMBRE).await.is_empty());
+    assert_eq!(s.sounds(BRUME).await, ["Corne de brume"]);
     s.drop().await;
 }
 
 #[tokio::test]
-async fn a_campaign_s_new_id_is_propagated_to_its_players() {
+async fn a_campaign_s_new_id_is_propagated_to_its_sounds() {
     let s = Scratch::new("propagate").await;
     let moved = "c1000000-0000-4000-8000-0000000000ff";
     s.client
@@ -251,59 +266,117 @@ async fn a_campaign_s_new_id_is_propagated_to_its_players() {
         ))
         .await
         .expect("the campaign's id changes");
-    assert_eq!(s.players(moved).await, ["Claire", "Marc"]);
-    assert!(s.players(VALOMBRE).await.is_empty());
+    assert_eq!(
+        s.sounds(moved).await,
+        ["Porte qui grince", "Taverne animée"]
+    );
+    assert!(s.sounds(VALOMBRE).await.is_empty());
     s.drop().await;
 }
 
 #[tokio::test]
-async fn a_player_belongs_to_a_campaign_that_exists_and_has_a_name() {
+async fn a_sound_belongs_to_a_campaign_that_exists_and_has_a_name_and_a_file() {
     let s = Scratch::new("required").await;
     for (sql, code) in [
         (
-            "INSERT INTO player (campaign_id, name) VALUES (gen_random_uuid(), 'Personne')",
+            "INSERT INTO sound (campaign_id, name, file_path) \
+             VALUES (gen_random_uuid(), 'Personne', 'sons/rien.ogg')"
+                .to_string(),
             SqlState::FOREIGN_KEY_VIOLATION,
         ),
         (
-            "INSERT INTO player (name) VALUES ('Sans table')",
+            "INSERT INTO sound (name, file_path) VALUES ('Sans campagne', 'sons/rien.ogg')"
+                .to_string(),
             SqlState::NOT_NULL_VIOLATION,
         ),
         (
-            &format!("INSERT INTO player (campaign_id) VALUES ('{VALOMBRE}')"),
+            format!(
+                "INSERT INTO sound (campaign_id, file_path) VALUES ('{VALOMBRE}', 'sons/x.ogg')"
+            ),
             SqlState::NOT_NULL_VIOLATION,
         ),
+        (
+            format!("INSERT INTO sound (campaign_id, name) VALUES ('{VALOMBRE}', 'Sans fichier')"),
+            SqlState::NOT_NULL_VIOLATION,
+        ),
+        (sound_with("NULL", "0.5"), SqlState::NOT_NULL_VIOLATION),
+        (sound_with("'{}'", "NULL"), SqlState::NOT_NULL_VIOLATION),
     ] {
-        let error = s.client.batch_execute(sql).await.expect_err(sql);
-        let db = error.as_db_error().expect("a refusal of the database");
-        assert_eq!(db.code(), &code, "{sql}");
+        assert_eq!(s.refused_by(&sql).await.0, code, "{sql}");
     }
-    // Added now, under an id of its own, unless the DM gives one.
+    // Added now, under an id of its own, untagged at full volume, unless the
+    // DM says otherwise.
     let row = s
         .client
         .query_one(
             &format!(
-                "INSERT INTO player (campaign_id, name) VALUES ('{VALOMBRE}', 'Léa') \
-                 RETURNING id IS NOT NULL, created_at > now() - interval '1 minute'"
+                "INSERT INTO sound (campaign_id, name, file_path) \
+                 VALUES ('{VALOMBRE}', 'Vent', 'sons/vent.ogg') \
+                 RETURNING id IS NOT NULL, created_at > now() - interval '1 minute', \
+                 tags = '{{}}', volume = 1"
             ),
             &[],
         )
         .await
-        .expect("a player with a name at a campaign's table");
-    assert!(row.get::<_, bool>(0) && row.get::<_, bool>(1));
+        .expect("a sound with a name and a file in a campaign");
+    assert!((0..4).all(|i| row.get::<_, bool>(i)));
     s.drop().await;
 }
 
 #[tokio::test]
-async fn player_not_character_leaves_the_table_no_sheet_no_token_and_no_pc() {
-    let s = Scratch::new("not_character").await;
-    let columns: Vec<String> = s.columns().await.into_iter().map(|c| c.0).collect();
+async fn sound_volume_range_refuses_a_volume_out_of_0_to_1() {
+    let s = Scratch::new("volume_range").await;
+    for volume in ["1.2", "-0.01", "1.01"] {
+        assert_eq!(
+            s.refused_by(&sound_with("'{}'", volume)).await,
+            (
+                SqlState::CHECK_VIOLATION,
+                Some("sound_volume_range".to_string())
+            ),
+            "{volume}"
+        );
+    }
+    for volume in ["0", "1", "0.35"] {
+        s.client
+            .batch_execute(&sound_with("'{}'", volume))
+            .await
+            .unwrap_or_else(|e| panic!("{volume} is in range: {e}"));
+    }
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn tags_normalized_refuses_capitals_a_tag_twice_or_none() {
+    let s = Scratch::new("tags_normalized").await;
+    for tags in [
+        "'{Porte}'",
+        "'{porte,ÉCHO}'",
+        "'{porte,taverne,porte}'",
+        "'{porte,NULL}'",
+        "'{{porte},{taverne}}'",
+    ] {
+        assert_eq!(
+            s.refused_by(&sound_with(tags, "0.5")).await,
+            (
+                SqlState::CHECK_VIOLATION,
+                Some("tags_normalized".to_string())
+            ),
+            "{tags}"
+        );
+    }
+    for tags in ["'{}'", "'{écho,grotte}'", "'{porte-2}'"] {
+        s.client
+            .batch_execute(&sound_with(tags, "0.5"))
+            .await
+            .unwrap_or_else(|e| panic!("{tags} are normalized: {e}"));
+    }
+    // An update is judged as an insert is.
     assert_eq!(
-        columns,
-        ["id", "campaign_id", "name", "notes", "created_at"]
+        s.refused_by("UPDATE sound SET tags = tags || 'Taverne'::text")
+            .await
+            .1
+            .as_deref(),
+        Some("tags_normalized")
     );
-    // The PC points to its player, never the other way round: the player's
-    // one link is to their campaign.
-    let targets: Vec<String> = s.foreign_keys().await.into_iter().map(|k| k.1).collect();
-    assert_eq!(targets, ["campaign.id"]);
     s.drop().await;
 }

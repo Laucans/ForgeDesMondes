@@ -2,38 +2,24 @@
 name = "dataguard-server"
 version = "0.1.0"
 edition = "2024"
-description = "The product's write side: the DataGuard engine bound to this product's aggregates and DataCapabilities, over its PostgreSQL. Installed by `harness init-repo`; the product owns it from here."
-build = "build.rs"
-
-# Above [dependencies], which the DataCapabilities' lines close.
-[dev-dependencies]
-# The migrations' applier the server runs, for the AiSettings migration's tests.
-data = { path = "../../data" }
-# The Concepts' fixtures the Entity migration's SQL is held to (AliasMatch@1,
-# AbilityModifier@1).
-platform-conformance = { path = "../../platform/conformance" }
-tower = { version = "0.5", default-features = false, features = ["util"] }
+description = "The product's write side, generic: the DataGuard engine planted with every unit the registry gathers, its routes, its applier, its migration. Installed by `harness init-repo`; the product's binary (`crates/server`) calls it."
+publish = false
 
 # The engine is the harness's, taken by git at a release tag (`dataguard-vN`,
-# never moved). This line is the one place the tag is written:
-# `scripts/register.sh` copies it into the registry's Cargo.toml and into the
-# root Cargo.toml's [workspace.dependencies], whence every unit takes it — one
-# engine, one `Plugin` type. Every unit's plugin reaches this server through
-# the registry (`dataguard-registry`, the script's); the lines below it are
-# what the legacy submit chain, projection and reads still call, each deleted
-# with the branch that calls it, unit by unit.
+# never moved): a product moves to a newer engine on purpose, in a change of
+# its own. This line is the one place the tag is written: `scripts/register.sh`
+# copies it into the registry's `Cargo.toml` and into the root `Cargo.toml`'s
+# `[workspace.dependencies]`, whence a unit takes the engine with
+# `harness-dataguard = { workspace = true }` — one source, so Cargo builds one
+# engine and one `Plugin` type. `crates/server` reaches the engine through
+# this crate (`dataguard_server::engine`). The product's units are not listed
+# here: they are the registry's dependencies, which `scripts/register.sh`
+# writes.
 [dependencies]
-harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v4", features = ["postgres", "uuid"] }
+harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v5", features = ["postgres", "uuid"] }
 dataguard-registry = { path = "../registry" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 serde = { version = "1", default-features = false, features = ["derive"] }
 serde_json = "1"
-thiserror = "2"
-tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tokio-postgres = { version = "0.7", default-features = false, features = ["runtime"] }
-# The port a save of the AI settings detects its API type through, and a
-# connection test reaches the provider by.
-ports-llm = { path = "../../ports/llm" }
-# The port a dictation of notes is transcribed by, locally.
-ports-speech-to-text = { path = "../../ports/speech-to-text" }
-

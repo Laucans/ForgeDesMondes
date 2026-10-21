@@ -7,22 +7,26 @@
 //! and no background outside the three kinds (base-coherent). What else
 //! base-coherent, window-fields-together and window-proportional say of a
 //! row, the DataGuard judges: rows the table holds, read back, are judged
-//! here by the engine as `plant()` binds it — the table does not judge them
+//! here by the engine as the server binds the aggregate — the table does not judge them
 //! again. Each test works in a scratch database of its own, migrated by the
 //! Data layer, dropped when it ends.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use dataguard_server::{MEMORY, plant};
+use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::api::Submission;
 use harness_dataguard::command::State;
+use harness_dataguard::engine::Engine;
 use harness_dataguard::guard::Caller;
 use harness_dataguard::manifest::DataCapability;
+use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
+use harness_dataguard::postgres::SystemClock;
 use serde_json::{Value, json};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
-const AGGREGATE: &str = include_str!("../../../live/aggregates/Diffusion/aggregate.json");
+const AGGREGATE: &str = include_str!("../../live/aggregates/Diffusion/aggregate.json");
 
 /// A session's player view written whole, under the session its payload
 /// names: test-only, no DataCapability of the product writes a diffusion yet.
@@ -48,11 +52,7 @@ fn url() -> String {
 }
 
 fn migrations() -> PathBuf {
-    Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../data/migrations"
-    ))
-    .to_path_buf()
+    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")).to_path_buf()
 }
 
 async fn connect(config: &tokio_postgres::Config) -> Client {
@@ -90,13 +90,19 @@ fn field(column: &str) -> String {
     })
 }
 
-/// The invariants the DataGuard, as `plant()` binds it, finds `row` breaks
-/// when a fresh engine is asked to write it whole: none when it applies.
+/// The invariants the DataGuard, binding the aggregate as the server does —
+/// its manifest and its plugin — finds `row` breaks when a fresh engine is
+/// asked to write it whole: none when it applies.
 async fn judged(row: Value) -> Vec<String> {
-    let engine = plant(MEMORY)
-        .await
-        .expect("the in-memory engine")
-        .with_data_capability(DataCapability::parse(SHOW).expect("contract F"));
+    let engine = Engine::new(
+        Arc::new(MemoryStore::default()),
+        Arc::new(MemoryNotifier::default()),
+        Arc::new(SystemClock),
+    )
+    .with_aggregate(Aggregate::parse(AGGREGATE).expect("contract I"))
+    .with_plugins(std::iter::once(aggregate_diffusion::plugin()).collect());
+    engine.load().await.expect("the in-memory engine");
+    let engine = engine.with_data_capability(DataCapability::parse(SHOW).expect("contract F"));
     let Value::Object(payload) = row else {
         panic!("a row is an object");
     };

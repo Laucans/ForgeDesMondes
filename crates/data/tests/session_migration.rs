@@ -16,7 +16,7 @@ use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
 /// The aggregate the tables are held to.
-const AGGREGATE: &str = include_str!("../../../session/aggregates/Session/aggregate.json");
+const AGGREGATE: &str = include_str!("../../session/aggregates/Session/aggregate.json");
 
 /// The aggregate's tables, in the migration's order.
 const TABLES: [&str; 8] = [
@@ -159,10 +159,7 @@ impl Scratch {
             admin.batch_execute(&sql).await.expect("a scratch database");
         }
         let mut client = connect(config.clone().dbname(&name)).await;
-        let migrations = Path::new(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../data/migrations"
-        ));
+        let migrations = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations"));
         data::migrate(&mut client, migrations)
             .await
             .expect("migrated by the Data layer");
