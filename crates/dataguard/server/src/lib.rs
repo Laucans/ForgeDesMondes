@@ -472,7 +472,9 @@ async fn submit_prepared<L, S>(
     );
     served.engine.submit(body).await.map(|mut submitted| {
         submitted.warnings.retain(|warning| {
-            !(warning.starts_with("payload key(s) ") && warning.ends_with(&undeclared))
+            warning
+                .strip_prefix("payload key(s) ")
+                .is_none_or(|keys| !keys.ends_with(&undeclared))
         });
         submitted
     })

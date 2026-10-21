@@ -337,6 +337,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_systems_this_module_routes_never_reach_the_registry() {
+        // No Capability in the registry: what answers is this module's own.
+        let reads = Reads {
+            registry: harness_dataguard::reads::Reads::default(),
+            ..Reads::none()
+        };
+        let variables = serde_json::json!({ "campaign": "cendres-valombre" });
+        let listed = reads
+            .run("campaign.listPlayers", &variables)
+            .await
+            .expect("an answer");
+        assert_eq!(listed, serde_json::json!([]));
+        let settings = reads
+            .run("ai.getSettings", &Value::Null)
+            .await
+            .expect("an answer");
+        assert!(settings["providers"].is_object(), "{settings}");
+    }
+
+    #[tokio::test]
     async fn a_read_of_another_system_is_the_registry_s_capability() {
         let reads = Reads::none();
         let variables = serde_json::json!({ "campaignId": "cendres-valombre" });
