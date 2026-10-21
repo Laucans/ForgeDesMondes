@@ -1,0 +1,12 @@
+{
+  "microUi": "MediaLibrary",
+  "system": "media",
+  "description": "Les battlemaps et illustrations de la campagne avec leur lieu : téléversement avec un lieu facultatif, changement de lieu depuis la fiche, « Associé à la séance N » quand le lieu est dans la séance, ajout du lieu à la séance sinon, et le réglage de la grille d'une battlemap",
+  "needs": ["media.listMedia", "session.listScenes", "campaign.listPlaces"],
+  "actions": ["media.uploadMedia", "media.setMediaPlace", "session.addPlaceToSession"],
+  "props": {
+    "campaign": "string — id de la campagne dont on montre les médias, remplacé par ?id= dans l'adresse",
+    "session": "string — id de la séance en préparation, vide quand aucune n'est choisie : sans elle, aucune fiche n'est rattachée à une séance",
+    "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
+  }
+}
