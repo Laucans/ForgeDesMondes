@@ -30,7 +30,7 @@ use tokio_postgres::types::ToSql;
 use crate::MEMORY;
 
 /// A client on `url`, its connection driven in the background.
-async fn connect(url: &str) -> std::result::Result<Client, tokio_postgres::Error> {
+pub(crate) async fn connect(url: &str) -> std::result::Result<Client, tokio_postgres::Error> {
     let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls).await?;
     tokio::spawn(async move {
         if let Err(e) = connection.await {

@@ -61,7 +61,6 @@ save-settings = { path = "../../ai/data-capabilities/save-settings" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
-export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }

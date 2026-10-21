@@ -214,28 +214,9 @@ impl Rows {
         Self { notes, ..self }
     }
 
-    /// The same, a campaign's archive read from `tables`.
+    /// The same, what the tables hold read from `tables`.
     pub(crate) fn reading(self, tables: Option<Arc<ProjectingStore>>) -> Self {
         Self { tables, ..self }
-    }
-
-    /// What the tables hold of the campaign `id` names, as an archive holds
-    /// it (`campaign.exportCampaign`): `None` when they hold no such
-    /// campaign — and over the engine's memory, which has no table.
-    ///
-    /// # Errors
-    ///
-    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
-    pub async fn archived(&self, id: &str) -> Result<Option<Value>> {
-        let Some(tables) = &self.tables else {
-            return Ok(None);
-        };
-        tables.archived(id).await.map_err(|e| {
-            harness_dataguard::Error::Store(format!(
-                "campaign not read: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            ))
-        })
     }
 
     /// Whether the engine deleted `partition`'s row — its tombstone — which
@@ -305,22 +286,19 @@ impl Rows {
             .collect()
     }
 
-    /// Whether the tables hold the campaign `id` names, live — over the
-    /// engine's memory, which has no table, every campaign is held.
+    /// Whether the store holds the campaign `id` names, live — the engine's
+    /// row, or the one its table holds (the Campaign aggregate's
+    /// `ProjectPg::hydrate`) — over a database; over the engine's memory,
+    /// which has no table, every campaign is held.
     ///
     /// # Errors
     ///
-    /// [`harness_dataguard::Error::Store`] when the tables cannot be read.
+    /// The store's.
     pub async fn holds_campaign(&self, id: &str) -> Result<bool> {
         let Some(tables) = &self.tables else {
             return Ok(true);
         };
-        tables.holds_campaign(id).await.map_err(|e| {
-            harness_dataguard::Error::Store(format!(
-                "campaign not read: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            ))
-        })
+        tables.holds_campaign(id).await
     }
 
     /// Whether a command of `data_capability` was submitted under `key`

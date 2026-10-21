@@ -14,10 +14,7 @@
 //! or drops the sheet of an element made a place or an event — makes its
 //! `entity_alias` rows its aliases, and adds the version it carries
 //! to `entity_version`, in one transaction — whose triggers judge the
-//! element's campaign again. An export (`campaign.exportCampaign`) writes
-//! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
-//! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. An analysis of notes (`ai.extractFromNotes`) writes a partition
+//! element's campaign again. An analysis of notes (`ai.extractFromNotes`) writes a partition
 //! per imported note, `NoteImport/<its id>`, and one per proposal: once the
 //! note is applied, [`ProjectingStore`] adds its `imported_note` row and the
 //! `note_proposal` row of every proposal of it applied, in one transaction —
@@ -36,10 +33,9 @@
 //! (`media.setMediaPlace`) writes the same partition with `placeId` alone:
 //! [`ProjectingStore`] writes `media.place_id` as the engine's row holds it,
 //! and no other column — whose trigger judges `media-place-is-lieu` again. A
-//! campaign's row is its table's over the engine's, and an archive is read
-//! from the tables ([`ProjectingStore::archived`]), as are a media's place
-//! ([`ProjectingStore::place`]) and the media and its place of a change of
-//! place ([`ProjectingStore::placing`]). A media's row is its tables' over
+//! media's place is read from the tables ([`ProjectingStore::place`]), as
+//! are the media and its place of a change of place
+//! ([`ProjectingStore::placing`]). A media's row is its tables' over
 //! the engine's — the media and its grid — so its kind is judged as the
 //! table holds it. Every other method is the inner store's.
 //!
@@ -54,8 +50,7 @@
 //! [`Aliases`] once its projection is committed, and only then: the
 //! tables' aliases are the ones `alias-unique-in-campaign` judges against.
 //! So do its versions reach [`History`], as `entity_version` numbers them:
-//! the ones a restoration names. A stamp the table lost is written again at
-//! the next start, never over a later one.
+//! the ones a restoration names.
 //! So is a media `media` does not hold yet, and after its apply.
 
 use std::collections::BTreeMap;
@@ -258,57 +253,6 @@ const ELEMENTS: &str = "SELECT jsonb_build_object(
         'alias', coalesce((SELECT jsonb_agg(a.alias) FROM entity_alias a WHERE a.entity_id = e.id), '[]')
     )::text
     FROM entity e";
-
-/// A campaign as its table holds it, under the Campaign aggregate's fields,
-/// `$1` its id in whatever case: what the engine judges an export against —
-/// the fixtures' campaigns, and every one no command wrote yet. A campaign
-/// the engine deleted (its tombstone) is none.
-const CAMPAIGN_ROW: &str = "SELECT jsonb_strip_nulls(jsonb_build_object(
-        'id', id, 'name', name, 'kind', kind, 'pitch', pitch, 'art', art, 'glyph', glyph,
-        'coverMediaId', cover_media_id, 'createdAt', created_at,
-        'lastExportedAt', last_exported_at, 'importedAt', imported_at,
-        'originCampaignId', origin_campaign_id, 'soundMasterVolume', sound_master_volume
-    ))::text
-    FROM campaign c WHERE c.id::text = lower($1)
-        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
-            WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
-
-/// The last export the engine stamped on the campaign partition `$1` names —
-/// on every one when it is null — written on its row: the one column an
-/// export changes (`export-stamps-date`), never moved back. After each apply
-/// of a campaign, and at a start, so a stamp whose projection failed after
-/// its apply is written again. A stamp that is no time is left aside, so it
-/// keeps no other campaign's from its row.
-const STAMP_EXPORTS: &str = "UPDATE campaign c
-    SET last_exported_at = (r.fields ->> 'lastExportedAt')::timestamptz
-    FROM dataguard_rows r
-    WHERE r.partition = 'Campaign/' || c.id::text AND NOT r.tombstoned
-        AND ($1::text IS NULL OR r.partition = $1::text)
-        AND pg_input_is_valid(r.fields ->> 'lastExportedAt', 'timestamptz')
-        AND (c.last_exported_at IS NULL
-            OR c.last_exported_at < (r.fields ->> 'lastExportedAt')::timestamptz)";
-
-/// What an archive holds of the campaign `$1` names, in whatever case, as
-/// the tables hold it — the campaign, its players, its elements each with
-/// its sheet, its aliases and its versions — in one statement, so one
-/// snapshot: each row under its columns' names, in a stable order. A
-/// campaign the engine deleted is none.
-const ARCHIVE: &str = "SELECT jsonb_build_object(
-        'campaign', to_jsonb(c),
-        'players', coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.created_at, p.id)
-            FROM player p WHERE p.campaign_id = c.id), '[]'),
-        'elements', coalesce((SELECT jsonb_agg(to_jsonb(e) || jsonb_build_object(
-                'character', (SELECT to_jsonb(ch) FROM character ch WHERE ch.entity_id = e.id),
-                'aliases', coalesce((SELECT jsonb_agg(a.alias ORDER BY a.alias, a.id)
-                    FROM entity_alias a WHERE a.entity_id = e.id), '[]'),
-                'versions', coalesce((SELECT jsonb_agg(to_jsonb(v) ORDER BY v.version_number)
-                    FROM entity_version v WHERE v.entity_id = e.id), '[]'))
-            ORDER BY e.created_at, e.id)
-            FROM entity e WHERE e.campaign_id = c.id), '[]')
-    )::text
-    FROM campaign c WHERE c.id::text = lower($1)
-        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
-            WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
 
 /// The imported notes the engine holds and the tables do not — of the note
 /// `$1` names, or of every one when it is null: an analysis whose note was
@@ -532,8 +476,6 @@ impl ProjectingStore {
         self.repair_settings().await;
         // --- Entity
         self.repair_elements().await;
-        // --- Campaign
-        self.repair_exports(None).await;
         // --- NoteImport
         self.repair_notes(None).await;
         // --- Media
@@ -617,12 +559,12 @@ impl ProjectingStore {
         }))
     }
 
-    /// Whether the tables hold the campaign `id` names, live.
-    pub async fn holds_campaign(
-        &self,
-        id: &str,
-    ) -> std::result::Result<bool, tokio_postgres::Error> {
-        Ok(!self.table_row(&format!("{CAMPAIGN}{id}")).await?.is_empty())
+    /// Whether the store holds the campaign `id` names, live: the engine's
+    /// row, or the one its table holds, which the Campaign aggregate's
+    /// projection hydrates.
+    pub async fn holds_campaign(&self, id: &str) -> Result<bool> {
+        let partition = format!("{CAMPAIGN}{}", id.to_ascii_lowercase());
+        Ok(!self.inner.row(&partition).await?.is_empty())
     }
 
     /// Projects the media the engine holds and `media` does not — of the
@@ -712,33 +654,6 @@ impl ProjectingStore {
         }
     }
 
-    /// Writes the last export the engine stamped on the row of the campaign
-    /// `partition` names — of every campaign, `None` — logging a failure:
-    /// after each apply of a campaign, and at a start.
-    async fn repair_exports(&self, partition: Option<&str>) {
-        let written = {
-            let client = self.inner.client().lock().await;
-            client.execute(STAMP_EXPORTS, &[&partition]).await
-        };
-        if let Err(e) = written {
-            eprintln!(
-                "projection: campaign not stamped: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            );
-        }
-    }
-
-    /// The campaign `id` names as an archive holds it — `{campaign, players,
-    /// elements}` — or `None` when the tables hold no such campaign.
-    pub async fn archived(
-        &self,
-        id: &str,
-    ) -> std::result::Result<Option<Value>, tokio_postgres::Error> {
-        let client = self.inner.client().lock().await;
-        let row = client.query_opt(ARCHIVE, &[&id]).await?;
-        Ok(row.and_then(|row| serde_json::from_str(row.get::<_, &str>(0)).ok()))
-    }
-
     /// Whether the engine deleted `partition`'s row: its tombstone.
     pub async fn tombstoned(
         &self,
@@ -771,15 +686,12 @@ impl ProjectingStore {
         Ok(object(found.remove("media")).map(|media| (media, object(found.remove("place")))))
     }
 
-    /// The campaign or the media `partition` names as its tables hold it,
-    /// when they do.
+    /// The media `partition` names as its tables hold it, when they do.
     async fn table_row(
         &self,
         partition: &str,
     ) -> std::result::Result<BTreeMap<String, Value>, tokio_postgres::Error> {
-        let (sql, id) = if let Some(id) = partition.strip_prefix(CAMPAIGN) {
-            (CAMPAIGN_ROW, id)
-        } else if let Some(id) = partition.strip_prefix(MEDIA) {
+        let (sql, id) = if let Some(id) = partition.strip_prefix(MEDIA) {
             (MEDIA_ROW, id)
         } else {
             return Ok(BTreeMap::new());
@@ -1134,15 +1046,12 @@ impl Store for ProjectingStore {
         self.inner.data_version().await
     }
 
-    /// A campaign's row is its table's over the engine's own: a campaign the
-    /// fixtures hold exists for the engine before any command wrote it, and
-    /// what the engine copied of it when it applied a command is never
-    /// judged over what the table holds now. So is a media's, with its
+    /// A media's row is its tables' over the engine's own, with its
     /// battlemap's grid: its kind is the table's. Tables not migrated yet
     /// hold none.
     async fn row(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
         let mut row = self.inner.row(partition).await?;
-        if !partition.starts_with(CAMPAIGN) && !partition.starts_with(MEDIA) {
+        if !partition.starts_with(MEDIA) {
             return Ok(row);
         }
         let table = match self.table_row(partition).await {
@@ -1194,11 +1103,6 @@ impl Store for ProjectingStore {
         // --- NoteImport
         if let Some(note) = noted(write) {
             self.repair_notes(Some(note)).await;
-        }
-        // --- Campaign
-        if write.partition.starts_with(CAMPAIGN) {
-            // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
-            self.repair_exports(Some(&write.partition)).await;
         }
         // --- Media
         if media(write) {
