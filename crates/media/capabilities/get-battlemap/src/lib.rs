@@ -31,6 +31,8 @@ pub const CAPABILITY: &str = "media.getBattlemap";
 
 /// What the persisted query `getBattlemap.graphql` selects: every battlemap
 /// with the grid it was uploaded with and the settings last saved.
+/// The grid's `numeric` columns are read as `float8`: the engine's reads keep
+/// a `numeric` exact, as text, and a grid is told in numbers.
 pub const SQL: &str = r"SELECT m.id::text AS id,
     m.title,
     m.file_path,
@@ -38,12 +40,12 @@ pub const SQL: &str = r"SELECT m.id::text AS id,
     m.height_px,
     m.place_id::text AS place_id,
     to_char(m.uploaded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS uploaded_at,
-    g.hex_size_px,
-    g.offset_x,
-    g.offset_y,
+    g.hex_size_px::float8 AS hex_size_px,
+    g.offset_x::float8 AS offset_x,
+    g.offset_y::float8 AS offset_y,
     g.orientation,
     g.color,
-    g.opacity
+    g.opacity::float8 AS opacity
 FROM media m
 JOIN battlemap_grid g ON g.media_id = m.id
 WHERE m.kind = 'battlemap'
@@ -96,7 +98,7 @@ fn orient(stored: &Value) -> Value {
     }
 }
 
-/// A number the database wrote as `40.00` as the whole number it is, so that
+/// A whole number the database read as `40.0` as the whole number it is, so that
 /// the settings come back exactly as they were entered; anything else as is.
 fn tidy(value: &Value) -> Value {
     match value.as_f64() {
@@ -444,5 +446,13 @@ mod tests {
         assert_ne!(answered, Value::Null);
         assert_eq!(answered, answer_rows(&rows, GUE));
         assert_ne!(answer(&rows, &BTreeMap::new()), answered);
+    }
+
+    #[test]
+    fn the_grid_s_numbers_are_read_as_numbers() {
+        for column in ["hex_size_px", "offset_x", "offset_y", "opacity"] {
+            let cast = format!("g.{column}::float8 AS {column}");
+            assert!(SQL.contains(&cast), "{cast} in {SQL}");
+        }
     }
 }
