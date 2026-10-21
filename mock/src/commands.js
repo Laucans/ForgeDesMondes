@@ -39,6 +39,27 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
 export const COMMANDS = {
+  // session.createSession (planned, #157): the next session of the campaign, at
+  // the position after the last, in preparation, with the PCs ticked present.
+  // `present-only-pj` refuses a character that is not a PC of the fixtures.
+  'session.createSession': async (server, { payload }) => {
+    const sessions = await server.load('session.listSessions');
+    const characters = await server.load('campaign.listCharacters');
+    const present = Array.isArray(payload.present) ? payload.present : [];
+    const pcs = new Set(characters.filter((c) => c.kind === 'pj').map((c) => c.id));
+    if (present.some((id) => !pcs.has(id))) return ['present-only-pj'];
+    sessions.push({
+      id: server.uuid(),
+      order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
+      title: String(payload.title || ''),
+      date: payload.plannedOn || null,
+      status: 'prep',
+      label: 'En préparation',
+      present,
+      summary: null,
+    });
+    return undefined;
+  },
   // media.uploadMedia (crates/media/data-capabilities/upload-media): a
   // battlemap or an illustration added to the library, the path the DM chose
   // recorded and no file copied. A battlemap arrives with its default grid
