@@ -1,15 +1,15 @@
-//! The invariants of the `Media` aggregate
-//! (`crates/media/aggregates/Media/aggregate.json`), which its rules
-//! write in words: the engine judges them here, on the row's state after the
-//! command — a media and its battlemap's grid, one row to the engine. The
-//! `media` and `battlemap_grid` tables (`crates/data/migrations/`) judge
-//! them there again.
+//! The `Media` aggregate (`crates/media/aggregates/Media/aggregate.json`):
+//! its invariants, which its rules write in words, judged here on the row's
+//! state after the command — a media and its battlemap's grid, one row to
+//! the engine — and its tables, `media` and `battlemap_grid`
+//! (`crates/data/migrations/`), written in the transaction that applies it
+//! ([`Tables`]), whose CHECKs and triggers judge them there again.
 //!
 //! What a media's own row can say is judged here. `media-place-is-lieu`
 //! reads the place, an element of the Entity aggregate the engine does not
-//! hold beside the media: a change of place (`media.setMediaPlace`) is judged
-//! against it before it is queued (`set_media_place::prepare`), and its
-//! table's constraint trigger judges it again.
+//! hold beside the media: an upload and a change of place are judged
+//! against it before they are queued, the element read as the tables hold
+//! it ([`place`]) — and its table's constraint trigger judges it again.
 
 use std::collections::BTreeMap;
 
@@ -17,7 +17,14 @@ use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
+mod tables;
+
+pub use tables::{PARTITION, Row, Tables, place};
+
 const AGGREGATE: &str = "Media";
+
+/// The aggregate's document (contract I), as the engine registers it.
+pub const DOCUMENT: &str = include_str!("../aggregate.json");
 
 /// The kind of media that has a grid.
 const BATTLEMAP: &str = "battlemap";
@@ -67,10 +74,13 @@ impl Judge for Media {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge.
+/// What the aggregate plugs into the engine: its judge, and its tables
+/// written in the transaction that applies a media.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Plugin::new().judge(AGGREGATE, Media)
+    Plugin::new()
+        .judge(AGGREGATE, Media)
+        .project_pg(AGGREGATE, Tables)
 }
 
 /// Whether the row holds a value for `field`: a `null` is none.

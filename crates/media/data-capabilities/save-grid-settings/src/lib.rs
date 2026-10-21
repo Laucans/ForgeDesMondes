@@ -27,7 +27,8 @@
 
 use std::collections::BTreeMap;
 
-use harness_dataguard::plugins::Plugin;
+use async_trait::async_trait;
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::Value;
 
 /// This DataCapability's id, as `data-capability.json` names it.
@@ -100,12 +101,33 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new().prepare(DATA_CAPABILITY, Saves)
+}
+
+/// A save made the six fields it writes on the battlemap's partition
+/// ([`prepare`]): one naming no battlemap, carrying another field, lacking
+/// one, or holding a value no grid can is refused, 422, and not queued.
+struct Saves;
+
+#[async_trait]
+impl Prepare for Saves {
+    async fn prepare(
+        &self,
+        _context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        target_id: Option<&str>,
+    ) -> Result<plugins::Prepared, plugins::Refusal> {
+        let prepared = prepare(payload, target_id)
+            .map_err(|refusal| plugins::Refusal::unprocessable(refusal.to_string()))?;
+        Ok(plugins::Prepared {
+            payload: prepared.payload,
+            target_id: Some(prepared.target_id),
+            ..plugins::Prepared::default()
+        })
+    }
 }
 
 /// A save of `wire` on the battlemap `target` names — or, with no target,

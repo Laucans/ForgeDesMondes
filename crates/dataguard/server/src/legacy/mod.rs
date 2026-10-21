@@ -13,9 +13,3 @@ pub(crate) mod restore_entity_version;
 // ---
 pub(crate) mod save_entity;
 // ---
-pub(crate) mod save_grid_settings;
-// ---
-pub(crate) mod set_media_place;
-// ---
-pub(crate) mod upload_media;
-// ---
