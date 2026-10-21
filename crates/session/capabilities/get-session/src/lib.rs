@@ -55,7 +55,11 @@ pub fn answer(rows: &Value, _variables: &BTreeMap<String, Value>) -> Value {
 
 /// The header of the session among `rows`, or `null` when there is none.
 fn answer_rows(rows: &Value) -> Value {
-    let Some(row) = rows.as_array().and_then(|rows| rows.first()) else {
+    let Some(row) = rows
+        .as_array()
+        .and_then(|rows| rows.first())
+        .filter(|row| row.is_object())
+    else {
         return Value::Null;
     };
     let status = row["status"].clone();
@@ -178,6 +182,7 @@ mod tests {
     fn an_unknown_id_has_no_answer() {
         assert_eq!(answer_rows(&json!([])), Value::Null);
         assert_eq!(answer_rows(&Value::Null), Value::Null);
+        assert_eq!(answer_rows(&json!([1])), Value::Null);
         assert_eq!(
             answer_rows(&json!({ "error": "relation does not exist" })),
             Value::Null
@@ -251,6 +256,11 @@ mod tests {
     fn the_query_file_names_what_the_sql_selects() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../queries/get-session.graphql");
         let query = std::fs::read_to_string(path).expect("the persisted query");
+        let selected: Vec<&str> = query
+            .lines()
+            .skip_while(|l| !l.starts_with("query "))
+            .map(str::trim)
+            .collect();
         for (field, column) in [
             ("position", "s.position"),
             ("title", "s.title"),
@@ -259,7 +269,7 @@ mod tests {
             ("characterId", "p.character_id"),
             ("addedAt", "p.added_at"),
         ] {
-            assert!(query.contains(field), "the query lacks {field}");
+            assert!(selected.contains(&field), "the query selects no {field}");
             assert!(SQL.contains(column), "the SQL lacks {column}");
         }
     }

@@ -724,8 +724,7 @@
       const session = (await server.load("session.listSessions")).find((s) => s.id === id);
       if (!session) return null;
       const status = session.status === "played" ? "closed" : session.status;
-      const { summary: _summary, label: _label, ...header } = session;
-      return { ...header, status, statusLabel: STATUS_LABELS[status] ?? null };
+      return { id: session.id, order: session.order, title: session.title, date: session.date, status, statusLabel: STATUS_LABELS[status] ?? null, present: session.present };
     },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
     // the notes already imported, newest first, and the proposals of the latest
