@@ -1,6 +1,7 @@
 {
   "capability": "ai.listProviderRequests",
   "system": "ai",
+  "host": "hostless",
   "version": "0.1.0",
   "description": "What was sent to the generation provider, API or binary: each request the llm port received, in order, with its sequence, kind, provider and text. Text only, never a key, never audio.",
   "input": {},

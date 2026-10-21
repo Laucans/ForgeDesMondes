@@ -51,7 +51,6 @@ ports-llm = { path = "../../ports/llm" }
 # The port a dictation of notes is transcribed by, locally.
 ports-speech-to-text = { path = "../../ports/speech-to-text" }
 # --- Capabilities (the reads `reads.rs` still serves) ---
-get-settings = { path = "../../ai/capabilities/get-settings" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
