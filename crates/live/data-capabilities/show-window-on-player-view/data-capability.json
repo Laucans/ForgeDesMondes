@@ -1,0 +1,30 @@
+{
+  "dataCapability": "live.showWindowOnPlayerView",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "upsert",
+  "target": {
+    "aggregate": "Diffusion",
+    "id": "$sessionId"
+  },
+  "touches": [
+    "Diffusion.windowMediaId",
+    "Diffusion.windowX",
+    "Diffusion.windowY",
+    "Diffusion.windowWidth",
+    "Diffusion.updatedAt"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign whose live session's player view opens the window",
+    "media": "uuid — an illustration of that campaign, shown in the floating window at its default position and width, the three set together (window-fields-together); its height is width × height_px / width_px, never stored (window-proportional). A media that is no illustration of the campaign is rejected under window-proportional; the base is not touched"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "window-proportional",
+    "window-fields-together",
+    "single-diffusion-source"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

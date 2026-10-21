@@ -47,6 +47,7 @@ ignored = [
     "set-media-place",
     "show-cover",
     "show-on-player-view",
+    "show-window-on-player-view",
     "test-connection",
     "upload-media",
 ]
@@ -87,5 +88,6 @@ save-settings = { path = "../../ai/data-capabilities/save-settings" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
 show-cover = { path = "../../live/data-capabilities/show-cover" }
 show-on-player-view = { path = "../../live/data-capabilities/show-on-player-view" }
+show-window-on-player-view = { path = "../../live/data-capabilities/show-window-on-player-view" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }
