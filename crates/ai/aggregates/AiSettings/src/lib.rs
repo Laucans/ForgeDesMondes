@@ -15,6 +15,11 @@
 //! makes active (`aiProviderId` = `activeProviderId`) and that provider's
 //! fields: the store projects it into both tables. Such a row is judged as
 //! the provider it carries, too.
+//!
+//! Its projection into `ai_provider` and `ai_settings` runs in the apply
+//! transaction ([`Projection`]), so a write the tables refuse is rejected.
+//! Its stamps, `updatedAt` and `lastTestAt`, are taken to the millisecond
+//! ([`timestamp`]).
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -25,7 +30,15 @@ use harness_dataguard::plugins::{Judge, Plugin};
 use ports_llm::ApiType;
 use serde_json::Value;
 
+mod projection;
+
+pub use projection::{NO_PROVIDER, Projection, SETTINGS_PARTITION};
+
 const AGGREGATE: &str = "AiSettings";
+
+/// The aggregate's manifest, `aggregate.json` (contract I): what a test
+/// engine registers beside [`plugin`].
+pub const MANIFEST: &str = include_str!("../aggregate.json");
 
 /// The binaries a provider in « binaire » mode may name.
 const BINARIES: [&str; 2] = ["opencode", "claude-code"];
@@ -59,7 +72,7 @@ static API_TYPES: LazyLock<Vec<String>> = LazyLock::new(|| {
 
 /// The fields the aggregate declares: the only ones a command may write.
 static DECLARED: LazyLock<Vec<String>> = LazyLock::new(|| {
-    Aggregate::parse(include_str!("../aggregate.json"))
+    Aggregate::parse(MANIFEST)
         .expect("AiSettings' aggregate.json conforms to contract I")
         .fields
         .into_keys()
@@ -91,10 +104,41 @@ impl Judge for AiSettings {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge.
+/// What the aggregate plugs into the engine: its judge, and its projection
+/// into the product's tables.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Plugin::new().judge(AGGREGATE, AiSettings)
+    Plugin::new()
+        .judge(AGGREGATE, AiSettings)
+        .project_pg(AGGREGATE, Projection)
+}
+
+/// `unix_millis` as RFC 3339 in UTC, to the millisecond
+/// (`2026-10-17T10:00:00.123Z`): how the aggregate stamps `updatedAt` and
+/// `lastTestAt`, so two tests in a second are told apart by the read of the
+/// last one (`ai.getSettings`).
+#[must_use]
+pub fn timestamp(unix_millis: u64) -> String {
+    let seconds = unix_millis / 1000;
+    // Howard Hinnant's civil_from_days: the days since the epoch, a u64
+    // divided by 86 400, always fit an i64.
+    let days = (seconds / 86_400).cast_signed() + 719_468;
+    let era = days.div_euclid(146_097);
+    let doe = days.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let time = seconds % 86_400;
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        time / 3600,
+        time % 3600 / 60,
+        time % 60,
+        unix_millis % 1000
+    )
 }
 
 /// Whether the field holds a value: neither absent, `null` nor `""` — as
@@ -831,5 +875,24 @@ mod tests {
     #[test]
     fn the_api_types_are_the_concept_s() {
         assert_eq!(*API_TYPES, ["cloud", "opencode"]);
+    }
+
+    #[test]
+    fn timestamp_is_rfc_3339_in_utc_to_the_millisecond() {
+        for (millis, text) in [
+            (0, "1970-01-01T00:00:00.000Z"),
+            (951_782_400_001, "2000-02-29T00:00:00.001Z"),
+            (1_792_231_200_123, "2026-10-17T10:00:00.123Z"),
+            (4_102_444_799_999, "2099-12-31T23:59:59.999Z"),
+            // A century that is no leap year, a fourth one that is, an era's end.
+            (4_107_542_399_000, "2100-02-28T23:59:59.000Z"),
+            (4_107_542_400_000, "2100-03-01T00:00:00.000Z"),
+            (4_233_686_400_000, "2104-02-29T00:00:00.000Z"),
+            (13_569_465_599_000, "2399-12-31T23:59:59.000Z"),
+            (13_574_606_400_500, "2400-02-29T12:00:00.500Z"),
+            (13_574_649_600_000, "2400-03-01T00:00:00.000Z"),
+        ] {
+            assert_eq!(timestamp(millis), text);
+        }
     }
 }

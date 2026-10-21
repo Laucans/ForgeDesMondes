@@ -9,8 +9,15 @@ publish = false
 [dependencies]
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 harness-dataguard = { workspace = true }
+# Its target: the partition of a test that reached no provider, and the
+# stamp it writes, to the millisecond.
+aggregate-ai-settings = { path = "../../aggregates/AiSettings" }
+# The engine's `Prepare` is an async trait.
+async-trait = "0.1"
 ports-llm = { path = "../../../ports/llm" }
 serde_json = "1"
 
 [dev-dependencies]
+# The migration's seed, read from the repository.
+platform-conformance = { path = "../../../platform/conformance" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

@@ -18,19 +18,24 @@
 //!
 //! The URL, the models, the mode and the key are never in what is
 //! submitted (`test-does-not-save`): the key is the port's, for this test.
+//!
+//! The engine runs [`prepare`] through this crate's [`plugin`]: the `llm`
+//! port is the one the server shares ([`SharedLlm`]), and the test is
+//! stamped to the millisecond (`aggregate_ai_settings::timestamp`), so two
+//! tests in a second are told apart.
 
 use std::collections::BTreeMap;
 
-use harness_dataguard::plugins::Plugin;
-use ports_llm::{Binary, Llm, Models, Provider, ProviderConfig, Secret, UNRECOGNISED_API_TYPE};
+pub use aggregate_ai_settings::NO_PROVIDER;
+use async_trait::async_trait;
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare, Refusal};
+use ports_llm::{
+    Binary, Llm, Models, Provider, ProviderConfig, Secret, SharedLlm, UNRECOGNISED_API_TYPE,
+};
 use serde_json::Value;
 
 /// This DataCapability's id, as `data-capability.json` names it.
 pub const DATA_CAPABILITY: &str = "ai.testConnection";
-
-/// The partition of a test that reached no provider: the nil uuid, no
-/// provider's row. The store writes its outcome on the active provider.
-pub const NO_PROVIDER: &str = "00000000-0000-0000-0000-000000000000";
 
 /// The row of each kind of provider, as
 /// `crates/data/migrations/0001_ai_settings.sql` seeds them.
@@ -58,12 +63,43 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`, which
+/// reaches the `llm` port the server shares.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new()
+        .prepare(DATA_CAPABILITY, TestConnection)
+        .needs::<SharedLlm>()
+}
+
+/// Why a test is refused when no `llm` port is shared: the engine refuses
+/// to load first, so a server never answers it.
+const NO_LLM: &str = "le port llm n'est pas branché";
+
+/// The `Prepare` of `ai.testConnection`: [`prepare`], stamped now, on the
+/// partition of the provider it reached.
+struct TestConnection;
+
+#[async_trait]
+impl Prepare for TestConnection {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        _target_id: Option<&str>,
+    ) -> Result<plugins::Prepared, Refusal> {
+        let llm = context
+            .shared
+            .get::<SharedLlm>()
+            .ok_or_else(|| Refusal::unprocessable(NO_LLM))?;
+        let now = aggregate_ai_settings::timestamp(context.now_millis);
+        let Prepared { target_id, payload } = prepare(llm.as_ref(), payload, &now).await;
+        Ok(plugins::Prepared {
+            payload,
+            target_id: Some(target_id),
+            ..plugins::Prepared::default()
+        })
+    }
 }
 
 /// Tests the configuration `wire` carries through `llm`, at `tested_at`

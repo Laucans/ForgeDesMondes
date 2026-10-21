@@ -17,11 +17,7 @@ pub(crate) mod save_entity;
 // ---
 pub(crate) mod save_grid_settings;
 // ---
-pub(crate) mod save_settings;
-// ---
 pub(crate) mod set_media_place;
-// ---
-pub(crate) mod test_connection;
 // ---
 pub(crate) mod upload_media;
 // ---
