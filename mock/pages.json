@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f0c2456621956465"
+      "builtFrom": "ab0f66d7b1f59ab6"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "a4bafaf0266d67d3"
+      "builtFrom": "da28c829ed120b98"
     },
     {
       "name": "SessionList",
@@ -167,7 +167,11 @@
       "actions": [
         "session.createSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on liste les séances"
+      },
+      "source": "apps/session/session-list",
+      "builtFrom": "12f628b0f960e2cb"
     },
     {
       "name": "CampaignElements",
@@ -214,7 +218,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "ad19c9b2642f45df"
+      "builtFrom": "d04babaf6bfb91e4"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +282,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "36161588320935af"
+      "builtFrom": "65ce21d78f20b0f4"
     },
     {
       "name": "PreviousSummary",
@@ -405,7 +409,7 @@
         "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
       },
       "source": "apps/media/media-library",
-      "builtFrom": "b9c41effe2b2bcad"
+      "builtFrom": "a0401579be8f151e"
     },
     {
       "name": "GridSettings",
@@ -425,7 +429,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "185aa75fa83b2b5a"
+      "builtFrom": "5701b9f98eadcdfd"
     },
     {
       "name": "SoundLibrary",
