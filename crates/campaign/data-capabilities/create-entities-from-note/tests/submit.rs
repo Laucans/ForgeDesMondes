@@ -14,9 +14,10 @@
 //! tables a validation reaches are the NoteImport aggregate's
 //! `tests/projection.rs`.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use create_entities_from_note::Fresh;
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
@@ -27,6 +28,7 @@ use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::plugins::{RefusalKind, Shared};
 use harness_dataguard::postgres::SystemClock;
+use harness_dataguard::reads::Rows;
 use harness_dataguard::store::{RandomIds, Store, Write};
 use ports_llm::SharedLlm;
 use ports_llm::fake::FakeLlm;
@@ -84,8 +86,30 @@ struct Served {
     store: Arc<MemoryStore>,
 }
 
+/// The tables, as a fake: the partitions whose row the engine deleted.
+#[derive(Default)]
+struct Tombstones(Mutex<BTreeSet<String>>);
+
+#[async_trait]
+impl Rows for Tombstones {
+    async fn rows(&self, _sql: &str, parameters: &[Value]) -> harness_dataguard::Result<Value> {
+        let partition = parameters[0].as_str().expect("a partition");
+        let deleted = self.0.lock().expect("the tombstones").contains(partition);
+        Ok(if deleted {
+            json!([{ "partition": partition }])
+        } else {
+            json!([])
+        })
+    }
+}
+
 impl Served {
     async fn new() -> Served {
+        Self::reading(None).await
+    }
+
+    /// [`Served::new`], the Prepares reading `tables` when there are some.
+    async fn reading(tables: Option<Arc<Tombstones>>) -> Served {
         let store = Arc::new(MemoryStore::default());
         for (id, name) in [(VALOMBRE, "Les Cendres de Valombre"), (BRUMES, "Brumes")] {
             written(
@@ -128,6 +152,10 @@ impl Served {
                 .collect(),
             )
             .with_shared(shared);
+        let engine = match tables {
+            Some(tables) => engine.with_rows(tables),
+            None => engine,
+        };
         engine.load().await.expect("the units fit");
         Served { engine, store }
     }
@@ -388,6 +416,42 @@ async fn a_proposal_recording_an_element_the_engine_does_not_hold_makes_it_again
     assert_eq!(made["name"], proposals[pnj]["name"]);
     let row = s.row(&format!("NoteImport/{pnj}")).await;
     assert_eq!(row["createdEntityId"], json!(element));
+    assert_eq!(row["checked"], true);
+}
+
+#[tokio::test]
+async fn an_element_the_dm_deleted_is_never_made_again_and_its_proposal_keeps_it() {
+    let tombstones = Arc::new(Tombstones::default());
+    let s = Served::reading(Some(tombstones.clone())).await;
+    let (_, proposals) = s.analysed(VALOMBRE).await;
+    let pnj = first(&proposals, "pnj");
+    let lieu = first(&proposals, "lieu");
+    // Made, recorded, then deleted by the DM: the engine reads its row as
+    // empty, and its tables hold its tombstone.
+    let deleted = Fresh::of(pnj).entity;
+    let mut stamped = proposals[pnj].clone();
+    stamped.insert("createdEntityId".into(), json!(deleted));
+    written(&s.store, &format!("NoteImport/{pnj}"), stamped).await;
+    tombstones
+        .0
+        .lock()
+        .expect("the tombstones")
+        .insert(format!("Entity/{deleted}"));
+
+    let answer = s
+        .validate(json!({ "campaign": VALOMBRE, "accepted": [pnj, lieu] }))
+        .await
+        .expect("queued");
+    let saves: Vec<String> = submitted(&answer)
+        .iter()
+        .filter(|follow_up| follow_up.partition.starts_with("Entity/"))
+        .map(|follow_up| follow_up.partition.clone())
+        .collect();
+    assert_eq!(saves, [format!("Entity/{}", Fresh::of(lieu).entity)]);
+    s.applied().await;
+    assert!(s.row(&format!("Entity/{deleted}")).await.is_empty());
+    let row = s.row(&format!("NoteImport/{pnj}")).await;
+    assert_eq!(row["createdEntityId"], json!(deleted));
     assert_eq!(row["checked"], true);
 }
 

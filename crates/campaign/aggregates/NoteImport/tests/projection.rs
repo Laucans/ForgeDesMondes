@@ -388,15 +388,14 @@ async fn a_proposal_applied_after_its_note_reaches_the_tables_too() {
 }
 
 #[tokio::test]
-async fn a_proposal_the_tables_refuse_is_rejected_and_rolled_back() {
+async fn a_proposal_written_with_its_element_is_rejected_and_reaches_no_table() {
     let s = Scratch::new("refused").await;
     let engine = s.serve().await;
     let note = extract(&engine).await;
     let proposed = s.count("note_proposal").await;
-    // A proposal written with the element it created: the table's trigger
-    // refuses what the engine's judge, on an insert, refuses too — here the
-    // tables are the judge, the row being written by a test DataCapability
-    // that declares no invariant.
+    // A proposal written with the element it created: the aggregate's judge
+    // rejects it (no-creation-before-validation), whatever DataCapability
+    // writes it.
     let late = "f1000000-0000-4000-8000-0000000000bb";
     let submission: Submission = serde_json::from_value(json!({
         "dataCapability": "test.lateProposal@1",
@@ -417,13 +416,14 @@ async fn a_proposal_the_tables_refuse_is_rejected_and_rolled_back() {
     let ran = engine.run_once().await.expect("the applier ran");
     assert_eq!(ran.len(), 1, "{ran:?}");
     assert_eq!(ran[0].status, State::Rejected, "{ran:?}");
+    assert_eq!(ran[0].violations, ["no-creation-before-validation"]);
     assert_eq!(s.count("note_proposal").await, proposed);
     let held = s
         .count(&format!(
             "dataguard_rows WHERE partition = 'NoteImport/{late}'"
         ))
         .await;
-    assert_eq!(held, 0, "the engine's row rolled back with the tables'");
+    assert_eq!(held, 0, "the engine holds no row of it");
     s.drop().await;
 }
 

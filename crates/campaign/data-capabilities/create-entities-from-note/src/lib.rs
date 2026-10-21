@@ -270,10 +270,10 @@ impl Prepare for Validate {
             if !context.row(&partition).await?.is_empty() || deleted(context, &partition).await? {
                 continue;
             }
+            // The element is the one its payload's `entity.id` names.
             saves.push(Submission {
                 data_capability: SAVE_ENTITY.to_owned(),
                 payload: command.payload,
-                target_id: Some(command.target_id),
                 ..Submission::default()
             });
         }

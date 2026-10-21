@@ -10,9 +10,10 @@
 //! again, its check and the element it created: [`Tables`] writes
 //! `note_proposal.checked` and `created_entity_id` — the element's once the
 //! tables hold it (the Entity aggregate's projection records it when its
-//! element comes after). The tables' CHECKs, foreign keys and trigger judge
-//! the write a second time, at once: one they refuse rolls the apply back
-//! and rejects the command.
+//! element comes after). The statements write only what the tables can hold
+//! — a note of a campaign they hold, a proposal of a note they hold, never
+//! an element in place of another — so an error is the store failing: the
+//! apply rolls back and the step fails.
 //!
 //! When the store starts ([`Tables`]'s `warm`), what the engine holds and
 //! the tables do not is projected again — a note applied before its
@@ -133,26 +134,6 @@ async fn written(link: &impl GenericClient, note: Option<&str>) -> Result<(), Er
     Ok(())
 }
 
-/// A database error the write is to blame for — a value no column holds
-/// (SQLSTATE class 22), a constraint or a trigger it breaks (class 23) — is
-/// the tables refusing it; any other is the store failing.
-fn judged(error: Error) -> ProjectionError {
-    match error.as_db_error() {
-        Some(db)
-            if ["22", "23"]
-                .iter()
-                .any(|class| db.code().code().starts_with(class)) =>
-        {
-            ProjectionError::Refused(format!(
-                "the tables refuse it: {} ({})",
-                db.message(),
-                db.code().code()
-            ))
-        }
-        _ => ProjectionError::from(error),
-    }
-}
-
 #[async_trait]
 impl ProjectPg for Tables {
     async fn project(&self, write: &Write, tx: &Transaction<'_>) -> Result<(), ProjectionError> {
@@ -160,7 +141,7 @@ impl ProjectPg for Tables {
         let Some(note) = noted(write) else {
             return Ok(());
         };
-        written(tx, Some(note)).await.map_err(judged)
+        Ok(written(tx, Some(note)).await?)
     }
 
     async fn warm(&self, client: &Client) -> Result<(), ProjectionError> {
