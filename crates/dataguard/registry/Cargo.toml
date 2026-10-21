@@ -41,6 +41,7 @@ ignored = [
     "list-media",
     "list-places",
     "list-players",
+    "move-token",
     "restore-entity-version",
     "save-entity",
     "save-grid-settings",
@@ -80,6 +81,7 @@ list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes"
 list-media = { path = "../../media/capabilities/list-media" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
+move-token = { path = "../../table/data-capabilities/move-token" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
