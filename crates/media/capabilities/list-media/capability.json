@@ -1,9 +1,14 @@
 {
   "capability": "media.listMedia",
-  "system": "media",
-  "version": "1.0.0",
-  "description": "A campaign's media library in one read: the id of its cover, its battlemaps (id, title, file, upload date, dimensions, place, and the grid: hex size, offsets, orientation pointy or flat, colour, opacity as a fraction of 1, 5 feet per hex) and its illustrations (id, title, file, upload date, dimensions, ratio, place). A media without a place is listed with a null place; a media of another campaign is never listed.",
-  "input": { "campaignId": "string" },
+  "description": "A campaign's media library in one read: the id of its cover, its battlemaps (id, title, file, upload date, dimensions, place, and the grid: hex size, offsets, orientation pointy or flat, colour, opacity as a fraction of 1, 5 feet per hex) and its illustrations (id, title, file, upload date, dimensions, ratio, place). The campaign is given as `campaign`; `campaignId`, the name of version 1, is still read when `campaign` is absent. A media without a place is listed with a null place; a media of another campaign is never listed; no campaign given lists nothing.",
+  "input": {
+    "campaign": "string",
+    "campaignId": "string"
+  },
   "output": "{ cover, battlemaps, illustrations }",
-  "reads": ["queries/listMedia.graphql"]
+  "reads": [
+    "queries/listMedia.graphql"
+  ],
+  "system": "media",
+  "version": 2
 }
