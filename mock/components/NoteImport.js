@@ -442,6 +442,87 @@ ${heard}`;
     return mounted;
   }
 
+  // mock/src/reads.js
+  var bridged = /* @__PURE__ */ new WeakSet();
+  async function instanceOf(server, id) {
+    const data = await server.load("table.getBattlemapInstance");
+    if (!data || id && data.id !== id) return void 0;
+    const store = window.Mock && window.Mock.store;
+    if (store && !bridged.has(data)) {
+      bridged.add(data);
+      data.state = store.get(`map:${data.id}`, data.state);
+      store.on(`map:${data.id}`, (state) => {
+        if (state && state !== data.state) {
+          data.state = state;
+          server.bump();
+        }
+      });
+    }
+    return data;
+  }
+  function shareInstance(data) {
+    if (window.Mock) window.Mock.store.set(`map:${data.id}`, data.state);
+  }
+  function healthBand(hp, hpMax) {
+    if (typeof hp !== "number" || typeof hpMax !== "number") return null;
+    const current = Math.max(0, Math.min(hpMax, hp));
+    return current === 0 ? "mort" : current === hpMax ? "indemne" : 2 * current > hpMax ? "bless\xE9" : "en sang";
+  }
+  async function dressed(server, tokens) {
+    const characters = await server.load("campaign.listCharacters") || [];
+    return tokens.map((t) => {
+      const c = characters.find((x) => x.id === t.char);
+      return c ? { ...t, initials: c.initials, color: c.color, portrait: c.portrait } : t;
+    });
+  }
+  var READS = {
+    // table.getBattlemapInstance (crates/table/capabilities/get-battlemap-instance):
+    // the DM sees everything; the players no hidden token, no hit point figure, no
+    // note — each visible NPC gives its HealthBand@1 band instead.
+    "table.getBattlemapInstance": async (server, { instance, view } = {}) => {
+      const data = await instanceOf(server, instance);
+      if (!data) return data;
+      const dressedTokens = await dressed(server, data.state.tokens);
+      if (view !== "player") return { ...data, state: { ...data.state, tokens: dressedTokens } };
+      const tokens = dressedTokens.filter((t) => t.visible).map(({ hp, hpMax, ...rest }) => ({ ...rest, healthBand: rest.kind === "pnj" ? healthBand(hp, hpMax) : null }));
+      return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat: null } };
+    },
+    // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
+    // the notes already imported, newest first, and the proposals of the latest
+    // analysed note still awaiting validation. The imports are the fixture's
+    // list; the proposals are what `ai.extractFromNotes` recorded (commands.js).
+    "campaign.listImportedNotes": async (server) => {
+      const fixture = await server.load("campaign.listImportedNotes");
+      const imports = Array.isArray(fixture) ? fixture : fixture && fixture.imports || [];
+      return { imports: [...imports].sort((x, y) => String(y.date).localeCompare(String(x.date))), proposals: server.noteProposals || [] };
+    },
+    // media.getBattlemap (crates/media/capabilities/get-battlemap): one
+    // battlemap of the media library, by its id, its grid as HexGrid@1 states
+    // it — the opacity a fraction of 1 where the mock-up's fixtures write a
+    // percentage, and a hex always 5 feet. An illustration or an unknown id
+    // is no battlemap: `null`, as the server answers it, not a `not-found`.
+    "media.getBattlemap": async (server, { id }) => {
+      const battlemap = (await server.load("media")).battlemaps.find((b) => b.id === id);
+      if (!battlemap) return null;
+      const { opacity, ...grid } = battlemap.grid;
+      return { ...battlemap, grid: { ...grid, opacity: opacity / 100, feetPerHex: 5 } };
+    },
+    // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
+    // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
+    "campaign.listEntityVersions": async (server, { entity }) => {
+      const history2 = (await server.load("campaign.listEntityVersions"))[entity];
+      if (history2) return history2;
+      const entities = await server.load("entities");
+      const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === entity);
+      return known ? { name: known.name, versions: [] } : null;
+    },
+    // One element's sheet: a character, a place or an event of `entities`.
+    "campaign.getEntity": async (server, { id }) => {
+      const entities = await server.load("entities");
+      return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+    }
+  };
+
   // mock/src/commands.js
   function apiType(settings, url) {
     let host2 = "";
@@ -456,7 +537,108 @@ ${heard}`;
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
+  var AROUND = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  function freeHexes(start, taken, count2) {
+    const busy = new Set(taken.map((t) => `${t.q},${t.r}`));
+    const seen = /* @__PURE__ */ new Set([`${start.q},${start.r}`]);
+    const queue = [start];
+    const out = [];
+    for (let i = 0; i < queue.length && out.length < count2; i += 1) {
+      const hex = queue[i];
+      if (!busy.has(`${hex.q},${hex.r}`)) out.push(hex);
+      for (const [dq, dr] of AROUND) {
+        const next = { q: hex.q + dq, r: hex.r + dr };
+        if (!seen.has(`${next.q},${next.r}`)) {
+          seen.add(`${next.q},${next.r}`);
+          queue.push(next);
+        }
+      }
+    }
+    return out;
+  }
+  async function onToken(server, target, token, change) {
+    const data = await instanceOf(server, target && target.id);
+    const found = data && data.state.tokens.find((t) => t.id === token);
+    if (!found) return ["instance-isolated"];
+    const violations = change(found, data.state);
+    if (violations) return violations;
+    shareInstance(data);
+    return void 0;
+  }
   var COMMANDS = {
+    // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
+    // one position both views read.
+    "table.moveToken": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+      t.q = payload.q;
+      t.r = payload.r;
+    }),
+    // table.renameToken: only that token's name; an empty name is refused.
+    "table.renameToken": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+      if (!String(payload.name || "").trim()) return ["name-required"];
+      t.name = String(payload.name).trim();
+      return void 0;
+    }),
+    // table.setTokenVisibility: hidden tokens keep their place; the players do not read them.
+    "table.setTokenVisibility": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+      t.visible = payload.visible === true;
+    }),
+    // table.setTokenCondition: the badges of that token alone.
+    "table.setTokenCondition": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+      t.states = [...payload.conditions || []];
+    }),
+    // table.removeToken: the token leaves the map.
+    "table.removeToken": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t, state) => {
+      state.tokens = state.tokens.filter((x) => x !== t);
+    }),
+    // table.placeTokens: one character dropped, once or « × n »; the new tokens
+    // are numbered after those already taken for it (multi-drop-numbering), a
+    // monster takes its hit points from its sheet, a PC has one token.
+    "table.placeTokens": async (server, { payload, targetId }) => {
+      const data = await instanceOf(server, targetId);
+      const character = (await server.load("campaign.listCharacters") || []).find((c) => c.id === payload.character);
+      if (!data || !character) return ["instance-isolated"];
+      const { tokens } = data.state;
+      const mine = tokens.filter((t) => t.char === character.id);
+      const pnj = character.kind === "pnj";
+      if (!pnj && mine.length) return ["token-roster"];
+      const count2 = pnj ? Math.max(1, Math.min(12, Number(payload.count) || 1)) : 1;
+      const base = character.tokenName || String(character.name).split(" ")[0];
+      let num = Math.max(0, ...mine.map((t) => t.num || 0));
+      const numbered = pnj && (count2 > 1 || mine.length > 0);
+      for (const hex of freeHexes({ q: payload.q, r: payload.r }, tokens, count2)) {
+        num += 1;
+        tokens.push({
+          id: `t-${character.id}${pnj ? `-${num}` : ""}`,
+          char: character.id,
+          kind: character.kind,
+          name: numbered ? `${base} ${num}` : base,
+          num: pnj ? num : null,
+          q: hex.q,
+          r: hex.r,
+          visible: true,
+          hp: pnj ? character.pvMax : null,
+          hpMax: pnj ? character.pvMax : null,
+          states: [],
+          dead: false
+        });
+      }
+      shareInstance(data);
+      return void 0;
+    },
+    // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
+    // the battlemap becomes the player view's base, framed as the DM framed it.
+    "live.showOnPlayerView": async (server, { payload }) => {
+      const data = await instanceOf(server, payload.instance);
+      if (payload.kind !== "battlemap" || !data) return ["base-coherent"];
+      const store = window.Mock && window.Mock.store;
+      if (store) {
+        const diffusion = store.get("diffusion", { base: { kind: "cover" }, window: null, view: null });
+        diffusion.base = { kind: "battlemap", id: data.id };
+        diffusion.view = { z: payload.zoom, px: payload.panX, py: payload.panY };
+        store.set("diffusion", diffusion);
+      }
+      return void 0;
+    },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
     // battlemap or an illustration added to the library, the path the DM chose
     // recorded and no file copied. A battlemap arrives with its default grid
@@ -651,44 +833,6 @@ ${heard}`;
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
       entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Fiche enregistr\xE9e par le DM", seen: true, changes });
       return void 0;
-    }
-  };
-
-  // mock/src/reads.js
-  var READS = {
-    // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
-    // the notes already imported, newest first, and the proposals of the latest
-    // analysed note still awaiting validation. The imports are the fixture's
-    // list; the proposals are what `ai.extractFromNotes` recorded (commands.js).
-    "campaign.listImportedNotes": async (server) => {
-      const fixture = await server.load("campaign.listImportedNotes");
-      const imports = Array.isArray(fixture) ? fixture : fixture && fixture.imports || [];
-      return { imports: [...imports].sort((x, y) => String(y.date).localeCompare(String(x.date))), proposals: server.noteProposals || [] };
-    },
-    // media.getBattlemap (crates/media/capabilities/get-battlemap): one
-    // battlemap of the media library, by its id, its grid as HexGrid@1 states
-    // it — the opacity a fraction of 1 where the mock-up's fixtures write a
-    // percentage, and a hex always 5 feet. An illustration or an unknown id
-    // is no battlemap: `null`, as the server answers it, not a `not-found`.
-    "media.getBattlemap": async (server, { id }) => {
-      const battlemap = (await server.load("media")).battlemaps.find((b) => b.id === id);
-      if (!battlemap) return null;
-      const { opacity, ...grid } = battlemap.grid;
-      return { ...battlemap, grid: { ...grid, opacity: opacity / 100, feetPerHex: 5 } };
-    },
-    // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
-    // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
-    "campaign.listEntityVersions": async (server, { entity }) => {
-      const history2 = (await server.load("campaign.listEntityVersions"))[entity];
-      if (history2) return history2;
-      const entities = await server.load("entities");
-      const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === entity);
-      return known ? { name: known.name, versions: [] } : null;
-    },
-    // One element's sheet: a character, a place or an event of `entities`.
-    "campaign.getEntity": async (server, { id }) => {
-      const entities = await server.load("entities");
-      return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
     }
   };
 
