@@ -14,6 +14,8 @@
 //     (await server.load('campagnes')).push({ id: server.uuid(), name: payload.name });
 //   },
 
+import { instanceOf, shareInstance } from './reads.js';
+
 // ProviderApiType@1 as the fixtures know it: the cloud host by itself, the
 // home server at the URL whose model list the fixtures know; null otherwise.
 function apiType(settings, url) {
@@ -38,7 +40,92 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 // modifier least of all, computed from the score (AbilityModifier@1).
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
+const AROUND = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+
+// The hexes a drop of `count` tokens fills: the dropped hex, then the free ones around it.
+function freeHexes(start, taken, count) {
+  const busy = new Set(taken.map((t) => `${t.q},${t.r}`));
+  const seen = new Set([`${start.q},${start.r}`]);
+  const queue = [start];
+  const out = [];
+  for (let i = 0; i < queue.length && out.length < count; i += 1) {
+    const hex = queue[i];
+    if (!busy.has(`${hex.q},${hex.r}`)) out.push(hex);
+    for (const [dq, dr] of AROUND) {
+      const next = { q: hex.q + dq, r: hex.r + dr };
+      if (!seen.has(`${next.q},${next.r}`)) { seen.add(`${next.q},${next.r}`); queue.push(next); }
+    }
+  }
+  return out;
+}
+
+// One token of the instance a command targets, changed by `change`; the other tabs are told.
+async function onToken(server, target, token, change) {
+  const data = await instanceOf(server, target && target.id);
+  const found = data && data.state.tokens.find((t) => t.id === token);
+  // instance-isolated: a token of another instance is refused.
+  if (!found) return ['instance-isolated'];
+  const violations = change(found, data.state);
+  if (violations) return violations;
+  shareInstance(data);
+  return undefined;
+}
+
 export const COMMANDS = {
+  // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
+  // one position both views read.
+  'table.moveToken': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => { t.q = payload.q; t.r = payload.r; }),
+  // table.renameToken: only that token's name; an empty name is refused.
+  'table.renameToken': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+    if (!String(payload.name || '').trim()) return ['name-required'];
+    t.name = String(payload.name).trim();
+    return undefined;
+  }),
+  // table.setTokenVisibility: hidden tokens keep their place; the players do not read them.
+  'table.setTokenVisibility': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => { t.visible = payload.visible === true; }),
+  // table.setTokenCondition: the badges of that token alone.
+  'table.setTokenCondition': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => { t.states = [...(payload.conditions || [])]; }),
+  // table.removeToken: the token leaves the map.
+  'table.removeToken': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t, state) => { state.tokens = state.tokens.filter((x) => x !== t); }),
+  // table.placeTokens: one character dropped, once or « × n »; the new tokens
+  // are numbered after those already taken for it (multi-drop-numbering), a
+  // monster takes its hit points from its sheet, a PC has one token.
+  'table.placeTokens': async (server, { payload, targetId }) => {
+    const data = await instanceOf(server, targetId);
+    const character = ((await server.load('campaign.listCharacters')) || []).find((c) => c.id === payload.character);
+    if (!data || !character) return ['instance-isolated'];
+    const { tokens } = data.state;
+    const mine = tokens.filter((t) => t.char === character.id);
+    const pnj = character.kind === 'pnj';
+    // token-roster: a PC is placed when the scene's roster has it, and once.
+    if (!pnj && (mine.length || !(data.roster || []).includes(character.id))) return ['token-roster'];
+    const count = pnj ? Math.max(1, Math.min(12, Number(payload.count) || 1)) : 1;
+    const base = character.tokenName || String(character.name).split(' ')[0];
+    let num = Math.max(0, ...mine.map((t) => t.num || 0));
+    const numbered = pnj && (count > 1 || mine.length > 0);
+    for (const hex of freeHexes({ q: payload.q, r: payload.r }, tokens, count)) {
+      num += 1;
+      tokens.push({ id: `t-${character.id}${pnj ? `-${num}` : ''}`, char: character.id, kind: character.kind, name: numbered ? `${base} ${num}` : base, num: pnj ? num : null,
+        q: hex.q, r: hex.r, visible: true, hp: pnj ? character.pvMax : null, hpMax: pnj ? character.pvMax : null, states: [], dead: false });
+    }
+    shareInstance(data);
+    return undefined;
+  },
+  // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
+  // the battlemap becomes the player view's base, framed as the DM framed it.
+  'live.showOnPlayerView': async (server, { payload }) => {
+    const data = await instanceOf(server, payload.instance);
+    // base-coherent: a battlemap base is an instance of the session.
+    if (payload.kind !== 'battlemap' || !data) return ['base-coherent'];
+    const store = window.Mock && window.Mock.store;
+    if (store) {
+      const diffusion = store.get('diffusion', { base: { kind: 'cover' }, window: null, view: null });
+      diffusion.base = { kind: 'battlemap', id: data.id };
+      diffusion.view = { z: payload.zoom, px: payload.panX, py: payload.panY };
+      store.set('diffusion', diffusion);
+    }
+    return undefined;
+  },
   // media.uploadMedia (crates/media/data-capabilities/upload-media): a
   // battlemap or an illustration added to the library, the path the DM chose
   // recorded and no file copied. A battlemap arrives with its default grid
