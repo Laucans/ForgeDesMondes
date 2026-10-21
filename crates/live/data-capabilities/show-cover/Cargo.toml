@@ -1,0 +1,20 @@
+[package]
+name = "show-cover"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.showCover: the DM brings the player view of the campaign's live session back to its cover, on the session's Diffusion partition — the base's media and instance emptied (base-coherent), the floating window and the framing left as the row holds them."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target aggregate: how a diffusion is stamped.
+aggregate-diffusion = { path = "../../aggregates/Diffusion" }
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
