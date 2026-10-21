@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "add-scene"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
@@ -100,6 +112,8 @@ dependencies = [
 name = "aggregate-session"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
  "tokio",
@@ -429,6 +443,7 @@ dependencies = [
 name = "dataguard-registry"
 version = "0.1.0"
 dependencies = [
+ "add-scene",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
  "aggregate-campaign",
@@ -461,6 +476,7 @@ dependencies = [
  "list-players",
  "list-scenes",
  "list-sessions",
+ "reorder-scenes",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -1461,6 +1477,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "reorder-scenes"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
