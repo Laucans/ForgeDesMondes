@@ -337,6 +337,21 @@ mod tests {
     }
 
     #[test]
+    fn a_negative_height_has_no_ratio_and_a_zero_width_has_a_zero_one() {
+        let mut negative = media("ill-neg", CAMPAIGN, "illustration", None);
+        negative["height_px"] = json!(-640);
+        let mut flat = media("ill-flat", CAMPAIGN, "illustration", None);
+        flat["width_px"] = json!(0);
+        let out = answer_rows(&json!([negative, flat]), CAMPAIGN);
+        let ratio_of = |id: &str| {
+            let list = out["illustrations"].as_array().expect("illustrations");
+            list.iter().find(|m| m["id"] == id).expect("listed")["ratio"].clone()
+        };
+        assert_eq!(ratio_of("ill-neg"), Value::Null);
+        assert_eq!(ratio_of("ill-flat"), json!(0.0));
+    }
+
+    #[test]
     fn the_media_are_listed_newest_first_and_an_unknown_kind_is_skipped() {
         let mut old = media("ill-old", CAMPAIGN, "illustration", None);
         old["uploaded_at"] = json!("2026-08-20");

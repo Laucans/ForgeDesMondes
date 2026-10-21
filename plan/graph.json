@@ -79,8 +79,7 @@
         "media.listMedia",
         "media.saveGridSettings",
         "media.setMediaPlace",
-        "media.uploadMedia",
-        "session.listScenes"
+        "media.uploadMedia"
       ],
       "consumes": [
         "Campaign",
@@ -103,7 +102,6 @@
         "campaign"
       ],
       "produces": [
-        "SceneBoard",
         "SessionLifecycle@1",
         "SessionList",
         "campaign.createCampaign",
@@ -112,10 +110,10 @@
         "session.addScene",
         "session.createSession",
         "session.getSession",
+        "session.listScenes",
         "session.listSessions",
         "session.removePresentCharacter",
-        "session.reorderScenes",
-        "table.getBattlemapInstance"
+        "session.reorderScenes"
       ],
       "consumes": [
         "Campaign",
@@ -124,7 +122,6 @@
         "media.listMedia",
         "media.setMediaPlace",
         "media.uploadMedia",
-        "session.listScenes",
         "table.createBattlemapInstance",
         "campaign.listCharacters"
       ],
@@ -251,10 +248,12 @@
       "produces": [
         "HealthBand@1",
         "Initiative@1",
+        "SceneBoard",
         "table.addParticipant",
         "table.changeHitPoints",
         "table.createBattlemapInstance",
         "table.endCombat",
+        "table.getBattlemapInstance",
         "table.moveToken",
         "table.nextTurn",
         "table.placeTokens",
@@ -277,8 +276,7 @@
         "session.getSession",
         "session.listScenes",
         "session.removePresentCharacter",
-        "session.reorderScenes",
-        "table.getBattlemapInstance"
+        "session.reorderScenes"
       ],
       "depends_on": [
         18,
@@ -627,7 +625,7 @@
     },
     "SceneBoard": {
       "kind": "micro-ui",
-      "producer": 20,
+      "producer": 25,
       "state": "mocked",
       "version": 1
     },
@@ -928,8 +926,8 @@
     "media.listMedia": {
       "kind": "capability",
       "producer": 19,
-      "state": "built",
-      "version": 1
+      "state": "evolving",
+      "version": 2
     },
     "media.saveGridSettings": {
       "kind": "data-capability",
@@ -1011,7 +1009,7 @@
     },
     "session.listScenes": {
       "kind": "capability",
-      "producer": 19,
+      "producer": 20,
       "state": "mocked",
       "version": 1
     },
@@ -1107,7 +1105,7 @@
     },
     "table.getBattlemapInstance": {
       "kind": "capability",
-      "producer": 20,
+      "producer": 25,
       "state": "mocked",
       "version": 1
     },
