@@ -9,9 +9,7 @@
 //! after the ones queued ahead of it. A token's id is derived from its
 //! instance, its character and its number ([`token_id`]): a token queued and
 //! not yet applied is found on its partition, so the next drop numbers after
-//! it and a PC queued once is not queued twice. Two drops prepared side by
-//! side both choose the same numbers: the aggregate refuses the later token
-//! (`multi-drop-numbering`), which never lands on one applied or queued.
+//! it and a PC queued once is not queued twice.
 //!
 //! What one row cannot tell — the instance's session, the character's sheet,
 //! whether a PC is present, the numbers already taken — is read before the

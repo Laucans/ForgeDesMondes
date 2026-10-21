@@ -283,22 +283,11 @@ fn token_roster(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
             && kept(state, entry, "characterId"))
 }
 
-/// Whether the command drops a token on a partition that already holds one,
-/// applied or queued ahead: a number taken, which two drops prepared side by
-/// side both chose. The partition is the token's, so one token per number.
-fn redrops_a_token(entry: &Entry) -> bool {
-    entry.effect == Effect::Insert
-        && entry.payload.contains_key("tokenId")
-        && (holds_any(&entry.projection.confirmed, &TOKEN)
-            || !entry.projection.pending_ahead.is_empty())
-}
-
 /// A token has a name (« Bandit 2 »), and its number, when it has one,
 /// counts from 1 and is the one its drop gave it: renaming the token touches
-/// its name alone, and the name's initial is the table's. A drop never lands
-/// on a token already there, applied or queued ahead, so a number is taken
-/// once per character in the instance, whatever drops were prepared side by
-/// side. That the numbers follow the ones taken reads other rows.
+/// its name alone, and the name's initial is the table's. That the numbers
+/// follow the ones taken, and are unique for the character in the instance,
+/// reads other rows.
 fn multi_drop_numbering(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     let number = value(state, "number");
     let named = !holds_any(state, &TOKEN)
@@ -308,7 +297,6 @@ fn multi_drop_numbering(state: &BTreeMap<String, Value>, entry: &Entry) -> bool 
     named
         && (number.is_null() || smallint(number).is_some_and(|number| number >= 1))
         && kept(state, entry, "number")
-        && !redrops_a_token(entry)
         && !writes_derived(entry, "multi-drop-numbering")
 }
 
