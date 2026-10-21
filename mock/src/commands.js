@@ -176,6 +176,24 @@ export const COMMANDS = {
     if (!instance.roster.includes(character.id)) instance.roster.push(character.id);
     return undefined;
   },
+  // table.renameToken (crates/table/data-capabilities/rename-token): one token
+  // renamed, `payload.token` on the instance `targetId` — or the token itself
+  // as the target. Its number and the other tokens of its character are
+  // untouched (`multi-drop-numbering`); a name of blanks alone is refused. Ids
+  // are compared in any case, as the server does.
+  'table.renameToken': async (server, { payload, targetId }) => {
+    const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+    if (!name) return ['multi-drop-numbering'];
+    const tokenId = payload.token ?? targetId;
+    const instance = payload.token != null && targetId && !same(targetId, tokenId) ? targetId : null;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const inst = instances.find((i) => (instance == null || same(i.id, instance)) && i.state.tokens.some((t) => same(t.id, tokenId)));
+    if (!inst) return ['not-found'];
+    inst.state.tokens.find((t) => same(t.id, tokenId)).name = name;
+    return undefined;
+  },
   'campaign.restoreEntityVersion': async (server, { payload, targetId }) => {
     const history = (await server.load('campaign.listEntityVersions'))[targetId];
     const target = history && history.versions.find((v) => v.v === payload.version);
