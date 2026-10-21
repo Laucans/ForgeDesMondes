@@ -875,17 +875,20 @@
     // alone; its initiative rank and every other stay as they are
     // (`hidden-keeps-rank`). A visibility that is no boolean is refused by
     // `players-see-band-only`; an unknown token is `not-found`; a token that
-    // stands on another instance than the one named is refused by
-    // `instance-isolated`, as the DataGuard judges it.
+    // stands on another instance than the one named — or on none named — is
+    // refused by `instance-isolated`, as the DataGuard judges it. Ids are
+    // compared in any case and without the blanks around them, as the server
+    // does.
     "table.setTokenVisibility": async (server2, { payload, targetId }) => {
+      const same2 = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
       if (typeof payload.visible !== "boolean") return ["players-see-band-only"];
       const id = targetId || payload.instance;
       const fixture = await server2.load("table.getBattlemapInstance");
       const instances = [fixture, ...server2.instances ? server2.instances.values() : []];
-      const holder = instances.find((i) => i.state.tokens.some((t) => t.id === payload.token));
+      const holder = instances.find((i) => i.state.tokens.some((t) => same2(t.id, payload.token)));
       if (!holder) return ["not-found"];
-      if (holder.id !== id) return ["instance-isolated"];
-      holder.state.tokens.find((t) => t.id === payload.token).visible = payload.visible;
+      if (!same2(id, holder.id)) return ["instance-isolated"];
+      holder.state.tokens.find((t) => same2(t.id, payload.token)).visible = payload.visible;
       return void 0;
     }
   };

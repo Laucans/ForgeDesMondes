@@ -14,7 +14,7 @@
     "visible": "boolean — false hides the token from the players, true reveals it; its initiative rank and every other rank stay as they are (hidden-keeps-rank)"
   },
   "mode": "overwrite",
-  "invariants": ["instance-isolated", "hidden-keeps-rank", "state-persisted-reset"],
+  "invariants": ["instance-isolated", "hidden-keeps-rank", "players-see-band-only", "state-persisted-reset"],
   "permissions": [],
   "callableBy": ["*"],
   "idempotencyKey": "optional"
