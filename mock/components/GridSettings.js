@@ -1124,6 +1124,27 @@
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
       entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Fiche enregistr\xE9e par le DM", seen: true, changes });
       return void 0;
+    },
+    // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
+    // a battlemap instance of the session, or an illustration of the campaign,
+    // becomes the player view's base, framed as the DM framed it (1 and 0, 0
+    // when no framing is sent); the floating window stays as it is. Any other
+    // base would leave it incoherent (`base-coherent`).
+    "live.showOnPlayerView": async (server, { payload: payload2 }) => {
+      let base;
+      if (payload2.kind === "battlemap") {
+        const instance = await server.load("table.getBattlemapInstance");
+        if (!(instance && instance.id === payload2.instance)) return ["base-coherent"];
+        base = { kind: "battlemap", id: instance.id };
+      } else if (payload2.kind === "illustration") {
+        const media = await server.load("media.listMedia");
+        if (!(media && media.illustrations.some((i) => i.id === payload2.media))) return ["base-coherent"];
+        base = { kind: "illustration", id: payload2.media };
+      } else return ["base-coherent"];
+      const diffusion = await server.load("live.getDiffusion");
+      diffusion.base = base;
+      diffusion.view = { z: payload2.zoom ?? 1, px: payload2.panX ?? 0, py: payload2.panY ?? 0 };
+      return void 0;
     }
   };
 
