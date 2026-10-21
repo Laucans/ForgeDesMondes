@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "fb9e16a58cb45310"
+      "builtFrom": "1efc3ede78754db8"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "6419b0d98ef2cc86"
+      "builtFrom": "971f496a84957636"
     },
     {
       "name": "SessionList",
@@ -214,7 +214,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "d59f3666ba11401a"
+      "builtFrom": "80844417ba42e852"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +278,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "5401fbbff26aa4ea"
+      "builtFrom": "8bd51784877eefe2"
     },
     {
       "name": "PreviousSummary",
@@ -380,7 +380,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "059a31b59b7c4abb"
+      "builtFrom": "35700386456af633"
     },
     {
       "name": "MediaLibrary",
@@ -422,7 +422,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "fcb79979635d9597"
+      "builtFrom": "79a8289e234af817"
     },
     {
       "name": "SoundLibrary",
@@ -565,8 +565,11 @@
         "live.resizeWindow"
       ],
       "props": {
-        "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse"
-      }
+        "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse",
+        "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
+      },
+      "source": "apps/live/player-stage",
+      "builtFrom": "e5bc907ad173abcc"
     }
   ]
 }

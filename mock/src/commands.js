@@ -14,7 +14,7 @@
 //     (await server.load('campagnes')).push({ id: server.uuid(), name: payload.name });
 //   },
 
-import { instanceOf, shareInstance } from './reads.js';
+import { diffusionRow, instanceOf, ratioOfIllustration, shareInstance } from './reads.js';
 
 // ProviderApiType@1 as the fixtures know it: the cloud host by itself, the
 // home server at the URL whose model list the fixtures know; null otherwise.
@@ -39,6 +39,21 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 // What a save writes of the editor's fields: these, and nothing else — a DEX
 // modifier least of all, computed from the score (AbilityModifier@1).
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
+
+// A position on the screen, in fractions of it: from 0 to 1 — `kept` when
+// what is asked is no number, which the server refuses.
+const onScreen = (fraction, kept) => (typeof fraction === 'number' && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept);
+
+// The floating window of the diffusion, changed by `change`; the other tabs are told.
+async function onWindow(server, change) {
+  const row = await diffusionRow(server);
+  // window-fields-together: x, y and the width are all set while the window is open, none otherwise.
+  if (!row.window) return ['window-fields-together'];
+  const violations = await change(row.window);
+  if (violations) return violations;
+  if (window.Mock) window.Mock.store.set('diffusion', row);
+  return undefined;
+}
 
 const AROUND = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
@@ -231,6 +246,21 @@ export const COMMANDS = {
     shareInstance(data);
     return undefined;
   },
+  // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone,
+  // brought back onto the screen (0 to 1); the size and the content stay.
+  'live.moveWindow': (server, { payload }) => onWindow(server, (w) => { w.x = onScreen(payload.x, w.x); w.y = onScreen(payload.y, w.y); }),
+  // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
+  // is stored, the largest that fits the box asked for at the image's ratio — w
+  // alone with no h — from 0.1 to the screen's width, to 4 decimals
+  // (window-proportional); the position stays. A w that is no number, which the
+  // server refuses, keeps the width.
+  'live.resizeWindow': (server, { payload }) => onWindow(server, async (w) => {
+    if (typeof payload.w !== 'number' || !Number.isFinite(payload.w)) return undefined;
+    const ratio = await ratioOfIllustration(server, w.id || w.media);
+    const fit = typeof payload.h === 'number' && Number.isFinite(payload.h) ? Math.min(payload.w, payload.h * ratio) : payload.w;
+    w.w = Math.round(Math.max(0.1, Math.min(1, fit)) * 10000) / 10000;
+    return undefined;
+  }),
   // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
   // a battlemap instance of the session, or an illustration of the campaign,
   // becomes the player view's base, framed as the DM framed it (1 and 0, 0

@@ -766,7 +766,37 @@
       return c ? { ...t, initials: c.initials, color: c.color, portrait: c.portrait } : t;
     });
   }
+  var diffusionBridged = false;
+  async function diffusionRow(server) {
+    const fixture = await server.load("live.getDiffusion");
+    const store = window.Mock && window.Mock.store;
+    if (store && !diffusionBridged) {
+      diffusionBridged = true;
+      store.on("diffusion", () => server.bump());
+    }
+    return store ? store.get("diffusion", fixture) : structuredClone(fixture);
+  }
+  async function ratioOfIllustration(server, id) {
+    const media = await server.load("media.listMedia");
+    const found = media && media.illustrations.find((i) => i.id === id);
+    return found && found.ratio > 0 ? found.ratio : 1;
+  }
   var READS = {
+    // live.getDiffusion (crates/live/capabilities/get-diffusion): the one row both
+    // player views read, so view 'dm' and view 'player' answer the same values —
+    // position, size, zoom and pan. The window's x and w are fractions of the stage's
+    // width, y of its height; h, derived from the image's ratio, is in the width's unit
+    // and never stored. Nothing else leaves the row: no token, no HP figure, no note.
+    "live.getDiffusion": async (server) => {
+      const row = await diffusionRow(server);
+      const win = row.window;
+      const ratio = win ? await ratioOfIllustration(server, win.id || win.media) : 1;
+      return {
+        base: { kind: row.base.kind, id: row.base.id || "" },
+        window: win ? { media: win.id || win.media, x: win.x, y: win.y, w: win.w, h: win.w / ratio } : null,
+        view: row.view ? { zoom: row.view.z ?? row.view.zoom, panX: row.view.px ?? row.view.panX, panY: row.view.py ?? row.view.panY } : null
+      };
+    },
     // table.getBattlemapInstance (crates/table/capabilities/get-battlemap-instance):
     // the DM sees everything; the players no hidden token, no hit point figure, no
     // note — each visible NPC gives its HealthBand@1 band instead.
@@ -830,6 +860,15 @@
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
+  var onScreen = (fraction, kept) => typeof fraction === "number" && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept;
+  async function onWindow(server, change) {
+    const row = await diffusionRow(server);
+    if (!row.window) return ["window-fields-together"];
+    const violations = await change(row.window);
+    if (violations) return violations;
+    if (window.Mock) window.Mock.store.set("diffusion", row);
+    return void 0;
+  }
   var AROUND = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
   function freeHexes(start, taken, count) {
     const busy = new Set(taken.map((t) => `${t.q},${t.r}`));
@@ -1037,6 +1076,24 @@
       shareInstance(data);
       return void 0;
     },
+    // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone,
+    // brought back onto the screen (0 to 1); the size and the content stay.
+    "live.moveWindow": (server, { payload: payload2 }) => onWindow(server, (w) => {
+      w.x = onScreen(payload2.x, w.x);
+      w.y = onScreen(payload2.y, w.y);
+    }),
+    // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
+    // is stored, the largest that fits the box asked for at the image's ratio — w
+    // alone with no h — from 0.1 to the screen's width, to 4 decimals
+    // (window-proportional); the position stays. A w that is no number, which the
+    // server refuses, keeps the width.
+    "live.resizeWindow": (server, { payload: payload2 }) => onWindow(server, async (w) => {
+      if (typeof payload2.w !== "number" || !Number.isFinite(payload2.w)) return void 0;
+      const ratio = await ratioOfIllustration(server, w.id || w.media);
+      const fit = typeof payload2.h === "number" && Number.isFinite(payload2.h) ? Math.min(payload2.w, payload2.h * ratio) : payload2.w;
+      w.w = Math.round(Math.max(0.1, Math.min(1, fit)) * 1e4) / 1e4;
+      return void 0;
+    }),
     // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
     // a battlemap instance of the session, or an illustration of the campaign,
     // becomes the player view's base, framed as the DM framed it (1 and 0, 0
