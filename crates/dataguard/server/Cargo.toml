@@ -16,12 +16,20 @@ data = { path = "../../data" }
 platform-conformance = { path = "../../platform/conformance" }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 
-# The engine is the harness's, taken by git: this crate only binds it. The
-# DataCapabilities of the product are its dependencies — one line each, which
-# the gate `data-capability-registered` requires and `build.rs` turns into the
-# registry the server starts with.
+# The engine is the harness's, taken by git at a release tag (`dataguard-vN`,
+# never moved). This line is the one place the tag is written:
+# `scripts/register.sh` copies it into the registry's Cargo.toml and into the
+# root Cargo.toml's [workspace.dependencies], whence every unit takes it — one
+# engine, one `Plugin` type. Every unit's plugin reaches this server through
+# the registry (`dataguard-registry`, the script's); the lines below it are
+# what the legacy submit chain, projection and reads still call, each deleted
+# with the branch that calls it, unit by unit.
 [dependencies]
-harness-dataguard = { git = "https://github.com/laucans/custom-harness", branch = "main", features = ["postgres"] }
+harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v3", features = ["postgres", "uuid"] }
+dataguard-registry = { path = "../registry" }
+# The Entity aggregate's index of names and aliases, which its judge reads:
+# kept here, as the tables hold it, until the Entity aggregate projects.
+aggregate-entity = { path = "../../campaign/aggregates/Entity" }
 async-trait = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 serde = { version = "1", default-features = false, features = ["derive"] }
@@ -36,7 +44,7 @@ getrandom = "0.4"
 ports-llm = { path = "../../ports/llm" }
 # The port a dictation of notes is transcribed by, locally.
 ports-speech-to-text = { path = "../../ports/speech-to-text" }
-# The Capability a read is answered by (`reads.rs`): rows in, answer out.
+# --- Capabilities (the reads `reads.rs` still serves) ---
 get-settings = { path = "../../ai/capabilities/get-settings" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
@@ -47,7 +55,8 @@ list-events = { path = "../../campaign/capabilities/list-events" }
 list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
-# --- DataCapabilities (one per crates/<system>/data-capabilities/<name>) ---
+
+# --- DataCapabilities (the branches of the legacy submit chain) ---
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }

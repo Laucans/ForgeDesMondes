@@ -1,4 +1,4 @@
-//! The Session aggregate (`crates/dataguard/aggregates/Session/aggregate.json`)
+//! The Session aggregate (`crates/session/aggregates/Session/aggregate.json`)
 //! on the tables `crates/data/migrations/0006_session.sql` lays, against the
 //! harness's PostgreSQL (`DATABASE_URL`), migrated by the Data layer: each
 //! relation the aggregate declares is its foreign key's actions; the roster
@@ -16,7 +16,7 @@ use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
 /// The aggregate the tables are held to.
-const AGGREGATE: &str = include_str!("../../aggregates/Session/aggregate.json");
+const AGGREGATE: &str = include_str!("../../../session/aggregates/Session/aggregate.json");
 
 /// The aggregate's tables, in the migration's order.
 const TABLES: [&str; 8] = [

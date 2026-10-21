@@ -1,0 +1,15 @@
+[package]
+name = "aggregate-sound-playback"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Aggregate SoundPlayback: a sound playing in a session — its invariants judged as code (simultaneous-playback, stop-all, dm-side-only)."
+publish = false
+
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+[dependencies]
+harness-dataguard = { workspace = true }
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

@@ -31,6 +31,7 @@
 
 mod fixtures;
 
+use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -218,6 +219,35 @@ pub fn app<L: Llm + 'static, S: SpeechToText + 'static>(
     reads: Arc<Reads>,
 ) -> Router {
     dataguard_server::router_reading(engine, rows, llm, speech, reads).route("/health", get(health))
+}
+
+/// Every unit the registry holds, one per line: its kind, its folder, and
+/// the types it reads from what the server shares — what `server
+/// inventory` prints, reading no database.
+#[must_use]
+pub fn inventory() -> String {
+    let mut out = String::new();
+    for (kind, units) in [
+        ("aggregate", dataguard_registry::AGGREGATES),
+        ("data-capability", dataguard_registry::DATA_CAPABILITIES),
+        ("capability", dataguard_registry::CAPABILITIES),
+    ] {
+        for unit in units {
+            let needs = unit.needs();
+            let needs = if needs.is_empty() {
+                "-".to_string()
+            } else {
+                needs.join(", ")
+            };
+            let code = if unit.plugin.is_some() {
+                ""
+            } else {
+                " (manifest only)"
+            };
+            let _ = writeln!(out, "{kind:<16} {}{code}  needs: {needs}", unit.folder);
+        }
+    }
+    out
 }
 
 /// Answers 200 once the server serves: migrations applied, engine planted.
@@ -595,6 +625,22 @@ mod tests {
             "media.getBattlemap.json",
         ] {
             assert!(dir.join(media).is_file(), "{media} in {dir:?}");
+        }
+    }
+
+    #[test]
+    fn the_inventory_lists_every_unit_by_kind_with_what_it_needs() {
+        let listed = inventory();
+        let units = dataguard_registry::AGGREGATES.len()
+            + dataguard_registry::DATA_CAPABILITIES.len()
+            + dataguard_registry::CAPABILITIES.len();
+        assert_eq!(listed.lines().count(), units, "{listed}");
+        for line in [
+            "aggregate        crates/campaign/aggregates/Entity  needs: -",
+            "data-capability  crates/ai/data-capabilities/save-settings  needs: -",
+            "capability       crates/ai/capabilities/get-settings  needs: -",
+        ] {
+            assert!(listed.lines().any(|l| l == line), "{line} in {listed}");
         }
     }
 }

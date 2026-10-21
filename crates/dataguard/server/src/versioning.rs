@@ -15,6 +15,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use aggregate_entity::Aliases;
 use async_trait::async_trait;
 use extract_from_notes::Known;
 use harness_dataguard::Result;
@@ -25,7 +26,6 @@ use restore_entity_version::Kept;
 use save_entity::{stamp, versioned};
 use serde_json::Value;
 
-use crate::aliases::Aliases;
 use crate::history::History;
 use crate::notes::Notes;
 use crate::projection::{Placing, ProjectingStore};
@@ -294,7 +294,15 @@ impl Rows {
     /// The elements `campaign` holds, with their names and aliases: what
     /// an analysis of its notes recognises.
     pub fn known(&self, campaign: &str) -> Vec<Known> {
-        self.aliases.known(campaign)
+        self.aliases
+            .known(campaign)
+            .into_iter()
+            .map(|element| Known {
+                id: element.id,
+                name: element.name,
+                aliases: element.aliases,
+            })
+            .collect()
     }
 
     /// Whether the tables hold the campaign `id` names, live — over the
@@ -436,6 +444,7 @@ mod tests {
             data_version: None,
             violations: Vec::new(),
             review_id: None,
+            attachment: None,
         }
     }
 

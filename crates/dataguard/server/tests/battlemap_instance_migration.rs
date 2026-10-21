@@ -124,7 +124,7 @@ async fn connect(config: &tokio_postgres::Config) -> Client {
 
 fn aggregate() -> Value {
     serde_json::from_str(include_str!(
-        "../../aggregates/BattlemapInstance/aggregate.json"
+        "../../../table/aggregates/BattlemapInstance/aggregate.json"
     ))
     .expect("contract I")
 }
@@ -613,24 +613,6 @@ async fn what_the_tables_refuse_of_a_token_the_dataguard_refuses() {
             },
             "multi-drop-numbering",
         ),
-        // Death written: dead-derived — the column is the table's.
-        (
-            {
-                let mut row = morlox();
-                row["dead"] = json!(false);
-                row
-            },
-            "dead-derived",
-        ),
-        // A band written: players-see-band-only.
-        (
-            {
-                let mut row = morlox();
-                row["healthBand"] = json!("indemne");
-                row
-            },
-            "players-see-band-only",
-        ),
     ] {
         assert!(s.insert(&row).await.is_err(), "the tables took {row}");
         let result = written(&engine, "test.dropToken", &row).await;
@@ -639,6 +621,26 @@ async fn what_the_tables_refuse_of_a_token_the_dataguard_refuses() {
             result.violations.iter().any(|v| v == id),
             "{row}: {result:?}"
         );
+    }
+    // Death written (dead-derived), a band written (players-see-band-only):
+    // the columns are the table's, and the fields derived, which the engine
+    // refuses before anything is queued.
+    for (field, value) in [("dead", json!(false)), ("healthBand", json!("indemne"))] {
+        let mut row = morlox();
+        row[field] = value;
+        assert!(s.insert(&row).await.is_err(), "the tables took {row}");
+        let Value::Object(payload) = row.clone() else {
+            panic!("a token is an object");
+        };
+        let refusal = engine
+            .submit(Submission {
+                data_capability: "test.dropToken".to_string(),
+                payload: payload.into_iter().collect(),
+                ..Submission::default()
+            })
+            .await
+            .expect_err("refused before it is queued");
+        assert!(refusal.to_string().contains(field), "{row}: {refusal}");
     }
     s.drop().await;
 }

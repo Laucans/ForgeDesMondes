@@ -374,7 +374,7 @@ Ce prototype doit prouver que ForgeDesMondes divise par deux le temps de prépar
 
 ## Data
 
-Drafted and validated at creation, beside the mock-up: `mock/data/model.json` (contract M, 33 tables) and one `mock/data/aggregates/<Aggregate>.aggregate.json` per aggregate (contract I, 12 aggregates, 61 invariants). The task that builds an aggregate installs its draft at `crates/dataguard/aggregates/<Aggregate>/aggregate.json` and moves its tables into `data/model.json` with its migration.
+Drafted and validated at creation, beside the mock-up: `mock/data/model.json` (contract M, 33 tables) and one `mock/data/aggregates/<Aggregate>.aggregate.json` per aggregate (contract I, 12 aggregates, 61 invariants). The task that builds an aggregate installs its draft at `crates/<system>/aggregates/<Aggregate>/aggregate.json` and moves its tables into `data/model.json` with its migration.
 
 - **Campaign** — campaign, campaign_overview_view
   - oneshot-single-session — Un oneshot a exactement une séance : sa création crée cette séance, et on ne peut pas en ajouter une autre.

@@ -20,6 +20,7 @@
 
 use std::collections::BTreeMap;
 
+use harness_dataguard::plugins::Plugin;
 use ports_llm::{
     ApiType, Binary, Llm, Models, Provider, ProviderConfig, Secret, UNRECOGNISED_API_TYPE,
     detect_api_type,
@@ -67,6 +68,14 @@ pub struct Prepared {
 #[must_use]
 pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
+}
+
+/// What the DataCapability plugs into the engine: nothing yet — the legacy
+/// server (`crates/dataguard/server`) still prepares it, until its
+/// `Prepare` moves here.
+#[must_use]
+pub fn plugin() -> Plugin {
+    Default::default()
 }
 
 /// The state a save of `wire` writes, `updated_at` being now (RFC 3339).

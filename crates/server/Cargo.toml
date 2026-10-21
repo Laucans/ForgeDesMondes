@@ -14,6 +14,8 @@ path = "src/main.rs"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 data = { path = "../data" }
 dataguard-server = { path = "../dataguard/server" }
+# Every unit of the product, gathered: what `server inventory` lists.
+dataguard-registry = { path = "../dataguard/registry" }
 ports-llm = { path = "../ports/llm" }
 ports-speech-to-text = { path = "../ports/speech-to-text" }
 serde_json = "1"

@@ -20,6 +20,8 @@
 //! Capability's own reading of `ProviderApiType@1`, held to the Concept's
 //! fixtures, for a row that holds none.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -72,7 +74,7 @@ const BULLETS: usize = 16;
 /// The settings `rows` — an array of the objects [`SQL`] selects — as the
 /// screen reads them. No row is an empty, well-formed answer.
 #[must_use]
-pub fn answer(rows: &Value) -> Value {
+pub fn answer_rows(rows: &Value) -> Value {
     let rows: Vec<&Value> = rows
         .as_array()
         .map(|r| r.iter().collect())
@@ -257,6 +259,17 @@ fn host_of(url: &str) -> Option<String> {
     (!host.is_empty()).then(|| host.to_ascii_lowercase())
 }
 
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &[];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables, of which it reads none.
+#[must_use]
+pub fn answer(rows: &Value, _variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -332,7 +345,7 @@ mod tests {
 
     #[test]
     fn the_answer_has_the_keys_of_the_fixture() {
-        let answer = answer(&seeded());
+        let answer = answer_rows(&seeded());
         for key in fixture().as_object().expect("an object").keys() {
             assert!(answer.get(key).is_some(), "{key} is missing from {answer}");
         }
@@ -347,14 +360,14 @@ mod tests {
 
     #[test]
     fn what_stays_local_and_what_is_sent_are_the_mock_ups() {
-        let answer = answer(&json!([]));
+        let answer = answer_rows(&json!([]));
         assert_eq!(answer["local"], fixture()["local"]);
         assert_eq!(answer["sent"], fixture()["sent"]);
     }
 
     #[test]
     fn the_seeded_store_shows_the_cloud_active_and_no_test() {
-        let answer = answer(&seeded());
+        let answer = answer_rows(&seeded());
         assert_eq!(answer["provider"], "cloud");
         assert_eq!(answer["mode"], "api");
         assert_eq!(answer["binary"], Value::Null);
@@ -374,7 +387,7 @@ mod tests {
         cloud["api_key"] = json!(key);
         let mut short = api_row(HOME, "opencode", false);
         short["api_key"] = json!("abc123");
-        let answer = answer(&json!([cloud, short]));
+        let answer = answer_rows(&json!([cloud, short]));
         assert_eq!(
             answer["providers"]["cloud"]["key"],
             "sk-ant-••••••••••••••••3f9c"
@@ -404,7 +417,7 @@ mod tests {
             tested(api_row(CLOUD, "cloud", true), true, at, "ok", Some(10)),
             tested(api_row(HOME, "opencode", false), true, at, "ok", Some(10)),
         ]);
-        assert_eq!(answer(&rows)["lastTest"]["provider"], "cloud");
+        assert_eq!(answer_rows(&rows)["lastTest"]["provider"], "cloud");
     }
 
     #[test]
@@ -433,7 +446,7 @@ mod tests {
                 Some(840)
             ),
         ]);
-        let answer = answer(&rows);
+        let answer = answer_rows(&rows);
         assert_eq!(
             answer["lastTest"],
             json!({
@@ -470,7 +483,7 @@ mod tests {
                 Some(840)
             ),
         ]);
-        let last = &answer(&rows)["lastTest"];
+        let last = &answer_rows(&rows)["lastTest"];
         assert_eq!(last["ok"], false);
         assert_eq!(last["message"], message);
         assert_eq!(last["latency"], Value::Null);
@@ -484,12 +497,12 @@ mod tests {
             tested(api_row(CLOUD, "cloud", true), true, at, "ok", Some(10)),
             tested(api_row(HOME, "opencode", false), false, at, "ko", None),
         ]);
-        assert_eq!(answer(&rows)["lastTest"]["ok"], false);
+        assert_eq!(answer_rows(&rows)["lastTest"]["ok"], false);
     }
 
     #[test]
     fn the_saved_urls_are_what_the_rows_hold_whatever_the_last_test() {
-        let before = answer(&seeded());
+        let before = answer_rows(&seeded());
         let rows = json!([
             tested(
                 api_row(CLOUD, "cloud", true),
@@ -500,7 +513,7 @@ mod tests {
             ),
             api_row(HOME, "opencode", false),
         ]);
-        let after = answer(&rows);
+        let after = answer_rows(&rows);
         for kind in ["cloud", "opencode"] {
             assert_eq!(
                 after["providers"][kind]["url"],
@@ -514,7 +527,7 @@ mod tests {
         let mut rows = seeded();
         rows[0]["active"] = json!(false);
         rows[3]["active"] = json!(true);
-        let answer = answer(&rows);
+        let answer = answer_rows(&rows);
         assert_eq!(answer["mode"], "binary");
         assert_eq!(answer["provider"], "claude-code");
         assert_eq!(
@@ -527,16 +540,19 @@ mod tests {
     fn a_row_without_a_stored_type_is_told_by_its_url() {
         let mut row = api_row(CLOUD, "cloud", true);
         row["detected_api_type"] = Value::Null;
-        let answer = answer(&json!([row]));
+        let answer = answer_rows(&json!([row]));
         assert_eq!(answer["provider"], "cloud");
         let mut unknown = api_row(HOME, "opencode", false);
         unknown["detected_api_type"] = Value::Null;
-        assert_eq!(super::answer(&json!([unknown]))["providers"], json!({}));
+        assert_eq!(
+            super::answer_rows(&json!([unknown]))["providers"],
+            json!({})
+        );
     }
 
     #[test]
     fn no_row_is_an_empty_well_formed_answer() {
-        let answer = answer(&Value::Null);
+        let answer = answer_rows(&Value::Null);
         assert_eq!(answer["provider"], Value::Null);
         assert_eq!(answer["providers"], json!({}));
         assert_eq!(answer["lastTest"], Value::Null);
@@ -580,5 +596,13 @@ mod tests {
                 "the query names {field}, the SQL does not select it"
             );
         }
+    }
+
+    #[test]
+    fn the_registry_s_answer_is_the_rows_answer() {
+        let rows = seeded();
+        let answered = answer(&rows, &BTreeMap::new());
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows));
     }
 }

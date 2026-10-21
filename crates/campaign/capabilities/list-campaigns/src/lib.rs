@@ -16,6 +16,8 @@
 //! unknown count, never a made-up zero. A row that carries them
 //! (`session_count`, `last_played`, `next_session`) is answered as it says.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -37,7 +39,7 @@ ORDER BY c.created_at DESC, c.name, c.id";
 /// the home page reads them, in the order of the rows. No row is an empty,
 /// well-formed answer.
 #[must_use]
-pub fn answer(rows: &Value) -> Value {
+pub fn answer_rows(rows: &Value) -> Value {
     let campaigns: Vec<Value> = rows
         .as_array()
         .map(|rows| {
@@ -59,6 +61,17 @@ pub fn answer(rows: &Value) -> Value {
         })
         .unwrap_or_default();
     Value::Array(campaigns)
+}
+
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &[];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables, of which it reads none.
+#[must_use]
+pub fn answer(rows: &Value, _variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(rows)
 }
 
 #[cfg(test)]
@@ -91,7 +104,7 @@ mod tests {
 
     #[test]
     fn two_campaigns_and_a_oneshot_all_appear_with_their_cover() {
-        let listed = answer(&three());
+        let listed = answer_rows(&three());
         let items = listed.as_array().expect("an array");
         assert_eq!(items.len(), 3);
         let types: Vec<&Value> = items.iter().map(|c| &c["type"]).collect();
@@ -114,7 +127,7 @@ mod tests {
             keys.sort_unstable();
             keys
         };
-        assert_eq!(keys(&answer(&three())), keys(&fixture()));
+        assert_eq!(keys(&answer_rows(&three())), keys(&fixture()));
     }
 
     #[test]
@@ -122,7 +135,7 @@ mod tests {
         let mut rows = three();
         rows[0]["account"] = json!("laurent");
         rows[1]["owner"] = json!("laurent");
-        let listed = answer(&rows);
+        let listed = answer_rows(&rows);
         for item in listed.as_array().expect("an array") {
             assert!(
                 item.get("account").is_none() && item.get("owner").is_none(),
@@ -133,7 +146,7 @@ mod tests {
 
     #[test]
     fn sessions_are_unknown_until_they_are_counted_never_zero() {
-        let listed = answer(&three());
+        let listed = answer_rows(&three());
         assert_eq!(listed[1]["sessions"], Value::Null);
         assert_eq!(listed[1]["lastPlayed"], Value::Null);
         assert_eq!(listed[1]["next"], Value::Null);
@@ -145,7 +158,7 @@ mod tests {
         rows[1]["session_count"] = json!(1);
         rows[1]["last_played"] = json!("2026-07-11");
         rows[0]["next_session"] = json!("2026-10-17");
-        let listed = answer(&rows);
+        let listed = answer_rows(&rows);
         assert_eq!(listed[1]["sessions"], 1);
         assert_eq!(listed[1]["lastPlayed"], "2026-07-11");
         assert_eq!(listed[0]["next"], "2026-10-17");
@@ -153,7 +166,7 @@ mod tests {
 
     #[test]
     fn the_order_of_the_rows_is_kept() {
-        let listed = answer(&three());
+        let listed = answer_rows(&three());
         let ids: Vec<&Value> = listed
             .as_array()
             .expect("an array")
@@ -168,8 +181,8 @@ mod tests {
 
     #[test]
     fn no_row_is_an_empty_well_formed_answer() {
-        assert_eq!(answer(&json!([])), json!([]));
-        assert_eq!(answer(&Value::Null), json!([]));
+        assert_eq!(answer_rows(&json!([])), json!([]));
+        assert_eq!(answer_rows(&Value::Null), json!([]));
     }
 
     #[test]
@@ -213,5 +226,13 @@ mod tests {
                 "the query names {field}, the SQL does not select it"
             );
         }
+    }
+
+    #[test]
+    fn the_registry_s_answer_is_the_rows_answer() {
+        let rows = three();
+        let answered = answer(&rows, &BTreeMap::new());
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows));
     }
 }

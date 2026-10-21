@@ -1,0 +1,15 @@
+[package]
+name = "aggregate-note-import"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Aggregate NoteImport: an imported note and the proposals its analysis made — its invariant judged as code (no-creation-before-validation)."
+publish = false
+
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+[dependencies]
+harness-dataguard = { workspace = true }
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

@@ -5,7 +5,7 @@ use ports_llm::contract::{Recognised, Scenario, run};
 use ports_llm::fake::FakeLlm;
 use ports_llm::{
     Binary, ConnectionReport, GenerateAnswer, GenerateRequest, Llm, LlmError, Models, Provider,
-    ProviderConfig, RequestJournal, Secret,
+    ProviderConfig, RequestJournal, Secret, SharedLlm,
 };
 use serde_json::json;
 
@@ -81,6 +81,24 @@ async fn the_contract_still_holds_on_a_fake_that_already_has_requests() {
     let fake = fake();
     run(&fake, &scenario()).await;
     run(&fake, &scenario()).await;
+}
+
+/// The handle a server shares with its units is the port behind it: it
+/// passes the contract, and every clone of it reads the same journal.
+#[tokio::test]
+async fn the_shared_handle_passes_the_contract_and_shares_its_journal() {
+    let shared = SharedLlm::new(fake());
+    run(&shared, &scenario()).await;
+    let clone = shared.clone();
+    assert!(!shared.journal().list().is_empty());
+    assert_eq!(clone.journal().list(), shared.journal().list());
+}
+
+/// Behind the handle, a port that breaks the contract still breaks it.
+#[tokio::test]
+#[should_panic(expected = "the model that answered")]
+async fn the_shared_handle_hands_the_port_s_own_answer_over() {
+    run(&SharedLlm::new(Faulty::new(Fault::WrongModel)), &scenario()).await;
 }
 
 /// The suite is only worth running if it fails on a port that breaks it: a

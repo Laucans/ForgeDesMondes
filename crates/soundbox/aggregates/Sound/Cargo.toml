@@ -1,0 +1,15 @@
+[package]
+name = "aggregate-sound"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Aggregate Sound: a campaign's sound — its invariants judged as code (sound-volume-range, tags-normalized)."
+publish = false
+
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+[dependencies]
+harness-dataguard = { workspace = true }
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

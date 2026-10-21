@@ -1064,8 +1064,8 @@
       return out;
     };
     const pendingIn = (partition) => [...s.queue.values()].filter((e) => e.partition === partition && !FINAL2.has(e.state)).sort((a, b) => a.position - b.position);
-    const declaredAhead = (entry) => {
-      const fields2 = Object.keys(entry.payload);
+    const declaredAhead = (entry, merging = /* @__PURE__ */ new Set()) => {
+      const fields2 = Object.keys(entry.payload).filter((f) => !merging.has(f));
       const ahead = pendingIn(entry.partition).find((e) => e.position < entry.position && e.state !== "parked" && fields2.some((f) => f in e.payload));
       if (ahead) {
         const f = fields2.find((x) => x in ahead.payload);
@@ -1134,8 +1134,11 @@
         const seen = [...s.queue.values()].find((e) => e.idempotencyKey === body.idempotencyKey && e.dataCapability === dataCapability);
         if (seen) return answer(seen, true);
       }
-      const commandId2 = uuid();
       const aggregate = target.aggregate || null;
+      const declared = (aggregate && await s.load(`aggregates/${aggregate}`) || { fields: {} }).fields || {};
+      const derived = Object.keys(payload2).filter((f) => declared[f] && declared[f].kind === "derived");
+      if (derived.length) return json({ error: `${dataCapability} writes the derived field(s) ${derived.join(", ")}: ${aggregate} recomputes them` }, 403);
+      const commandId2 = uuid();
       const partition = `${aggregate || dataCapability}/${targetId || commandId2}`;
       const entry = { commandId: commandId2, dataCapability, version: Number(version) || 1, aggregate, partition, targetId, by, payload: payload2, basedOn: body.basedOn, idempotencyKey: body.idempotencyKey, handler, position: s.next(), state: "queued", warnings: [] };
       s.queue.set(commandId2, entry);
@@ -1158,9 +1161,9 @@
         entry.warnings.push(`invariant(s) at risk: ${verdict.reject.concat(verdict.review).join(", ")}`);
         s.tell("InvariantAtRisk", by, commandId2, { violations: verdict.reject.concat(verdict.review) });
       }
-      const critical = (await s.load(`aggregates/${aggregate}`) || { fields: {} }).fields || {};
-      const needsReview = verdict.review.length > 0 || Object.keys(payload2).some((f) => critical[f] && critical[f].criticality === "critical");
-      const ahead = declaredAhead(entry);
+      const needsReview = verdict.review.length > 0 || Object.keys(payload2).some((f) => declared[f] && declared[f].criticality === "critical");
+      const merging = new Set(Object.keys(declared).filter((f) => declared[f].merge));
+      const ahead = declaredAhead(entry, merging);
       if (needsReview) {
         entry.state = "awaiting_review";
         entry.reviewId = `r_${s.next()}`;

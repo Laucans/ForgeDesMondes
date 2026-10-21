@@ -3,6 +3,118 @@
 version = 4
 
 [[package]]
+name = "aggregate-ai-settings"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "platform-conformance",
+ "ports-llm",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-battlemap-instance"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "platform-conformance",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-campaign"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-diffusion"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-entity"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "aggregate-media"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-note-import"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-player"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-session"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-sound"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-sound-playback"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "aggregate-suggestion"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -230,6 +342,7 @@ dependencies = [
 name = "create-entities-from-note"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "platform-conformance",
  "serde_json",
  "sha2",
@@ -264,14 +377,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "dataguard-registry"
+version = "0.1.0"
+dependencies = [
+ "aggregate-ai-settings",
+ "aggregate-battlemap-instance",
+ "aggregate-campaign",
+ "aggregate-diffusion",
+ "aggregate-entity",
+ "aggregate-media",
+ "aggregate-note-import",
+ "aggregate-player",
+ "aggregate-session",
+ "aggregate-sound",
+ "aggregate-sound-playback",
+ "aggregate-suggestion",
+ "create-entities-from-note",
+ "export-campaign",
+ "extract-from-notes",
+ "get-battlemap",
+ "get-campaign",
+ "get-entity",
+ "get-settings",
+ "harness-dataguard",
+ "list-campaigns",
+ "list-characters",
+ "list-entity-versions",
+ "list-events",
+ "list-imported-notes",
+ "list-media",
+ "list-places",
+ "list-players",
+ "list-provider-requests",
+ "restore-entity-version",
+ "save-entity",
+ "save-grid-settings",
+ "save-settings",
+ "set-media-place",
+ "test-connection",
+ "upload-media",
+]
+
+[[package]]
 name = "dataguard-server"
 version = "0.1.0"
 dependencies = [
+ "aggregate-entity",
  "async-trait",
  "axum",
  "base64 0.22.1",
  "create-entities-from-note",
  "data",
+ "dataguard-registry",
  "export-campaign",
  "extract-from-notes",
  "get-campaign",
@@ -347,6 +504,7 @@ dependencies = [
 name = "export-campaign"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "serde_json",
 ]
 
@@ -355,6 +513,7 @@ name = "extract-from-notes"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "harness-dataguard",
  "platform-conformance",
  "ports-llm",
  "ports-speech-to-text",
@@ -492,14 +651,16 @@ dependencies = [
 [[package]]
 name = "harness-dataguard"
 version = "0.1.0"
-source = "git+https://github.com/laucans/custom-harness?branch=main#beeffa630a9a4124efe9d3983b04db12ab1a9e3a"
+source = "git+https://github.com/laucans/custom-harness?tag=dataguard-v3#bc8183d9fa8344b2aa9ca2d1c8f3bc004f6fe8c8"
 dependencies = [
  "async-trait",
+ "bytes",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
  "tokio-postgres",
+ "uuid",
 ]
 
 [[package]]
@@ -1301,6 +1462,7 @@ dependencies = [
 name = "restore-entity-version"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "platform-conformance",
  "serde_json",
 ]
@@ -1428,6 +1590,7 @@ dependencies = [
 name = "save-entity"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "platform-conformance",
  "serde_json",
  "unicode-normalization",
@@ -1437,6 +1600,7 @@ dependencies = [
 name = "save-grid-settings"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "serde_json",
 ]
 
@@ -1444,6 +1608,7 @@ dependencies = [
 name = "save-settings"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "ports-llm",
  "serde_json",
  "tokio",
@@ -1553,6 +1718,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "data",
+ "dataguard-registry",
  "dataguard-server",
  "ports-llm",
  "ports-speech-to-text",
@@ -1567,6 +1733,7 @@ dependencies = [
 name = "set-media-place"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "serde_json",
 ]
 
@@ -1716,6 +1883,7 @@ dependencies = [
 name = "test-connection"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "ports-llm",
  "serde_json",
  "tokio",
@@ -1947,6 +2115,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 name = "upload-media"
 version = "0.1.0"
 dependencies = [
+ "harness-dataguard",
  "serde_json",
 ]
 
@@ -1974,6 +2143,7 @@ version = "1.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
 dependencies = [
+ "getrandom 0.4.3",
  "sha1_smol",
 ]
 

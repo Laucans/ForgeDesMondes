@@ -1,13 +1,15 @@
-# The product's one Rust workspace (docs/ARCHITECTURE.md, layout). A slice —
-# a Capability or a DataCapability — is a member by its folder alone, through
-# the two globs: adding one edits no shared file (rule 2, gate
-# `workspace-members-by-glob`). Only the plumbing is named.
+# The product's one Rust workspace (docs/ARCHITECTURE.md, layout). A unit —
+# an aggregate, a Capability or a DataCapability — is a member by its folder
+# alone, through the three globs: adding one edits no shared file (rule 2,
+# gate `workspace-members-by-glob`). Only the plumbing is named.
 [workspace]
 resolver = "3"
 members = [
+    "crates/*/aggregates/*",
     "crates/*/capabilities/*",
     "crates/*/data-capabilities/*",
     "crates/data",
+    "crates/dataguard/registry",
     "crates/dataguard/server",
     "crates/media/read",
     "crates/ports/*",
@@ -22,3 +24,6 @@ exclude = ["tests/rules/business"]
 [workspace.package]
 edition = "2024"
 rust-version = "1.99"
+
+[workspace.dependencies]
+harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v3", features = ["postgres", "uuid"] }

@@ -32,6 +32,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use harness_dataguard::plugins::Plugin;
 use serde_json::{Map, Value};
 
 /// This DataCapability's id, as `data-capability.json` names it.
@@ -200,6 +201,14 @@ pub struct Version {
 #[must_use]
 pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
+}
+
+/// What the DataCapability plugs into the engine: nothing yet — the legacy
+/// server (`crates/dataguard/server`) still prepares it, until its
+/// `Prepare` moves here.
+#[must_use]
+pub fn plugin() -> Plugin {
+    Default::default()
 }
 
 /// A string that holds more than blanks.

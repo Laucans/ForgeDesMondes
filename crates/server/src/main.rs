@@ -1,12 +1,18 @@
 //! The product's one server binary: env → migrations → engine → fixtures →
 //! listen (see the library for what each variable means).
+//!
+//!   server              serves
+//!   server inventory    lists the registered units, with what each needs
 
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use dataguard_server::{MEMORY, Planted, applier, planted};
-use server::{Config, Error, Ports, app, fixtures, llm, reads, speech_to_text};
+use dataguard_server::engine::plugins::Shared;
+use dataguard_server::{MEMORY, Planted, applier, planted_with};
+use ports_llm::SharedLlm;
+use ports_speech_to_text::SharedSpeechToText;
+use server::{Config, Error, Ports, app, fixtures, inventory, llm, reads, speech_to_text};
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
 /// — among the tracked `*migrations/*.sql` `scripts/rules-runtime.sh` and
@@ -18,6 +24,10 @@ const MIGRATIONS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../data/migration
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("inventory") {
+        print!("{}", inventory());
+        return ExitCode::SUCCESS;
+    }
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -93,11 +103,18 @@ async fn run() -> Result<(), Error> {
     };
     let reads = Arc::new(reads.named(names));
 
+    // One port each, shared: the legacy chain and the units' `Prepare`s
+    // reach the same fake, and read the same journal.
+    let llm = SharedLlm::new(llm(config.ports, config.fixtures.as_deref()));
+    let speech = SharedSpeechToText::new(speech_to_text(config.ports, config.fixtures.as_deref()));
+    let mut shared = Shared::default();
+    shared.insert(Arc::new(llm.clone()));
+    shared.insert(Arc::new(speech.clone()));
+
     // After the fixtures: the engine records the aliases the tables hold.
-    let Planted { engine, rows } = planted(&config.database_url).await?;
+    let Planted { engine, rows } = planted_with(&config.database_url, shared).await?;
     let engine = Arc::new(engine);
-    let llm = Arc::new(llm(config.ports, config.fixtures.as_deref()));
-    let speech = Arc::new(speech_to_text(config.ports, config.fixtures.as_deref()));
+    let (llm, speech) = (Arc::new(llm), Arc::new(speech));
     if config.read_only_url.is_none() && config.database_url != MEMORY {
         eprintln!(
             "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"

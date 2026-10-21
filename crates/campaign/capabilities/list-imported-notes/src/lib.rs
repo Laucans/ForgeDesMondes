@@ -15,6 +15,8 @@
 //! an element the campaign already has carries its id in `existing`; the
 //! analysis left it unchecked, and so it is answered.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -27,7 +29,7 @@ pub const CAPABILITY: &str = "campaign.listImportedNotes";
 /// `created` count the note's proposals and those that created an element.
 /// `proposals` is filled on one note only: the latest analysed one, as long
 /// as none of its proposals has created an element — that is, while the DM
-/// has still to validate. `campaign_id` is selected too, so that [`answer`]
+/// has still to validate. `campaign_id` is selected too, so that [`answer_rows`]
 /// keeps only the campaign's own notes whoever ran the statement.
 pub const SQL: &str = r#"SELECT n.id::text AS id,
     n.campaign_id::text AS campaign_id,
@@ -114,7 +116,7 @@ fn proposal(row: &Value) -> Value {
 /// first), the proposals that of the row that carries them. A campaign with
 /// no note answers two empty lists.
 #[must_use]
-pub fn answer(rows: &Value, campaign: &str) -> Value {
+pub fn answer_rows(rows: &Value, campaign: &str) -> Value {
     let own: Vec<&Value> = rows
         .as_array()
         .map(|rows| {
@@ -142,6 +144,24 @@ pub fn answer(rows: &Value, campaign: &str) -> Value {
         .map(|proposals| proposals.iter().map(proposal).collect())
         .unwrap_or_default();
     json!({ "imports": imports, "proposals": proposals })
+}
+
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &["campaign"];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `campaign`, as [`SQL`] binds it; a
+/// variable absent is the empty text, which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("campaign")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
 }
 
 #[cfg(test)]
@@ -202,7 +222,7 @@ mod tests {
 
     #[test]
     fn the_imports_are_the_fixtures_newest_first() {
-        let answered = answer(&rows(), CENDRES);
+        let answered = answer_rows(&rows(), CENDRES);
         let mut expected = fixture("campaign.listImportedNotes")
             .as_array()
             .expect("an array")
@@ -213,7 +233,7 @@ mod tests {
 
     #[test]
     fn the_proposals_are_the_fixtures_with_their_duplicates_unchecked() {
-        let answered = answer(&rows(), CENDRES);
+        let answered = answer_rows(&rows(), CENDRES);
         let proposals = answered["proposals"].as_array().expect("an array");
         assert_eq!(
             proposals,
@@ -239,7 +259,10 @@ mod tests {
             &json!([{ "id": "p", "type": "evenement", "name": "Le bal", "excerpt": "…",
                       "existing": null, "checked": true }]),
         )]);
-        assert_eq!(answer(&rows, CENDRES)["proposals"][0]["type"], "événement");
+        assert_eq!(
+            answer_rows(&rows, CENDRES)["proposals"][0]["type"],
+            "événement"
+        );
     }
 
     #[test]
@@ -252,10 +275,10 @@ mod tests {
             &json!([{ "id": "np-intrus", "type": "pnj", "name": "Intrus", "excerpt": "…",
                       "existing": null, "checked": true }]),
         ));
-        let answered = answer(&rows, CENDRES);
+        let answered = answer_rows(&rows, CENDRES);
         assert!(!answered.to_string().contains("intrus"), "{answered}");
         assert_eq!(answered["imports"].as_array().expect("an array").len(), 2);
-        let other = answer(&rows, OTHER);
+        let other = answer_rows(&rows, OTHER);
         assert_eq!(other["imports"][0]["id"], "imp-intrus");
         assert_eq!(other["proposals"][0]["id"], "np-intrus");
     }
@@ -263,7 +286,7 @@ mod tests {
     #[test]
     fn a_campaign_with_no_note_has_two_empty_lists() {
         for rows in [json!([]), Value::Null, rows()] {
-            let answered = answer(&rows, "campagne-vide");
+            let answered = answer_rows(&rows, "campagne-vide");
             assert_eq!(answered, json!({ "imports": [], "proposals": [] }));
         }
     }
@@ -271,7 +294,7 @@ mod tests {
     #[test]
     fn a_note_with_nothing_to_validate_is_listed_without_proposals() {
         let rows = json!([note("n", CENDRES, "Séance 3", &json!([]))]);
-        let answered = answer(&rows, CENDRES);
+        let answered = answer_rows(&rows, CENDRES);
         assert_eq!(answered["imports"][0]["title"], "Séance 3");
         assert_eq!(answered["proposals"], json!([]));
     }
@@ -293,5 +316,15 @@ mod tests {
         assert_eq!(cut.chars().count(), TITLE_MAX);
         assert!(cut.ends_with('…'));
         assert_eq!(title(&"a".repeat(TITLE_MAX)), "a".repeat(TITLE_MAX));
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = rows();
+        let variables = BTreeMap::from([("campaign".to_string(), json!(CENDRES))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, CENDRES));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }
