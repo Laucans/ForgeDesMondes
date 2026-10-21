@@ -262,6 +262,22 @@
         "sessionPresentCharacter.characterId",
         "sessionPresentCharacter.addedAt"
       ]
+    },
+    {
+      "query": "ListSessions",
+      "capability": "session.listSessions",
+      "file": "crates/session/queries/list-sessions.graphql",
+      "sha256": "b49e0dbe6fc798341406c28b2df5efeb8a95801278fe6e9aa2f0eb034443edd7",
+      "fields": [
+        "session.id",
+        "session.campaignId",
+        "session.position",
+        "session.title",
+        "session.plannedOn",
+        "session.status",
+        "session.summary",
+        "sessionPresentCharacter.characterId"
+      ]
     }
   ]
 }
