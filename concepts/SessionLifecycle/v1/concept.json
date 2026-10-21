@@ -1,0 +1,30 @@
+{
+  "concept": "SessionLifecycle",
+  "version": 1,
+  "kind": "authoritative",
+  "definition": "The status of a play session and what it allows. A session has exactly one of three statuses: `prep` (being prepared), `live` (being played) and `closed` (played and finished). It moves forward only: `prep` to `live`, then `live` to `closed`. Every other move is refused, including staying in the same status, skipping `live` (`prep` to `closed`) and every move back (`live` to `prep`, `closed` to `live`, `closed` to `prep`). `closed` is final. `session.status` is the status asked about and `session.nextStatus` the status it would move to; `session.nextStatus` is absent or null when only the status itself is asked about, and the two are the same input, in which case `transitionAllowed` is null. A closed session accepts no more journal lines; a `prep` or `live` session does. Each status has one stable label, the one the session list shows: `En préparation` for `prep`, `En direct` for `live`, `Jouée` for `closed`.",
+  "output": {
+    "label": {
+      "type": "string",
+      "enum": ["En préparation", "En direct", "Jouée"],
+      "labels": {
+        "prep": "En préparation",
+        "live": "En direct",
+        "closed": "Jouée"
+      },
+      "rule": "the label of session.status, one per status, the same everywhere the status is shown"
+    },
+    "acceptsJournalLine": {
+      "type": "boolean",
+      "rule": "false exactly when session.status is closed"
+    },
+    "transitionAllowed": {
+      "type": "boolean",
+      "nullable": true,
+      "rule": "null when session.nextStatus is absent; otherwise true exactly for prep to live and live to closed, false for every other pair"
+    }
+  },
+  "inputs": ["session.status", "session.nextStatus"],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}

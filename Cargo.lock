@@ -450,6 +450,7 @@ dependencies = [
  "get-battlemap",
  "get-campaign",
  "get-entity",
+ "get-session",
  "get-settings",
  "harness-dataguard",
  "list-campaigns",
@@ -460,6 +461,7 @@ dependencies = [
  "list-media",
  "list-places",
  "list-players",
+ "list-sessions",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -635,6 +637,14 @@ dependencies = [
 
 [[package]]
 name = "get-entity"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-session"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
@@ -1079,6 +1089,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "list-sessions"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
 ]
 
 [[package]]

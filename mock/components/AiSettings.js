@@ -495,6 +495,27 @@
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
+    // session.createSession (planned, #157): the next session of the campaign, at
+    // the position after the last, in preparation, with the PCs ticked present.
+    // `present-only-pj` refuses a character that is not a PC of the fixtures.
+    "session.createSession": async (server, { payload: payload2 }) => {
+      const sessions = await server.load("session.listSessions");
+      const characters = await server.load("campaign.listCharacters");
+      const present = Array.isArray(payload2.present) ? payload2.present : [];
+      const pcs = new Set(characters.filter((c) => c.kind === "pj").map((c) => c.id));
+      if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
+      sessions.push({
+        id: server.uuid(),
+        order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
+        title: String(payload2.title || ""),
+        date: payload2.plannedOn || null,
+        status: "prep",
+        label: "En pr\xE9paration",
+        present,
+        summary: null
+      });
+      return void 0;
+    },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
     // battlemap or an illustration added to the library, the path the DM chose
     // recorded and no file copied. A battlemap arrives with its default grid
@@ -724,7 +745,18 @@
   };
 
   // mock/src/reads.js
+  var STATUS_LABELS = { prep: "En pr\xE9paration", live: "En direct", closed: "Jou\xE9e" };
   var READS = {
+    // session.getSession (crates/session/capabilities/get-session): one session's
+    // header and the PCs present, a session of `session.listSessions` (the ones
+    // created since included), its status labelled as SessionLifecycle@1 says. An
+    // unknown id is no session: `null`, as the server answers it.
+    "session.getSession": async (server, { id }) => {
+      const session = (await server.load("session.listSessions")).find((s) => s.id === id);
+      if (!session) return null;
+      const status = session.status === "played" ? "closed" : session.status;
+      return { id: session.id, order: session.order, title: session.title, date: session.date, status, statusLabel: STATUS_LABELS[status] ?? null, present: session.present };
+    },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
     // the notes already imported, newest first, and the proposals of the latest
     // analysed note still awaiting validation. The imports are the fixture's
