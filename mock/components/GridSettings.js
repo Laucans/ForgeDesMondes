@@ -775,7 +775,7 @@
       if (!data) return data;
       const dressedTokens = await dressed(server, data.state.tokens);
       if (view !== "player") return { ...data, state: { ...data.state, tokens: dressedTokens } };
-      const tokens = dressedTokens.filter((t) => t.visible).map(({ hp, hpMax, ...rest }) => ({ ...rest, healthBand: rest.kind === "pnj" ? healthBand(hp, hpMax) : null }));
+      const tokens = dressedTokens.filter((t) => t.visible).map((t) => ({ id: t.id, char: t.char, kind: t.kind, name: t.name, num: t.num, q: t.q, r: t.r, visible: true, states: t.states, dead: t.dead, initials: t.initials, color: t.color, portrait: t.portrait, healthBand: t.kind === "pnj" ? healthBand(t.hp, t.hpMax) : null }));
       return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat: null } };
     },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
@@ -891,7 +891,7 @@
       const { tokens } = data.state;
       const mine = tokens.filter((t) => t.char === character.id);
       const pnj = character.kind === "pnj";
-      if (!pnj && mine.length) return ["token-roster"];
+      if (!pnj && (mine.length || !(data.roster || []).includes(character.id))) return ["token-roster"];
       const count = pnj ? Math.max(1, Math.min(12, Number(payload2.count) || 1)) : 1;
       const base = character.tokenName || String(character.name).split(" ")[0];
       let num = Math.max(0, ...mine.map((t) => t.num || 0));

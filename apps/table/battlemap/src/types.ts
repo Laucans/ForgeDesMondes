@@ -74,6 +74,8 @@ export interface Token extends Hex {
 export interface Instance {
   id: string;
   battlemap: string;
+  /** The session whose players' view the map is sent to: the Diffusion aggregate's id. */
+  session: string;
   label: string;
   roster: string[];
   tokens: Token[];

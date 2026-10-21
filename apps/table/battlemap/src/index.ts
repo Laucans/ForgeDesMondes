@@ -195,7 +195,14 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   /** The map itself: only when the battlemap under the instance changes. */
   function paintMap(): void {
     const box = part('battlemap-map');
-    if (!box || !map) return;
+    if (!box) return;
+    // No map under the instance: nothing of the previous one stays to be dragged on.
+    if (!map) {
+      box.innerHTML = '';
+      observer?.disconnect();
+      observer = null;
+      return;
+    }
     box.innerHTML = hexMap(map, canMove());
     paintGrid();
     fitted = false;
@@ -372,7 +379,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   const showOnPlayerView = async (): Promise<void> => {
     if (!instance) return;
     try {
-      const body = commandBody(SHOW_ON_PLAYER_VIEW, 'Diffusion', undefined, { kind: 'battlemap', instance: instance.id, zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+      const body = commandBody(SHOW_ON_PLAYER_VIEW, 'Diffusion', instance.session === '' ? undefined : instance.session, { kind: 'battlemap', instance: instance.id, zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
       const state = await send(body);
       if (state.status === 'rejected') say('error', `L’envoi aux joueurs est refusé : ${reasons(state.violations)}.`);
       else if (state.status !== 'applied') say('error', `L’envoi aux joueurs n’a pas abouti (état : ${state.status || 'inconnu'}).`);
@@ -522,7 +529,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       if (character && map) {
         const box = part('battlemap-view');
         const w = world({ clientX: (box?.getBoundingClientRect().left ?? 0) + (box?.clientWidth ?? 0) / 2, clientY: (box?.getBoundingClientRect().top ?? 0) + (box?.clientHeight ?? 0) / 2 });
-        askPlace(character, toHex(map.grid, w), w);
+        const hex = toHex(map.grid, w);
+        askPlace(character, onMap(map.grid, hex, map.width, map.height) ? hex : toHex(map.grid, { x: map.width / 2, y: map.height / 2 }), w);
       }
     } else if (button.dataset.writes === SHOW_ON_PLAYER_VIEW) void showOnPlayerView();
     else if (t && button.dataset.state) {

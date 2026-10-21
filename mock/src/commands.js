@@ -97,7 +97,8 @@ export const COMMANDS = {
     const { tokens } = data.state;
     const mine = tokens.filter((t) => t.char === character.id);
     const pnj = character.kind === 'pnj';
-    if (!pnj && mine.length) return ['token-roster'];
+    // token-roster: a PC is placed when the scene's roster has it, and once.
+    if (!pnj && (mine.length || !(data.roster || []).includes(character.id))) return ['token-roster'];
     const count = pnj ? Math.max(1, Math.min(12, Number(payload.count) || 1)) : 1;
     const base = character.tokenName || String(character.name).split(' ')[0];
     let num = Math.max(0, ...mine.map((t) => t.num || 0));

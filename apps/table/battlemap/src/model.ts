@@ -26,7 +26,8 @@ export const CONDITIONS: Readonly<Record<string, string>> = {
 export const MAX_COUNT = 12;
 
 export function parseProps(raw: Record<string, unknown>): Props {
-  const view: View = raw.view === 'player' || raw.view === 'prep' ? raw.view : 'dm';
+  // Absent, the DM's view; a value that is none of the three, the safest: the players'.
+  const view: View = raw.view === undefined || raw.view === 'dm' ? 'dm' : raw.view === 'prep' ? 'prep' : 'player';
   return { instance: text(raw.instance), view, pilot: raw.pilot === true, fill: raw.fill === true, campaign: text(raw.campaign) };
 }
 
@@ -57,7 +58,7 @@ export function parseInstance(data: unknown): Instance | null {
   if (!isRecord(data)) return null;
   const state = isRecord(data.state) ? data.state : data;
   const tokens = Array.isArray(state.tokens) ? state.tokens.filter(isRecord).map(token) : [];
-  return { id: text(data.id), battlemap: text(data.battlemap), label: text(data.label), roster: texts(data.roster), tokens };
+  return { id: text(data.id), battlemap: text(data.battlemap), session: text(data.session), label: text(data.label), roster: texts(data.roster), tokens };
 }
 
 const GRID: Grid = { size: 32, ox: 0, oy: 0, orient: 'pointy', color: 'text', opacity: 0.45 };

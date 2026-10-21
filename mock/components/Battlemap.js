@@ -199,7 +199,7 @@
   };
   var MAX_COUNT = 12;
   function parseProps(raw) {
-    const view = raw.view === "player" || raw.view === "prep" ? raw.view : "dm";
+    const view = raw.view === void 0 || raw.view === "dm" ? "dm" : raw.view === "prep" ? "prep" : "player";
     return { instance: text(raw.instance), view, pilot: raw.pilot === true, fill: raw.fill === true, campaign: text(raw.campaign) };
   }
   function token(value) {
@@ -227,7 +227,7 @@
     if (!isRecord(data)) return null;
     const state = isRecord(data.state) ? data.state : data;
     const tokens = Array.isArray(state.tokens) ? state.tokens.filter(isRecord).map(token) : [];
-    return { id: text(data.id), battlemap: text(data.battlemap), label: text(data.label), roster: texts(data.roster), tokens };
+    return { id: text(data.id), battlemap: text(data.battlemap), session: text(data.session), label: text(data.label), roster: texts(data.roster), tokens };
   }
   var GRID = { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 0.45 };
   function grid(value) {
@@ -527,7 +527,13 @@
     }
     function paintMap() {
       const box = part("battlemap-map");
-      if (!box || !map) return;
+      if (!box) return;
+      if (!map) {
+        box.innerHTML = "";
+        observer?.disconnect();
+        observer = null;
+        return;
+      }
       box.innerHTML = hexMap(map, canMove());
       paintGrid();
       fitted = false;
@@ -681,7 +687,7 @@
     const showOnPlayerView = async () => {
       if (!instance) return;
       try {
-        const body = commandBody(SHOW_ON_PLAYER_VIEW, "Diffusion", void 0, { kind: "battlemap", instance: instance.id, zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+        const body = commandBody(SHOW_ON_PLAYER_VIEW, "Diffusion", instance.session === "" ? void 0 : instance.session, { kind: "battlemap", instance: instance.id, zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
         const state = await send(body);
         if (state.status === "rejected") say("error", `L\u2019envoi aux joueurs est refus\xE9 : ${reasons(state.violations)}.`);
         else if (state.status !== "applied") say("error", `L\u2019envoi aux joueurs n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`);
@@ -819,7 +825,8 @@
         if (character && map) {
           const box = part("battlemap-view");
           const w = world({ clientX: (box?.getBoundingClientRect().left ?? 0) + (box?.clientWidth ?? 0) / 2, clientY: (box?.getBoundingClientRect().top ?? 0) + (box?.clientHeight ?? 0) / 2 });
-          askPlace(character, toHex(map.grid, w), w);
+          const hex = toHex(map.grid, w);
+          askPlace(character, onMap(map.grid, hex, map.width, map.height) ? hex : toHex(map.grid, { x: map.width / 2, y: map.height / 2 }), w);
         }
       } else if (button2.dataset.writes === SHOW_ON_PLAYER_VIEW) void showOnPlayerView();
       else if (t && button2.dataset.state) {
@@ -944,7 +951,7 @@
       if (!data) return data;
       const dressedTokens = await dressed(server, data.state.tokens);
       if (view !== "player") return { ...data, state: { ...data.state, tokens: dressedTokens } };
-      const tokens = dressedTokens.filter((t) => t.visible).map(({ hp, hpMax, ...rest }) => ({ ...rest, healthBand: rest.kind === "pnj" ? healthBand(hp, hpMax) : null }));
+      const tokens = dressedTokens.filter((t) => t.visible).map((t) => ({ id: t.id, char: t.char, kind: t.kind, name: t.name, num: t.num, q: t.q, r: t.r, visible: true, states: t.states, dead: t.dead, initials: t.initials, color: t.color, portrait: t.portrait, healthBand: t.kind === "pnj" ? healthBand(t.hp, t.hpMax) : null }));
       return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat: null } };
     },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
@@ -1060,7 +1067,7 @@
       const { tokens } = data.state;
       const mine = tokens.filter((t) => t.char === character.id);
       const pnj = character.kind === "pnj";
-      if (!pnj && mine.length) return ["token-roster"];
+      if (!pnj && (mine.length || !(data.roster || []).includes(character.id))) return ["token-roster"];
       const count = pnj ? Math.max(1, Math.min(12, Number(payload.count) || 1)) : 1;
       const base2 = character.tokenName || String(character.name).split(" ")[0];
       let num2 = Math.max(0, ...mine.map((t) => t.num || 0));

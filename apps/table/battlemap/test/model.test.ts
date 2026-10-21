@@ -124,7 +124,7 @@ describe('what the Capabilities answer', () => {
     assert.deepEqual(parseProps({}), { instance: '', view: 'dm', pilot: false, fill: false, campaign: '' });
     assert.deepEqual(parseProps({ instance: 'i', view: 'player', pilot: true, fill: true, campaign: 'c' }), { instance: 'i', view: 'player', pilot: true, fill: true, campaign: 'c' });
     assert.equal(parseProps({ view: 'prep' }).view, 'prep');
-    assert.equal(parseProps({ view: 'other' }).view, 'dm');
+    assert.equal(parseProps({ view: 'other' }).view, 'player', 'a view nobody knows is the players’, never the DM’s');
   });
 });
 

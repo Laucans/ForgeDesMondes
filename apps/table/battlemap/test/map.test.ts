@@ -278,7 +278,7 @@ test('« Envoyer aux joueurs » sends the instance with the zoom and pan as fram
   await click('#bm-send');
   assert.deepEqual(fake.sent[0], {
     dataCapability: 'live.showOnPlayerView@1',
-    target: { aggregate: 'Diffusion' },
+    target: { aggregate: 'Diffusion', id: 's4' },
     payload: { kind: 'battlemap', instance: 'bmi-gue-s4', zoom: 1, panX: 0, panY: 0 },
     caller: { by: 'dm', from: 'Battlemap', roles: [] },
   });
