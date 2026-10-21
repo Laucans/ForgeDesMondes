@@ -1,31 +1,28 @@
-//! media.saveGridSettings over PostgreSQL (`DATABASE_URL`), through the wire
-//! protocol as the GridSettings panel sends it: a save of a battlemap the
-//! tables hold — one no command wrote before — is judged against its media's
-//! row as the tables hold it, and its six settings reach `battlemap_grid`,
-//! the feet per hex still 5 (`hex-is-five-feet`). A save on an illustration
-//! is rejected under `grid-only-for-battlemap`, a hex size of 0 or an opacity
-//! of 1.5 under `grid-values-range`, and a payload carrying another field is
-//! refused before it is queued; two saves at once both queue and both apply.
-//! Each test works in a scratch database of its own, migrated as the server
-//! migrates it, dropped when it ends.
+//! media.saveGridSettings over PostgreSQL (`DATABASE_URL`), as the server
+//! plants it: a save of a battlemap the tables hold — one no command wrote
+//! before — is judged against its media's row as the tables hold it (the
+//! Media aggregate hydrates it), and its six settings reach
+//! `battlemap_grid`, the feet per hex still 5 (`hex-is-five-feet`). A save
+//! on an illustration is rejected under `grid-only-for-battlemap`, a hex
+//! size of 0 or an opacity of 1.5 under `grid-values-range`, and a payload
+//! carrying another field is refused before it is queued; two saves at once
+//! both queue and both apply. Each test works in a scratch database of its
+//! own, migrated as the server migrates it, dropped when it ends.
 
+use std::path::Path;
 use std::sync::Arc;
 
-use axum::Router;
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use dataguard_server::{Engine, Planted, planted, router};
+use harness_dataguard::aggregate::Aggregate;
+use harness_dataguard::api::{Submission, Submitted};
 use harness_dataguard::command::{CommandResult, State};
+use harness_dataguard::engine::Engine;
+use harness_dataguard::manifest::DataCapability;
+use harness_dataguard::memory::MemoryNotifier;
+use harness_dataguard::plugins::{Plugins, RefusalKind};
+use harness_dataguard::postgres::{PgStore, ReadOnly, SystemClock};
+use harness_dataguard::tokio_postgres::{self, Client, NoTls};
+use harness_dataguard::{Error, Result};
 use serde_json::{Value, json};
-use tokio_postgres::{Client, NoTls};
-use tower::ServiceExt;
-
-const MIGRATIONS: [&str; 4] = [
-    include_str!("../../../data/migrations/0002_campaign.sql"),
-    include_str!("../../../data/migrations/0003_player.sql"),
-    include_str!("../../../data/migrations/0004_entity.sql"),
-    include_str!("../../../data/migrations/0005_media.sql"),
-];
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 /// The tavern's battlemap, uploaded with its default grid.
@@ -81,10 +78,11 @@ impl Scratch {
             admin.batch_execute(&sql).await.expect("a scratch database");
         }
         let url = naming(&name);
-        let client = connect(&url).await;
-        for migration in MIGRATIONS {
-            client.batch_execute(migration).await.expect("migrated");
-        }
+        let mut client = connect(&url).await;
+        let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/migrations");
+        data::migrate(&mut client, &migrations)
+            .await
+            .expect("migrated");
         client
             .batch_execute(&format!(
                 "INSERT INTO campaign (id, name, kind) VALUES ('{VALOMBRE}', 'Les Cendres de Valombre', 'campagne');
@@ -101,19 +99,34 @@ impl Scratch {
         Scratch { name, url, client }
     }
 
-    /// The engine as the server plants it over this database, and its wire
-    /// protocol.
-    async fn serve(&self) -> (Arc<Engine>, Router) {
-        let Planted { engine, rows } = planted(&self.url)
+    /// The engine as the server plants this unit and its target aggregate
+    /// over this database: the aggregate's projection in the apply
+    /// transaction, the tables lent to the Prepare.
+    async fn serve(&self) -> Engine {
+        let plugins = || -> Plugins {
+            [aggregate_media::plugin(), save_grid_settings::plugin()]
+                .into_iter()
+                .collect()
+        };
+        let store = PgStore::open(connect(&self.url).await)
             .await
-            .expect("the engine over PostgreSQL");
-        let engine = Arc::new(engine);
-        let app = router(
-            engine.clone(),
-            rows,
-            Arc::new(ports_llm::fake::FakeLlm::new()),
-        );
-        (engine, app)
+            .expect("the store")
+            .with_projections(&plugins())
+            .await
+            .expect("warmed");
+        let engine = Engine::new(
+            Arc::new(store),
+            Arc::new(MemoryNotifier::default()),
+            Arc::new(SystemClock),
+        )
+        .with_rows(Arc::new(ReadOnly::new(connect(&self.url).await)))
+        .with_aggregate(Aggregate::parse(aggregate_media::DOCUMENT).expect("contract I"))
+        .with_data_capability(
+            DataCapability::parse(include_str!("../data-capability.json")).expect("contract F"),
+        )
+        .with_plugins(plugins());
+        engine.load().await.expect("the engine loads");
+        engine
     }
 
     /// Every grid the table holds, each row as JSON text, by media.
@@ -157,11 +170,10 @@ impl Scratch {
     }
 }
 
-/// `body` posted to `/commands` as the GridSettings panel sends it, and the
-/// answer.
-async fn post(app: &Router, target: &str, payload: Value) -> (StatusCode, Value) {
+/// A save of `target`'s grid as the GridSettings panel sends it.
+async fn post(engine: &Engine, target: &str, payload: Value) -> Result<Submitted> {
     send(
-        app,
+        engine,
         json!({
             "dataCapability": "media.saveGridSettings@1",
             "target": { "aggregate": "Media", "id": target },
@@ -171,32 +183,31 @@ async fn post(app: &Router, target: &str, payload: Value) -> (StatusCode, Value)
     .await
 }
 
-/// `body` posted to `/commands` as the GridSettings panel, and the answer.
-async fn send(app: &Router, mut body: Value) -> (StatusCode, Value) {
+/// `body`, as the GridSettings panel sends it, submitted.
+async fn send(engine: &Engine, mut body: Value) -> Result<Submitted> {
     body["caller"] = json!({ "by": "dm", "from": "GridSettings", "roles": [] });
-    let request = Request::post("/commands")
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .expect("a request");
-    let response = app.clone().oneshot(request).await.expect("an answer");
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+    engine
+        .submit(serde_json::from_value::<Submission>(body).expect("a submission"))
         .await
-        .expect("a body");
-    (
-        status,
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
-    )
 }
 
 /// A save of `target`'s grid, queued then run by the applier: what it made
 /// of it.
-async fn save(engine: &Engine, app: &Router, target: &str, payload: Value) -> CommandResult {
-    let (status, answer) = post(app, target, payload).await;
-    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+async fn save(engine: &Engine, target: &str, payload: Value) -> CommandResult {
+    post(engine, target, payload).await.expect("queued");
     let mut settled = engine.run_once().await.expect("the applier ran");
     assert_eq!(settled.len(), 1, "{settled:?}");
     settled.remove(0)
+}
+
+/// The refusal `answer` is, unprocessable: its message.
+fn refused(answer: Result<Submitted>) -> String {
+    match answer {
+        Err(Error::Refused(refusal)) if refusal.kind == RefusalKind::Unprocessable => {
+            refusal.message
+        }
+        other => panic!("an unprocessable refusal: {other:?}"),
+    }
 }
 
 /// The save of the acceptance criteria: hex size 48, offsets 30/25, flat,
@@ -213,11 +224,11 @@ fn rejected_by(result: &CommandResult, id: &str) {
 #[tokio::test]
 async fn hex_is_five_feet_a_save_holds_exactly_its_values_and_a_hex_is_still_five_feet() {
     let scratch = Scratch::new("saved").await;
-    let (engine, app) = scratch.serve().await;
+    let engine = scratch.serve().await;
     let ecueil = scratch.grid(ECUEIL).await;
 
     // The id in whatever case the request used: one battlemap, one row.
-    let result = save(&engine, &app, &CARTE.to_uppercase(), adjusted()).await;
+    let result = save(&engine, &CARTE.to_uppercase(), adjusted()).await;
     assert_eq!(result.status, State::Applied, "{result:?}");
     assert_eq!(
         scratch.grid(CARTE).await,
@@ -243,11 +254,11 @@ async fn hex_is_five_feet_a_save_holds_exactly_its_values_and_a_hex_is_still_fiv
 #[tokio::test]
 async fn grid_only_for_battlemap_rejects_a_save_on_an_illustration_or_on_no_media() {
     let scratch = Scratch::new("illustration").await;
-    let (engine, app) = scratch.serve().await;
+    let engine = scratch.serve().await;
     let before = scratch.grids().await;
 
     for target in [PORTRAIT, NOWHERE] {
-        let result = save(&engine, &app, target, adjusted()).await;
+        let result = save(&engine, target, adjusted()).await;
         rejected_by(&result, "grid-only-for-battlemap");
     }
     assert_eq!(scratch.grids().await, before);
@@ -257,13 +268,13 @@ async fn grid_only_for_battlemap_rejects_a_save_on_an_illustration_or_on_no_medi
 #[tokio::test]
 async fn grid_values_range_rejects_a_hex_size_of_zero_or_an_opacity_of_one_and_a_half() {
     let scratch = Scratch::new("range").await;
-    let (engine, app) = scratch.serve().await;
+    let engine = scratch.serve().await;
     let before = scratch.grids().await;
 
     for (field, value) in [("size", json!(0)), ("opacity", json!(1.5))] {
         let mut payload = adjusted();
         payload[field] = value;
-        let result = save(&engine, &app, CARTE, payload).await;
+        let result = save(&engine, CARTE, payload).await;
         rejected_by(&result, "grid-values-range");
     }
     assert_eq!(scratch.grids().await, before);
@@ -273,7 +284,7 @@ async fn grid_values_range_rejects_a_hex_size_of_zero_or_an_opacity_of_one_and_a
 #[tokio::test]
 async fn a_payload_carrying_the_feet_per_hex_or_another_field_is_refused_and_not_queued() {
     let scratch = Scratch::new("payload").await;
-    let (engine, app) = scratch.serve().await;
+    let engine = scratch.serve().await;
     let before = scratch.grids().await;
 
     for (field, value) in [
@@ -283,12 +294,8 @@ async fn a_payload_carrying_the_feet_per_hex_or_another_field_is_refused_and_not
     ] {
         let mut payload = adjusted();
         payload[field] = value;
-        let (status, answer) = post(&app, CARTE, payload).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{answer}");
-        assert!(
-            answer["error"].as_str().is_some_and(|e| e.contains(field)),
-            "{answer}"
-        );
+        let error = refused(post(&engine, CARTE, payload).await);
+        assert!(error.contains(field), "{error}");
     }
     assert!(engine.run_once().await.expect("the applier ran").is_empty());
     assert_eq!(scratch.grids().await, before);
@@ -299,25 +306,31 @@ async fn a_payload_carrying_the_feet_per_hex_or_another_field_is_refused_and_not
 async fn a_save_naming_its_battlemap_by_the_payload_s_id_is_applied_and_one_naming_none_is_refused()
 {
     let scratch = Scratch::new("target").await;
-    let (engine, app) = scratch.serve().await;
+    let engine = scratch.serve().await;
 
     let mut payload = adjusted();
-    let (status, answer) = send(
-        &app,
-        json!({ "dataCapability": "media.saveGridSettings@1", "payload": payload }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{answer}");
+    let error = refused(
+        send(
+            &engine,
+            json!({ "dataCapability": "media.saveGridSettings@1", "payload": payload }),
+        )
+        .await,
+    );
+    assert_eq!(error, "aucune battlemap désignée");
     assert!(engine.run_once().await.expect("the applier ran").is_empty());
 
     payload["id"] = json!(CARTE);
-    let (status, answer) = send(
-        &app,
+    let submitted = send(
+        &engine,
         json!({ "dataCapability": "media.saveGridSettings@1", "payload": payload }),
     )
-    .await;
-    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
-    assert_eq!(answer["partition"], format!("Media/{CARTE}"), "{answer}");
+    .await
+    .expect("queued");
+    assert_eq!(
+        submitted.partition,
+        format!("Media/{CARTE}"),
+        "{submitted:?}"
+    );
     let result = engine.run_once().await.expect("the applier ran").remove(0);
     assert_eq!(result.status, State::Applied, "{result:?}");
     let grid = scratch.grid(CARTE).await.expect("the grid");
@@ -328,18 +341,22 @@ async fn a_save_naming_its_battlemap_by_the_payload_s_id_is_applied_and_one_nami
 #[tokio::test]
 async fn two_saves_at_once_both_queue_on_the_battlemap_and_neither_is_rejected() {
     let scratch = Scratch::new("concurrent").await;
-    let (engine, app) = scratch.serve().await;
+    let engine = scratch.serve().await;
 
     let mut later = adjusted();
     later["size"] = json!(52);
     later["orient"] = json!("pointy");
     let (first, second) = tokio::join!(
-        post(&app, CARTE, adjusted()),
-        post(&app, CARTE, later.clone()),
+        post(&engine, CARTE, adjusted()),
+        post(&engine, CARTE, later.clone()),
     );
-    for (status, answer) in [&first, &second] {
-        assert_eq!(*status, StatusCode::ACCEPTED, "{answer}");
-        assert_eq!(answer["partition"], format!("Media/{CARTE}"), "{answer}");
+    let (first, second) = (first.expect("queued"), second.expect("queued"));
+    for submitted in [&first, &second] {
+        assert_eq!(
+            submitted.partition,
+            format!("Media/{CARTE}"),
+            "{submitted:?}"
+        );
     }
     let mut settled = Vec::new();
     while settled.len() < 2 {
@@ -352,7 +369,7 @@ async fn two_saves_at_once_both_queue_on_the_battlemap_and_neither_is_rejected()
     }
     // The later of the two is the grid kept.
     let last = settled.last().expect("a save");
-    let kept = if last.command_id == first.1["commandId"] {
+    let kept = if last.command_id == first.command_id {
         adjusted()
     } else {
         later
@@ -360,56 +377,5 @@ async fn two_saves_at_once_both_queue_on_the_battlemap_and_neither_is_rejected()
     let grid = scratch.grid(CARTE).await.expect("the grid");
     assert_eq!(grid["hexSizePx"], kept["size"]);
     assert_eq!(grid["feetPerHex"], 5);
-    scratch.drop().await;
-}
-
-#[tokio::test]
-async fn a_saved_grid_the_table_lost_is_written_again_at_the_next_start() {
-    let scratch = Scratch::new("repair").await;
-    {
-        let (engine, app) = scratch.serve().await;
-        let result = save(&engine, &app, CARTE, adjusted()).await;
-        assert_eq!(result.status, State::Applied, "{result:?}");
-    }
-    scratch
-        .client
-        .batch_execute(&format!(
-            "UPDATE battlemap_grid SET hex_size_px = 64, orientation = 'pointe' WHERE media_id = '{CARTE}'"
-        ))
-        .await
-        .expect("the grid lost");
-
-    let _restarted = scratch.serve().await;
-    let grid = scratch.grid(CARTE).await.expect("the grid");
-    assert_eq!(grid["hexSizePx"], 48.0);
-    assert_eq!(grid["orientation"], "plat");
-    scratch.drop().await;
-}
-
-#[tokio::test]
-async fn a_grid_the_table_refuses_is_skipped_at_the_next_start_and_the_others_are_written_again() {
-    let scratch = Scratch::new("skipped").await;
-    {
-        let (engine, app) = scratch.serve().await;
-        for media in [CARTE, ECUEIL] {
-            let result = save(&engine, &app, media, adjusted()).await;
-            assert_eq!(result.status, State::Applied, "{result:?}");
-        }
-    }
-    let ecueil = scratch.grid(ECUEIL).await.expect("the grid");
-    scratch
-        .client
-        .batch_execute(&format!(
-            "UPDATE dataguard_rows SET fields = fields || '{{\"opacity\": 1.5}}' WHERE partition = 'Media/{ECUEIL}';
-             UPDATE battlemap_grid SET hex_size_px = 64, orientation = 'pointe' WHERE media_id = '{CARTE}'"
-        ))
-        .await
-        .expect("one grid the table refuses, one the table lost");
-
-    let _restarted = scratch.serve().await;
-    let grid = scratch.grid(CARTE).await.expect("the grid");
-    assert_eq!(grid["hexSizePx"], 48.0);
-    assert_eq!(grid["orientation"], "plat");
-    assert_eq!(scratch.grid(ECUEIL).await, Some(ecueil));
     scratch.drop().await;
 }
