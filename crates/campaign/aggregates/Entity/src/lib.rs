@@ -12,7 +12,9 @@
 //! and its aliases, with the new version it adds — its number, source,
 //! snapshot and diff (EntityVersion@1). The version's fields are judged on
 //! the payload alone: the row keeps the last version's, which a new save does
-//! not inherit.
+//! not inherit. The version the element really takes is settled once the
+//! save is applied ([`settled`]): in the tables, in the apply transaction
+//! (`projection`), and in the [`History`] a restoration is prepared against.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -23,8 +25,16 @@ use harness_dataguard::store::Write;
 use serde_json::Value;
 
 mod aliases;
+mod history;
+mod projection;
+mod version;
 
 pub use aliases::{Aliases, Element, parsed};
+pub use history::History;
+pub use version::{Kept, settled, timestamp};
+
+/// The aggregate's manifest (contract I), as the engine parses it.
+pub const MANIFEST: &str = include_str!("../aggregate.json");
 
 const AGGREGATE: &str = "Entity";
 
@@ -164,24 +174,51 @@ impl Judge for Entity {
 }
 
 /// What the aggregate plugs into the engine: its judge, over an index of
-/// its own, which follows every write of an element the engine applies.
+/// its own; what follows each write the engine applies — that index and the
+/// [`History`] of the versions, kept in memory, and over PostgreSQL its
+/// tables, in the apply transaction ([`projection::Tables`]); and the
+/// history, shared for a restoration to be prepared against.
 #[must_use]
 pub fn plugin() -> Plugin {
-    let aliases = Arc::new(Aliases::default());
-    judging(aliases.clone()).project(AGGREGATE, Recorded(aliases))
+    keeping(Arc::default())
 }
 
-/// The judge alone, reading `aliases`, which the caller keeps: a server
-/// that keeps it as its tables hold the elements, not as the engine
-/// applies them.
+/// [`plugin`], its versions kept in `history`, which the caller reads too.
 #[must_use]
-pub fn judging(aliases: Arc<Aliases>) -> Plugin {
-    Plugin::new().judge(AGGREGATE, Entity { aliases })
+pub fn keeping(history: Arc<History>) -> Plugin {
+    let aliases = Arc::new(Aliases::default());
+    Plugin::new()
+        .judge(
+            AGGREGATE,
+            Entity {
+                aliases: aliases.clone(),
+            },
+        )
+        .project(
+            AGGREGATE,
+            Recorded {
+                aliases: aliases.clone(),
+                history: history.clone(),
+            },
+        )
+        .project_pg(
+            AGGREGATE,
+            projection::Tables {
+                aliases,
+                history: history.clone(),
+            },
+        )
+        .share(history)
 }
 
-/// Keeps the index as the engine applies the aggregate's writes: an
-/// element's terms are its row's, and a removed element has none.
-struct Recorded(Arc<Aliases>);
+/// Keeps the index and the history as the engine applies the aggregate's
+/// writes — a write the tables refused is never applied: an element's terms
+/// are its row's, its version is settled after its last one, and a removed
+/// element has neither.
+struct Recorded {
+    aliases: Arc<Aliases>,
+    history: Arc<History>,
+}
 
 impl Project for Recorded {
     fn observe(&self, write: &Write) {
@@ -189,9 +226,11 @@ impl Project for Recorded {
             return;
         };
         if write.tombstone {
-            self.0.forget(element);
+            self.aliases.forget(element);
+            self.history.forget(element);
         } else {
-            self.0.record(element, &write.values);
+            self.aliases.record(element, &write.values);
+            self.history.settle(element, &write.values);
         }
     }
 }
@@ -324,10 +363,52 @@ fn dex_modifier_derived(state: &BTreeMap<String, Value>, entry: &Entry) -> bool 
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use harness_dataguard::plugins::Project;
+    use harness_dataguard::store::Write;
+    use serde_json::json;
+
     use super::{
-        ABILITIES, ALIAS_UNIQUE, BOOKKEEPING, CHECKS, DEX_MODIFIER, PROPOSAL, RESYNC, SHEET,
-        VERSION, WHOLE,
+        ABILITIES, ALIAS_UNIQUE, Aliases, BOOKKEEPING, CHECKS, DEX_MODIFIER, History, PROPOSAL,
+        RESYNC, Recorded, SHEET, VERSION, WHOLE,
     };
+
+    const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
+
+    #[test]
+    fn an_applied_element_is_recorded_and_a_removed_one_forgotten_another_aggregate_ignored() {
+        let aliases = Arc::new(Aliases::default());
+        let history = Arc::new(History::default());
+        let recorded = Recorded {
+            aliases: aliases.clone(),
+            history: history.clone(),
+        };
+        let write = |partition: &str, tombstone: bool| Write {
+            partition: partition.to_owned(),
+            values: serde_json::from_value(json!({
+                "entityId": "e1000000-0000-4000-8000-000000000003",
+                "entityCampaignId": VALOMBRE,
+                "name": "Morlox",
+                "alias": ["le gobelin"],
+                "entityVersionId": "v1",
+            }))
+            .expect("a row"),
+            tombstone,
+        };
+        let morlox = "Entity/e1000000-0000-4000-8000-000000000003";
+        recorded.observe(&write(
+            "Campaign/e1000000-0000-4000-8000-000000000003",
+            false,
+        ));
+        assert!(aliases.known(VALOMBRE).is_empty());
+        recorded.observe(&write(morlox, false));
+        assert_eq!(aliases.known(VALOMBRE).len(), 1);
+        assert_eq!(history.of(&morlox[7..]).len(), 1);
+        recorded.observe(&write(morlox, true));
+        assert!(aliases.known(VALOMBRE).is_empty());
+        assert!(history.of(&morlox[7..]).is_empty());
+    }
 
     fn aggregate() -> serde_json::Value {
         serde_json::from_str(include_str!("../aggregate.json")).expect("contract I")

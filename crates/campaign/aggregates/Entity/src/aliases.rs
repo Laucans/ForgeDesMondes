@@ -3,12 +3,12 @@
 //! reads to judge one element's row against the others' — the engine judges
 //! a row alone, and this is the rest of its campaign.
 //!
-//! It follows what its keeper records: [`crate::plugin`]'s projection
-//! records every element the engine applies, and forgets one it removes;
-//! a server that keeps it after its tables instead records an element once
-//! the tables hold it — whose trigger judges the same rule again — so a save
-//! the tables refused takes no term ([`crate::judging`]). Elements and
-//! campaigns are told apart by their id parsed as a uuid: the same id in
+//! It follows what [`crate::plugin`]'s projection records: every element
+//! the engine applies, and an element it removes forgotten. The tables
+//! judge the same rule again, in the apply transaction: a save they refuse
+//! is rolled back and never applied, so it takes no term. At a start it
+//! reads every element the tables hold. Elements and campaigns are told
+//! apart by their id parsed as a uuid: the same id in
 //! another case is the same one.
 
 use std::collections::BTreeMap;

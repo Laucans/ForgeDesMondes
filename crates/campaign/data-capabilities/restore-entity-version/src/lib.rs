@@ -28,15 +28,26 @@
 //!   queued ([`Refusal`]);
 //! - the version is the next one (EntityVersion@1): its number, the snapshot
 //!   of the element as the restoration leaves it, and the diff from the
-//!   previous snapshot. The store settles it again when it is applied.
+//!   previous snapshot. The Entity aggregate settles it again when it is
+//!   applied, after the element's last version.
+//!
+//! The engine runs [`plugin`]'s `Prepare`: on the element's row as the queue
+//! leaves it, against the versions the Entity aggregate keeps ([`History`],
+//! which it shares).
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use harness_dataguard::plugins::Plugin;
+use aggregate_entity::History;
+pub use aggregate_entity::Kept;
+use async_trait::async_trait;
+use harness_dataguard::plugins::{self as engine, Context, Plugin};
 use serde_json::{Map, Value};
 
 /// This DataCapability's id, as `data-capability.json` names it.
 pub const DATA_CAPABILITY: &str = "campaign.restoreEntityVersion";
+
+/// This DataCapability's manifest (contract F), as the engine parses it.
+pub const MANIFEST: &str = include_str!("../data-capability.json");
 
 /// Where a restoration comes from (EntityVersion@1).
 pub const SOURCE: &str = "restauration";
@@ -82,37 +93,6 @@ const SNAPSHOT: [&str; 24] = [
 
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
-
-/// One version of the element, as it was written: never changed since.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Kept {
-    /// Its id.
-    pub id: String,
-    /// Its number in the element's history, from 1.
-    pub number: u64,
-    /// The element, its sheet and its aliases as it left them.
-    pub snapshot: Map<String, Value>,
-    /// What it changed from the version before, `{field, old, new}`.
-    pub diff: Vec<Value>,
-}
-
-impl Kept {
-    /// The version an element's row carries — the last one written — when it
-    /// carries one.
-    #[must_use]
-    pub fn of(row: &Row) -> Option<Self> {
-        Some(Self {
-            id: row.get("entityVersionId")?.as_str()?.to_owned(),
-            number: row.get("versionNumber")?.as_u64()?,
-            snapshot: row.get("snapshot")?.as_object()?.clone(),
-            diff: row
-                .get("diff")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-        })
-    }
-}
 
 /// What a restoration is given besides the DM's request: the new version's
 /// id, and the time.
@@ -171,12 +151,60 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`, which reads
+/// the versions the Entity aggregate shares.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new()
+        .prepare(DATA_CAPABILITY, Restore)
+        .needs::<History>()
+}
+
+/// A restoration made what it writes ([`prepare`]): on the element the
+/// command targets — else the one its payload names — its row as the queue
+/// leaves it and its versions, a fresh version id and now. A version the
+/// element does not have is refused as not found, any other refusal as
+/// unprocessable.
+struct Restore;
+
+#[async_trait]
+impl engine::Prepare for Restore {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &Row,
+        target_id: Option<&str>,
+    ) -> Result<engine::Prepared, engine::Refusal> {
+        let id = target_id
+            .map(str::to_owned)
+            .or_else(|| element_id(payload))
+            .unwrap_or_default();
+        // The element's row as the queue leaves it: empty for an element the
+        // engine does not hold under this id.
+        let base = context.row(&format!("Entity/{id}")).await?;
+        let history = context
+            .shared
+            .get::<History>()
+            .map(|history| history.of(&id))
+            .unwrap_or_default();
+        let version = context.ids.fresh();
+        let now = aggregate_entity::timestamp(context.now_millis);
+        let fresh = Fresh {
+            version: &version,
+            now: &now,
+        };
+        match prepare(payload, &base, &history, &id, fresh) {
+            // The partition is the one the payload's `entityId` names.
+            Ok(prepared) => Ok(engine::Prepared {
+                payload: prepared.payload,
+                ..engine::Prepared::default()
+            }),
+            Err(refusal @ Refusal::UnknownVersion) => {
+                Err(engine::Refusal::not_found(refusal.to_string()))
+            }
+            Err(refusal) => Err(engine::Refusal::unprocessable(refusal.to_string())),
+        }
+    }
 }
 
 /// The element a request names in its payload, when it names one there —
