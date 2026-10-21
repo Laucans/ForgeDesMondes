@@ -1,0 +1,343 @@
+{
+  "concept": "SoundTag",
+  "version": 1,
+  "cases": [
+    {
+      "name": "tags-normalized: case and surrounding whitespace are removed, a duplicate is dropped",
+      "input": {
+        "tags": [
+          "Taverne",
+          "taverne ",
+          "Intérieur"
+        ]
+      },
+      "output": {
+        "tags": [
+          "taverne",
+          "intérieur"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "accents are kept, only case and surrounding whitespace change",
+      "input": {
+        "tags": [
+          "  intérieur"
+        ]
+      },
+      "output": {
+        "tags": [
+          "intérieur"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "an uppercase accented letter is lowercased, its accent kept",
+      "input": {
+        "tags": [
+          "ÉCHO"
+        ]
+      },
+      "output": {
+        "tags": [
+          "écho"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "an empty tag is dropped",
+      "input": {
+        "tags": [
+          "",
+          "porte"
+        ]
+      },
+      "output": {
+        "tags": [
+          "porte"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "a whitespace-only tag is dropped",
+      "input": {
+        "tags": [
+          "   ",
+          "\t",
+          "porte"
+        ]
+      },
+      "output": {
+        "tags": [
+          "porte"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "no tag at all stays no tag",
+      "input": {
+        "tags": []
+      },
+      "output": {
+        "tags": [],
+        "matches": true
+      }
+    },
+    {
+      "name": "only empty tags leave nothing",
+      "input": {
+        "tags": [
+          "",
+          "  "
+        ]
+      },
+      "output": {
+        "tags": [],
+        "matches": true
+      }
+    },
+    {
+      "name": "the first occurrence stays and the order is kept",
+      "input": {
+        "tags": [
+          "Foule",
+          "porte",
+          "FOULE",
+          "Taverne",
+          "Porte "
+        ]
+      },
+      "output": {
+        "tags": [
+          "foule",
+          "porte",
+          "taverne"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "whitespace inside a tag is kept as typed",
+      "input": {
+        "tags": [
+          "Bar de nuit"
+        ]
+      },
+      "output": {
+        "tags": [
+          "bar de nuit"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "an accented and an unaccented tag are two tags",
+      "input": {
+        "tags": [
+          "interieur",
+          "Intérieur"
+        ]
+      },
+      "output": {
+        "tags": [
+          "interieur",
+          "intérieur"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "no filter keeps the sound",
+      "input": {
+        "tags": [
+          "taverne"
+        ]
+      },
+      "output": {
+        "tags": [
+          "taverne"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "an empty filter keeps the sound",
+      "input": {
+        "tags": [
+          "taverne"
+        ],
+        "filter": []
+      },
+      "output": {
+        "tags": [
+          "taverne"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "a filter of empty tags keeps the sound",
+      "input": {
+        "tags": [
+          "taverne"
+        ],
+        "filter": [
+          "",
+          "  "
+        ]
+      },
+      "output": {
+        "tags": [
+          "taverne"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "the filter is read in lowercase and trimmed",
+      "input": {
+        "tags": [
+          "Taverne"
+        ],
+        "filter": [
+          " TAVERNE "
+        ]
+      },
+      "output": {
+        "tags": [
+          "taverne"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "a filter on a tag the sound lacks drops the sound",
+      "input": {
+        "tags": [
+          "porte"
+        ],
+        "filter": [
+          "taverne"
+        ]
+      },
+      "output": {
+        "tags": [
+          "porte"
+        ],
+        "matches": false
+      }
+    },
+    {
+      "name": "one tag of the filter among those of the sound is enough",
+      "input": {
+        "tags": [
+          "taverne",
+          "foule"
+        ],
+        "filter": [
+          "porte",
+          "Foule"
+        ]
+      },
+      "output": {
+        "tags": [
+          "taverne",
+          "foule"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "a filter reads an accented tag as it is, accents kept",
+      "input": {
+        "tags": [
+          "Intérieur"
+        ],
+        "filter": [
+          "interieur"
+        ]
+      },
+      "output": {
+        "tags": [
+          "intérieur"
+        ],
+        "matches": false
+      }
+    },
+    {
+      "name": "a sound with no tag matches no non-empty filter",
+      "input": {
+        "tags": [],
+        "filter": [
+          "taverne"
+        ]
+      },
+      "output": {
+        "tags": [],
+        "matches": false
+      }
+    },
+    {
+      "name": "a match on the last tag of the sound and of the filter counts",
+      "input": {
+        "tags": [
+          "porte",
+          "Taverne",
+          "foule"
+        ],
+        "filter": [
+          "Cave",
+          "FOULE"
+        ]
+      },
+      "output": {
+        "tags": [
+          "porte",
+          "taverne",
+          "foule"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "the sound is read normalised: a capitalised tag matches a lowercase filter",
+      "input": {
+        "tags": [
+          "Taverne"
+        ],
+        "filter": [
+          "taverne"
+        ]
+      },
+      "output": {
+        "tags": [
+          "taverne"
+        ],
+        "matches": true
+      }
+    },
+    {
+      "name": "a filter that repeats a tag answers as the tag alone",
+      "input": {
+        "tags": [
+          "porte"
+        ],
+        "filter": [
+          "Taverne",
+          "taverne "
+        ]
+      },
+      "output": {
+        "tags": [
+          "porte"
+        ],
+        "matches": false
+      }
+    }
+  ]
+}
