@@ -16,14 +16,20 @@
 //!
 //! An unrecognised URL is still submitted, with no type: the invariant
 //! `api-type-recognized` rejects it and nothing is applied. A save missing
-//! a model is too: `single-settings-row` rejects it.
+//! a model is too: `single-settings-row` rejects it. Either way the DM is
+//! told why among the warnings.
+//!
+//! The engine runs [`prepare`] through this crate's [`plugin`]: the `llm`
+//! port is the one the server shares ([`SharedLlm`]), and the save is
+//! stamped to the millisecond (`aggregate_ai_settings::timestamp`).
 
 use std::collections::BTreeMap;
 
-use harness_dataguard::plugins::Plugin;
+use async_trait::async_trait;
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare, Refusal};
 use ports_llm::{
-    ApiType, Binary, Llm, Models, Provider, ProviderConfig, Secret, UNRECOGNISED_API_TYPE,
-    detect_api_type,
+    ApiType, Binary, Llm, Models, Provider, ProviderConfig, Secret, SharedLlm,
+    UNRECOGNISED_API_TYPE, detect_api_type,
 };
 use serde_json::Value;
 
@@ -70,12 +76,44 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`, which
+/// reaches the `llm` port the server shares.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new()
+        .prepare(DATA_CAPABILITY, SaveSettings)
+        .needs::<SharedLlm>()
+}
+
+/// Why a save is refused when no `llm` port is shared: the engine refuses
+/// to load first, so a server never answers it.
+const NO_LLM: &str = "le port llm n'est pas branché";
+
+/// The `Prepare` of `ai.saveSettings`: [`prepare`] on [`TARGET_ID`], stamped
+/// now, its refusal told among the warnings.
+struct SaveSettings;
+
+#[async_trait]
+impl Prepare for SaveSettings {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        _target_id: Option<&str>,
+    ) -> Result<plugins::Prepared, Refusal> {
+        let llm = context
+            .shared
+            .get::<SharedLlm>()
+            .ok_or_else(|| Refusal::unprocessable(NO_LLM))?;
+        let now = aggregate_ai_settings::timestamp(context.now_millis);
+        let Prepared { payload, refusal } = prepare(llm.as_ref(), payload, &now).await;
+        Ok(plugins::Prepared {
+            payload,
+            target_id: Some(TARGET_ID.to_string()),
+            warnings: refusal.map(str::to_string).into_iter().collect(),
+            ..plugins::Prepared::default()
+        })
+    }
 }
 
 /// The state a save of `wire` writes, `updated_at` being now (RFC 3339).
@@ -192,27 +230,4 @@ const fn binary_name(binary: Binary) -> &'static str {
         Binary::Opencode => "opencode",
         Binary::ClaudeCode => "claude-code",
     }
-}
-
-/// `unix_seconds` as RFC 3339 in UTC (`2026-10-17T10:00:00Z`): what
-/// `ai_settings.updated_at` takes.
-#[must_use]
-pub fn timestamp(unix_seconds: u64) -> String {
-    // Howard Hinnant's civil_from_days.
-    let days = (unix_seconds / 86_400) as i64 + 719_468;
-    let seconds = unix_seconds % 86_400;
-    let era = days.div_euclid(146_097);
-    let doe = days.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        seconds / 3600,
-        seconds % 3600 / 60,
-        seconds % 60
-    )
 }
