@@ -50,16 +50,6 @@ getrandom = "0.4"
 ports-llm = { path = "../../ports/llm" }
 # The port a dictation of notes is transcribed by, locally.
 ports-speech-to-text = { path = "../../ports/speech-to-text" }
-# --- Capabilities (the reads `reads.rs` still serves) ---
-get-campaign = { path = "../../campaign/capabilities/get-campaign" }
-get-entity = { path = "../../campaign/capabilities/get-entity" }
-list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
-list-characters = { path = "../../campaign/capabilities/list-characters" }
-list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
-list-events = { path = "../../campaign/capabilities/list-events" }
-list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes" }
-list-places = { path = "../../campaign/capabilities/list-places" }
-list-players = { path = "../../campaign/capabilities/list-players" }
 
 # --- DataCapabilities (the branches of the legacy submit chain) ---
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
