@@ -1,0 +1,1066 @@
+(() => {
+  // apps/shell/src/client/context.ts
+  var REFERENCE = "$ctx.";
+  var Context = class {
+    values = /* @__PURE__ */ new Map();
+    listeners = /* @__PURE__ */ new Set();
+    /** Sets one value and tells everyone who follows the context; nothing happens when it did not change. */
+    set(name, value) {
+      if (this.values.get(name) === value) return;
+      this.values.set(name, value);
+      for (const listener of [...this.listeners]) {
+        try {
+          listener(name, value);
+        } catch (error) {
+          console.error(`shell: a follower of the context failed on "${name}"`, error);
+        }
+      }
+    }
+    /** One value; `undefined` while nothing set it. */
+    get(name) {
+      return this.values.get(name);
+    }
+    /** Listens to the context; answers how to stop. */
+    on(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    /** The raw props with every `$ctx.<name>` resolved; `undefined` while the context has no value. */
+    resolve(raw) {
+      const out = {};
+      for (const [key, value] of Object.entries(raw)) {
+        out[key] = typeof value === "string" && value.startsWith(REFERENCE) ? this.get(value.slice(REFERENCE.length)) : value;
+      }
+      return out;
+    }
+    /** The context names the raw props follow. */
+    follows(raw) {
+      return Object.values(raw).filter((value) => typeof value === "string" && value.startsWith(REFERENCE)).map((value) => value.slice(REFERENCE.length));
+    }
+  };
+
+  // apps/shell/src/client/shell.ts
+  var ProtocolError = class extends Error {
+    constructor(status, body) {
+      super(`the server answered ${status}`);
+      this.status = status;
+      this.body = body;
+    }
+  };
+  async function call(fetcher, method, path, body) {
+    const init = { method };
+    if (body !== void 0) {
+      init.headers = { "content-type": "application/json" };
+      init.body = JSON.stringify(body);
+    }
+    const answer = await fetcher(path, init);
+    const text2 = await answer.text();
+    let parsed = text2;
+    try {
+      parsed = text2 ? JSON.parse(text2) : null;
+    } catch {
+    }
+    if (!answer.ok) throw new ProtocolError(answer.status, parsed);
+    return parsed;
+  }
+  var POLL_MS = 2e3;
+  function createShell(fetcher = (input, init) => fetch(input, init)) {
+    return {
+      capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
+      command: (body) => call(fetcher, "POST", "/commands", body),
+      commandResult: (commandId2) => call(fetcher, "GET", `/commands/${encodeURIComponent(commandId2)}`),
+      onDataVersion(listener, everyMs = POLL_MS) {
+        let last;
+        let inFlight = false;
+        const poll = async () => {
+          if (inFlight) return;
+          inFlight = true;
+          try {
+            const { dataVersion } = await call(fetcher, "GET", "/dataVersion");
+            if (dataVersion !== last) {
+              last = dataVersion;
+              listener(dataVersion);
+            }
+          } catch {
+          } finally {
+            inFlight = false;
+          }
+        };
+        void poll();
+        const timer = setInterval(() => void poll(), everyMs);
+        return () => clearInterval(timer);
+      },
+      context: new Context()
+    };
+  }
+
+  // apps/session/live-session-bar/src/ids.ts
+  var GET_LIVE_SESSION = "session.getLiveSession";
+  var GET_DIFFUSION = "live.getDiffusion";
+  var GET_SESSION_JOURNAL = "session.getSessionJournal";
+  var GET_PREVIOUS_SESSION_SUMMARY = "session.getPreviousSessionSummary";
+  var SHOW_COVER = "live.showCover";
+  var CLOSE_WINDOW = "live.closeWindow";
+  var CLOSE_SESSION = "session.closeSession";
+  var DATA_CAPABILITY_VERSION = 1;
+  var SESSION_AGGREGATE = "Session";
+  var SCENE_CONTEXT = "scene";
+
+  // apps/session/live-session-bar/src/model.ts
+  var isDict = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+  var text = (value) => typeof value === "string" ? value : "";
+  var list = (value) => Array.isArray(value) ? value : [];
+  var texts = (value) => list(value).filter((t) => typeof t === "string");
+  function parseScene(value) {
+    if (!isDict(value)) return null;
+    const id = text(value.id);
+    return id === "" ? null : { id, order: typeof value.order === "number" ? value.order : 0, title: text(value.title) };
+  }
+  function parseLive(data) {
+    if (!isDict(data)) return null;
+    const header = isDict(data.session) ? data.session : data;
+    const id = text(header.id);
+    if (id === "") return null;
+    const scenes2 = list(header.scenes ?? data.scenes).flatMap((s) => parseScene(s) ?? []);
+    const current = header.currentScene ?? data.currentScene;
+    const mic = isDict(data.microphone) ? data.microphone.on : void 0;
+    return {
+      id,
+      order: typeof header.order === "number" ? header.order : 0,
+      title: text(header.title),
+      startedAt: text(header.startedAt),
+      micOn: typeof mic === "boolean" ? mic : null,
+      scenes: scenes2,
+      currentScene: typeof current === "number" && current >= 0 && current < scenes2.length ? current : 0
+    };
+  }
+  var KINDS = /* @__PURE__ */ new Set(["cover", "illustration", "battlemap"]);
+  function parseDiffusion(data) {
+    const answer = isDict(data) ? data : {};
+    const base = isDict(answer.base) ? answer.base : {};
+    const kind = KINDS.has(text(base.kind)) ? text(base.kind) : "cover";
+    const window2 = isDict(answer.window) ? answer.window : null;
+    return { base: { kind, title: text(base.title) }, window: window2 === null ? null : { title: text(window2.title) } };
+  }
+  function showing(diffusion) {
+    const { kind, title } = diffusion.base;
+    const base = kind === "illustration" ? title === "" ? "une illustration (sc\xE8ne)" : `\xAB ${title} \xBB (sc\xE8ne)` : kind === "battlemap" ? title === "" ? "une battlemap" : `la battlemap \xAB ${title} \xBB` : "la couverture de la campagne";
+    const window2 = diffusion.window === null ? null : diffusion.window.title === "" ? "une fen\xEAtre" : `fen\xEAtre \xAB ${diffusion.window.title} \xBB`;
+    return { base, window: window2 };
+  }
+  var MINUTES_PER_DAY = 24 * 60;
+  function durationSince(startedAt, now) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(startedAt.trim());
+    if (match === null) return "";
+    const start = Number(match[1]) * 60 + Number(match[2]);
+    const minutes = ((now.getHours() * 60 + now.getMinutes() - start) % MINUTES_PER_DAY + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+    const hours = Math.floor(minutes / 60);
+    return hours === 0 ? `${minutes} min` : `${hours} h ${String(minutes % 60).padStart(2, "0")} min`;
+  }
+  function modelOf(meta2) {
+    if (isDict(meta2)) return text(meta2.model);
+    const sentence = text(meta2);
+    return /\bpar ([^,]+)/.exec(sentence)?.[1]?.trim() ?? sentence;
+  }
+  function parseRecap(journal, summary, duration) {
+    const lines = isDict(journal) ? list(journal.journal) : [];
+    const answer = isDict(summary) ? summary : {};
+    return {
+      journalLines: lines.length,
+      duration,
+      summaryModel: modelOf(answer.summaryMeta),
+      summary: text(answer.summary),
+      mentions: list(answer.mentions).flatMap((m) => isDict(m) && text(m.name) !== "" ? [text(m.name)] : []),
+      threads: texts(answer.threads)
+    };
+  }
+  var linesLabel = (count) => `${count.toLocaleString("fr-FR")} ligne${count > 1 ? "s" : ""}`;
+  function commandBody(dataCapability, idempotencyKey, target) {
+    return {
+      dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
+      payload: {},
+      ...target === void 0 ? {} : { target },
+      idempotencyKey,
+      caller: { by: "dm", from: "LiveSessionBar", roles: [] }
+    };
+  }
+  var VIOLATIONS = {
+    "status-lifecycle": "cette s\xE9ance est d\xE9j\xE0 close",
+    "close-session": "la cl\xF4ture a \xE9t\xE9 refus\xE9e"
+  };
+  var reasons = (violations) => violations.map((v) => VIOLATIONS[v] ?? v).join(", ");
+  var FINAL = /* @__PURE__ */ new Set(["applied", "rejected", "cancelled", "expired"]);
+  function settled(answer) {
+    const result = isDict(answer) && isDict(answer.result) ? answer.result : {};
+    return { status: text(result.status), violations: texts(result.violations) };
+  }
+  var isFinal = (status) => FINAL.has(status);
+  function commandId(answer) {
+    return isDict(answer) ? text(answer.commandId) || (isDict(answer.result) ? text(answer.result.commandId) : "") : "";
+  }
+
+  // apps/session/live-session-bar/src/render.ts
+  var esc = (value) => value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  var button = (id, label, variant, extra = "") => `<button type="button" class="${variant}" id="${id}"${extra}>${esc(label)}</button>`;
+  function skeleton() {
+    const live = `data-reads="${GET_LIVE_SESSION}"`;
+    return `<section class="mf-live-bar" id="session-bar" aria-labelledby="session-bar-title" ${live}><div class="mf-live-bar__title"><h1 id="session-bar-title"></h1><span class="small muted" id="session-bar-meta" ${live}></span></div><div class="kit-badge" id="session-bar-badges" ${live}></div><nav class="mf-live-bar__scenes" id="session-bar-scenes" aria-label="Sc\xE8nes de la s\xE9ance" ${live}></nav><div class="mf-live-bar__broadcast" id="session-bar-broadcast" data-reads="${GET_DIFFUSION}"><span class="small" id="session-bar-showing" aria-live="polite"></span><div class="kit-button kit-button--bare kit-button--small" id="session-bar-broadcast-actions"></div></div><div class="kit-button kit-button--bare kit-button--small" id="session-bar-actions">` + button("session-bar-player", "Ouvrir la player view", "secondary", ' data-href="player-view.html" data-target="_blank"') + button("session-bar-pilot", "Player view pilot\xE9e", "ghost", ' data-href="player-view.html?pilote=1" data-target="_blank"') + button("session-bar-close", "Clore la s\xE9ance", "danger", ` data-writes="${CLOSE_SESSION}"`) + '</div><div class="mf-modal" id="session-close-modal" hidden></div></section>';
+  }
+  var heading = (live) => `S\xE9ance ${live.order} \u2014 ${live.title}`;
+  var meta = (live) => live.startedAt === "" ? "En direct" : `En direct depuis ${live.startedAt}`;
+  function badges(live, closed) {
+    const mic = live.micOn === null ? "" : live.micOn && !closed ? '<span class="accent">Micro actif</span>' : "<span>Micro en pause</span>";
+    return (closed ? '<span class="danger">Close</span>' : '<span class="success">En direct</span>') + mic;
+  }
+  var scenes = (live) => live.scenes.map((s, i) => `<button type="button" class="chip${i === live.currentScene ? " is-on" : ""}" data-scene="${i}" id="session-bar-scene-${i + 1}" title="${esc(s.title)}" aria-pressed="${i === live.currentScene}">Sc\xE8ne ${s.order} \xB7 ${esc(s.title)}</button>`).join("");
+  function showingHtml(diffusion) {
+    const what = showing(diffusion);
+    return `Les joueurs voient <b>${esc(what.base)}</b>` + (what.window === null ? "" : ` + <b>${esc(what.window)}</b>`);
+  }
+  function broadcastActions(diffusion) {
+    return (diffusion.base.kind === "cover" ? "" : button("session-bar-cover", "Revenir \xE0 la couverture", "ghost", ` data-writes="${SHOW_COVER}"`)) + (diffusion.window === null ? "" : button("session-bar-close-window", "Fermer la fen\xEAtre", "ghost", ` data-writes="${CLOSE_WINDOW}"`));
+  }
+  function dialog(title, body, footer) {
+    return `<div class="kit-dialog"><div class="kit-dialog__veil"><div class="kit-dialog__window" role="dialog" aria-modal="true" aria-labelledby="session-close-title"><header class="kit-dialog__header"><h2 class="kit-dialog__title" id="session-close-title">${esc(title)}</h2><button class="kit-dialog__close" type="button" id="session-close-x" aria-label="Fermer">\xD7</button></header><div class="kit-dialog__body">${body}</div><footer class="kit-dialog__footer">${footer}</footer></div></div></div>`;
+  }
+  var dialogButton = (id, label, variant, extra = "") => `<button type="button" class="kit-dialog__btn kit-dialog__btn--${variant}" id="${id}"${extra}>${esc(label)}</button>`;
+  function confirmDialog(live, problem = "", busy = false) {
+    return dialog(
+      `Clore la s\xE9ance ${live.order}`,
+      `<p class="kit-dialog__text">Le micro sera mis en pause et les sons arr\xEAt\xE9s. Le journal transcrit est conserv\xE9 sur cette machine ; un r\xE9sum\xE9 est g\xE9n\xE9r\xE9 avec le mod\xE8le configur\xE9.</p><p class="small muted">Une s\xE9ance close ne se rouvre pas depuis la barre.</p><p class="mf-live-bar__status${problem === "" ? "" : " mf-live-bar__error"}" id="session-close-status" role="status" aria-live="polite">${esc(busy ? "Cl\xF4ture en cours\u2026" : problem)}</p>`,
+      dialogButton("session-close-cancel", "Continuer la s\xE9ance", "ghost", busy ? " disabled" : "") + dialogButton("session-close-submit", "Clore la s\xE9ance", "primary", ` data-writes="${CLOSE_SESSION}"${busy ? " disabled" : ""}`)
+    );
+  }
+  function recapDialog(live, recap, problem = "") {
+    const row = (id, label, value, reads) => `<li class="kit-dialog__row" id="${id}" data-reads="${reads}"><span>${esc(label)}</span><strong>${esc(value)}</strong></li>`;
+    const summary = `data-reads="${GET_PREVIOUS_SESSION_SUMMARY}"`;
+    return dialog(
+      `S\xE9ance ${live.order} close`,
+      '<p class="kit-dialog__text">Le micro est en pause et les sons sont arr\xEAt\xE9s. Le journal transcrit est conserv\xE9 sur cette machine.</p>' + (problem === "" ? "" : `<p class="mf-live-bar__error" id="session-close-status" role="status">${esc(problem)}</p>`) + '<ul class="kit-dialog__list">' + row("session-close-lines", "Lignes de journal", linesLabel(recap.journalLines), GET_SESSION_JOURNAL) + (recap.duration === "" ? "" : row("session-close-duration", "Dur\xE9e", recap.duration, GET_LIVE_SESSION)) + (recap.summaryModel === "" ? "" : row("session-close-model", "Mod\xE8le du r\xE9sum\xE9", recap.summaryModel, GET_PREVIOUS_SESSION_SUMMARY)) + `</ul><div class="mf-live-bar__summary"><h3>R\xE9sum\xE9 de la s\xE9ance</h3><p id="session-close-summary" ${summary}>${esc(recap.summary === "" ? "Aucun r\xE9sum\xE9 n\u2019a pu \xEAtre g\xE9n\xE9r\xE9." : recap.summary)}</p>` + (recap.mentions.length === 0 ? "" : `<h3>Entit\xE9s mentionn\xE9es</h3><div class="row" id="session-close-mentions" ${summary}>${recap.mentions.map((m) => `<span class="chip">${esc(m)}</span>`).join("")}</div>`) + (recap.threads.length === 0 ? "" : `<h3>Fils ouverts</h3><ul class="list" ${summary}>${recap.threads.map((t, i) => `<li class="item" id="session-close-thread-${i + 1}">${esc(t)}</li>`).join("")}</ul>`) + '</div><p class="small muted">Ce r\xE9sum\xE9 appara\xEEtra en t\xEAte de la pr\xE9paration de la s\xE9ance suivante.</p>',
+      dialogButton("session-close-done", "Retour \xE0 la campagne", "primary", ' data-href="campagne.html"')
+    );
+  }
+
+  // apps/session/live-session-bar/src/style.ts
+  var STYLE = `
+.mf-live-bar { box-sizing: border-box; color: var(--color-text); font-family: var(--font-family); font-size: var(--font-size-base); }
+.mf-live-bar *, .mf-live-bar *::before, .mf-live-bar *::after { box-sizing: inherit; }
+.mf-live-bar [hidden] { display: none !important; }
+.mf-live-bar h1, .mf-live-bar h2, .mf-live-bar h3 { margin: 0; font-family: var(--font-family-heading); font-weight: var(--font-weight-heading); text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.15; }
+.mf-live-bar h3 { font-size: var(--font-size-base); color: var(--color-text); }
+.mf-live-bar p { margin: 0; }
+.mf-live-bar .muted { color: var(--color-text-muted); }
+.mf-live-bar .small { font-size: var(--font-size-small); }
+.mf-live-bar .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.mf-live-bar .list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.mf-live-bar .item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); }
+.mf-live-bar .kit-button.kit-button--bare { padding: 0; background: transparent; border: 0; gap: var(--space-2); }
+.mf-live-bar .kit-button--small button { padding: var(--space-1) var(--space-3); font-size: var(--font-size-small); }
+.mf-live-bar .chip { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-pill); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-small); text-decoration: none; cursor: pointer; }
+.mf-live-bar .chip:hover { border-color: var(--color-primary); color: var(--color-accent); }
+.mf-live-bar .chip.is-on { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-primary-contrast); font-weight: var(--font-weight-heading); }
+.mf-live-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); padding: var(--space-2) var(--space-4); background: var(--color-surface-2); border-bottom: var(--border-width) solid var(--color-border); }
+.mf-live-bar__title { display: grid; }
+.mf-live-bar__title h1 { font-size: var(--font-size-large); color: var(--color-primary); }
+.mf-live-bar__scenes { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.mf-live-bar__broadcast { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; padding: var(--space-1) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-pill); }
+.mf-live-bar__broadcast b { color: var(--color-accent); }
+.mf-live-bar__summary { display: grid; gap: var(--space-2); }
+.mf-live-bar__status { min-height: var(--space-4); }
+.mf-live-bar__error { color: var(--color-danger); }
+.mf-live-bar .mf-modal { position: fixed; inset: 0; z-index: 100; }
+.mf-live-bar .mf-modal .kit-dialog, .mf-live-bar .mf-modal .kit-dialog__veil { height: 100%; }
+.mf-live-bar .mf-modal .kit-dialog__window { max-width: calc(var(--space-5) * 20); max-height: 88vh; }
+.mf-live-bar .kit-dialog__btn:disabled { opacity: 0.55; cursor: not-allowed; }
+`;
+
+  // apps/session/live-session-bar/src/index.ts
+  var DEFAULT_TIMING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 400, polls: 120, now: () => /* @__PURE__ */ new Date() };
+  function ensureStyle(doc) {
+    if (doc.querySelector('style[data-micro-ui="LiveSessionBar"]')) return;
+    const style = doc.createElement("style");
+    style.dataset.microUi = "LiveSessionBar";
+    style.textContent = STYLE;
+    doc.head.append(style);
+  }
+  function mount(host2, props2, shell2, timing = DEFAULT_TIMING) {
+    ensureStyle(host2.ownerDocument);
+    host2.innerHTML = skeleton();
+    const part = (id) => {
+      const found = host2.querySelector(`#${id}`);
+      if (!found) throw new Error(`LiveSessionBar: #${id} is not in the bar`);
+      return found;
+    };
+    const requested = typeof props2.session === "string" && props2.session !== "" ? { id: props2.session } : void 0;
+    let live = null;
+    let diffusion = parseDiffusion(void 0);
+    let closed = false;
+    let busy = false;
+    const paintLive = () => {
+      part("session-bar-title").textContent = live === null ? "Aucune s\xE9ance en cours" : heading(live);
+      part("session-bar-meta").textContent = live === null ? "" : meta(live);
+      part("session-bar-badges").innerHTML = live === null ? "" : badges(live, closed);
+      part("session-bar-scenes").innerHTML = live === null ? "" : scenes(live);
+      part("session-bar-close").disabled = live === null || closed;
+    };
+    const paintDiffusion = () => {
+      part("session-bar-showing").innerHTML = showingHtml(diffusion);
+      part("session-bar-broadcast-actions").innerHTML = broadcastActions(diffusion);
+    };
+    const readLive = async () => {
+      live = parseLive((await shell2.capability(GET_LIVE_SESSION, void 0, requested)).data);
+      paintLive();
+      if (live !== null) shell2.context.set(SCENE_CONTEXT, live.currentScene);
+    };
+    const readDiffusion = async () => {
+      diffusion = parseDiffusion((await shell2.capability(GET_DIFFUSION, void 0)).data);
+      paintDiffusion();
+    };
+    async function send(dataCapability, target) {
+      const answer = await shell2.command(commandBody(dataCapability, `${dataCapability}:${crypto.randomUUID()}`, target));
+      const id = commandId(answer);
+      let state = settled(answer);
+      for (let asked = 0; !isFinal(state.status) && id !== "" && asked < timing.polls; asked += 1) {
+        await timing.sleep(timing.everyMs);
+        state = settled(await shell2.commandResult(id));
+      }
+      return state;
+    }
+    async function broadcast(dataCapability) {
+      if (busy) return;
+      busy = true;
+      try {
+        const state = await send(dataCapability);
+        if (state.status === "rejected") part("session-bar-showing").textContent = `Refus\xE9 : ${reasons(state.violations)}.`;
+        else if (state.status !== "applied") part("session-bar-showing").textContent = `La commande n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`;
+        else await readDiffusion();
+      } catch {
+        part("session-bar-showing").textContent = "La commande a \xE9chou\xE9.";
+      } finally {
+        busy = false;
+      }
+    }
+    const modal = () => part("session-close-modal");
+    const show = (html) => {
+      modal().innerHTML = html;
+      modal().hidden = false;
+      (modal().querySelector(".kit-dialog__footer button:not(:disabled)") ?? modal().querySelector("button"))?.focus();
+    };
+    const hide = () => {
+      modal().hidden = true;
+      modal().innerHTML = "";
+    };
+    async function recap(session) {
+      const duration = durationSince(session.startedAt, timing.now());
+      const [journal, summary] = await Promise.allSettled([
+        shell2.capability(GET_SESSION_JOURNAL, void 0, { session: session.id }),
+        shell2.capability(GET_PREVIOUS_SESSION_SUMMARY, void 0, { session: session.id })
+      ]);
+      const lost = journal.status === "rejected" || summary.status === "rejected";
+      show(
+        recapDialog(
+          session,
+          parseRecap(journal.status === "fulfilled" ? journal.value.data : void 0, summary.status === "fulfilled" ? summary.value.data : void 0, duration),
+          lost ? "La s\xE9ance est close, mais son bilan n\u2019a pas pu \xEAtre lu en entier." : ""
+        )
+      );
+    }
+    async function closeSession() {
+      const session = live;
+      if (busy || session === null || closed) return;
+      busy = true;
+      show(confirmDialog(session, "", true));
+      try {
+        const state = await send(CLOSE_SESSION, { aggregate: SESSION_AGGREGATE, id: session.id });
+        if (state.status === "rejected") return show(confirmDialog(session, `Cl\xF4ture refus\xE9e : ${reasons(state.violations)}.`));
+        if (state.status !== "applied") return show(confirmDialog(session, `La cl\xF4ture n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`));
+      } catch {
+        return show(confirmDialog(session, "La cl\xF4ture a \xE9chou\xE9."));
+      } finally {
+        busy = false;
+      }
+      closed = true;
+      paintLive();
+      await recap(session);
+    }
+    host2.addEventListener("click", (event) => {
+      const target = event.target;
+      const button2 = target?.closest("button");
+      if (!button2 || button2.disabled) return;
+      if (button2.dataset.href !== void 0) {
+        event.stopPropagation();
+        if (button2.dataset.target === "_blank") host2.ownerDocument.defaultView?.open(button2.dataset.href, "_blank", "noopener");
+        else host2.ownerDocument.defaultView?.location.assign(button2.dataset.href);
+      } else if (button2.dataset.scene !== void 0 && live !== null) {
+        live = { ...live, currentScene: Number(button2.dataset.scene) };
+        paintLive();
+        shell2.context.set(SCENE_CONTEXT, live.currentScene);
+      } else if (button2.dataset.writes === SHOW_COVER || button2.dataset.writes === CLOSE_WINDOW) void broadcast(button2.dataset.writes);
+      else if (button2.id === "session-bar-close" && live !== null) show(confirmDialog(live));
+      else if (button2.id === "session-close-submit") void closeSession();
+      else if (button2.id === "session-close-cancel" || button2.id === "session-close-x") hide();
+    });
+    host2.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !modal().hidden && !busy) hide();
+    });
+    paintLive();
+    paintDiffusion();
+    part("session-bar-title").textContent = "Lecture de la s\xE9ance\u2026";
+    void readLive().catch(() => {
+      part("session-bar-title").textContent = "Impossible de lire la s\xE9ance.";
+    });
+    void readDiffusion().catch(() => {
+      part("session-bar-showing").textContent = "Impossible de lire ce que voient les joueurs.";
+    });
+    shell2.onDataVersion(() => {
+      if (!busy) void readDiffusion().catch(() => void 0);
+    });
+  }
+
+  // mock/src/screen.js
+  var context = () => window.__mockContext = window.__mockContext || {};
+  function getContext(name) {
+    return context()[name];
+  }
+  function onContext(listener) {
+    const handler = (e) => listener(e.detail.name, e.detail.value);
+    document.addEventListener("mock:context", handler);
+    return () => document.removeEventListener("mock:context", handler);
+  }
+  function mountPoint() {
+    const script = document.currentScript;
+    const component = script && script.closest("[data-component]");
+    const host2 = component ? component.querySelector(".mf-root") || component : document.body;
+    let props2;
+    try {
+      props2 = JSON.parse(component && component.dataset.props || "{}");
+    } catch {
+      props2 = {};
+    }
+    return { component, host: host2, props: props2 };
+  }
+  function resolveProps(raw) {
+    const out = {};
+    for (const [key, value] of Object.entries(raw || {})) {
+      out[key] = typeof value === "string" && value.startsWith("$ctx.") ? getContext(value.slice(5)) : value;
+    }
+    return out;
+  }
+  function compose(raw, mount2) {
+    const follows = Object.values(raw || {}).filter((v) => typeof v === "string" && v.startsWith("$ctx.")).map((v) => v.slice(5));
+    const mounted = mount2(resolveProps(raw));
+    if (follows.length) onContext((name) => {
+      if (follows.includes(name) && mounted && mounted.update) mounted.update(resolveProps(raw));
+    });
+    return mounted;
+  }
+
+  // mock/src/commands.js
+  function apiType(settings, url) {
+    let host2 = "";
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") host2 = parsed.hostname.toLowerCase();
+    } catch {
+    }
+    const home = settings.providers.opencode.url;
+    return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
+  }
+  var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
+  var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
+  var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
+  var COMMANDS = {
+    // live.showCover: the players'
+    // view goes back to the campaign cover, whatever its base was.
+    "live.showCover": async (server) => {
+      const diffusion = await server.load("live.getDiffusion");
+      Object.assign(diffusion, { base: { kind: "cover", id: "ill-cover" }, view: null });
+      return void 0;
+    },
+    // live.closeWindow: the floating
+    // illustration over the players' view is closed; their base stays.
+    "live.closeWindow": async (server) => {
+      (await server.load("live.getDiffusion")).window = null;
+      return void 0;
+    },
+    // media.uploadMedia (crates/media/data-capabilities/upload-media): a
+    // battlemap or an illustration added to the library, the path the DM chose
+    // recorded and no file copied. A battlemap arrives with its default grid
+    // (`grid-only-for-battlemap`) — a 32 px hex, pointy, 45 % opaque — at 5
+    // feet per hex; an illustration has none. A place, when one is named, is a
+    // lieu of the campaign (`media-place-is-lieu`); a kind that is neither is
+    // refused (`media-kind`, the table's CHECK).
+    "media.uploadMedia": async (server, { payload }) => {
+      const { kind, place = null } = payload;
+      if (kind !== "battlemap" && kind !== "illustration") return ["media-kind"];
+      if (place && !(await server.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["media-place-is-lieu"];
+      const media = await server.load("media");
+      const base = { id: server.uuid(), title: String(payload.title || "").trim() || "Sans titre", file: payload.file || "", uploadedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), place };
+      if (kind === "battlemap") media.battlemaps.push({ ...base, width: payload.width || 0, height: payload.height || 0, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 } });
+      else media.illustrations.push(base);
+      return void 0;
+    },
+    // media.saveGridSettings (crates/media/data-capabilities/save-grid-settings):
+    // a battlemap's grid kept — the six fields of HexGrid@1, the opacity a
+    // fraction of 1 where the mock-up's fixtures write a percentage. A hex size
+    // of 0 or an opacity outside 0..1 is refused by `grid-values-range`; an
+    // illustration or an unknown id has no grid (`grid-only-for-battlemap`).
+    "media.saveGridSettings": async (server, { payload, targetId }) => {
+      const battlemap = (await server.load("media")).battlemaps.find((b) => b.id === targetId);
+      if (!battlemap) return ["grid-only-for-battlemap"];
+      const { size, ox, oy, orient, color, opacity } = payload;
+      if (!(size > 0) || !(opacity >= 0 && opacity <= 1)) return ["grid-values-range"];
+      battlemap.grid = { size, ox, oy, orient, color, opacity: Math.round(opacity * 100) };
+      return void 0;
+    },
+    // media.setMediaPlace (crates/media/data-capabilities/set-media-place): a
+    // media — battlemap or illustration — attached to one of the campaign's
+    // places, or detached with `place: null`, and nothing else of it changes. A
+    // place that is no lieu the fixtures list is refused by
+    // `media-place-is-lieu`; an unknown media is `not-found`.
+    "media.setMediaPlace": async (server, { payload, targetId }) => {
+      const id = targetId || payload.media;
+      const listed = [await server.load("media"), await server.load("media.listMedia")];
+      const found = listed.flatMap((media) => media.battlemaps.concat(media.illustrations)).filter((m) => m.id === id);
+      if (!found.length) return ["not-found"];
+      const place = payload.place ?? null;
+      if (place !== null && !(await server.load("campaign.listPlaces")).some((p) => p.id === place)) return ["media-place-is-lieu"];
+      for (const medium of found) medium.place = place;
+      return void 0;
+    },
+    // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
+    // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
+    // version after it are undone, each field back to what it was. Either way the restoration is a new version
+    // on top of the history — source restauration, restoredFrom the version — whose changes are what moved since
+    // the version it replaces; versions 1..n stay as they were. A version the element does not have is refused.
+    "campaign.restoreEntityVersion": async (server, { payload, targetId }) => {
+      const history = (await server.load("campaign.listEntityVersions"))[targetId];
+      const target = history && history.versions.find((v) => v.v === payload.version);
+      if (!target) return ["not-found"];
+      const sheet = (upTo) => history.versions.slice().sort((a, b) => a.v - b.v).filter((v) => v.v <= upTo).reduce((fields, v) => {
+        for (const c of v.changes) fields[c.field] = c.new;
+        return fields;
+      }, {});
+      const before = sheet(history.versions[0].v);
+      let after = sheet(target.v);
+      if (Array.isArray(payload.changes)) {
+        const undone = (history.versions.find((v) => v.v === payload.version + 1) || { changes: [] }).changes;
+        after = { ...before };
+        for (const i of payload.changes) if (undone[i]) after[undone[i].field] = undone[i].old;
+      }
+      const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].sort().filter((field) => (before[field] ?? "") !== (after[field] ?? "")).map((field) => ({ field, old: before[field] ?? "", new: after[field] ?? "" }));
+      history.versions.unshift({ v: history.versions[0].v + 1, date: (/* @__PURE__ */ new Date()).toISOString(), origin: "manuelle", source: "restauration", restoredFrom: target.v, changes });
+      return void 0;
+    },
+    // campaign.exportCampaign (crates/dataguard/data-capabilities/export-campaign):
+    // stamps the campaign's last export with today's date and changes nothing
+    // else (`export-stamps-date`). An unknown campaign is `not-found`.
+    "campaign.exportCampaign": async (server, { payload }) => {
+      const campaign = await server.load("campaign.getCampaign");
+      if (!campaign || campaign.id !== payload.id) return ["not-found"];
+      const now = /* @__PURE__ */ new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      return void 0;
+    },
+    // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
+    // provider saved and made active. The API type is derived from the URL,
+    // never taken from the payload: the cloud host by itself, the home server
+    // at the URL whose model list the fixtures know; any other URL is refused
+    // by `api-type-recognized` (« type d'API non reconnu »). `binary: claude`
+    // is stored « claude-code ». The key is kept masked, never echoed.
+    "ai.saveSettings": async (server, { payload }) => {
+      const settings = await server.load("ai.getSettings");
+      const models = { generationModel: payload.generationModel, summaryModel: payload.summaryModel };
+      if (!String(models.generationModel || "") || !String(models.summaryModel || "")) return ["single-settings-row"];
+      if (payload.mode === "api") {
+        const url = String(payload.url || "");
+        const type = apiType(settings, url);
+        if (!type) return ["api-type-recognized"];
+        const key = String(payload.key || "");
+        settings.providers[type] = { ...settings.providers[type], url, ...models, key: key ? `\u2022\u2022\u2022\u2022${key.slice(-4)}` : "" };
+        Object.assign(settings, { mode: "api", provider: type, binary: null });
+        return void 0;
+      }
+      if (payload.mode === "binary") {
+        const binary = { claude: "claude-code", "claude-code": "claude-code", opencode: "opencode" }[payload.binary];
+        if (!binary) return ["mode-fields"];
+        Object.assign(settings, { mode: "binary", provider: binary, binary: { binary, ...models } });
+        return void 0;
+      }
+      return ["mode-fields"];
+    },
+    // ai.testConnection (crates/ai/data-capabilities/test-connection): the
+    // configuration on screen tested and nothing of it saved — only `lastTest`
+    // changes (`test-does-not-save`). Its type is detected as a save's; a URL
+    // of no known type is the active provider's failed test, « type d'API non
+    // reconnu ». The key is never kept.
+    "ai.testConnection": async (server, { payload }) => {
+      const settings = await server.load("ai.getSettings");
+      const at = (/* @__PURE__ */ new Date()).toISOString();
+      const provider = payload.mode === "api" ? apiType(settings, String(payload.url || "")) : payload.mode === "binary" ? { claude: "claude-code", "claude-code": "claude-code", opencode: "opencode" }[payload.binary] || null : null;
+      if (!provider) {
+        settings.lastTest = { ok: false, at, provider: settings.provider, latency: null, message: "type d'API non reconnu" };
+        return void 0;
+      }
+      const message = payload.mode === "api" && settings.testResults?.[provider]?.message || `Connexion r\xE9ussie (binaire ${provider})`;
+      const latency = message.match(/répond en ([\d,]+ s)/)?.[1] || "0,01 s";
+      settings.lastTest = { ok: true, at, provider, latency, message };
+      return void 0;
+    },
+    // ai.extractFromNotes (crates/ai/data-capabilities/extract-from-notes): the
+    // note analysed into proposals, nothing created (`no-creation-before-
+    // validation`). The mock's AI proposes what the fixture NoteImport lists; a
+    // proposal that names an existing element starts unchecked.
+    "ai.extractFromNotes": async (server, { payload }) => {
+      const text2 = String(payload.text || "");
+      const { proposals } = await server.load("NoteImport");
+      server.noteText = text2;
+      server.noteProposals = proposals.map((p) => ({ id: p.id, type: p.type, name: p.name, excerpt: p.excerpt, existing: p.existing, checked: !p.existing }));
+      return void 0;
+    },
+    // campaign.createEntitiesFromNote (crates/campaign/data-capabilities/create-entities-from-note):
+    // one element per accepted proposal, the raw note kept as an import listed
+    // newest first, the proposals no longer awaiting.
+    "campaign.createEntitiesFromNote": async (server, { payload }) => {
+      const proposals = server.noteProposals || [];
+      const accepted = Array.isArray(payload.accepted) ? payload.accepted : [];
+      const created = proposals.filter((p) => accepted.includes(p.id));
+      const fixture = await server.load("campaign.listImportedNotes");
+      const imports = Array.isArray(fixture) ? fixture : fixture.imports;
+      const note = server.noteText || "";
+      imports.unshift({ id: `imp-${server.uuid()}`, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), title: note.split("\n")[0].replace(/[.\s]+$/, "") || "Notes import\xE9es", chars: note.length, proposed: proposals.length, created: created.length });
+      server.noteProposals = [];
+      return void 0;
+    },
+    // session.closeSession (crates/session/data-capabilities/close-session): the
+    // live session closed in one action (`close-session`) — its microphone off,
+    // its close dated, its journal kept as it was — and a summary of its journal
+    // written by the active provider's summary model, the journal's text alone
+    // sent, as a Journal request (`text-only-no-audio`). The summary is the one
+    // the next preparation shows. A session that is not live is refused by
+    // `status-lifecycle`; one that is not the live session is `not-found`.
+    "session.closeSession": async (server, { payload, targetId }) => {
+      const live = await server.load("session.getLiveSession");
+      if (!live || live.id !== (targetId || payload.id)) return ["not-found"];
+      if ((live.status || "live") !== "live") return ["status-lifecycle"];
+      const settings = await server.load("ai.getSettings");
+      const binary = settings.mode === "binary" && settings.binary;
+      const model = (binary || settings.providers?.[settings.provider] || {}).summaryModel || "";
+      const provider = binary ? `${binary.binary}-binary` : settings.provider === "opencode" ? "opencode-server" : "cloud";
+      const { journal = [] } = await server.load("session.getSessionJournal") || {};
+      const lines = journal.length ? journal.map((line) => `${line.t} ${line.text}`) : ["(aucune ligne transcrite)"];
+      const text2 = [`Journal de la s\xE9ance \xAB ${live.title} \xBB`, ...lines].join("\n");
+      const requests = (await server.load("ai.listProviderRequests"))?.requests;
+      if (requests) requests.push({ sequence: requests.length + 1, kind: "journal", provider, text: text2, modalities: ["text"] });
+      const summary = `R\xE9sum\xE9 de la s\xE9ance ${live.order} g\xE9n\xE9r\xE9 par ${model} \xE0 partir de ${journal.length} lignes du journal.`;
+      Object.assign(live, { status: "closed", closedAt: (/* @__PURE__ */ new Date()).toISOString(), microphone: { on: false }, summary, summaryModel: model });
+      const previous = await server.load("session.getPreviousSessionSummary");
+      if (previous) Object.assign(previous, { session: { id: live.id, order: live.order, title: live.title, date: live.date }, summary, summaryMeta: `G\xE9n\xE9r\xE9 \xE0 la cl\xF4ture par ${model}` });
+      return void 0;
+    },
+    // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
+    // DM's explicit save of an element, its sheet and its aliases, which adds a
+    // version (EntityVersion@1, source `dm`) whose changes are the fields that
+    // moved. An alias naming another element, by its name or an alias
+    // (AliasMatch@1), is refused by `alias-unique-in-campaign`; a player on
+    // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
+    // are kept: a DEX modifier given is never written.
+    "campaign.saveEntity": async (server, { payload }) => {
+      const given = payload.entity || payload;
+      const lists = await Promise.all(Object.values(LISTS).filter((v2, i, all2) => all2.indexOf(v2) === i).map(async (name) => [name, await server.load(name) || []]));
+      const all = lists.flatMap(([name, list3]) => list3.map((element) => ({ name, element })));
+      const found = all.find(({ element }) => given.id && element.id === given.id);
+      const before = found ? found.element : {};
+      const kind = given.kind || before.kind || (found && found.name === "campaign.listPlaces" ? "lieu" : found && found.name === "campaign.listEvents" ? "evenement" : void 0);
+      if (!LISTS[kind]) return ["character-is-pj-or-pnj"];
+      const after = { ...before };
+      for (const field of SAVED) if (field in given) after[field] = given[field];
+      after.kind = kind;
+      if (Array.isArray(after.aliases)) {
+        const seen = /* @__PURE__ */ new Set();
+        after.aliases = after.aliases.filter((a) => typeof a === "string" && normalized(a) && !seen.has(normalized(a)) && seen.add(normalized(a)));
+      }
+      if (after.player && kind !== "pj") return ["character-is-pj-or-pnj"];
+      const own = [[normalized(after.name), false], ...(after.aliases || []).map((a) => [normalized(a), true])].filter(([t]) => t);
+      const others = all.filter(({ element }) => element !== before).flatMap(({ element }) => [[normalized(element.name), false], ...(element.aliases || []).map((a) => [normalized(a), true])]);
+      if (own.some(([t, alias]) => others.some(([o, otherAlias]) => o === t && (alias || otherAlias)))) return ["alias-unique-in-campaign"];
+      if ((kind === "pj" || kind === "pnj") && !after.color) after.color = "accent";
+      const id = before.id || given.id || server.uuid();
+      after.id = id;
+      const list2 = await server.load(LISTS[kind]) || [];
+      if (found && found.name !== LISTS[kind]) {
+        const old = lists.find(([name]) => name === found.name)[1];
+        old.splice(old.indexOf(before), 1);
+      }
+      const at = list2.indexOf(before);
+      if (at >= 0) list2[at] = after;
+      else list2.push(after);
+      const history = await server.load("campaign.listEntityVersions") || {};
+      const entry = history[id] || (history[id] = { name: after.name, versions: [] });
+      entry.name = after.name;
+      const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
+      const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Fiche enregistr\xE9e par le DM", seen: true, changes });
+      return void 0;
+    }
+  };
+
+  // mock/src/reads.js
+  async function closedBySession(server, variables) {
+    const bar = await server.load("LiveSessionBar");
+    return bar && variables.session === bar.session.id ? bar : null;
+  }
+  var READS = {
+    // session.getLiveSession: the running session, and the scenes of its screen
+    // (fixtures/LiveSessionBar.json) the bar offers and marks the current one of.
+    "session.getLiveSession": async (server) => {
+      const live = await server.load("session.getLiveSession");
+      const bar = await server.load("LiveSessionBar");
+      return live && bar ? { ...live, scenes: bar.scenes, currentScene: bar.currentScene } : live;
+    },
+    "session.getSessionJournal": async (server, variables) => {
+      const bar = await closedBySession(server, variables);
+      if (!bar) return server.load("session.getSessionJournal");
+      return { journal: Array.from({ length: bar.closing.journalLines }, (_, i) => ({ t: bar.session.startedAt, text: `Ligne ${i + 1} du journal transcrit` })) };
+    },
+    "session.getPreviousSessionSummary": async (server, variables) => {
+      const bar = await closedBySession(server, variables);
+      if (!bar) return server.load("session.getPreviousSessionSummary");
+      const { id, order, title, date } = bar.session;
+      return {
+        session: { id, order, title, date },
+        summary: bar.closing.summary,
+        summaryMeta: `G\xE9n\xE9r\xE9 \xE0 la cl\xF4ture par ${bar.closing.summaryModel}`,
+        mentions: bar.closing.mentions.map((name) => ({ id: name, type: "pnj", name })),
+        threads: bar.closing.threads
+      };
+    },
+    // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
+    // the notes already imported, newest first, and the proposals of the latest
+    // analysed note still awaiting validation. The imports are the fixture's
+    // list; the proposals are what `ai.extractFromNotes` recorded (commands.js).
+    "campaign.listImportedNotes": async (server) => {
+      const fixture = await server.load("campaign.listImportedNotes");
+      const imports = Array.isArray(fixture) ? fixture : fixture && fixture.imports || [];
+      return { imports: [...imports].sort((x, y) => String(y.date).localeCompare(String(x.date))), proposals: server.noteProposals || [] };
+    },
+    // media.getBattlemap (crates/media/capabilities/get-battlemap): one
+    // battlemap of the media library, by its id, its grid as HexGrid@1 states
+    // it — the opacity a fraction of 1 where the mock-up's fixtures write a
+    // percentage, and a hex always 5 feet. An illustration or an unknown id
+    // is no battlemap: `null`, as the server answers it, not a `not-found`.
+    "media.getBattlemap": async (server, { id }) => {
+      const battlemap = (await server.load("media")).battlemaps.find((b) => b.id === id);
+      if (!battlemap) return null;
+      const { opacity, ...grid } = battlemap.grid;
+      return { ...battlemap, grid: { ...grid, opacity: opacity / 100, feetPerHex: 5 } };
+    },
+    // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
+    // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
+    "campaign.listEntityVersions": async (server, { entity }) => {
+      const history = (await server.load("campaign.listEntityVersions"))[entity];
+      if (history) return history;
+      const entities = await server.load("entities");
+      const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === entity);
+      return known ? { name: known.name, versions: [] } : null;
+    },
+    // One element's sheet: a character, a place or an event of `entities`.
+    "campaign.getEntity": async (server, { id }) => {
+      const entities = await server.load("entities");
+      return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+    }
+  };
+
+  // mock/src/server.js
+  var LATENCY_MS = 120;
+  var delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  var uuid = () => crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
+  var json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  var notFound = () => json({ error: "not-found" }, 404);
+  var refused = (why) => json({ error: why }, 409);
+  var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  var FINAL2 = /* @__PURE__ */ new Set(["applied", "rejected", "cancelled", "expired"]);
+  function ruleHolds(rule, payload) {
+    const m = /^\s*([A-Za-z_][\w.]*)\s*(<=|>=|==|!=|<|>|=)\s*(.+?)\s*$/.exec(String(rule || ""));
+    if (!m) return true;
+    const [, field, op, raw] = m;
+    if (!(field in payload)) return true;
+    const left = payload[field];
+    let right = raw;
+    if (/^-?\d+(\.\d+)?$/.test(raw)) right = Number(raw);
+    else if (raw === "true" || raw === "false") right = raw === "true";
+    else right = raw.replace(/^['"]|['"]$/g, "");
+    switch (op) {
+      case "<=":
+        return left <= right;
+      case ">=":
+        return left >= right;
+      case "<":
+        return left < right;
+      case ">":
+        return left > right;
+      case "!=":
+        return left !== right;
+      default:
+        return left === right;
+    }
+  }
+  function mockServer() {
+    if (window.__mockServer) return window.__mockServer;
+    const s = { dataVersion: 1, fixtures: /* @__PURE__ */ new Map(), listeners: /* @__PURE__ */ new Set(), commands: /* @__PURE__ */ new Map(), queue: /* @__PURE__ */ new Map(), messages: [], tick: 1e3, parkAfterMs: 3e4 };
+    s.load = async (name) => {
+      if (!s.fixtures.has(name)) {
+        s.fixtures.set(name, fetch(new URL(`../fixtures/${name}.json`, location.href)).then((r) => r.ok ? r.json() : void 0).catch(() => void 0));
+      }
+      return s.fixtures.get(name);
+    };
+    s.bump = () => {
+      s.dataVersion += 1;
+      for (const listener of s.listeners) listener({ data: JSON.stringify({ dataVersion: s.dataVersion }) });
+    };
+    s.uuid = uuid;
+    s.next = () => s.tick++;
+    s.planned = async (id) => {
+      if (!s.graph) s.graph = fetch(new URL("../../plan/graph.json", location.href)).then((r) => r.ok ? r.json() : void 0).catch(() => void 0);
+      const graph = await s.graph;
+      const entry = graph && graph.ids && graph.ids[id];
+      return Boolean(entry && entry.kind === "data-capability" && entry.producer != null);
+    };
+    s.tell = (message, to, commandId2, extra = {}) => {
+      const m = { message, to: Array.isArray(to) ? to : [to], commandId: commandId2, at: (/* @__PURE__ */ new Date()).toISOString(), ...extra };
+      s.messages.push(m);
+      return m;
+    };
+    const read = async (identifier, variables) => {
+      const handler = READS[identifier];
+      if (handler) return handler(s, variables);
+      const fixture = await s.load(identifier);
+      if (fixture === void 0) return void 0;
+      if (fixture && typeof fixture === "object" && Array.isArray(fixture.$match)) {
+        const hit = fixture.$match.find((m) => Object.entries(m.variables || {}).every(([k, v]) => same(variables[k], v)));
+        return hit ? hit.data : fixture.data;
+      }
+      return fixture;
+    };
+    const invariants = async (aggregate, payload) => {
+      const out = { reject: [], review: [] };
+      if (!aggregate) return out;
+      const manifest = await s.load(`aggregates/${aggregate}`);
+      for (const inv of manifest && manifest.invariants || []) {
+        if (!ruleHolds(inv.rule, payload)) (inv.onViolation === "review" ? out.review : out.reject).push(inv.id);
+      }
+      return out;
+    };
+    const pendingIn = (partition) => [...s.queue.values()].filter((e) => e.partition === partition && !FINAL2.has(e.state)).sort((a, b) => a.position - b.position);
+    const declaredAhead = (entry, merging = /* @__PURE__ */ new Set()) => {
+      const fields = Object.keys(entry.payload).filter((f) => !merging.has(f));
+      const ahead = pendingIn(entry.partition).find((e) => e.position < entry.position && e.state !== "parked" && fields.some((f) => f in e.payload));
+      if (ahead) {
+        const f = fields.find((x) => x in ahead.payload);
+        return { by: ahead.by, command: ahead.commandId, value: ahead.payload[f], field: f };
+      }
+      const read2 = entry.basedOn && entry.basedOn.values || {};
+      for (const f of fields) {
+        if (f in read2 && s.confirmed.has(`${entry.partition}.${f}`) && !same(s.confirmed.get(`${entry.partition}.${f}`), read2[f])) {
+          return { by: "(applied)", command: "(applied)", value: s.confirmed.get(`${entry.partition}.${f}`), field: f };
+        }
+      }
+      return null;
+    };
+    s.confirmed = /* @__PURE__ */ new Map();
+    const resultOf = (entry) => ({ commandId: entry.commandId, status: entry.state, dataVersion: entry.dataVersion || null, violations: entry.violations || [], reviewId: entry.reviewId || null });
+    const answer = (entry, replayed = false) => json({ commandId: entry.commandId, partition: entry.partition, replayed, warnings: entry.warnings || [], result: resultOf(entry) }, 202);
+    const drive = async () => {
+      for (const partition of new Set([...s.queue.values()].filter((e) => !FINAL2.has(e.state)).map((e) => e.partition))) {
+        for (; ; ) {
+          const head = pendingIn(partition).find((e) => e.state !== "parked");
+          if (!head) break;
+          if (head.state === "awaiting_review") break;
+          if (head.state === "awaiting_confirmation") {
+            if (head.atHeadSince === void 0) head.atHeadSince = Date.now();
+            if (Date.now() - head.atHeadSince < s.parkAfterMs) break;
+            head.state = "parked";
+            s.tell("Parked", head.by, head.commandId, { reason: "reached the head unconfirmed", actions: ["requeue", "cancel"] });
+            continue;
+          }
+          const verdict = await invariants(head.aggregate, head.payload);
+          if (verdict.reject.length) {
+            head.state = "rejected";
+            head.violations = verdict.reject;
+            s.tell("CommandRejected", head.by, head.commandId, { violations: verdict.reject });
+            continue;
+          }
+          if (head.handler) {
+            const said = await head.handler(s, { payload: head.payload, targetId: head.targetId, version: head.version, basedOn: head.basedOn });
+            const violations = Array.isArray(said) ? said : said && said.violations || [];
+            if (violations.length) {
+              head.state = "rejected";
+              head.violations = violations;
+              s.tell("CommandRejected", head.by, head.commandId, { violations });
+              continue;
+            }
+          }
+          head.state = "applied";
+          s.bump();
+          head.dataVersion = s.dataVersion;
+          for (const [f, v] of Object.entries(head.payload)) s.confirmed.set(`${partition}.${f}`, v);
+          s.tell("CommandApplied", [head.by, "infrastructure"], head.commandId, { dataVersion: s.dataVersion });
+          for (const behind of pendingIn(partition)) {
+            if (behind.aheadOf === head.commandId) s.tell("AheadResolved", behind.by, behind.commandId, { reason: `${head.commandId} was resolved` });
+          }
+        }
+      }
+    };
+    const command = async (body) => {
+      const [dataCapability, version] = String(body.dataCapability || "").split("@");
+      const payload = body.payload || {};
+      const target = body.target || {};
+      const targetId = target.id || body.targetId;
+      const by = body.caller && body.caller.by || body.by || "anonymous";
+      const handler = COMMANDS[dataCapability];
+      if (body.idempotencyKey) {
+        const seen = [...s.queue.values()].find((e) => e.idempotencyKey === body.idempotencyKey && e.dataCapability === dataCapability);
+        if (seen) return answer(seen, true);
+      }
+      const aggregate = target.aggregate || null;
+      const declared = (aggregate && await s.load(`aggregates/${aggregate}`) || { fields: {} }).fields || {};
+      const derived = Object.keys(payload).filter((f) => declared[f] && declared[f].kind === "derived");
+      if (derived.length) return json({ error: `${dataCapability} writes the derived field(s) ${derived.join(", ")}: ${aggregate} recomputes them` }, 403);
+      const commandId2 = uuid();
+      const partition = `${aggregate || dataCapability}/${targetId || commandId2}`;
+      const entry = { commandId: commandId2, dataCapability, version: Number(version) || 1, aggregate, partition, targetId, by, payload, basedOn: body.basedOn, idempotencyKey: body.idempotencyKey, handler, position: s.next(), state: "queued", warnings: [] };
+      s.queue.set(commandId2, entry);
+      s.commands.set(commandId2, entry);
+      if (!handler && await s.planned(dataCapability)) {
+        entry.state = "applied";
+        entry.warnings.push(`mocked-data-capability: ${dataCapability} is planned, not built`);
+        s.tell("CommandApplied", by, commandId2, { mocked: true });
+        s.bump();
+        return answer(entry);
+      }
+      if (!handler) {
+        entry.state = "rejected";
+        entry.violations = ["unhandled-data-capability"];
+        s.tell("CommandRejected", by, commandId2, { violations: entry.violations, reason: `${dataCapability} is not in mock/src/commands.js` });
+        return answer(entry);
+      }
+      const verdict = await invariants(aggregate, payload);
+      if (verdict.reject.length || verdict.review.length) {
+        entry.warnings.push(`invariant(s) at risk: ${verdict.reject.concat(verdict.review).join(", ")}`);
+        s.tell("InvariantAtRisk", by, commandId2, { violations: verdict.reject.concat(verdict.review) });
+      }
+      const needsReview = verdict.review.length > 0 || Object.keys(payload).some((f) => declared[f] && declared[f].criticality === "critical");
+      const merging = new Set(Object.keys(declared).filter((f) => declared[f].merge));
+      const ahead = declaredAhead(entry, merging);
+      if (needsReview) {
+        entry.state = "awaiting_review";
+        entry.reviewId = `r_${s.next()}`;
+        entry.warnings.push(`review ${entry.reviewId} required`);
+        s.tell("ReviewRequired", "role:approver", commandId2, { actions: ["approve", "reject"] });
+      } else if (ahead && (body.mode || "confirm_on_stale") === "confirm_on_stale") {
+        entry.state = "awaiting_confirmation";
+        entry.aheadOf = ahead.command;
+        entry.warnings.push("a value is declared ahead: confirm or cancel");
+        s.tell("ValueDeclaredAhead", by, commandId2, { field: `${partition}.${ahead.field}`, yourValue: payload[ahead.field], declaredAhead: { value: ahead.value, by: ahead.by, command: ahead.command }, actions: ["confirm_overwrite", "cancel", "edit"] });
+      }
+      s.tell("CommandQueued", by, commandId2);
+      await drive();
+      return answer(entry);
+    };
+    const gesture = async (id, verb, body) => {
+      const entry = s.queue.get(id);
+      if (!entry) return notFound();
+      const by = body && body.by || entry.by;
+      if (by !== entry.by) return refused(`${id} is ${entry.by}'s to ${verb}`);
+      if (verb === "confirm") {
+        if (entry.state !== "awaiting_confirmation") return refused(`${id} is ${entry.state}, not awaiting a confirmation`);
+        entry.state = "confirmed";
+      } else if (verb === "cancel") {
+        if (FINAL2.has(entry.state)) return refused(`${id} is ${entry.state}`);
+        entry.state = "cancelled";
+        s.tell("CommandCancelled", entry.by, id);
+      } else if (verb === "requeue") {
+        if (entry.state !== "parked") return refused(`${id} is ${entry.state}, not parked`);
+        entry.state = "cancelled";
+        const fresh = { ...entry, commandId: `${id}-r`, position: s.next(), state: "queued", warnings: [], requeuedFrom: id, aheadOf: void 0, atHeadSince: void 0 };
+        s.queue.set(fresh.commandId, fresh);
+        s.commands.set(fresh.commandId, fresh);
+        const ahead = declaredAhead(fresh);
+        if (ahead) {
+          fresh.state = "awaiting_confirmation";
+          fresh.aheadOf = ahead.command;
+          fresh.warnings.push("a value is declared ahead: confirm or cancel");
+          s.tell("ValueDeclaredAhead", fresh.by, fresh.commandId, { field: `${fresh.partition}.${ahead.field}`, yourValue: fresh.payload[ahead.field], declaredAhead: { value: ahead.value, by: ahead.by, command: ahead.command }, actions: ["confirm_overwrite", "cancel", "edit"] });
+        }
+        s.tell("CommandQueued", fresh.by, fresh.commandId);
+        await drive();
+        return answer(fresh);
+      } else if (verb === "approve" || verb === "reject") {
+        if (entry.state !== "awaiting_review") return refused(`${id} is ${entry.state}, not awaiting a review`);
+        entry.state = verb === "approve" ? "confirmed" : "rejected";
+        if (verb === "reject") entry.violations = [`review ${entry.reviewId} rejected`];
+      } else return notFound();
+      await drive();
+      return json({ result: resultOf(entry) });
+    };
+    s.fetch = async (input, init) => {
+      await delay(LATENCY_MS);
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      const method = init && init.method || "GET";
+      const body = init && typeof init.body === "string" ? JSON.parse(init.body) : {};
+      if (method === "POST" && url.pathname.startsWith("/capabilities/")) {
+        const data = await read(decodeURIComponent(url.pathname.slice("/capabilities/".length)), body.variables || {});
+        return data === void 0 ? notFound() : json({ asOf: s.dataVersion, data });
+      }
+      if (method === "POST" && url.pathname === "/commands") return command(body);
+      const lookup = /^\/commands\/([^/]+)$/.exec(url.pathname);
+      if (lookup && method === "GET") {
+        const entry = s.commands.get(decodeURIComponent(lookup[1]));
+        return entry ? json({ result: resultOf(entry) }) : notFound();
+      }
+      const move = /^\/commands\/([^/]+)\/(confirm|cancel|requeue|approve|reject)$/.exec(url.pathname);
+      if (move && method === "POST") return gesture(decodeURIComponent(move[1]), move[2], body);
+      return notFound();
+    };
+    s.drive = drive;
+    s.eventSource = () => {
+      const source = { readyState: 1, addEventListener(type, listener) {
+        if (type === "dataVersion") s.listeners.add(listener);
+      }, close() {
+        source.readyState = 2;
+      } };
+      return source;
+    };
+    window.__mockServer = s;
+    return s;
+  }
+  function shellOnce(create) {
+    if (!window.__mockShell) window.__mockShell = create(mockServer());
+    return window.__mockShell;
+  }
+
+  // mock/src/LiveSessionBar.js
+  var { host, props } = mountPoint();
+  var shared = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
+  var shell = Object.assign(Object.create(shared), {
+    command: async (body) => {
+      const answer = await shared.command(body);
+      if (String(body && body.dataCapability).startsWith("session.closeSession")) {
+        const mic = document.getElementById("suggestions-mic-button");
+        const control = mic && mic.closest("[data-kit]");
+        if (control && control.mic && control.mic.state === "recording") control.mic.set("paused");
+      }
+      return answer;
+    }
+  });
+  shared.context.on((name, value) => {
+    if (name === "scene") document.dispatchEvent(new CustomEvent("fdm:scene", { detail: { index: value } }));
+  });
+  fetch(new URL("../fixtures/LiveSessionBar.json", location.href)).then((answer) => answer.json()).then((bar) => {
+    const [hours, minutes] = bar.session.startedAt.split(":").map(Number);
+    const [, ranHours = 0, ranMinutes = 0] = (/(\d+) h (\d+) min/.exec(bar.closing.duration) || []).map(Number);
+    const timing = { ...DEFAULT_TIMING, now: () => new Date(2026, 0, 1, hours + ranHours, minutes + ranMinutes) };
+    compose(props, (resolved) => mount(host, resolved, shell, timing));
+  });
+})();

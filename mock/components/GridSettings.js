@@ -748,6 +748,19 @@
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
+    // live.showCover: the players'
+    // view goes back to the campaign cover, whatever its base was.
+    "live.showCover": async (server) => {
+      const diffusion = await server.load("live.getDiffusion");
+      Object.assign(diffusion, { base: { kind: "cover", id: "ill-cover" }, view: null });
+      return void 0;
+    },
+    // live.closeWindow: the floating
+    // illustration over the players' view is closed; their base stays.
+    "live.closeWindow": async (server) => {
+      (await server.load("live.getDiffusion")).window = null;
+      return void 0;
+    },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
     // battlemap or an illustration added to the library, the path the DM chose
     // recorded and no file copied. A battlemap arrives with its default grid
@@ -919,7 +932,7 @@
       const requests = (await server.load("ai.listProviderRequests"))?.requests;
       if (requests) requests.push({ sequence: requests.length + 1, kind: "journal", provider, text: text2, modalities: ["text"] });
       const summary = `R\xE9sum\xE9 de la s\xE9ance ${live.order} g\xE9n\xE9r\xE9 par ${model} \xE0 partir de ${journal.length} lignes du journal.`;
-      Object.assign(live, { status: "closed", closedAt: (/* @__PURE__ */ new Date()).toISOString(), microphoneOn: false, summary, summaryModel: model });
+      Object.assign(live, { status: "closed", closedAt: (/* @__PURE__ */ new Date()).toISOString(), microphone: { on: false }, summary, summaryModel: model });
       const previous = await server.load("session.getPreviousSessionSummary");
       if (previous) Object.assign(previous, { session: { id: live.id, order: live.order, title: live.title, date: live.date }, summary, summaryMeta: `G\xE9n\xE9r\xE9 \xE0 la cl\xF4ture par ${model}` });
       return void 0;
@@ -972,7 +985,35 @@
   };
 
   // mock/src/reads.js
+  async function closedBySession(server, variables) {
+    const bar = await server.load("LiveSessionBar");
+    return bar && variables.session === bar.session.id ? bar : null;
+  }
   var READS = {
+    // session.getLiveSession: the running session, and the scenes of its screen
+    // (fixtures/LiveSessionBar.json) the bar offers and marks the current one of.
+    "session.getLiveSession": async (server) => {
+      const live = await server.load("session.getLiveSession");
+      const bar = await server.load("LiveSessionBar");
+      return live && bar ? { ...live, scenes: bar.scenes, currentScene: bar.currentScene } : live;
+    },
+    "session.getSessionJournal": async (server, variables) => {
+      const bar = await closedBySession(server, variables);
+      if (!bar) return server.load("session.getSessionJournal");
+      return { journal: Array.from({ length: bar.closing.journalLines }, (_, i) => ({ t: bar.session.startedAt, text: `Ligne ${i + 1} du journal transcrit` })) };
+    },
+    "session.getPreviousSessionSummary": async (server, variables) => {
+      const bar = await closedBySession(server, variables);
+      if (!bar) return server.load("session.getPreviousSessionSummary");
+      const { id, order, title: title2, date } = bar.session;
+      return {
+        session: { id, order, title: title2, date },
+        summary: bar.closing.summary,
+        summaryMeta: `G\xE9n\xE9r\xE9 \xE0 la cl\xF4ture par ${bar.closing.summaryModel}`,
+        mentions: bar.closing.mentions.map((name) => ({ id: name, type: "pnj", name })),
+        threads: bar.closing.threads
+      };
+    },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
     // the notes already imported, newest first, and the proposals of the latest
     // analysed note still awaiting validation. The imports are the fixture's
