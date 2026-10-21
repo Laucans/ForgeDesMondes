@@ -520,10 +520,12 @@
     "table.getBattlemapInstance": async (server, { instance, view } = {}) => {
       const data = await instanceOf(server, instance);
       if (!data) return data;
-      const dressedTokens = await dressed(server, data.state.tokens);
+      const dressedTokens = (await dressed(server, data.state.tokens)).map((t) => t.kind === "pnj" ? { ...t, dead: t.hp === 0 } : t);
       if (view !== "player") return { ...data, state: { ...data.state, tokens: dressedTokens } };
       const tokens = dressedTokens.filter((t) => t.visible).map((t) => ({ id: t.id, char: t.char, kind: t.kind, name: t.name, num: t.num, q: t.q, r: t.r, visible: true, states: t.states, dead: t.dead, initials: t.initials, color: t.color, portrait: t.portrait, healthBand: t.kind === "pnj" ? healthBand(t.hp, t.hpMax) : null }));
-      return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat: null } };
+      const seen = new Set(tokens.map((t) => t.id));
+      const combat = data.state.combat ? { ...data.state.combat, current: seen.has(data.state.combat.current) ? data.state.combat.current : "", order: data.state.combat.order.filter((o) => seen.has(o.id)) } : null;
+      return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat } };
     },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
     // the notes already imported, newest first, and the proposals of the latest
@@ -603,6 +605,32 @@
     shareInstance(data);
     return void 0;
   }
+  function dexModifier(characters, id) {
+    const sheet = characters.find((c) => c.id === id);
+    return Math.floor(((sheet && sheet.stats ? sheet.stats.DEX : 10) - 10) / 2);
+  }
+  function advance(combat, state) {
+    const { order } = combat;
+    const from = Math.max(0, order.findIndex((o) => o.id === combat.current));
+    for (let step = 1; step <= order.length; step += 1) {
+      const at = (from + step) % order.length;
+      const token = state.tokens.find((t) => t.id === order[at].id);
+      if (token && !token.dead) {
+        if (at <= from) combat.round += 1;
+        combat.current = order[at].id;
+        return;
+      }
+    }
+  }
+  async function onCombat(server, id, change) {
+    const data = await instanceOf(server, id);
+    if (!data) return ["instance-isolated"];
+    if (!data.state.combat) return ["one-active-combat"];
+    const violations = await change(data.state.combat, data.state);
+    if (violations) return violations;
+    shareInstance(data);
+    return void 0;
+  }
   var COMMANDS = {
     // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
     // one position both views read.
@@ -628,6 +656,99 @@
     "table.removeToken": (server, { payload: payload2, targetId }) => onToken(server, { id: targetId }, payload2.token, (t, state) => {
       state.tokens = state.tokens.filter((x) => x !== t);
     }),
+    // table.changeHitPoints (crates/table/data-capabilities/change-hit-points):
+    // hp-change-one-token — the targeted token only; pj-hp-not-tracked — a PC has
+    // no hit points; the current ones stay within 0 and the maximum, and an NPC
+    // is dead iff they are 0 (dead-derived).
+    "table.changeHitPoints": (server, { payload: payload2, targetId }) => onToken(server, { id: targetId }, payload2.token, (t) => {
+      if (t.kind !== "pnj" || typeof t.hp !== "number") return ["pj-hp-not-tracked"];
+      t.hp = Math.max(0, Math.min(t.hpMax, t.hp + Math.trunc(Number(payload2.delta) || 0)));
+      t.dead = t.hp === 0;
+      return void 0;
+    }),
+    // table.startCombat: the NPC roll a d20 plus the DEX modifier of their sheet,
+    // the DM enters the PCs' initiative; the order is the initiative, then the DEX,
+    // then at random (initiative-tiebreak). A hidden token is in the order and keeps its rank.
+    "table.startCombat": async (server, { payload: payload2, targetId }) => {
+      const data = await instanceOf(server, targetId);
+      if (!data) return ["instance-isolated"];
+      if (data.state.combat) return ["one-active-combat"];
+      const characters = await server.load("campaign.listCharacters") || [];
+      const rolls = payload2.rolls || {};
+      const entered = payload2.initiative || {};
+      const order = [];
+      for (const t of data.state.tokens.filter((x) => !x.dead)) {
+        const dex = dexModifier(characters, t.char);
+        if (t.kind === "pnj") {
+          const roll = Number(rolls[t.id]);
+          if (!(roll >= 1 && roll <= 20)) return ["npc-initiative-bounds"];
+          order.push({ id: t.id, init: roll + dex, dex, tie: Math.random() });
+        } else {
+          const init = Number(entered[t.char]);
+          if (!(init >= 1)) return ["npc-initiative-bounds"];
+          order.push({ id: t.id, init, dex, tie: Math.random() });
+        }
+      }
+      if (!order.length) return ["one-active-combat"];
+      order.sort((a, b) => b.init - a.init || b.dex - a.dex || b.tie - a.tie);
+      data.pjInitiative = { ...data.pjInitiative, ...entered };
+      data.state.combat = { round: 1, current: order[0].id, order: order.map(({ id, init, dex }) => ({ id, init, dex })) };
+      shareInstance(data);
+      return void 0;
+    },
+    // table.nextTurn: next-turn — the next living participant by rank, the round counting up when it comes back to the first.
+    "table.nextTurn": (server, { targetId }) => onCombat(server, targetId, (combat, state) => {
+      advance(combat, state);
+      return void 0;
+    }),
+    // table.reorderInitiative: the participant takes the rank `position`; nobody else changes relative rank.
+    "table.reorderInitiative": (server, { payload: payload2, targetId }) => onCombat(server, targetId, (combat) => {
+      const from = combat.order.findIndex((o) => o.id === payload2.token);
+      if (from < 0) return ["instance-isolated"];
+      const [moved] = combat.order.splice(from, 1);
+      combat.order.splice(Math.max(0, Math.min(combat.order.length, Number(payload2.position) || 0)), 0, moved);
+      return void 0;
+    }),
+    // table.addParticipant: a token joins the running order at the place its initiative earns.
+    "table.addParticipant": (server, { payload: payload2, targetId }) => onCombat(server, targetId, async (combat, state) => {
+      const token = state.tokens.find((t) => t.id === payload2.token);
+      if (!token || combat.order.some((o) => o.id === token.id)) return ["instance-isolated"];
+      const dex = dexModifier(await server.load("campaign.listCharacters") || [], token.char);
+      const roll = Number(payload2.roll);
+      const init = token.kind === "pnj" ? roll + dex : Number(payload2.initiative);
+      if (!(init >= 1) || token.kind === "pnj" && !(roll >= 1 && roll <= 20)) return ["npc-initiative-bounds"];
+      const at = combat.order.findIndex((o) => o.init < init || o.init === init && o.dex < dex);
+      combat.order.splice(at < 0 ? combat.order.length : at, 0, { id: token.id, init, dex });
+      return void 0;
+    }),
+    // table.removeParticipant: the token leaves the order, not the map; the turn passes on if it was its turn.
+    "table.removeParticipant": (server, { payload: payload2, targetId }) => onCombat(server, targetId, (combat, state) => {
+      if (!combat.order.some((o) => o.id === payload2.token)) return ["instance-isolated"];
+      const rest = { ...combat, order: combat.order.filter((o) => o.id !== payload2.token) };
+      if (combat.current === payload2.token) {
+        const gone = { ...state, tokens: state.tokens.map((t) => t.id === payload2.token ? { ...t, dead: true } : t) };
+        advance(combat, gone);
+        rest.round = combat.round;
+        rest.current = combat.current === payload2.token ? rest.order[0] && rest.order[0].id || "" : combat.current;
+      }
+      if (rest.order.length) Object.assign(combat, rest);
+      else state.combat = null;
+      return void 0;
+    }),
+    // table.endCombat: the combat ends; the tokens stay as they are.
+    "table.endCombat": (server, { targetId }) => onCombat(server, targetId, (combat, state) => {
+      state.combat = null;
+      return void 0;
+    }),
+    // table.resetBattlemap: state-persisted-reset — the instance's tokens, combat and initiative are removed: an empty map.
+    "table.resetBattlemap": async (server, { targetId }) => {
+      const data = await instanceOf(server, targetId);
+      if (!data) return ["instance-isolated"];
+      data.state = { tokens: [], combat: null };
+      data.pjInitiative = {};
+      shareInstance(data);
+      return void 0;
+    },
     // table.placeTokens: one character dropped, once or « × n »; the new tokens
     // are numbered after those already taken for it (multi-drop-numbering), a
     // monster takes its hit points from its sheet, a PC has one token.
