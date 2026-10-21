@@ -159,9 +159,9 @@ impl Prepare for Scenes {
         let places = elements(context, &asked.places).await?;
         let scene = scene_id(context.now_millis, &context.ids.fresh());
         let payload = prepare(&asked, &scene, &session, &places).map_err(refused)?;
+        // The row is the payload's `sceneId` (`target.id`).
         Ok(plugins::Prepared {
             payload,
-            target_id: Some(scene),
             ..plugins::Prepared::default()
         })
     }

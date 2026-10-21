@@ -613,8 +613,10 @@ fn arrivee(links: Value) -> Value {
 async fn text_only_no_audio_admits_one_list_the_ids_a_scene_links() {
     let engine = session("prep").await;
     for payload in [
-        // A list of anything but ids, even under `entityId`.
+        // A list of anything but ids, even under `entityId`: a text, hex
+        // digits too few for a uuid, a number, a list.
         arrivee(json!(["UklGRiQAAABXQVZF"])),
+        arrivee(json!(["e1000000"])),
         arrivee(json!([42])),
         arrivee(json!([[TAVERNE]])),
         // A list of ids under any other field.

@@ -88,7 +88,8 @@ struct Scratch {
 }
 
 impl Scratch {
-    async fn new(name: &str) -> Scratch {
+    /// A database of its own and nothing in it: not migrated.
+    async fn bare(name: &str) -> Scratch {
         let name = format!("session_scenes_test_{name}_{}", std::process::id());
         let admin = connect(&url()).await;
         for sql in [
@@ -98,7 +99,22 @@ impl Scratch {
             admin.batch_execute(&sql).await.expect("a scratch database");
         }
         let url = naming(&name);
-        let mut client = connect(&url).await;
+        let client = connect(&url).await;
+        Scratch {
+            name,
+            url,
+            client,
+            notifier: Arc::default(),
+        }
+    }
+
+    async fn new(name: &str) -> Scratch {
+        let Scratch {
+            name,
+            url,
+            mut client,
+            notifier,
+        } = Scratch::bare(name).await;
         let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/migrations");
         data::migrate(&mut client, &migrations)
             .await
@@ -141,7 +157,7 @@ impl Scratch {
             name,
             url,
             client,
-            notifier: Arc::default(),
+            notifier,
         }
     }
 
@@ -433,5 +449,17 @@ async fn a_row_that_is_no_scene_s_or_a_tombstone_writes_no_scene() {
             .await
             .is_empty()
     );
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn without_the_tables_a_scene_fails_the_step_unrefused() {
+    let scratch = Scratch::bare("bare").await;
+    let engine = scratch.serve().await;
+    submit(&engine, "test.addRow", scene(ARRIVEE, "L'arrivée", &[])).await;
+    // The store fails, the command is neither applied nor rejected: it
+    // stays at the head.
+    assert!(engine.run_once().await.is_err());
+    assert!(engine.run_once().await.is_err());
     scratch.drop().await;
 }
