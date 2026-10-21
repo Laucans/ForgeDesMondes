@@ -594,6 +594,39 @@ async fn multi_drop_numbering_counts_from_1_and_a_rename_keeps_the_number() {
     assert!(why.contains("labelInitial"), "{why}");
 }
 
+#[tokio::test]
+async fn multi_drop_numbering_a_number_is_taken_once_whatever_drops_were_prepared_side_by_side() {
+    let (engine, rows) = tavern().await;
+    // A drop that numbered Morlox 2 again lands on the token there: refused,
+    // the token stays.
+    rejected_by(
+        &written(
+            &engine,
+            "test.dropToken",
+            with(morlox(MORLOX_2, 2), "name", json!("Intrus")),
+        )
+        .await,
+        &["multi-drop-numbering"],
+    );
+    assert_eq!(held(&rows, MORLOX_2, "name").await, "Morlox 2");
+    // Two drops prepared before either was queued both chose Morlox 3: the
+    // first lands, the second is refused and overwrites nothing.
+    let third = "70000000-0000-4000-8000-000000000004";
+    queued(&engine, "test.dropToken", morlox(third, 3)).await;
+    queued(
+        &engine,
+        "test.dropToken",
+        with(morlox(third, 3), "name", json!("Intrus")),
+    )
+    .await;
+    let mut results = engine.run_once().await.expect("the applier ran");
+    results.extend(engine.run_once().await.expect("the applier ran"));
+    assert_eq!(results.len(), 2, "{results:?}");
+    applied(&results[0]);
+    rejected_by(&results[1], &["multi-drop-numbering"]);
+    assert_eq!(held(&rows, third, "name").await, "Morlox 3");
+}
+
 // Judged on one row: telling a PC from an NPC on the token is migration 0013's (#266).
 #[tokio::test]
 async fn pj_hp_not_tracked_leaves_a_pc_without_hp_and_an_npc_within_its_maximum() {
