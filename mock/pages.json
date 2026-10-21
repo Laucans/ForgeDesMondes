@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "71989534df63e21d"
+      "builtFrom": "4457dfed9618f3a4"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "c15617c30f836683"
+      "builtFrom": "d6c75fa4ca6e56e6"
     },
     {
       "name": "SessionList",
@@ -214,7 +214,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "f3fc2443d69db3b7"
+      "builtFrom": "b4c9174cbf7e052a"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +278,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "32331279e073bcc7"
+      "builtFrom": "ae160288e05b47da"
     },
     {
       "name": "PreviousSummary",
@@ -421,7 +421,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "eb03eab7e31f81fa"
+      "builtFrom": "3f0b4f4129e38e1d"
     },
     {
       "name": "SoundLibrary",
@@ -444,22 +444,30 @@
     {
       "name": "LiveSessionBar",
       "system": "session",
-      "description": "La séance en direct : ses scènes, ce que voient les joueurs, l’ouverture de la player view et la clôture avec le résumé à retoucher",
+      "description": "La séance en direct : ses scènes, ce que voient les joueurs, l’ouverture de la player view et la clôture avec son bilan (lignes de journal, durée, modèle et résumé)",
       "fragment": "components/LiveSessionBar.html",
       "fixtures": [
         "fixtures/session.getLiveSession.json",
-        "fixtures/live.getDiffusion.json"
+        "fixtures/live.getDiffusion.json",
+        "fixtures/session.getSessionJournal.json",
+        "fixtures/session.getPreviousSessionSummary.json"
       ],
       "needs": [
         "session.getLiveSession",
-        "live.getDiffusion"
+        "live.getDiffusion",
+        "session.getSessionJournal",
+        "session.getPreviousSessionSummary"
       ],
       "actions": [
         "live.showCover",
         "live.closeWindow",
         "session.closeSession"
       ],
-      "props": {}
+      "props": {
+        "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
+      },
+      "source": "apps/session/live-session-bar",
+      "builtFrom": "4b5d966f7ffa397f"
     },
     {
       "name": "ElementsPanel",
