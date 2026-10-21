@@ -287,10 +287,11 @@ impl Prepare for Creates {
         };
         let now = text("now")
             .ok_or_else(|| plugins::Refusal::unprocessable("l'heure n'a pas pu être lue"))?;
+        // The partition is the payload's `battlemapInstanceId`, as the
+        // manifest's `target.id` names it.
         let prepared = prepare(&request, &placement, &now).map_err(refused)?;
         Ok(plugins::Prepared {
             payload: prepared.payload,
-            target_id: Some(prepared.target_id),
             ..plugins::Prepared::default()
         })
     }
