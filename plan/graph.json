@@ -102,7 +102,6 @@
         "campaign"
       ],
       "produces": [
-        "SceneBoard",
         "SessionLifecycle@1",
         "SessionList",
         "campaign.createCampaign",
@@ -114,8 +113,7 @@
         "session.listScenes",
         "session.listSessions",
         "session.removePresentCharacter",
-        "session.reorderScenes",
-        "table.getBattlemapInstance"
+        "session.reorderScenes"
       ],
       "consumes": [
         "Campaign",
@@ -250,10 +248,12 @@
       "produces": [
         "HealthBand@1",
         "Initiative@1",
+        "SceneBoard",
         "table.addParticipant",
         "table.changeHitPoints",
         "table.createBattlemapInstance",
         "table.endCombat",
+        "table.getBattlemapInstance",
         "table.moveToken",
         "table.nextTurn",
         "table.placeTokens",
@@ -276,8 +276,7 @@
         "session.getSession",
         "session.listScenes",
         "session.removePresentCharacter",
-        "session.reorderScenes",
-        "table.getBattlemapInstance"
+        "session.reorderScenes"
       ],
       "depends_on": [
         18,
@@ -626,7 +625,7 @@
     },
     "SceneBoard": {
       "kind": "micro-ui",
-      "producer": 20,
+      "producer": 25,
       "state": "mocked",
       "version": 1
     },
@@ -1106,7 +1105,7 @@
     },
     "table.getBattlemapInstance": {
       "kind": "capability",
-      "producer": 20,
+      "producer": 25,
       "state": "mocked",
       "version": 1
     },

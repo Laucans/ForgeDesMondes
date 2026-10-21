@@ -92,6 +92,12 @@ enum Fault {
     JournalsTwice,
     /// Sorts the aliases, but only when they are the sole terms.
     SortsLoneAliases,
+    /// Reverses the campaign names, but only when they are the sole terms.
+    ReordersLoneNames,
+    /// Drops the sound names, but only when they are the sole terms.
+    DropsLoneSounds,
+    /// Journals one byte less than the audio it was given.
+    CountsOneByteShort,
 }
 
 struct Faulty {
@@ -133,11 +139,26 @@ impl SpeechToText for Faulty {
             {
                 journalled.aliases.sort();
             }
+            Fault::ReordersLoneNames
+                if journalled.aliases.is_empty() && journalled.sound_names.is_empty() =>
+            {
+                journalled.campaign_names.reverse();
+            }
+            Fault::DropsLoneSounds
+                if journalled.campaign_names.is_empty() && journalled.aliases.is_empty() =>
+            {
+                journalled.sound_names.clear();
+            }
             _ => {}
         }
-        self.journal.record(dictation, &journalled);
+        let counted = if matches!(self.fault, Fault::CountsOneByteShort) {
+            Dictation::new(&dictation.audio[..dictation.audio.len() - 1])
+        } else {
+            dictation.clone()
+        };
+        self.journal.record(&counted, &journalled);
         if matches!(self.fault, Fault::JournalsTwice) {
-            self.journal.record(dictation, &journalled);
+            self.journal.record(&counted, &journalled);
         }
         Ok(transcript)
     }
@@ -181,4 +202,22 @@ async fn the_contract_fails_a_port_that_journals_twice() {
 #[should_panic(expected = "the vocabulary journalled")]
 async fn the_contract_fails_a_port_that_sorts_a_list_given_alone() {
     run(&Faulty::new(Fault::SortsLoneAliases), &scenario()).await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "the vocabulary journalled")]
+async fn the_contract_fails_a_port_that_reorders_names_given_alone() {
+    run(&Faulty::new(Fault::ReordersLoneNames), &scenario()).await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "the vocabulary journalled")]
+async fn the_contract_fails_a_port_that_drops_sounds_given_alone() {
+    run(&Faulty::new(Fault::DropsLoneSounds), &scenario()).await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "the size of the audio journalled")]
+async fn the_contract_fails_a_port_that_journals_the_wrong_audio_size() {
+    run(&Faulty::new(Fault::CountsOneByteShort), &scenario()).await;
 }
