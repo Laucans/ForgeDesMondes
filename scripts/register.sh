@@ -21,6 +21,11 @@
 # out. The registry's build script fails the build, naming the units, when
 # a folder and this file disagree.
 #
+# The same packages, sorted, are cargo machete's ignore list
+# ([package.metadata.cargo-machete]): the registry uses each unit only in
+# the glue its build script writes into OUT_DIR, which machete does not
+# read, so it would flag every one.
+#
 # One engine: the same line goes into the root Cargo.toml's
 # [workspace.dependencies], and a unit that needs the engine (an
 # aggregate's Judge, a DataCapability's Prepare) takes it from there:
@@ -80,6 +85,7 @@ engine_elsewhere() {
 
 failed=0
 lines=""
+packages=""
 for toml in crates/*/aggregates/*/Cargo.toml crates/*/data-capabilities/*/Cargo.toml crates/*/capabilities/*/Cargo.toml; do
   [ -f "$toml" ] || continue
   dir=$(dirname "$toml")
@@ -106,8 +112,20 @@ for toml in crates/*/aggregates/*/Cargo.toml crates/*/data-capabilities/*/Cargo.
   fi
   lines="$lines$name = { path = \"../../${dir#crates/}\" }
 "
+  packages="$packages$name
+"
 done
 [ "$failed" = 0 ] || exit 1
+
+# cargo machete's ignore list: one quoted package per line, sorted.
+ignored=$(printf '%s' "$packages" | LC_ALL=C sort | sed 's/.*/    "&",/')
+if [ -n "$ignored" ]; then
+  ignored="ignored = [
+$ignored
+]"
+else
+  ignored="ignored = []"
+fi
 
 text="# Written by scripts/register.sh: never edited by hand. A unit folder
 # added under crates/<system>/{aggregates,data-capabilities,capabilities}/
@@ -120,21 +138,16 @@ description = \"Every unit of the product, gathered: what the server plants.\"
 publish = false
 build = \"build.rs\"
 
+# Every unit is used by the glue build.rs writes into OUT_DIR, which cargo
+# machete does not read.
+[package.metadata.cargo-machete]
+$ignored
+
 [dependencies]
 $engine"
 units=$(printf '%s' "$lines" | LC_ALL=C sort)
 [ -z "$units" ] || text="$text
 $units"
-# cargo machete reads a crate's sources, never the glue its build script
-# writes into OUT_DIR: every unit is named there alone, so it is listed as
-# used on purpose (the product's own addition to this script).
-if [ -n "$units" ]; then
-  ignored=$(printf '%s\n' "$units" | sed -E 's/^([^ ]+) =.*$/"\1",/' | tr '\n' ' ' | sed -E 's/, $//')
-  text="$text
-
-[package.metadata.cargo-machete]
-ignored = [$ignored]"
-fi
 
 root=Cargo.toml
 
