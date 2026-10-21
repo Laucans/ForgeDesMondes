@@ -13,11 +13,7 @@ pub(crate) mod extract_from_notes;
 // ---
 pub(crate) mod save_grid_settings;
 // ---
-pub(crate) mod save_settings;
-// ---
 pub(crate) mod set_media_place;
-// ---
-pub(crate) mod test_connection;
 // ---
 pub(crate) mod upload_media;
 // ---

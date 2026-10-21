@@ -9,9 +9,8 @@ use harness_dataguard::api::{Submission, Submitted};
 use ports_llm::Llm;
 use ports_speech_to_text::SpeechToText;
 
-use crate::projection::AI_SETTINGS;
-use crate::provider::active;
 use crate::{Reply, Served, fresh_uuid, reply, submit_prepared};
+use ai_provider::{SETTINGS as AI_SETTINGS, active};
 
 /// An analysis of notes (`extract_from_notes::analyse`), made before anything
 /// is queued and submitted as its commands, `now` being when the note is

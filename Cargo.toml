@@ -8,6 +8,7 @@ members = [
     "crates/*/aggregates/*",
     "crates/*/capabilities/*",
     "crates/*/data-capabilities/*",
+    "crates/ai/provider",
     "crates/data",
     "crates/dataguard/registry",
     "crates/dataguard/server",

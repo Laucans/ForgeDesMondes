@@ -1,21 +1,24 @@
-//! ai.saveSettings over PostgreSQL (`DATABASE_URL`): what the engine applies
-//! on `AiSettings/1` reaches `ai_provider` and `ai_settings`, and a start
-//! projects it again. Each test works in a scratch database of its own,
-//! migrated as the server migrates it, dropped when it ends.
+//! ai.saveSettings over PostgreSQL (`DATABASE_URL`): what the DM saves is
+//! prepared, applied on `AiSettings/1` and projected into `ai_provider` and
+//! `ai_settings` in the same transaction, and a start projects it again.
+//! Each test works in a scratch database of its own, migrated as the server
+//! migrates it, dropped when it ends.
 
 use std::sync::Arc;
 
-use axum::Router;
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use dataguard_server::{Engine, Planted, planted, router};
+use harness_dataguard::aggregate::Aggregate;
+use harness_dataguard::api::Submission;
 use harness_dataguard::command::State;
+use harness_dataguard::engine::Engine;
+use harness_dataguard::guard::Caller;
+use harness_dataguard::manifest::DataCapability;
+use harness_dataguard::memory::MemoryNotifier;
+use harness_dataguard::plugins::{Plugins, Shared};
+use harness_dataguard::postgres::{PgStore, SystemClock};
+use harness_dataguard::tokio_postgres::{self, Client, NoTls};
+use ports_llm::SharedLlm;
 use ports_llm::fake::FakeLlm;
 use serde_json::{Value, json};
-use tokio_postgres::{Client, NoTls};
-use tower::ServiceExt;
-
-const MIGRATION: &str = include_str!("../../../data/migrations/0001_ai_settings.sql");
 
 const HOME: &str = "http://192.168.1.40:4096";
 const CLOUD: &str = "a1000000-0000-4000-8000-000000000001";
@@ -48,6 +51,14 @@ fn naming(name: &str) -> String {
     format!("{server}/{name}{query}")
 }
 
+/// The units the server plants for a save: its target aggregate's and its
+/// own.
+fn plugins() -> Plugins {
+    [aggregate_ai_settings::plugin(), save_settings::plugin()]
+        .into_iter()
+        .collect()
+}
+
 /// A database of its own, migrated, and the server's engine over it.
 struct Scratch {
     name: String,
@@ -56,7 +67,7 @@ struct Scratch {
 }
 
 impl Scratch {
-    async fn new(name: &str) -> Scratch {
+    async fn new(name: &str) -> Self {
         let name = format!("save_settings_test_{name}_{}", std::process::id());
         let admin = connect(&url()).await;
         for sql in [
@@ -67,20 +78,39 @@ impl Scratch {
         }
         let url = naming(&name);
         let client = connect(&url).await;
-        client.batch_execute(MIGRATION).await.expect("migrated");
-        Scratch { name, url, client }
+        let migration = platform_conformance::repository_root()
+            .join("crates/data/migrations/0001_ai_settings.sql");
+        let migration = std::fs::read_to_string(migration).expect("the migration");
+        client.batch_execute(&migration).await.expect("migrated");
+        Self { name, url, client }
     }
 
-    /// The engine as the server plants it, and its wire protocol with the
-    /// llm port's fake, whose home server answers its model list.
-    async fn serve(&self) -> (Arc<Engine>, Router) {
-        let Planted { engine, rows } = planted(&self.url)
+    /// The engine as the server plants it, the llm port's fake shared,
+    /// whose home server answers its model list.
+    async fn serve(&self) -> Engine {
+        let plugins = plugins();
+        let store = PgStore::open(connect(&self.url).await)
             .await
-            .expect("the engine over PostgreSQL");
-        let engine = Arc::new(engine);
+            .expect("the store")
+            .with_projections(&plugins)
+            .await
+            .expect("warmed");
         let llm = FakeLlm::new().with_endpoint(HOME, json!({ "object": "list", "data": [] }));
-        let app = router(engine.clone(), rows, Arc::new(llm));
-        (engine, app)
+        let mut shared = Shared::default();
+        shared.insert(Arc::new(SharedLlm::new(llm)));
+        let engine = Engine::new(
+            Arc::new(store),
+            Arc::new(MemoryNotifier::default()),
+            Arc::new(SystemClock),
+        )
+        .with_aggregate(Aggregate::parse(aggregate_ai_settings::MANIFEST).expect("contract I"))
+        .with_data_capability(
+            DataCapability::parse(include_str!("../data-capability.json")).expect("contract F"),
+        )
+        .with_plugins(plugins)
+        .with_shared(shared);
+        engine.load().await.expect("an empty queue");
+        engine
     }
 
     async fn active(&self) -> String {
@@ -119,23 +149,33 @@ impl Scratch {
 }
 
 /// Saves `payload` as the DM and settles it: it is applied.
-async fn save(engine: &Engine, app: &Router, payload: Value) {
-    assert_eq!(settle(engine, app, payload).await, State::Applied);
+async fn save(engine: &Engine, payload: Value) {
+    assert_eq!(settle(engine, payload).await, State::Applied);
 }
 
 /// Saves `payload` as the DM, settles it, and tells how it ended.
-async fn settle(engine: &Engine, app: &Router, payload: Value) -> State {
-    let body = json!({
-        "dataCapability": "ai.saveSettings@1",
-        "payload": payload,
-        "caller": { "by": "dm", "from": "AiSettings", "roles": ["role:approver"] },
-    });
-    let request = Request::post("/commands")
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap();
-    let response = app.clone().oneshot(request).await.expect("an answer");
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
+async fn settle(engine: &Engine, payload: Value) -> State {
+    engine
+        .submit(Submission {
+            data_capability: "ai.saveSettings@1".to_string(),
+            payload: payload
+                .as_object()
+                .expect("an object")
+                .clone()
+                .into_iter()
+                .collect(),
+            target_id: None,
+            based_on: None,
+            idempotency_key: None,
+            caller: Caller {
+                by: "dm".to_string(),
+                from: "AiSettings".to_string(),
+                permissions: Vec::new(),
+                roles: vec!["role:approver".to_string()],
+            },
+        })
+        .await
+        .expect("queued");
     let applied = engine.run_once().await.expect("the applier ran");
     assert_eq!(applied.len(), 1, "{applied:?}");
     applied[0].status
@@ -144,12 +184,11 @@ async fn settle(engine: &Engine, app: &Router, payload: Value) -> State {
 #[tokio::test]
 async fn a_save_reaches_ai_provider_and_ai_settings() {
     let db = Scratch::new("reaches").await;
-    let (engine, app) = db.serve().await;
+    let engine = db.serve().await;
     assert_eq!(db.active().await, CLOUD, "the seed's");
 
     save(
         &engine,
-        &app,
         json!({
             "mode": "api",
             "url": HOME,
@@ -169,7 +208,6 @@ async fn a_save_reaches_ai_provider_and_ai_settings() {
 
     save(
         &engine,
-        &app,
         json!({
             "mode": "binary",
             "binary": "claude",
@@ -188,7 +226,6 @@ async fn a_save_reaches_ai_provider_and_ai_settings() {
 
     save(
         &engine,
-        &app,
         json!({
             "mode": "api",
             "url": "https://api.anthropic.com/v1",
@@ -202,35 +239,33 @@ async fn a_save_reaches_ai_provider_and_ai_settings() {
     let cloud = db.provider(CLOUD).await;
     assert_eq!(cloud["api_key"], "sk-ant-du-dm");
     assert_eq!(cloud["detected_api_type"], "cloud");
-    drop((engine, app));
+    drop(engine);
     db.drop().await;
 }
 
 #[tokio::test]
 async fn a_save_missing_a_model_is_rejected_and_the_tables_keep_theirs() {
     let db = Scratch::new("models").await;
-    let (engine, app) = db.serve().await;
+    let engine = db.serve().await;
     let before = db.provider(OPENCODE).await;
     let state = settle(
         &engine,
-        &app,
         json!({ "mode": "api", "url": HOME, "summaryModel": "qwen3-14b", "key": "" }),
     )
     .await;
     assert_eq!(state, State::Rejected);
     assert_eq!(db.active().await, CLOUD, "the seed's");
     assert_eq!(db.provider(OPENCODE).await, before);
-    drop((engine, app));
+    drop(engine);
     db.drop().await;
 }
 
 #[tokio::test]
 async fn a_start_projects_the_saved_settings_again() {
     let db = Scratch::new("repair").await;
-    let (engine, app) = db.serve().await;
+    let engine = db.serve().await;
     save(
         &engine,
-        &app,
         json!({
             "mode": "binary",
             "binary": "opencode",
@@ -239,8 +274,8 @@ async fn a_start_projects_the_saved_settings_again() {
         }),
     )
     .await;
-    drop((engine, app));
-    // A projection lost after its apply: the tables say otherwise.
+    drop(engine);
+    // The tables changed behind the engine.
     db.client
         .batch_execute(&format!(
             "UPDATE ai_settings SET active_provider_id = '{CLOUD}';
@@ -249,12 +284,12 @@ async fn a_start_projects_the_saved_settings_again() {
         .await
         .expect("the tables changed behind the engine");
 
-    let (engine, app) = db.serve().await;
+    let engine = db.serve().await;
     assert_eq!(db.active().await, OPENCODE_BINARY);
     assert_eq!(
         db.provider(OPENCODE_BINARY).await["generation_model"],
         "qwen3-32b"
     );
-    drop((engine, app));
+    drop(engine);
     db.drop().await;
 }
