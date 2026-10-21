@@ -15,6 +15,10 @@
 //! scenes: here, a scene's rank is one of 1 to n. `previous-summary-visible`
 //! is a read: the tables keep a closed session's summary and journal for the
 //! next one.
+//!
+//! A session's scene order is a row of its own, its scenes' ids under
+//! `scenePosition`, rewritten into their ranks in the transaction that
+//! applies it ([`SceneOrder`]): every rank at once, 1 to n.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -24,7 +28,14 @@ use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
+mod order;
+
+pub use order::{SceneOrder, order_id};
+
 const AGGREGATE: &str = "Session";
+
+/// The aggregate's document (contract I), as the engine registers it.
+pub const DOCUMENT: &str = include_str!("../aggregate.json");
 
 /// A session's status, in the order it passes through them.
 const STATUS: &str = "sessionStatus";
@@ -47,8 +58,9 @@ const CLOSED_AT: &str = "closedAt";
 const SUMMARY: &str = "summary";
 const SUMMARY_MODEL: &str = "summaryModel";
 
-/// A scene's rank in its session.
-const SCENE_POSITION: &str = "scenePosition";
+/// A scene's rank in its session; on a session's scene order, its scenes'
+/// ids, in the order they play.
+pub const SCENE_POSITION: &str = "scenePosition";
 
 /// An entry of the « à créer » list: its id and status, which say a row is
 /// one; the element it created; what the analysis of a brief writes it with.
@@ -78,7 +90,7 @@ const SESSION_MEDIA: [&str; 3] = [
 
 /// The fields the aggregate declares: the only ones a command may write.
 static DECLARED: LazyLock<Vec<String>> = LazyLock::new(|| {
-    Aggregate::parse(include_str!("../aggregate.json"))
+    Aggregate::parse(DOCUMENT)
         .expect("Session's aggregate.json conforms to contract I")
         .fields
         .into_keys()
@@ -121,10 +133,13 @@ impl Judge for Session {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge.
+/// What the aggregate plugs into the engine: its judge, and its scene
+/// orders written in the transaction that applies them.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Plugin::new().judge(AGGREGATE, Session)
+    Plugin::new()
+        .judge(AGGREGATE, Session)
+        .project_pg(AGGREGATE, SceneOrder)
 }
 
 /// `field`'s value in `row`, an absent field and a null being the same.
@@ -157,10 +172,20 @@ fn present_only_pj(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 }
 
 /// A scene's rank, when the row has one, is one of 1 to n: a whole number
-/// from 1.
+/// from 1. A session's scene order names each of its scenes once, at its
+/// rank less one: some scenes' ids, none repeated.
 fn scene_order_contiguous(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
-    let position = value(state, SCENE_POSITION);
-    position.is_null() || position.as_u64().is_some_and(|rank| rank >= 1)
+    match value(state, SCENE_POSITION) {
+        Value::Null => true,
+        Value::Array(order) => {
+            let ids: Vec<&str> = order.iter().filter_map(Value::as_str).collect();
+            let mut once = ids.clone();
+            once.sort_unstable();
+            once.dedup();
+            !ids.is_empty() && ids.len() == order.len() && once.len() == ids.len()
+        }
+        position => position.as_u64().is_some_and(|rank| rank >= 1),
+    }
 }
 
 /// A session's media are never stored: `session_media_view` computes them,
@@ -228,10 +253,19 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 
 /// A command writes only fields the aggregate declares, each a text, a
 /// number, a boolean or a null: no field holds audio, nor anything but what
-/// a column types.
+/// a column types. One list is a column's values: a session's scene order,
+/// its scenes' ids, one `scene.position` each.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
-        DECLARED.contains(field) && !matches!(value, Value::Array(_) | Value::Object(_))
+        DECLARED.contains(field)
+            && match value {
+                Value::Object(_) => false,
+                Value::Array(ids) => {
+                    field == SCENE_POSITION
+                        && ids.iter().all(|id| id.as_str().is_some_and(order::is_uuid))
+                }
+                _ => true,
+            }
     })
 }
 

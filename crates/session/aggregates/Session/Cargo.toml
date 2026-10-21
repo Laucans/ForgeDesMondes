@@ -9,7 +9,10 @@ publish = false
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 [dependencies]
 harness-dataguard = { workspace = true }
+async-trait = "0.1"
 serde_json = "1"
 
 [dev-dependencies]
-tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+# The migrations' applier the server runs: the tables its scene orders' tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

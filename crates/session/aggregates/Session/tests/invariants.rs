@@ -1,10 +1,10 @@
 //! The Session aggregate's invariants, judged by the DataGuard as `plant()`
 //! binds it, over the in-memory store: a command that takes a session back
 //! in its lifecycle, closes it with its microphone on, adds a journal line
-//! once it is closed, ranks a scene below 1, stores the roster or the media
-//! of a session, creates an element from a brief, marks an entry « creee »
-//! without its element, or writes audio is rejected under the invariant's
-//! id, and the row stays as it was. The DataCapabilities here are test-only:
+//! once it is closed, ranks a scene below 1, orders a scene twice, stores
+//! the roster or the media of a session, creates an element from a brief,
+//! marks an entry « creee » without its element, or writes audio is
+//! rejected under the invariant's id, and the row stays as it was. The DataCapabilities here are test-only:
 //! no DataCapability of the product writes a session yet.
 
 use std::sync::Arc;
@@ -34,8 +34,9 @@ const REMOVE: &str = r#"{"dataCapability":"test.removeSession","owner":"dataguar
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 /// Valombre's session 1.
 const SEANCE: &str = "51000000-0000-4000-8000-000000000001";
-/// Its tavern scene.
+/// Its tavern scene, and its road scene.
 const ARRIVEE: &str = "5c000000-0000-4000-8000-000000000001";
+const ROUTE: &str = "5c000000-0000-4000-8000-000000000002";
 /// Valombre's PC.
 const ELOWEN: &str = "e1000000-0000-4000-8000-000000000001";
 /// Valombre's battlemap, at the Taverne.
@@ -402,6 +403,42 @@ async fn scene_order_contiguous_ranks_a_scene_from_one() {
 }
 
 #[tokio::test]
+async fn scene_order_contiguous_takes_a_session_s_order_naming_each_scene_once() {
+    let engine = session("prep").await;
+    // The order of session 1's scenes, each once: the ranks 1 to n follow.
+    applied(
+        &written(
+            &engine,
+            "test.updateSession",
+            json!({ "sessionId": SEANCE, "scenePosition": [ROUTE, ARRIVEE] }),
+        )
+        .await,
+    );
+    // An empty order, or one naming a scene twice, ranks no scene 1 to n.
+    for order in [json!([]), json!([ARRIVEE, ROUTE, ARRIVEE])] {
+        rejected_by(
+            &written(
+                &engine,
+                "test.updateSession",
+                json!({ "sessionId": SEANCE, "scenePosition": order }),
+            )
+            .await,
+            &["scene-order-contiguous"],
+        );
+    }
+    // Ranks in place of ids are no column's values either.
+    rejected_by(
+        &written(
+            &engine,
+            "test.updateSession",
+            json!({ "sessionId": SEANCE, "scenePosition": [2, 1] }),
+        )
+        .await,
+        &["scene-order-contiguous", "text-only-no-audio"],
+    );
+}
+
+#[tokio::test]
 async fn present_only_pj_offers_the_roster_the_view_computes_never_a_stored_one() {
     let engine = session("prep").await;
     // A PC checked present is a presence, which the roster reads.
@@ -575,6 +612,16 @@ async fn text_only_no_audio_rejects_audio_or_anything_but_a_column_s_value() {
             "durationSeconds": 42,
             "recordedAt": "2026-10-18T20:00:00Z",
         }),
+    ] {
+        rejected_by(
+            &written(&engine, "test.updateSession", payload).await,
+            &["text-only-no-audio"],
+        );
+    }
+    // A list is a session's scene order alone, of its scenes' ids.
+    for payload in [
+        json!({ "sessionId": SEANCE, "sceneTitle": [ARRIVEE] }),
+        json!({ "sessionId": SEANCE, "scenePosition": ["la-taverne"] }),
     ] {
         rejected_by(
             &written(&engine, "test.updateSession", payload).await,

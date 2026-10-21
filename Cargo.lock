@@ -100,6 +100,8 @@ dependencies = [
 name = "aggregate-session"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
  "tokio",
@@ -447,6 +449,7 @@ dependencies = [
  "list-places",
  "list-players",
  "list-sessions",
+ "reorder-scenes",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -1440,6 +1443,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "reorder-scenes"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
