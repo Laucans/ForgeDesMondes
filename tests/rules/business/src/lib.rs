@@ -42,6 +42,12 @@ use serde_json::{Value, json};
 /// How long a command may take to settle before the test says so.
 const SETTLE: Duration = Duration::from_secs(20);
 
+/// Who the tests act as: the DM, approver of their own campaign, as the
+/// shell's Micro-UIs send them (a critical field's review needs the role).
+fn dm() -> Value {
+    json!({ "by": "dm", "from": "rules", "roles": ["role:approver"] })
+}
+
 /// The repository's root: this crate sits at `tests/rules/business`.
 #[must_use]
 pub fn root() -> PathBuf {
@@ -70,7 +76,8 @@ impl Server {
     }
 
     /// Sends a command to a DataCapability (`<name>@<version>`, the version
-    /// 1 when absent) and waits for its result (contract H) to settle.
+    /// 1 when absent), as the DM, and waits for its result (contract H) to
+    /// settle.
     ///
     /// # Errors
     ///
@@ -86,7 +93,7 @@ impl Server {
         } else {
             format!("{data_capability}@1")
         };
-        let mut body = json!({ "dataCapability": name, "payload": payload });
+        let mut body = json!({ "dataCapability": name, "payload": payload, "caller": dm() });
         if let Some(id) = target {
             body["target"] = json!({ "id": id });
         }
