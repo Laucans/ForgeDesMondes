@@ -9,8 +9,49 @@ description = "Every unit of the product, gathered: what the server plants."
 publish = false
 build = "build.rs"
 
+# Every unit is used by the glue build.rs writes into OUT_DIR, which cargo
+# machete does not read.
+[package.metadata.cargo-machete]
+ignored = [
+    "aggregate-ai-settings",
+    "aggregate-battlemap-instance",
+    "aggregate-campaign",
+    "aggregate-diffusion",
+    "aggregate-entity",
+    "aggregate-media",
+    "aggregate-note-import",
+    "aggregate-player",
+    "aggregate-session",
+    "aggregate-sound",
+    "aggregate-sound-playback",
+    "aggregate-suggestion",
+    "create-entities-from-note",
+    "export-campaign",
+    "extract-from-notes",
+    "get-battlemap",
+    "get-campaign",
+    "get-entity",
+    "get-settings",
+    "list-campaigns",
+    "list-characters",
+    "list-entity-versions",
+    "list-events",
+    "list-imported-notes",
+    "list-media",
+    "list-places",
+    "list-players",
+    "list-provider-requests",
+    "restore-entity-version",
+    "save-entity",
+    "save-grid-settings",
+    "save-settings",
+    "set-media-place",
+    "test-connection",
+    "upload-media",
+]
+
 [dependencies]
-harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v3", features = ["postgres", "uuid"] }
+harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v4", features = ["postgres", "uuid"] }
 aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
 aggregate-battlemap-instance = { path = "../../table/aggregates/BattlemapInstance" }
 aggregate-campaign = { path = "../../campaign/aggregates/Campaign" }
@@ -46,6 +87,3 @@ save-settings = { path = "../../ai/data-capabilities/save-settings" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }
-
-[package.metadata.cargo-machete]
-ignored = ["aggregate-ai-settings", "aggregate-battlemap-instance", "aggregate-campaign", "aggregate-diffusion", "aggregate-entity", "aggregate-media", "aggregate-note-import", "aggregate-player", "aggregate-session", "aggregate-sound", "aggregate-sound-playback", "aggregate-suggestion", "create-entities-from-note", "export-campaign", "extract-from-notes", "get-battlemap", "get-campaign", "get-entity", "get-settings", "list-campaigns", "list-characters", "list-entity-versions", "list-events", "list-imported-notes", "list-media", "list-places", "list-players", "list-provider-requests", "restore-entity-version", "save-entity", "save-grid-settings", "save-settings", "set-media-place", "test-connection", "upload-media"]

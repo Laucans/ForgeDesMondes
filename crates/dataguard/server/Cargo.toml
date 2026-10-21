@@ -25,7 +25,7 @@ tower = { version = "0.5", default-features = false, features = ["util"] }
 # what the legacy submit chain, projection and reads still call, each deleted
 # with the branch that calls it, unit by unit.
 [dependencies]
-harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v3", features = ["postgres", "uuid"] }
+harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v4", features = ["postgres", "uuid"] }
 dataguard-registry = { path = "../registry" }
 # The Entity aggregate's index of names and aliases, which its judge reads:
 # kept here, as the tables hold it, until the Entity aggregate projects.
