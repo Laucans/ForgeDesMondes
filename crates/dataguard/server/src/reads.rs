@@ -8,11 +8,11 @@
 //! transaction, which the database itself holds to. Over the in-memory store
 //! there is no table to read: a Capability answers from no row.
 //!
-//! A read is routed by the system its identifier names (`ai.…`,
-//! `campaign.…`) and carries its variables, which the query binds in the
-//! order of its `$1`, `$2`… A variable the caller did not give is the empty
-//! text: no row is that, and the Capability answers its "nothing" — null, or
-//! an empty list. A read of any other system is the registry's: every
+//! A read is routed by the system its identifier names (`campaign.…`) and
+//! carries its variables, which the query binds in the order of its `$1`,
+//! `$2`… A variable the caller did not give is the empty text: no row is
+//! that, and the Capability answers its "nothing" — null, or an empty list.
+//! A read of any other system is the registry's: every
 //! Capability crate's answer (`dataguard_registry`), run by the engine's
 //! reads over a read-only connection of their own — the strangler's root,
 //! which takes each system's reads over as this module lets them go.
@@ -217,7 +217,6 @@ impl Reads {
     pub async fn run(&self, id: &str, variables: &Value) -> Result<Value> {
         let variables = self.names.to_stored(variables);
         let answer = match id.split_once('.') {
-            Some(("ai", _)) => self.ai(id).await?,
             Some(("campaign", _)) => self.campaign(id, &variables).await?,
             _ => self.registered(id, &variables).await?,
         };
@@ -234,15 +233,6 @@ impl Reads {
         match self.registry.run(id, &variables).await {
             Err(Error::UnregisteredQuery(_)) => Ok(Value::Null),
             answered => answered,
-        }
-    }
-
-    async fn ai(&self, id: &str) -> Result<Value> {
-        match id {
-            get_settings::CAPABILITY => Ok(get_settings::answer_rows(
-                &self.rows(get_settings::SQL, &[]).await?,
-            )),
-            _ => Ok(Value::Null),
         }
     }
 
@@ -349,7 +339,23 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(listed, serde_json::json!([]));
-        let settings = reads
+    }
+
+    #[tokio::test]
+    async fn the_ai_settings_are_the_registry_s_read() {
+        // No Capability in the registry: nothing here answers ai.getSettings.
+        let unregistered = Reads {
+            registry: harness_dataguard::reads::Reads::default(),
+            ..Reads::none()
+        };
+        assert_eq!(
+            unregistered
+                .run("ai.getSettings", &Value::Null)
+                .await
+                .expect("an answer"),
+            Value::Null
+        );
+        let settings = Reads::none()
             .run("ai.getSettings", &Value::Null)
             .await
             .expect("an answer");

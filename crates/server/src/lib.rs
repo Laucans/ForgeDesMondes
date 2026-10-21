@@ -19,9 +19,12 @@
 //!   loaded into the store by the Data layer ([`data::insert_missing`]) —
 //!   once: a restart loads nothing twice.
 //!
-//! The server adds no read and no write path of its own: a read is served
-//! only when the engine's registry holds its persisted query, a write only
-//! through a DataCapability the engine registers. Both are by identifier, so
+//! The server adds one read path of its own, and no write path: a read is
+//! served when the engine's registry holds its persisted query, a write only
+//! through a DataCapability the engine registers. The one exception on the
+//! read side is `ai.listProviderRequests`, a Capability with no query that
+//! reads the `llm` port's journal: no answer over rows can, so this server
+//! answers it on its own route ([`app`]). Both sides are by identifier, so
 //! the media system is served the way the ai system is: `media.*` reads
 //! through `POST /capabilities/<id>` once a media Capability's query is
 //! registered, media writes through `POST /commands` once a media
@@ -36,7 +39,9 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use axum::routing::get;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use dataguard_server::{Engine, Reads, Rows};
 pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
@@ -210,7 +215,8 @@ pub async fn reads(config: &Config) -> Result<Reads, Error> {
 }
 
 /// The shell's wire protocol through `engine`, whose rows are `rows`, `llm`
-/// and `speech`, its reads through `reads`, and `GET /health`.
+/// and `speech`, its reads through `reads`, `ai.listProviderRequests` from
+/// `llm`'s journal, and `GET /health`.
 pub fn app<L: Llm + 'static, S: SpeechToText + 'static>(
     engine: Arc<Engine>,
     rows: Rows,
@@ -218,7 +224,52 @@ pub fn app<L: Llm + 'static, S: SpeechToText + 'static>(
     speech: Arc<S>,
     reads: Arc<Reads>,
 ) -> Router {
-    dataguard_server::router_reading(engine, rows, llm, speech, reads).route("/health", get(health))
+    let journal = Router::new()
+        .route(
+            &format!("/capabilities/{}", list_provider_requests::CAPABILITY),
+            post(provider_requests::<L>),
+        )
+        .with_state(Journal {
+            engine: engine.clone(),
+            llm: llm.clone(),
+        });
+    dataguard_server::router_reading(engine, rows, llm, speech, reads)
+        .merge(journal)
+        .route("/health", get(health))
+}
+
+/// What `ai.listProviderRequests` is answered from: the engine, for the data
+/// version an answer is as of, and the `llm` port whose journal it lists.
+struct Journal<L> {
+    engine: Arc<Engine>,
+    llm: Arc<L>,
+}
+
+impl<L> Clone for Journal<L> {
+    fn clone(&self) -> Self {
+        Self {
+            engine: self.engine.clone(),
+            llm: self.llm.clone(),
+        }
+    }
+}
+
+/// `POST /capabilities/ai.listProviderRequests`: the requests the `llm` port
+/// received, oldest first, as any read is answered (`{ asOf, data }`). No
+/// persisted query, so no hash to check, and no variable.
+async fn provider_requests<L: Llm>(
+    State(journal): State<Journal<L>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    match journal.engine.data_version().await {
+        Ok(as_of) => Ok(Json(json!({
+            "asOf": as_of,
+            "data": list_provider_requests::list_provider_requests(journal.llm.as_ref()),
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )),
+    }
 }
 
 /// Every unit the registry holds, one per line: its kind, its folder, and
@@ -642,5 +693,77 @@ mod tests {
         ] {
             assert!(listed.lines().any(|l| l == line), "{line} in {listed}");
         }
+    }
+
+    /// What `POST /capabilities/ai.listProviderRequests` answers over the
+    /// in-memory engine, `llm` the port the app is given.
+    async fn provider_requests_of(llm: Arc<FakeLlm>, body: Value) -> (StatusCode, Value) {
+        let dataguard_server::Planted { engine, rows } =
+            dataguard_server::planted(dataguard_server::MEMORY)
+                .await
+                .expect("the in-memory engine");
+        let request = Request::post("/capabilities/ai.listProviderRequests")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .expect("a request");
+        let response = app(
+            Arc::new(engine),
+            rows,
+            llm,
+            Arc::new(FakeSpeechToText::new(String::new())),
+            Arc::new(Reads::none()),
+        )
+        .oneshot(request)
+        .await
+        .expect("an answer");
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_provider_requests_are_the_journal_of_the_llm_port_the_app_is_given() {
+        let llm = Arc::new(FakeLlm::new());
+        let (status, empty) = provider_requests_of(llm.clone(), json!({ "variables": {} })).await;
+        assert_eq!(status, StatusCode::OK, "{empty}");
+        assert_eq!(empty, json!({ "asOf": 0, "data": { "requests": [] } }));
+
+        // The cloud host is recognised by its URL alone: the test reaches it.
+        reached(&llm, "https://api.anthropic.com/v1").await;
+        // No persisted query: a hash, whatever it is, changes nothing.
+        let (status, listed) = provider_requests_of(
+            llm.clone(),
+            json!({ "sha256": "0".repeat(64), "variables": {} }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        let requests = listed["data"]["requests"].as_array().expect("a list");
+        assert_eq!(requests.len(), 1, "{listed}");
+        assert_eq!(requests[0]["sequence"], 1);
+        assert_eq!(requests[0]["kind"], "connection-test");
+        assert_eq!(requests[0]["modalities"], json!(["text"]));
+        assert_eq!(requests[0]["text"], llm.journal().list()[0].text.as_str());
+    }
+
+    #[tokio::test]
+    async fn beside_the_journal_s_route_every_other_read_is_still_the_engine_s() {
+        let (status, body) = answer(
+            Method::POST,
+            "/capabilities/ai.listProviderRequestsAgain",
+            Some(json!({ "variables": {} })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("not a registered persisted query")),
+            "{body}"
+        );
     }
 }
