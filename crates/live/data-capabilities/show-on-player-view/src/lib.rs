@@ -64,16 +64,24 @@ pub type Row = BTreeMap<String, Value>;
 /// named —, the session the instance belongs to, whether the media is an
 /// illustration of the live session's campaign, and whether the tables hold
 /// the instance or the media sent. Of two live sessions, the last one
-/// planned.
+/// planned. A row the engine deleted (its tombstone) — a session, an
+/// instance, a media — is none.
 const SHOWING: &str = "WITH sent AS (
         SELECT i.session_id, s.campaign_id
         FROM battlemap_instance i JOIN session s ON s.id = i.session_id
         WHERE i.id = ($2::text)::uuid
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE r.partition = 'BattlemapInstance/' || i.id::text AND r.tombstoned)
     ), shown AS (
-        SELECT m.campaign_id, m.kind FROM media m WHERE m.id = ($3::text)::uuid
+        SELECT m.campaign_id, m.kind FROM media m
+        WHERE m.id = ($3::text)::uuid
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE r.partition = 'Media/' || m.id::text AND r.tombstoned)
     ), live AS (
         SELECT s.id, s.campaign_id FROM session s
         WHERE s.status = 'live'
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned)
             AND s.campaign_id = coalesce(($1::text)::uuid,
                 (SELECT campaign_id FROM sent), (SELECT campaign_id FROM shown))
         ORDER BY s.position DESC, s.id

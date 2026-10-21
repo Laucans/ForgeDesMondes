@@ -58,8 +58,8 @@ const PROJECT: &str = "INSERT INTO diffusion (session_id, base_kind, base_media_
         updated_at = EXCLUDED.updated_at";
 
 /// A diffusion as its table holds it, under the aggregate's fields, `$1`
-/// its session's id in whatever case. One the engine deleted (its
-/// tombstone) is none.
+/// its session's id in whatever case — looked up by its key; a text that is
+/// no uuid names none. One the engine deleted (its tombstone) is none.
 const DIFFUSION_ROW: &str = "SELECT jsonb_strip_nulls(jsonb_build_object(
         'sessionId', d.session_id, 'baseKind', d.base_kind, 'baseMediaId', d.base_media_id,
         'baseInstanceId', d.base_instance_id, 'windowMediaId', d.window_media_id,
@@ -68,7 +68,7 @@ const DIFFUSION_ROW: &str = "SELECT jsonb_strip_nulls(jsonb_build_object(
         'updatedAt', d.updated_at
     ))::text
     FROM diffusion d
-    WHERE d.session_id::text = lower($1)
+    WHERE d.session_id = CASE WHEN pg_input_is_valid($1::text, 'uuid') THEN $1::text::uuid END
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Diffusion/' || d.session_id::text AND r.tombstoned)";
 

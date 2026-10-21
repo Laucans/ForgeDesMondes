@@ -18,7 +18,7 @@
     "Diffusion.updatedAt"
   ],
   "payload": {
-    "campaign": "uuid — the campaign whose live session's player view shows the base; absent, the campaign of the instance sent",
+    "campaign": "uuid — the campaign whose live session's player view shows the base; absent, the campaign of the instance or the media sent",
     "kind": "'battlemap' | 'illustration'",
     "instance": "uuid — kind 'battlemap': a battlemap instance of the session (base-coherent)",
     "media": "uuid — kind 'illustration': an illustration of the session's campaign (base-coherent)",

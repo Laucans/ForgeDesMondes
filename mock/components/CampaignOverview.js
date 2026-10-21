@@ -759,8 +759,8 @@
         if (!(instance && instance.id === payload.instance)) return ["base-coherent"];
         base = { kind: "battlemap", id: instance.id };
       } else if (payload.kind === "illustration") {
-        const media = await server.load("media.listMedia");
-        if (!(media && media.illustrations.some((i) => i.id === payload.media))) return ["base-coherent"];
+        const listed = [await server.load("media"), await server.load("media.listMedia")];
+        if (!listed.some((media) => media && media.illustrations.some((i) => i.id === payload.media))) return ["base-coherent"];
         base = { kind: "illustration", id: payload.media };
       } else return ["base-coherent"];
       const diffusion = await server.load("live.getDiffusion");

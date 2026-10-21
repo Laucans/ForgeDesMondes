@@ -430,3 +430,59 @@ async fn a_send_no_live_session_can_show_is_refused_and_not_queued() {
     assert!(scratch.diffusions().await.is_empty());
     scratch.drop().await;
 }
+
+#[tokio::test]
+async fn a_media_an_instance_or_a_session_the_engine_deleted_shows_nothing() {
+    let scratch = Scratch::new("tombstoned").await;
+    let engine = scratch.serve().await;
+    // The engine's soft delete: its row tombstoned, the table's left as it
+    // was.
+    let tombstone = |partition: String| {
+        format!("INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('{partition}', true)")
+    };
+    let refused = |submitted: Result<Submitted>| match submitted {
+        Err(Error::Refused(refusal)) => refusal.message,
+        other => panic!("{other:?}"),
+    };
+
+    scratch
+        .client
+        .batch_execute(&tombstone(format!("Media/{PORTRAIT}")))
+        .await
+        .expect("the portrait deleted");
+    let submitted = send(
+        &engine,
+        json!({ "campaign": VALOMBRE, "kind": "illustration", "media": PORTRAIT }),
+    )
+    .await
+    .expect("queued, for the DataGuard to judge");
+    assert_eq!(submitted.warnings, [NOT_AN_ILLUSTRATION, AT_RISK]);
+    let result = engine.run_once().await.expect("the applier ran").remove(0);
+    assert_eq!(result.violations, ["base-coherent"], "{result:?}");
+
+    scratch
+        .client
+        .batch_execute(&tombstone(format!("BattlemapInstance/{INSTANCE}")))
+        .await
+        .expect("the instance deleted");
+    let sent = send(
+        &engine,
+        json!({ "kind": "battlemap", "instance": INSTANCE }),
+    )
+    .await;
+    assert_eq!(refused(sent), "instance n'existe pas");
+
+    scratch
+        .client
+        .batch_execute(&tombstone(format!("Session/{SEANCE}")))
+        .await
+        .expect("the live session deleted");
+    let sent = send(
+        &engine,
+        json!({ "campaign": VALOMBRE, "kind": "battlemap", "instance": AUTRE }),
+    )
+    .await;
+    assert_eq!(refused(sent), "aucune séance n'est en cours");
+    assert!(scratch.diffusions().await.is_empty());
+    scratch.drop().await;
+}
