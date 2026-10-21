@@ -3,20 +3,10 @@
 //! The engine keeps a row per partition in its own table; the product reads
 //! its tables (`crates/data/migrations/`). The AiSettings aggregate projects
 //! its own writes, in the apply transaction (`aggregate_ai_settings`), and so
-//! does the Entity aggregate (`aggregate_entity`); an element's terms are
-//! read here at a start ([`ProjectingStore::elements`]), for an analysis of
-//! notes to recognise. An export (`campaign.exportCampaign`) writes
+//! do the Entity and NoteImport aggregates. An export (`campaign.exportCampaign`) writes
 //! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
 //! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. An analysis of notes (`ai.extractFromNotes`) writes a partition
-//! per imported note, `NoteImport/<its id>`, and one per proposal: once the
-//! note is applied, [`ProjectingStore`] adds its `imported_note` row and the
-//! `note_proposal` row of every proposal of it applied, in one transaction —
-//! whichever the engine applied first. A validation of a note's proposals
-//! (`campaign.createEntitiesFromNote`) writes each proposal's partition
-//! again, its check and the element it created: [`ProjectingStore`] writes
-//! `note_proposal.checked` and `created_entity_id` — the element's once the
-//! tables hold it, whichever the engine applied first. A
+//! column. A
 //! campaign's row is its table's over the engine's, and an archive is read
 //! from the tables ([`ProjectingStore::archived`]). Every other method is
 //! the inner store's.
@@ -29,9 +19,7 @@
 //! lost is written again at the next start, never over a later one.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
-use aggregate_entity::Aliases;
 use async_trait::async_trait;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
@@ -39,18 +27,6 @@ use harness_dataguard::postgres::PgStore;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
 use serde_json::Value;
-
-use crate::notes::Notes;
-use crate::versioning::NOTE_IMPORT;
-
-/// Every element of the tables with its campaign, name and aliases, as the
-/// engine's row holds them: what [`Aliases`] starts from — the terms an
-/// analysis of notes recognises (`Rows::known`).
-const ELEMENTS: &str = "SELECT jsonb_build_object(
-        'entityId', e.id, 'entityCampaignId', e.campaign_id, 'name', e.name,
-        'alias', coalesce((SELECT jsonb_agg(a.alias) FROM entity_alias a WHERE a.entity_id = e.id), '[]')
-    )::text
-    FROM entity e";
 
 /// A campaign as its table holds it, under the Campaign aggregate's fields,
 /// `$1` its id in whatever case: what the engine judges an export against —
@@ -103,97 +79,19 @@ const ARCHIVE: &str = "SELECT jsonb_build_object(
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
 
-/// The imported notes the engine holds and the tables do not — of the note
-/// `$1` names, or of every one when it is null: an analysis whose note was
-/// just applied, or whose projection was lost. A note of a campaign the
-/// tables do not hold, or whose ids are no uuids, is none they could hold.
-const ADD_NOTES: &str =
-    "INSERT INTO imported_note (id, campaign_id, raw_text, created_at, analyzed_at)
-    SELECT (r.fields ->> 'importedNoteId')::uuid, c.id, r.fields ->> 'rawText',
-        coalesce((r.fields ->> 'createdAt')::timestamptz, now()),
-        (r.fields ->> 'analyzedAt')::timestamptz
-    FROM dataguard_rows r
-    JOIN campaign c ON c.id::text = lower(r.fields ->> 'campaignId')
-    WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned
-        AND ($1::text IS NULL OR lower(r.fields ->> 'importedNoteId') = lower($1::text))
-        AND pg_input_is_valid(r.fields ->> 'importedNoteId', 'uuid')
-        AND r.fields ->> 'rawText' IS NOT NULL
-        AND pg_input_is_valid(coalesce(r.fields ->> 'createdAt', 'now'), 'timestamptz')
-        AND pg_input_is_valid(coalesce(r.fields ->> 'analyzedAt', 'now'), 'timestamptz')
-        AND NOT EXISTS (SELECT 1 FROM imported_note n
-            WHERE n.id::text = lower(r.fields ->> 'importedNoteId'))";
-
-/// The proposals the engine holds and the tables do not, of a note they hold
-/// — the one `$1` names, or every one when it is null. The element a
-/// proposal recognised and the tables no longer hold is forgotten, as its
-/// relation's `onDelete nullify` would have.
-const ADD_PROPOSALS: &str = "INSERT INTO note_proposal
-        (id, note_id, type, name, excerpt, existing_entity_id, checked)
-    SELECT (r.fields ->> 'noteProposalId')::uuid, n.id, r.fields ->> 'type',
-        r.fields ->> 'name', coalesce(r.fields ->> 'excerpt', ''), e.id,
-        coalesce((r.fields ->> 'checked')::boolean, e.id IS NULL)
-    FROM dataguard_rows r
-    JOIN imported_note n ON n.id::text = lower(r.fields ->> 'noteId')
-    LEFT JOIN entity e ON e.id::text = lower(r.fields ->> 'existingEntityId')
-    WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned
-        AND ($1::text IS NULL OR n.id::text = lower($1::text))
-        AND pg_input_is_valid(r.fields ->> 'noteProposalId', 'uuid')
-        AND r.fields ->> 'type' IN ('pj', 'pnj', 'lieu', 'evenement')
-        AND r.fields ->> 'name' IS NOT NULL
-        AND pg_input_is_valid(coalesce(r.fields ->> 'checked', 'true'), 'boolean')
-        AND NOT EXISTS (SELECT 1 FROM note_proposal p
-            WHERE p.id::text = lower(r.fields ->> 'noteProposalId'))
-    ORDER BY r.partition";
-
-/// The checked state and the created element the engine holds of each
-/// proposal the tables hold — of the note `$1` names, or of every one when
-/// it is null; of the proposals that created the element `$2` names, or of
-/// every one when it is null — where they differ: a validation applied
-/// (`campaign.createEntitiesFromNote`). An element the tables do not hold
-/// yet is recorded once they do; one recorded is never replaced, nor is a
-/// proposal that created one unchecked (`no-creation-before-validation`).
-const STAMP_PROPOSALS: &str = "UPDATE note_proposal p
-    SET checked = s.checked,
-        created_entity_id = coalesce(e.id, p.created_entity_id)
-    FROM (SELECT r.partition, lower(r.fields ->> 'createdEntityId') AS created,
-            CASE r.fields ->> 'checked' WHEN 'true' THEN true WHEN 'false' THEN false END AS checked
-        FROM dataguard_rows r
-        WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned) s
-    LEFT JOIN entity e ON e.id::text = s.created
-    WHERE s.partition = 'NoteImport/' || p.id::text AND s.checked IS NOT NULL
-        AND ($1::text IS NULL OR p.note_id::text = lower($1::text))
-        AND ($2::text IS NULL OR s.created = lower($2::text))
-        AND (p.created_entity_id IS NULL OR e.id IS NULL OR e.id = p.created_entity_id)
-        AND (s.checked OR coalesce(e.id, p.created_entity_id) IS NULL)
-        AND (p.checked <> s.checked
-            OR p.created_entity_id IS DISTINCT FROM coalesce(e.id, p.created_entity_id))";
-
-/// Every proposal the engine holds, with its note: what [`Notes`] starts
-/// from.
-const PROPOSALS: &str =
-    "SELECT r.fields ->> 'noteId', substr(r.partition, length('NoteImport/') + 1)
-    FROM dataguard_rows r
-    WHERE r.partition LIKE 'NoteImport/%' AND NOT r.tombstoned
-        AND jsonb_typeof(r.fields -> 'noteId') = 'string'";
-
-/// Whether the row of the partition `$1` names is the engine's tombstone.
-const TOMBSTONED: &str =
-    "SELECT EXISTS (SELECT 1 FROM dataguard_rows WHERE partition = $1 AND tombstoned)";
-
 /// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
 const CAMPAIGN: &str = "Campaign/";
 
 /// A [`PgStore`] whose applied writes of the aggregates it still projects
-/// reach the tables, reading at a start the elements' terms the tables hold.
+/// reach the tables.
 pub struct ProjectingStore {
     inner: PgStore,
-    aliases: Arc<Aliases>,
 }
 
 impl ProjectingStore {
-    /// The store over `inner`, keeping `aliases`.
-    pub fn new(inner: PgStore, aliases: Arc<Aliases>) -> Self {
-        Self { inner, aliases }
+    /// The store over `inner`.
+    pub const fn new(inner: PgStore) -> Self {
+        Self { inner }
     }
 
     /// Projects what the engine holds and the tables do not, logging a
@@ -202,52 +100,7 @@ impl ProjectingStore {
     pub async fn repair(&self) {
         // --- Campaign
         self.repair_exports(None).await;
-        // --- NoteImport
-        self.repair_notes(None).await;
         // ---
-    }
-
-    /// Adds the imported note `note` names — every one, `None` — and the
-    /// proposals of it the engine holds, when the tables do not hold them
-    /// yet, in one transaction, logging a failure: after each apply of a
-    /// note or a proposal, and at a start. Tables not migrated yet hold none.
-    async fn repair_notes(&self, note: Option<&str>) {
-        let written = async {
-            let mut client = self.inner.client().lock().await;
-            let tx = client.transaction().await?;
-            tx.execute(ADD_NOTES, &[&note]).await?;
-            tx.execute(ADD_PROPOSALS, &[&note]).await?;
-            tx.execute(STAMP_PROPOSALS, &[&note, &None::<&str>]).await?;
-            tx.commit().await
-        };
-        if let Err(e) = written.await {
-            let db = e.as_db_error();
-            eprintln!(
-                "projection: imported notes not projected: {} {}",
-                db.map_or("-", |db| db.code().code()),
-                db.and_then(|db| db.constraint()).unwrap_or_default()
-            );
-        }
-    }
-
-    /// Records every proposal the engine holds among its note's: at a start,
-    /// so a validation unchecks the ones applied before.
-    pub async fn notes(&self, notes: &Notes) {
-        let rows = {
-            let client = self.inner.client().lock().await;
-            client.query(PROPOSALS, &[]).await
-        };
-        match rows {
-            Ok(rows) => {
-                for row in rows {
-                    notes.record(row.get(0), row.get(1));
-                }
-            }
-            Err(e) => eprintln!(
-                "projection: proposals not read: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            ),
-        }
     }
 
     /// Writes the last export the engine stamped on the row of the campaign
@@ -277,16 +130,6 @@ impl ProjectingStore {
         Ok(row.and_then(|row| serde_json::from_str(row.get::<_, &str>(0)).ok()))
     }
 
-    /// Whether the engine deleted `partition`'s row: its tombstone.
-    pub async fn tombstoned(
-        &self,
-        partition: &str,
-    ) -> std::result::Result<bool, tokio_postgres::Error> {
-        let client = self.inner.client().lock().await;
-        let row = client.query_one(TOMBSTONED, &[&partition]).await?;
-        Ok(row.get(0))
-    }
-
     /// The campaign `partition` names as its table holds it, when it does.
     async fn table_row(
         &self,
@@ -305,50 +148,6 @@ impl ProjectingStore {
             })
             .unwrap_or_default())
     }
-
-    /// Records every element the tables hold in the terms it keeps: at a
-    /// start, so the elements saved before are judged against. Tables not
-    /// migrated yet hold none.
-    pub async fn elements(&self) {
-        let rows = {
-            let client = self.inner.client().lock().await;
-            client.query(ELEMENTS, &[]).await
-        };
-        match rows {
-            Ok(rows) => {
-                for row in rows {
-                    let json: String = row.get(0);
-                    let Ok(Value::Object(element)) = serde_json::from_str(&json) else {
-                        continue;
-                    };
-                    let element: BTreeMap<String, Value> = element.into_iter().collect();
-                    if let Some(id) = text(&element, "entityId") {
-                        self.aliases.record(id, &element);
-                    }
-                }
-            }
-            Err(e) => eprintln!(
-                "projection: entity not read: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            ),
-        }
-    }
-}
-
-/// The imported note a live write of the NoteImport aggregate is of: the
-/// note's own id, or the note a proposal is of.
-fn noted(write: &Write) -> Option<&str> {
-    if write.tombstone || !write.partition.starts_with(NOTE_IMPORT) {
-        return None;
-    }
-    ["importedNoteId", "noteId"]
-        .iter()
-        .find_map(|field| write.values.get(*field).and_then(Value::as_str))
-}
-
-/// A field as text; `None` when absent, `null` or not a string.
-fn text<'a>(row: &'a BTreeMap<String, Value>, field: &str) -> Option<&'a str> {
-    row.get(field).and_then(Value::as_str)
 }
 
 #[async_trait]
@@ -410,10 +209,6 @@ impl Store for ProjectingStore {
     /// projects in the apply transaction (its `ProjectPg`).
     async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let version = self.inner.apply(write, result).await?;
-        // --- NoteImport
-        if let Some(note) = noted(write) {
-            self.repair_notes(Some(note)).await;
-        }
         // --- Campaign
         if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
@@ -449,6 +244,8 @@ mod tests {
     use serde_json::json;
     use tokio_postgres::{Client, NoTls};
 
+    use std::sync::Arc;
+
     use super::*;
     use crate::{Engine, bound, plugins};
 
@@ -456,35 +253,7 @@ mod tests {
     /// The settings row's partition: a write the tables of no aggregate
     /// projected here reach.
     const AI_SETTINGS: &str = "AiSettings/1";
-    const CLOUD: &str = "a1000000-0000-4000-8000-000000000001";
     const HOME: &str = "a1000000-0000-4000-8000-000000000002";
-
-    #[test]
-    fn a_live_write_of_a_note_or_a_proposal_names_its_note() {
-        let write = |partition: &str, values: serde_json::Value, tombstone| Write {
-            partition: partition.to_string(),
-            values: serde_json::from_value(values).expect("an object"),
-            tombstone,
-        };
-        let note = "a1000000-0000-4000-8000-000000000001";
-        let noted_by = |values, tombstone| {
-            noted(&write(&format!("NoteImport/{note}"), values, tombstone)).map(str::to_owned)
-        };
-        assert_eq!(
-            noted_by(json!({ "importedNoteId": note }), false).as_deref(),
-            Some(note)
-        );
-        assert_eq!(
-            noted_by(json!({ "noteProposalId": CLOUD, "noteId": note }), false).as_deref(),
-            Some(note)
-        );
-        assert_eq!(noted_by(json!({ "importedNoteId": note }), true), None);
-        assert_eq!(noted_by(json!({ "checked": true }), false), None);
-        assert_eq!(
-            noted(&write(AI_SETTINGS, json!({ "noteId": note }), false)),
-            None
-        );
-    }
 
     async fn connect(url: &str) -> Client {
         let (client, connection) = tokio_postgres::connect(url, NoTls)
@@ -524,7 +293,8 @@ mod tests {
     }
 
     /// The `llm` port's fake, its home server answering its model list: what
-    /// ai.saveSettings detects the server's API type through.
+    /// ai.saveSettings detects the server's API type through; and the
+    /// `speech-to-text` port's, which an analysis of notes needs.
     fn home_server() -> harness_dataguard::plugins::Shared {
         let llm = ports_llm::fake::FakeLlm::new().with_endpoint(
             "http://192.168.1.40:4096",
@@ -532,6 +302,9 @@ mod tests {
         );
         let mut shared = harness_dataguard::plugins::Shared::default();
         shared.insert(Arc::new(ports_llm::SharedLlm::new(llm)));
+        shared.insert(Arc::new(ports_speech_to_text::SharedSpeechToText::new(
+            ports_speech_to_text::fake::FakeSpeechToText::new(String::new()),
+        )));
         shared
     }
 
@@ -580,7 +353,6 @@ mod tests {
             PgStore::open(connect(&scratch).await)
                 .await
                 .expect("the store"),
-            Arc::default(),
         ));
         // The same tables, read without the wrapper.
         let plain = PgStore::open(connect(&scratch).await)

@@ -23,15 +23,27 @@
 //! is always kept: an analysis that failed still writes it, with no
 //! proposal and no `analyzedAt`, and says why. No command names an element
 //! to create (`no-creation-before-validation`).
+//!
+//! The engine runs it through this crate's [`plugin`]: the note's command is
+//! the one submitted — its idempotency key, its result — and the `Prepare`
+//! asks the engine for the proposals' after it (`Prepared.then`). The
+//! elements a campaign knows are read from the product's tables, which the
+//! Entity aggregate projects in its apply transaction: over the engine's
+//! memory, which has none, the analysis recognises no element.
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
+use aggregate_note_import::Announced;
+use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use harness_dataguard::plugins::Plugin;
-use ports_llm::{GenerateRequest, Llm, ProviderConfig, TextKind};
-use ports_speech_to_text::{Dictation, SpeechToText, SpeechToTextError, Vocabulary};
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
+use ports_llm::{GenerateRequest, Llm, ProviderConfig, SharedLlm, TextKind};
+use ports_speech_to_text::{
+    Dictation, SharedSpeechToText, SpeechToText, SpeechToTextError, Vocabulary,
+};
 use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 
@@ -47,12 +59,146 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// The DataCapability's manifest (contract F), as the engine parses it.
+pub const MANIFEST: &str = include_str!("../data-capability.json");
+
+/// What the DataCapability plugs into the engine: its `Prepare`, which
+/// reaches the `llm` and `speech-to-text` ports the server shares.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new()
+        .prepare(
+            DATA_CAPABILITY,
+            Extract {
+                announced: Arc::default(),
+            },
+        )
+        .needs::<SharedLlm>()
+        .needs::<SharedSpeechToText>()
+}
+
+/// An analysis of notes ([`analyse`]), made before anything is queued, `now`
+/// being when the note is imported: the note's command is the one
+/// submitted, each proposal's a follow-up ([`Analysis::commands`]), written
+/// as it was announced ([`Announced`]). The provider is the one the AI
+/// settings make active; the elements recognised are the ones the tables
+/// hold of the campaign. A failure of the `llm` port is told among the
+/// warnings, the note kept alone. Notes of a campaign the engine does not
+/// hold are refused, 404, and notes that name none or hold no word, 422:
+/// neither is queued.
+struct Extract {
+    announced: Arc<Announced>,
+}
+
+/// Why notes are refused when a port is not shared: the engine refuses to
+/// load first, so a server never answers it.
+const NO_PORT: &str = "le port llm ou speech-to-text n'est pas branché";
+
+#[async_trait]
+impl Prepare for Extract {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        target_id: Option<&str>,
+    ) -> Result<plugins::Prepared, plugins::Refusal> {
+        if let Some(proposal) = self.announced.take(target_id, payload) {
+            return Ok(plugins::Prepared {
+                payload: proposal,
+                target_id: target_id.map(str::to_owned),
+                ..plugins::Prepared::default()
+            });
+        }
+        let campaign = payload
+            .get("campaign")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if uuid(campaign)
+            && context
+                .row(&format!("Campaign/{campaign}"))
+                .await?
+                .is_empty()
+        {
+            return Err(plugins::Refusal::not_found(format!(
+                "aucune campagne {campaign}"
+            )));
+        }
+        let settings = context.row(ai_provider::SETTINGS).await?;
+        let known = known(context, campaign).await?;
+        let (Some(llm), Some(speech)) = (
+            context.shared.get::<SharedLlm>(),
+            context.shared.get::<SharedSpeechToText>(),
+        ) else {
+            return Err(plugins::Refusal::unprocessable(NO_PORT));
+        };
+        let analysis = analyse(
+            llm.as_ref(),
+            &ai_provider::active(&settings),
+            speech.as_ref(),
+            payload,
+            &known,
+        )
+        .await
+        .map_err(|refusal| plugins::Refusal::unprocessable(refusal.to_string()))?;
+        let ids = (0..=analysis.proposals.len())
+            .map(|_| context.ids.fresh())
+            .collect();
+        let now = aggregate_note_import::timestamp(context.now_millis);
+        let Commands { proposals, note } = analysis.commands(ids, &now);
+        let then = proposals
+            .into_iter()
+            .map(|proposal| {
+                self.announced
+                    .follow_up(DATA_CAPABILITY, &proposal.target_id, proposal.payload)
+            })
+            .collect();
+        Ok(plugins::Prepared {
+            payload: note.payload,
+            target_id: Some(note.target_id),
+            warnings: analysis.failure.into_iter().collect(),
+            then,
+            attachment: None,
+        })
+    }
+}
+
+/// The elements of the campaign `campaign` names, in whatever case, with
+/// their names and aliases as written, in the order of their ids: what the
+/// tables hold — the fixtures' and every one applied — and none over the
+/// engine's memory, which has no table.
+const KNOWN: &str = "SELECT e.id::text AS id, e.name,
+        coalesce((SELECT jsonb_agg(a.alias ORDER BY a.alias, a.id)
+            FROM entity_alias a WHERE a.entity_id = e.id), '[]') AS aliases
+    FROM entity e WHERE e.campaign_id::text = lower($1::text)
+    ORDER BY e.id";
+
+/// The elements `campaign` holds ([`KNOWN`]).
+async fn known(context: &Context<'_>, campaign: &str) -> Result<Vec<Known>, plugins::Refusal> {
+    let Some(rows) = context.rows else {
+        return Ok(Vec::new());
+    };
+    let found = rows
+        .rows(KNOWN, &[Value::from(campaign)])
+        .await
+        .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?;
+    let text = |value: &Value| value.as_str().map(str::to_owned);
+    Ok(found
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|element| {
+            Some(Known {
+                id: text(&element["id"])?,
+                name: text(&element["name"])?,
+                aliases: element["aliases"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(text)
+                    .collect(),
+            })
+        })
+        .collect())
 }
 
 /// Why notes are not analysed: nothing is queued.

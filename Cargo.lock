@@ -72,7 +72,15 @@ dependencies = [
 name = "aggregate-note-import"
 version = "0.1.0"
 dependencies = [
+ "aggregate-entity",
+ "async-trait",
+ "create-entities-from-note",
+ "data",
+ "extract-from-notes",
  "harness-dataguard",
+ "ports-llm",
+ "ports-speech-to-text",
+ "save-entity",
  "serde_json",
  "tokio",
 ]
@@ -358,10 +366,17 @@ dependencies = [
 name = "create-entities-from-note"
 version = "0.1.0"
 dependencies = [
+ "aggregate-entity",
+ "aggregate-note-import",
+ "async-trait",
+ "extract-from-notes",
  "harness-dataguard",
- "platform-conformance",
+ "ports-llm",
+ "ports-speech-to-text",
+ "save-entity",
  "serde_json",
  "sha2",
+ "tokio",
 ]
 
 [[package]]
@@ -438,19 +453,13 @@ name = "dataguard-server"
 version = "0.1.0"
 dependencies = [
  "aggregate-ai-settings",
- "aggregate-entity",
- "ai-provider",
  "async-trait",
  "axum",
- "base64 0.22.1",
- "create-entities-from-note",
  "data",
  "dataguard-registry",
  "export-campaign",
- "extract-from-notes",
  "get-campaign",
  "get-entity",
- "getrandom 0.4.3",
  "harness-dataguard",
  "list-campaigns",
  "list-characters",
@@ -462,7 +471,6 @@ dependencies = [
  "platform-conformance",
  "ports-llm",
  "ports-speech-to-text",
- "save-entity",
  "serde",
  "serde_json",
  "thiserror",
@@ -522,6 +530,9 @@ dependencies = [
 name = "extract-from-notes"
 version = "0.1.0"
 dependencies = [
+ "aggregate-note-import",
+ "ai-provider",
+ "async-trait",
  "base64 0.22.1",
  "harness-dataguard",
  "platform-conformance",

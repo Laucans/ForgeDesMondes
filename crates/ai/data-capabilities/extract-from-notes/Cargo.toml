@@ -9,6 +9,12 @@ publish = false
 [dependencies]
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 harness-dataguard = { workspace = true }
+# Its target: how a note's dates are written, and the follow-ups announced.
+aggregate-note-import = { path = "../../../campaign/aggregates/NoteImport" }
+# The provider the AI settings make active.
+ai-provider = { path = "../../provider" }
+# The engine's `Prepare` is an async trait.
+async-trait = "0.1"
 base64 = "0.22"
 ports-llm = { path = "../../../ports/llm" }
 ports-speech-to-text = { path = "../../../ports/speech-to-text" }

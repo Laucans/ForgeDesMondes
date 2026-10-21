@@ -3,17 +3,29 @@ name = "create-entities-from-note"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "DataCapability campaign.createEntitiesFromNote: the DM's validated list of a note's proposals — each kept proposal checked and made an element of its type, name and excerpt with its first version (EntityVersion@1), a PC or an NPC with its sheet and token colour; one already created, or recognising an element the campaign holds, never made twice; the others unchecked."
+description = "DataCapability campaign.createEntitiesFromNote: the DM's validated list of a note's proposals — each kept proposal checked and made an element of its type, name and excerpt, saved through campaign.saveEntity with its first version (EntityVersion@1); one already created, or recognising an element the campaign holds, never made twice; the others unchecked."
 publish = false
 
 [dependencies]
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 harness-dataguard = { workspace = true }
+# Its target: the proposals of each note it keeps, and the follow-ups announced.
+aggregate-note-import = { path = "../../aggregates/NoteImport" }
+# The engine's `Prepare` is an async trait.
+async-trait = "0.1"
 serde_json = "1"
 # The ids an element is given are derived from its proposal's, so a retried
 # validation finds the element it made and does not make it twice.
 sha2 = { version = "0.11", default-features = false }
+# Validations are prepared one at a time.
+tokio = { version = "1", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
-# The Concept's fixtures `version` is held to.
-platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+# The element a validation saves, as the server plants it.
+aggregate-entity = { path = "../../aggregates/Entity" }
+save-entity = { path = "../save-entity" }
+# The analysis that writes the proposals validated, and its ports' fakes.
+extract-from-notes = { path = "../../../ai/data-capabilities/extract-from-notes" }
+ports-llm = { path = "../../../ports/llm" }
+ports-speech-to-text = { path = "../../../ports/speech-to-text" }

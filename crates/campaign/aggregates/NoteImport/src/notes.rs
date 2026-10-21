@@ -3,11 +3,11 @@
 //! accepts — the engine reads a row by its partition, and a note's row
 //! names none of its proposals.
 //!
-//! [`crate::versioning::Versioning`] records each proposal applied, over the
-//! engine's memory and over a database alike; over a database,
-//! `crate::projection` reads the ones the engine held before a start from
-//! its rows. A proposal removed is forgotten. Notes are told apart by their
-//! id whatever its case.
+//! The aggregate's plugin records each proposal applied, over the engine's
+//! memory and over a database alike (`Project::observe`); over a database,
+//! its projection reads the ones the engine held before a start from its
+//! rows (`ProjectPg::warm`). A proposal removed is forgotten. Notes are told
+//! apart by their id whatever its case.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::RwLock;
