@@ -1,0 +1,12 @@
+# fields: sessionJournalLine.sessionId, sessionJournalLine.spokenAt, sessionJournalLine.text
+# A session's journal, in spoken order: the time each transcribed line was
+# spoken and its text, nothing else. Text only — no audio exists in the store.
+# The same read serves a live session (the lines recorded so far) and a closed
+# one (every line kept at closing).
+query GetSessionJournal($session: ID!) {
+  sessionJournal(session: $session) {
+    sessionId
+    spokenAt
+    text
+  }
+}

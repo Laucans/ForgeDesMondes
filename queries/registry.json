@@ -246,6 +246,17 @@
         "Media.opacity",
         "Campaign.coverMediaId"
       ]
+    },
+    {
+      "query": "GetSessionJournal",
+      "capability": "session.getSessionJournal",
+      "file": "crates/session/queries/getSessionJournal.graphql",
+      "sha256": "9e61012a3048101dc948642ed18aa46bb0eb5614f9500972922589b8075cc238",
+      "fields": [
+        "sessionJournalLine.sessionId",
+        "sessionJournalLine.spokenAt",
+        "sessionJournalLine.text"
+      ]
     }
   ]
 }
