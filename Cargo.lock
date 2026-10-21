@@ -454,6 +454,7 @@ dependencies = [
  "set-media-place",
  "show-cover",
  "show-on-player-view",
+ "show-window-on-player-view",
  "test-connection",
  "upload-media",
 ]
@@ -1800,6 +1801,18 @@ dependencies = [
 
 [[package]]
 name = "show-on-player-view"
+version = "0.1.0"
+dependencies = [
+ "aggregate-diffusion",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "show-window-on-player-view"
 version = "0.1.0"
 dependencies = [
  "aggregate-diffusion",
