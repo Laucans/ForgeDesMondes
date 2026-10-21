@@ -748,6 +748,54 @@
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
+    // session.addPresentCharacter / session.removePresentCharacter (the Session
+    // aggregate): a PC of the session's campaign ticked present or unticked.
+    // `present-only-pj`: a character that is not a PC of the campaign is refused.
+    "session.addPresentCharacter": async (server, { payload: payload2 }) => {
+      const session = await server.load("session.getSession");
+      const character = (await server.load("campaign.listCharacters")).find((c) => c.id === payload2.character);
+      if (!character || character.kind !== "pj") return ["present-only-pj"];
+      if (!session.present.includes(character.id)) session.present.push(character.id);
+      return void 0;
+    },
+    "session.removePresentCharacter": async (server, { payload: payload2 }) => {
+      const session = await server.load("session.getSession");
+      session.present = session.present.filter((id) => id !== payload2.character);
+      return void 0;
+    },
+    // session.addScene: a scene at the end, its rank the next one.
+    "session.addScene": async (server, { payload: payload2 }) => {
+      const scenes = await server.load("session.listScenes");
+      const next = scenes.length + 1;
+      scenes.push({ id: `sc${Date.now().toString(36)}`, order: next, title: String(payload2.title || "Nouvelle sc\xE8ne"), places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: "" });
+      return void 0;
+    },
+    // session.reorderScenes: every rank rewritten at once. `scene-order-contiguous`:
+    // the ranks must be 1 to n, each scene once.
+    "session.reorderScenes": async (server, { payload: payload2 }) => {
+      const scenes = await server.load("session.listScenes");
+      const order = Array.isArray(payload2.order) ? payload2.order : [];
+      const ranks = order.map((o) => o.rank).sort((a, b) => a - b);
+      const known = new Set(scenes.map((sc) => sc.id));
+      if (order.length !== scenes.length || ranks.some((rank, i) => rank !== i + 1) || order.some((o) => !known.has(o.scene)) || new Set(order.map((o) => o.scene)).size !== scenes.length) return ["scene-order-contiguous"];
+      for (const o of order) scenes.find((sc) => sc.id === o.scene).order = o.rank;
+      scenes.sort((a, b) => a.order - b.order);
+      return void 0;
+    },
+    // table.createBattlemapInstance: the scene's own copy of a battlemap of the
+    // campaign, empty. `one-instance-per-scene`: a scene that has one is refused.
+    "table.createBattlemapInstance": async (server, { payload: payload2 }) => {
+      const scene = (await server.load("session.listScenes")).find((sc) => sc.id === payload2.scene);
+      const map = (await server.load("media.listMedia")).battlemaps.find((m) => m.id === payload2.battlemap);
+      if (!scene || !map) return ["not-found"];
+      if (scene.battlemap) return ["one-instance-per-scene"];
+      const id = `bmi-${map.id}-${scene.id}`;
+      server.instances = server.instances || /* @__PURE__ */ new Map();
+      server.instances.set(id, { id, battlemap: map.id, session: payload2.session, scene: scene.id, label: scene.title, roster: [], pjInitiative: {}, state: { tokens: [], combat: null } });
+      scene.battlemap = id;
+      if (!scene.media.includes(map.id)) scene.media.push(map.id);
+      return void 0;
+    },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
     // battlemap or an illustration added to the library, the path the DM chose
     // recorded and no file copied. A battlemap arrives with its default grid
@@ -947,6 +995,12 @@
 
   // mock/src/reads.js
   var READS = {
+    // table.getBattlemapInstance: the fixture's instance, or one a command made.
+    "table.getBattlemapInstance": async (server, { instance }) => {
+      const fixture = await server.load("table.getBattlemapInstance");
+      if (!instance || instance === fixture.id) return fixture;
+      return server.instances && server.instances.get(instance);
+    },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
     // the notes already imported, newest first, and the proposals of the latest
     // analysed note still awaiting validation. The imports are the fixture's

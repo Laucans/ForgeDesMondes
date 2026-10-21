@@ -1,0 +1,198 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
+import { JSDOM } from 'jsdom';
+import { mount, type Timing } from '../src/index.ts';
+import type { Shell } from '../src/types.ts';
+
+const fixtureOf = (id: string): unknown => JSON.parse(readFileSync(new URL(`../../../../mock/fixtures/${id}.json`, import.meta.url), 'utf8'));
+
+interface Sent {
+  dataCapability: string;
+  payload: Record<string, unknown>;
+  target: { aggregate: string; id: string };
+  idempotencyKey?: string;
+}
+
+/** A shell over the mock-up's fixtures: it answers the five Capabilities and applies a command as asked. */
+function fakeShell(options: { apply?: (sent: Sent) => { status: string; violations?: string[] }; fail?: string; scenes?: unknown; present?: string[]; noSessionId?: boolean } = {}) {
+  const data: Record<string, unknown> = {
+    'session.getSession': { ...(fixtureOf('session.getSession') as object), ...(options.present ? { present: options.present } : {}), ...(options.noSessionId ? { id: '' } : {}) },
+    'session.listScenes': options.scenes ?? fixtureOf('session.listScenes'),
+    'campaign.listCharacters': fixtureOf('campaign.listCharacters'),
+    'media.listMedia': fixtureOf('media.listMedia'),
+    'table.getBattlemapInstance': fixtureOf('table.getBattlemapInstance'),
+  };
+  const sent: Sent[] = [];
+  const reads: Array<{ id: string; variables?: Record<string, unknown> }> = [];
+  const shell: Shell = {
+    async capability(id, sha256, variables) {
+      assert.equal(sha256, undefined, 'a Micro-UI names a Capability alone');
+      reads.push({ id, variables });
+      if (id === options.fail) throw new Error('down');
+      return { asOf: 1, data: structuredClone(data[id]) };
+    },
+    async command(body) {
+      const command = body as Sent;
+      sent.push(command);
+      const outcome = options.apply?.(command) ?? { status: 'applied' };
+      return { commandId: `c${sent.length}`, result: { status: outcome.status, violations: outcome.violations ?? [] } };
+    },
+    async commandResult() {
+      const outcome = options.apply?.(sent.at(-1) as Sent) ?? { status: 'applied' };
+      return { result: { status: outcome.status, violations: outcome.violations ?? [] } };
+    },
+    context: { get: (name) => (name === 'session' ? 's4' : undefined) },
+  };
+  return { shell, sent, reads, data };
+}
+
+const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 5 };
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+};
+
+async function board(options?: Parameters<typeof fakeShell>[0]) {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="SceneBoard"></div></body></html>');
+  const host = dom.window.document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
+  const fake = fakeShell(options);
+  mount(host, {}, fake.shell, timing);
+  await settle();
+  const $ = (selector: string): HTMLElement => {
+    const found = host.querySelector<HTMLElement>(selector);
+    assert.ok(found, `${selector} is on the board`);
+    return found;
+  };
+  const click = async (selector: string): Promise<void> => {
+    $(selector).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await settle();
+  };
+  return { host, $, click, dom, ...fake };
+}
+
+test('the board shows the present PCs, the scenes in order, and each scene\'s battlemap', async () => {
+  const b = await board();
+  assert.match(b.$('#scenes-title').textContent ?? '', /séance 4 — L’embuscade du Gué/);
+  assert.equal(b.$('#scenes-present-count').textContent, '4 sur 4');
+  assert.equal(b.$('#scenes-present-list').children.length, 4);
+  assert.deepEqual([...b.host.querySelectorAll('.mf-scenes__scene h3')].map((h) => h.textContent), ['Retour à la Taverne du Sanglier', 'La route des Corbeaux', 'L’embuscade au Gué']);
+  assert.match(b.$('#sc3-battlemap').textContent ?? '', /Le Gué des Corbeaux/);
+  assert.equal(b.$('#sc3-battlemap').dataset.reads, 'table.getBattlemapInstance');
+  assert.deepEqual(b.reads.filter((r) => r.id === 'table.getBattlemapInstance').map((r) => r.variables), [{ instance: 'bmi-gue-s4', view: 'dm' }]);
+  assert.deepEqual(b.reads[0]?.variables, { session: 's4' }, 'the session of the screen is the one read');
+});
+
+test('a scene with an instance offers no second one; a scene without offers the campaign\'s battlemaps', async () => {
+  const b = await board();
+  assert.equal(b.host.querySelector('#sc3-battlemap [data-writes]'), null);
+  assert.equal(b.host.querySelector('#sc3-battlemap select'), null);
+  const options = [...b.$('#sc1-battlemap select').querySelectorAll('option')].map((o) => o.textContent);
+  assert.deepEqual(options, ['Le Gué des Corbeaux', 'Les ruines du moulin']);
+  assert.equal(b.$('#sc1-battlemap [data-writes]').dataset.writes, 'table.createBattlemapInstance');
+});
+
+test('ticking a PC triggers session.addPresentCharacter, and unticking triggers session.removePresentCharacter', async () => {
+  const b = await board();
+  await b.click('[data-remove-pj="kael"]');
+  assert.deepEqual(b.sent.map((s) => [s.dataCapability, s.payload]), [['session.removePresentCharacter@1', { session: 's4', character: 'kael' }]]);
+  assert.deepEqual(b.sent[0]?.target, { aggregate: 'Session', id: 's4' });
+
+  (b.data['session.getSession'] as { present: string[] }).present = ['elowen', 'brannoc', 'sirielle'];
+  await b.click('[data-remove-pj="sirielle"]');
+  (b.$('#scenes-present-select') as HTMLSelectElement).value = 'kael';
+  await b.click('#scenes-present-submit');
+  assert.equal(b.sent.at(-1)?.dataCapability, 'session.addPresentCharacter@1');
+  assert.deepEqual(b.sent.at(-1)?.payload, { session: 's4', character: 'kael' });
+});
+
+test('present-only-pj: only the PCs of the campaign are offered, never an NPC', async () => {
+  const b = await board({ present: [] });
+  const offered = [...b.$('#scenes-present-select').querySelectorAll('option')].map((o) => o.value);
+  assert.deepEqual(offered, ['elowen', 'brannoc', 'sirielle', 'kael']);
+});
+
+test('moving the third scene first triggers session.reorderScenes with every rank rewritten', async () => {
+  const b = await board();
+  await b.click('#scene-sc3 [data-move="-1"]');
+  await b.click('#scene-sc2 [data-move="-1"]');
+  assert.equal(b.sent.length, 2);
+  assert.equal(b.sent[0]?.dataCapability, 'session.reorderScenes@1');
+  assert.deepEqual(b.sent[0]?.payload.order, [{ scene: 'sc1', rank: 1 }, { scene: 'sc3', rank: 2 }, { scene: 'sc2', rank: 3 }]);
+});
+
+test('the first scene cannot go up and the last cannot go down', async () => {
+  const b = await board();
+  assert.equal((b.$('#scene-sc1 [data-move="-1"]') as HTMLButtonElement).disabled, true);
+  assert.equal((b.$('#scene-sc3 [data-move="1"]') as HTMLButtonElement).disabled, true);
+  await b.click('#scene-sc1 [data-move="-1"]');
+  assert.equal(b.sent.length, 0);
+});
+
+test('picking a battlemap for a scene triggers table.createBattlemapInstance, once', async () => {
+  const b = await board();
+  (b.$('#sc1-battlemap select') as HTMLSelectElement).value = 'bm-moulin';
+  const scenes = b.data['session.listScenes'] as Array<{ id: string; battlemap: string | null }>;
+  await b.click('#sc1-battlemap [data-writes]');
+  assert.deepEqual(b.sent.map((s) => [s.dataCapability, s.payload, s.idempotencyKey]), [['table.createBattlemapInstance@1', { session: 's4', scene: 'sc1', battlemap: 'bm-moulin' }, 'table.createBattlemapInstance:sc1']]);
+  // the server now gives the scene its instance: the board offers no second one
+  scenes[0]!.battlemap = 'bmi-moulin-sc1';
+  await b.click('#scenes-add');
+  assert.equal(b.host.querySelector('#sc1-battlemap select'), null);
+  assert.equal(b.host.querySelector('#sc1-battlemap [data-writes]'), null);
+});
+
+test('« Ajouter une scène » triggers session.addScene', async () => {
+  const b = await board();
+  await b.click('#scenes-add');
+  assert.equal(b.sent[0]?.dataCapability, 'session.addScene@1');
+  assert.equal(b.sent[0]?.payload.session, 's4');
+});
+
+test('a refused command says why and leaves the board as it was', async () => {
+  const b = await board({ apply: () => ({ status: 'rejected', violations: ['present-only-pj'] }) });
+  await b.click('[data-remove-pj="kael"]');
+  assert.match(b.$('#scenes-notice').textContent ?? '', /seul un PJ de la campagne peut être présent/);
+  assert.equal(b.$('#scenes-present-list').children.length, 4);
+  assert.equal(b.reads.filter((r) => r.id === 'session.getSession').length, 1, 'a refused command reads nothing again');
+});
+
+test('after an applied command the board reads again, so it shows what the server holds', async () => {
+  const b = await board();
+  (b.data['session.getSession'] as { present: string[] }).present = ['elowen'];
+  await b.click('[data-remove-pj="kael"]');
+  assert.equal(b.$('#scenes-present-count').textContent, '1 sur 4');
+});
+
+test('a scene whose instance cannot be read still shows it, without its figures', async () => {
+  const b = await board({ fail: 'table.getBattlemapInstance' });
+  assert.match(b.$('#sc3-battlemap').textContent ?? '', /bmi-gue-s4/);
+  assert.equal(b.host.querySelector('#sc3-battlemap select'), null);
+});
+
+test('when the session cannot be read the board says so and keeps its titles', async () => {
+  const b = await board({ fail: 'session.getSession' });
+  assert.match(b.$('#scenes-notice').textContent ?? '', /Impossible de lire la séance/);
+  assert.equal(b.$('#scenes-title').textContent, 'Scènes');
+});
+
+test('every part names the unit it shows or triggers by identifier', async () => {
+  const b = await board({ present: ['elowen'] });
+  const writes = new Set([...b.host.querySelectorAll('[data-writes]')].map((e) => (e as HTMLElement).dataset.writes));
+  for (const id of ['session.addPresentCharacter', 'session.removePresentCharacter', 'session.addScene', 'session.reorderScenes', 'table.createBattlemapInstance']) assert.ok(writes.has(id), `${id} has an actuator`);
+  const reads = (b.host.innerHTML.match(/data-reads="([^"]+)"/g) ?? []).join(' ');
+  for (const id of ['session.getSession', 'session.listScenes', 'campaign.listCharacters', 'media.listMedia', 'table.getBattlemapInstance']) assert.match(reads, new RegExp(id.replace('.', '\\.')), `${id} has a part`);
+});
+
+test('a session the board does not know is one it writes nothing to', async () => {
+  const b = await board({ present: ['elowen'], noSessionId: true });
+  await b.click('#scenes-add');
+  assert.equal(b.sent.length, 0);
+  assert.match(b.$('#scenes-notice').textContent ?? '', /pas identifiée/);
+});
+
+test('a command that is not applied in time is said so, and the board shows what the server holds', async () => {
+  const b = await board({ apply: () => ({ status: 'queued' }), present: ['elowen'] });
+  await b.click('[data-remove-pj="elowen"]');
+  assert.match(b.$('#scenes-notice').textContent ?? '', /pas encore appliquée \(état : queued\)/);
+  assert.equal(b.reads.filter((r) => r.id === 'session.getSession').length, 2);
+});

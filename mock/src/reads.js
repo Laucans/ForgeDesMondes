@@ -8,6 +8,12 @@
 //     (await server.load('pjs')).filter((p) => p.campagneId === campagneId),
 
 export const READS = {
+  // table.getBattlemapInstance: the fixture's instance, or one a command made.
+  'table.getBattlemapInstance': async (server, { instance }) => {
+    const fixture = await server.load('table.getBattlemapInstance');
+    if (!instance || instance === fixture.id) return fixture;
+    return server.instances && server.instances.get(instance);
+  },
   // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
   // the notes already imported, newest first, and the proposals of the latest
   // analysed note still awaiting validation. The imports are the fixture's
