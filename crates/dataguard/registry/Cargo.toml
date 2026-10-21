@@ -25,6 +25,7 @@ ignored = [
     "aggregate-sound",
     "aggregate-sound-playback",
     "aggregate-suggestion",
+    "create-battlemap-instance",
     "create-entities-from-note",
     "export-campaign",
     "extract-from-notes",
@@ -63,6 +64,7 @@ aggregate-session = { path = "../../session/aggregates/Session" }
 aggregate-sound = { path = "../../soundbox/aggregates/Sound" }
 aggregate-sound-playback = { path = "../../soundbox/aggregates/SoundPlayback" }
 aggregate-suggestion = { path = "../../live/aggregates/Suggestion" }
+create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }

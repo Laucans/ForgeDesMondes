@@ -365,6 +365,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-battlemap-instance"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "create-entities-from-note"
 version = "0.1.0"
 dependencies = [
@@ -429,6 +442,7 @@ dependencies = [
  "aggregate-sound",
  "aggregate-sound-playback",
  "aggregate-suggestion",
+ "create-battlemap-instance",
  "create-entities-from-note",
  "export-campaign",
  "extract-from-notes",
