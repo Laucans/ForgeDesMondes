@@ -7,7 +7,21 @@
 //   'campagne.listerPjs': async (server, { campagneId }) =>
 //     (await server.load('pjs')).filter((p) => p.campagneId === campagneId),
 
+// SessionLifecycle@1: the label of each status, and the mock-up's fixtures'
+// « played » for what the Concept calls `closed`.
+const STATUS_LABELS = { prep: 'En préparation', live: 'En direct', closed: 'Jouée' };
+
 export const READS = {
+  // session.getSession (crates/session/capabilities/get-session): one session's
+  // header and the PCs present, a session of `session.listSessions` (the ones
+  // created since included), its status labelled as SessionLifecycle@1 says. An
+  // unknown id is no session: `null`, as the server answers it.
+  'session.getSession': async (server, { id }) => {
+    const session = (await server.load('session.listSessions')).find((s) => s.id === id);
+    if (!session) return null;
+    const status = session.status === 'played' ? 'closed' : session.status;
+    return { id: session.id, order: session.order, title: session.title, date: session.date, status, statusLabel: STATUS_LABELS[status] ?? null, present: session.present };
+  },
   // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
   // the notes already imported, newest first, and the proposals of the latest
   // analysed note still awaiting validation. The imports are the fixture's

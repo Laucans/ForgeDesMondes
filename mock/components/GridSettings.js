@@ -748,6 +748,27 @@
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var COMMANDS = {
+    // session.createSession (planned, #157): the next session of the campaign, at
+    // the position after the last, in preparation, with the PCs ticked present.
+    // `present-only-pj` refuses a character that is not a PC of the fixtures.
+    "session.createSession": async (server, { payload: payload2 }) => {
+      const sessions = await server.load("session.listSessions");
+      const characters = await server.load("campaign.listCharacters");
+      const present = Array.isArray(payload2.present) ? payload2.present : [];
+      const pcs = new Set(characters.filter((c) => c.kind === "pj").map((c) => c.id));
+      if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
+      sessions.push({
+        id: server.uuid(),
+        order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
+        title: String(payload2.title || ""),
+        date: payload2.plannedOn || null,
+        status: "prep",
+        label: "En pr\xE9paration",
+        present,
+        summary: null
+      });
+      return void 0;
+    },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
     // battlemap or an illustration added to the library, the path the DM chose
     // recorded and no file copied. A battlemap arrives with its default grid
@@ -759,10 +780,13 @@
       const { kind, place = null } = payload2;
       if (kind !== "battlemap" && kind !== "illustration") return ["media-kind"];
       if (place && !(await server.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["media-place-is-lieu"];
-      const media = await server.load("media");
       const base = { id: server.uuid(), title: String(payload2.title || "").trim() || "Sans titre", file: payload2.file || "", uploadedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), place };
-      if (kind === "battlemap") media.battlemaps.push({ ...base, width: payload2.width || 0, height: payload2.height || 0, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 } });
-      else media.illustrations.push(base);
+      for (const name of ["media", "media.listMedia"]) {
+        const media = await server.load(name);
+        if (!media) continue;
+        if (kind === "battlemap") media.battlemaps.push({ ...base, width: payload2.width || 0, height: payload2.height || 0, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 } });
+        else media.illustrations.push({ ...base, ratio: payload2.width > 0 && payload2.height > 0 ? Math.round(payload2.width / payload2.height * 100) / 100 : null });
+      }
       return void 0;
     },
     // media.saveGridSettings (crates/media/data-capabilities/save-grid-settings):
@@ -791,6 +815,25 @@
       const place = payload2.place ?? null;
       if (place !== null && !(await server.load("campaign.listPlaces")).some((p) => p.id === place)) return ["media-place-is-lieu"];
       for (const medium of found) medium.place = place;
+      return void 0;
+    },
+    // session.addPlaceToSession (planned, #162): a place of the campaign joins a
+    // scene of the session — `payload.scene`, else the first — and stays there
+    // once (a place already in the scene is not linked twice). Its media follow
+    // by `session-media-by-place`: they are listed in the scene's media, never
+    // stored apart. A place that is no lieu of the campaign is refused by
+    // `scene-links-same-campaign`; a scene the session does not have is `not-found`.
+    "session.addPlaceToSession": async (server, { payload: payload2 }) => {
+      const place = payload2.place;
+      if (!(await server.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["scene-links-same-campaign"];
+      const scenes = await server.load("session.listScenes") || [];
+      const scene = payload2.scene ? scenes.find((sc) => sc.id === payload2.scene) : scenes[0];
+      if (!scene) return ["not-found"];
+      if (!scene.places.includes(place)) scene.places.push(place);
+      const library = await server.load("media.listMedia") || { battlemaps: [], illustrations: [] };
+      for (const medium of library.battlemaps.concat(library.illustrations)) {
+        if (medium.place === place && !scene.media.includes(medium.id)) scene.media.push(medium.id);
+      }
       return void 0;
     },
     // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
@@ -969,7 +1012,18 @@
   };
 
   // mock/src/reads.js
+  var STATUS_LABELS = { prep: "En pr\xE9paration", live: "En direct", closed: "Jou\xE9e" };
   var READS = {
+    // session.getSession (crates/session/capabilities/get-session): one session's
+    // header and the PCs present, a session of `session.listSessions` (the ones
+    // created since included), its status labelled as SessionLifecycle@1 says. An
+    // unknown id is no session: `null`, as the server answers it.
+    "session.getSession": async (server, { id }) => {
+      const session = (await server.load("session.listSessions")).find((s) => s.id === id);
+      if (!session) return null;
+      const status = session.status === "played" ? "closed" : session.status;
+      return { id: session.id, order: session.order, title: session.title, date: session.date, status, statusLabel: STATUS_LABELS[status] ?? null, present: session.present };
+    },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
     // the notes already imported, newest first, and the proposals of the latest
     // analysed note still awaiting validation. The imports are the fixture's

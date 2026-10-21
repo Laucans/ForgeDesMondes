@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "7f56a83418dfe869"
+      "builtFrom": "36fa8135d74f2dc1"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "9aefd2946a2c11cb"
+      "builtFrom": "0a5ce69a943cc31b"
     },
     {
       "name": "SessionList",
@@ -167,7 +167,11 @@
       "actions": [
         "session.createSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on liste les séances"
+      },
+      "source": "apps/session/session-list",
+      "builtFrom": "0b1b4a6213d6bef2"
     },
     {
       "name": "CampaignElements",
@@ -214,7 +218,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "d00ba897ad540907"
+      "builtFrom": "19e0021a14545ccf"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +282,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "1203b5741d5f0c17"
+      "builtFrom": "fa058b7ebbb8afff"
     },
     {
       "name": "PreviousSummary",
@@ -399,7 +403,13 @@
         "media.setMediaPlace",
         "session.addPlaceToSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on montre les médias, remplacé par ?id= dans l’adresse",
+        "session": "string — id de la séance en préparation, vide quand aucune n'est choisie : sans elle, aucune fiche n'est rattachée à une séance",
+        "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
+      },
+      "source": "apps/media/media-library",
+      "builtFrom": "cc82002577e1bf79"
     },
     {
       "name": "GridSettings",
@@ -419,7 +429,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "85e86954005edde4"
+      "builtFrom": "435761225f6172cc"
     },
     {
       "name": "SoundLibrary",
