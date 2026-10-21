@@ -34,3 +34,11 @@ minimum_test_timeout = 60
 # A test may read the repository it runs in: the copy a mutant is tested
 # in keeps `.git`, as the CI's `--in-place` run does.
 copy_vcs = true
+
+# Mutants with no observable difference. Each entry names the reason.
+exclude_re = [
+  # list-media `ratio`: `h > 0.0` -> `h >= 0.0` only changes h == 0, where
+  # w / h is inf or NaN and `json!` turns a non-finite f64 into null — the
+  # same null the guard gives.
+  "list-media/src/lib\\.rs:\\d+:\\d+: replace > with >= in ratio",
+]
