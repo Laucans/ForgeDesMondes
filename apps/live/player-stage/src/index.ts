@@ -97,6 +97,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   /** The images the library was asked for and did not list. */
   let missing = new Set<string>();
   let stopWatching: () => void = () => undefined;
+  /** The status line says the diffusion could not be read: a read that succeeds takes it down, a refused command's message stays. */
+  let readFailed = false;
 
   const part = <T extends HTMLElement = HTMLElement>(id: string): T | null => host.querySelector<T>(`#${id}`);
   const stageSize = (): Stage => {
@@ -210,10 +212,17 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       diffusion = next;
       readAt = read.asOf;
       loaded = true;
+      if (readFailed) {
+        readFailed = false;
+        say('');
+      }
       paintAll();
     } catch {
       if (mine !== generation || no < readNo) return;
-      if (props.pilot) say('Impossible de lire la diffusion.');
+      if (props.pilot) {
+        readFailed = true;
+        say('Impossible de lire la diffusion.');
+      }
       if (!loaded) {
         loaded = true;
         paintAll();
@@ -233,6 +242,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     missing = new Set();
     readAt = null;
     loaded = false;
+    readFailed = false;
     local = null;
     inFlight = 0;
     gesture = null;
@@ -344,7 +354,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     update(next) {
       const before = props;
       props = parseProps(next, host.ownerDocument.defaultView?.location.search ?? '');
-      if (props.pilot !== before.pilot) void start();
+      if (props.pilot !== before.pilot || props.campaign !== before.campaign) void start();
     },
   };
 }

@@ -32,6 +32,8 @@ interface Options {
   /** The data version the diffusion is read at, and the one the shell first tells. */
   readAt?: number;
   firstTold?: number;
+  /** Makes the diffusion read throw while it answers true. */
+  failRead?: () => boolean;
 }
 
 /** A shell over a one-row diffusion: reads answer it, a command applies to it as the DataGuard would. */
@@ -46,6 +48,7 @@ function fakeShell(options: Options = {}) {
     async capability(id, sha256, variables) {
       assert.equal(sha256, undefined, 'a Micro-UI names a Capability alone');
       reads.push({ id, variables });
+      if (id === 'live.getDiffusion' && options.failRead?.()) throw new Error('the server is not there');
       if (id === 'live.getDiffusion') return { asOf: options.readAt ?? 1, data: structuredClone(row) };
       if (id === 'campaign.getCampaign') return { asOf: 1, data: options.campaign ?? CAMPAIGN };
       return { asOf: 1, data: options.media ?? MEDIA };
@@ -301,4 +304,34 @@ test('a screen that names no campaign leaves the server\u2019s live session to d
   assert.deepEqual(s.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
   assert.deepEqual(s.reads.find((r) => r.id === 'campaign.getCampaign')?.variables, {});
   assert.deepEqual(s.reads.find((r) => r.id === 'media.listMedia')?.variables, {});
+});
+
+test('the DM is told when the diffusion cannot be read, and the next good read takes it down', async () => {
+  let down = true;
+  const s = await stage({ pilot: true }, { failRead: () => down });
+  assert.equal(s.$('#player-status').hidden, false);
+  assert.match(s.$('#player-status').textContent ?? '', /Impossible de lire la diffusion/);
+  down = false;
+  s.moveOn();
+  await settle();
+  assert.equal(s.$('#player-status').hidden, true);
+});
+
+test('a refused move keeps its message through the read that follows it', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, status: 'rejected', violations: ['window-fields-together'] });
+  await s.drag(s.$('#player-window-bar'), [200, 200], [300, 260]);
+  assert.match(s.$('#player-status').textContent ?? '', /aucune fenêtre n’est ouverte/);
+  s.moveOn();
+  await settle();
+  assert.equal(s.$('#player-status').hidden, false);
+});
+
+test('a new campaign from the screen starts the stage over on it', async () => {
+  const s = await stage({ campaign: 'c-1' });
+  s.update({ campaign: 'c-2' });
+  await settle();
+  const last = (id: string) => s.reads.filter((r) => r.id === id).at(-1)?.variables;
+  assert.deepEqual(last('live.getDiffusion'), { view: 'player', campaign: 'c-2' });
+  assert.deepEqual(last('campaign.getCampaign'), { id: 'c-2' });
+  assert.deepEqual(last('media.listMedia'), { campaign: 'c-2' });
 });

@@ -293,6 +293,7 @@
     let readAt = null;
     let missing = /* @__PURE__ */ new Set();
     let stopWatching = () => void 0;
+    let readFailed = false;
     const part = (id) => host2.querySelector(`#${id}`);
     const stageSize = () => {
       const stage = part("player-stage");
@@ -390,10 +391,17 @@
         diffusion = next;
         readAt = read.asOf;
         loaded = true;
+        if (readFailed) {
+          readFailed = false;
+          say("");
+        }
         paintAll();
       } catch {
         if (mine !== generation || no < readNo) return;
-        if (props2.pilot) say("Impossible de lire la diffusion.");
+        if (props2.pilot) {
+          readFailed = true;
+          say("Impossible de lire la diffusion.");
+        }
         if (!loaded) {
           loaded = true;
           paintAll();
@@ -412,6 +420,7 @@
       missing = /* @__PURE__ */ new Set();
       readAt = null;
       loaded = false;
+      readFailed = false;
       local = null;
       inFlight = 0;
       gesture = null;
@@ -505,7 +514,7 @@
       update(next) {
         const before = props2;
         props2 = parseProps(next, host2.ownerDocument.defaultView?.location.search ?? "");
-        if (props2.pilot !== before.pilot) void start();
+        if (props2.pilot !== before.pilot || props2.campaign !== before.campaign) void start();
       }
     };
   }
