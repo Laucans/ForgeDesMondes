@@ -1,0 +1,41 @@
+{
+  "concept": "EffectiveVolume",
+  "version": 1,
+  "kind": "derived",
+  "definition": "How loud a sound actually plays: its own volume multiplied by the campaign's master volume. Lowering the master lowers every sound by the same factor, so the ratio between two sounds is kept. On the wire (payloads, fixtures) a volume is a percent from 0 to 100; stored, it is a fraction from 0 to 1, the percent divided by 100. `volume` and `masterVolume` are percents. Both must be numbers in [0, 100]; a value that is absent, not a number, below 0 or above 100 is rejected, never clamped: `valid` is false, `gain` and both fractions are null, and `message` names the offending input, the own volume first when both are wrong. Otherwise `volumeFraction` is `volume / 100`, `masterFraction` is `masterVolume / 100` and `gain` is `volume × masterVolume / 10000` — the product of the percents divided once, so that 55 % under a master of 80 % is exactly 0.44. `gain` is a fraction in [0, 1], the multiplier the player applies to the sound.",
+  "output": {
+    "gain": {
+      "type": "number",
+      "nullable": true,
+      "minimum": 0,
+      "maximum": 1,
+      "rule": "volume × masterVolume / 10000 when valid; null when valid is false"
+    },
+    "volumeFraction": {
+      "type": "number",
+      "nullable": true,
+      "minimum": 0,
+      "maximum": 1,
+      "rule": "volume / 100 when valid; null when valid is false"
+    },
+    "masterFraction": {
+      "type": "number",
+      "nullable": true,
+      "minimum": 0,
+      "maximum": 1,
+      "rule": "masterVolume / 100 when valid; null when valid is false"
+    },
+    "valid": {
+      "type": "boolean",
+      "rule": "true exactly when volume and masterVolume are both numbers from 0 to 100"
+    },
+    "message": {
+      "type": "string",
+      "nullable": true,
+      "rule": "null when valid is true; `volume propre hors de 0 à 100 %` when volume is not a number in [0, 100], else `volume global hors de 0 à 100 %` when masterVolume is not"
+    }
+  },
+  "inputs": ["sound.volume", "campaign.sound_master_volume"],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}
