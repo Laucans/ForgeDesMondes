@@ -290,6 +290,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_body_of_two_mebibytes_is_renamed() {
+        // Axum's own limit on a JSON body, written out: the renaming takes
+        // all of it.
+        const TWO_MIB: usize = 2_097_152;
+        let seen = Seen::default();
+        let head = r#"{"variables":{"id":"elowen"},"pad":""#;
+        let pad = TWO_MIB - head.len() - r#""}"#.len();
+        let body = format!(r#"{head}{}"}}"#, " ".repeat(pad));
+        assert_eq!(body.len(), TWO_MIB);
+        // A name longer than its id: the renamed body stays within the
+        // route's own limit.
+        let shorter = Names::new([("elowen".to_string(), "e".to_string())]);
+        let app = renaming(echo(&seen, StatusCode::OK, &json!({})), shorter);
+        let (status, _) = send(app, "/capabilities/x.y", &body).await;
+        assert_eq!(status, StatusCode::OK);
+        let seen = seen.lock().expect("unpoisoned").clone();
+        assert_eq!(json_of(&seen[0])["variables"], json!({ "id": "e" }));
+    }
+
+    #[tokio::test]
     async fn a_body_too_large_to_rename_is_refused() {
         let seen = Seen::default();
         let app = renaming(echo(&seen, StatusCode::OK, &json!({})), names());
