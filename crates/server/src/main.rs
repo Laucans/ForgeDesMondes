@@ -12,7 +12,9 @@ use dataguard_server::engine::plugins::Shared;
 use dataguard_server::{MEMORY, Planted, applier, planted_with};
 use ports_llm::SharedLlm;
 use ports_speech_to_text::SharedSpeechToText;
-use server::{Config, Error, Ports, app, fixtures, inventory, llm, reads, speech_to_text};
+use server::{
+    Config, Error, Names, Ports, app, fixtures, inventory, llm, reads, renaming, speech_to_text,
+};
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
 /// — among the tracked `*migrations/*.sql` `scripts/rules-runtime.sh` and
@@ -101,7 +103,7 @@ async fn run() -> Result<(), Error> {
             }
         },
     };
-    let reads = Arc::new(reads.named(names));
+    let (reads, names) = (Arc::new(reads), Names::new(names));
 
     // One port each, shared: the legacy chain and the units' `Prepare`s
     // reach the same fake, and read the same journal.
@@ -127,7 +129,9 @@ async fn run() -> Result<(), Error> {
         .map_err(|source| Error::Serve { addr, source })?;
     let applier = applier(engine.clone());
     eprintln!("server: listening on {addr}");
-    let served = axum::serve(listener, app(engine, rows, llm, speech, reads))
+    // The fixtures' slugs on the wire, their uuids in the store (D8).
+    let app = renaming(app(engine, rows, llm, speech, reads), names);
+    let served = axum::serve(listener, app)
         .with_graceful_shutdown(stopped())
         .await
         .map_err(|source| Error::Serve { addr, source });
