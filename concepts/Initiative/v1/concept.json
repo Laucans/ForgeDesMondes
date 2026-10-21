@@ -1,0 +1,54 @@
+{
+  "concept": "Initiative",
+  "version": 1,
+  "kind": "derived",
+  "definition": "The order of play of a combat and the way the turn moves through it. Every case of the fixtures names its `operation`: `initiative`, `order` or `next`. A participant is a non-player character (`npc`) or a player character (`pc`). INITIATIVE: an NPC's `roll` is a d20 draw, an integer from 1 to 20, and its `initiative` is `roll` plus its DEX modifier, `floor((DEX score - 10) / 2)` (DEX 9 gives -1, DEX 15 gives +2, DEX 16 gives +3); the modifier is floored, never truncated toward zero. A PC never rolls: its `roll` and its `dexModifier` are null and its `initiative` is the figure the DM entered. ORDER: participants are ranked by `initiative` descending; participants with the same initiative by DEX score descending (the score, not its modifier; a participant with no DEX score ranks after every known one); participants still tied by `draw` descending, the integer drawn at random when the combat starts and kept from then on, so the same inputs always give the same order. A tie on all three keeps the order the participants were given. The order lists every participant: a hidden participant keeps its rank, and a dead one keeps its rank too and is merely skipped by `next`. NEXT (« Suivant »): given the participants in rank order, the `current` one and the `round`, the turn passes to the next living participant after `current` in rank order, `current` itself being dead or alive; when the search goes past the last rank and wraps to the start, the round goes up by one, even when the first participants are dead and the turn lands later. A hidden participant takes its turn in its rank like any other. When `current` is the only living participant the turn comes back to it and the round goes up. `next` is only asked of a combat that has at least one living participant. Nothing here reorders, adds or removes a participant.",
+  "output": {
+    "roll": {
+      "type": "integer",
+      "nullable": true,
+      "minimum": 1,
+      "maximum": 20,
+      "rule": "the d20 draw of an NPC, echoed from the input; null for a PC"
+    },
+    "dexModifier": {
+      "type": "integer",
+      "nullable": true,
+      "rule": "floor((DEX score - 10) / 2) for an NPC; null for a PC"
+    },
+    "initiative": {
+      "type": "integer",
+      "rule": "roll + dexModifier for an NPC; the figure the DM entered for a PC"
+    },
+    "order": {
+      "type": "array",
+      "items": "participant id",
+      "rule": "every participant once: initiative descending, then DEX score descending (none last), then draw descending, then the order given; hidden and dead participants keep their rank"
+    },
+    "current": {
+      "type": "string",
+      "rule": "the id of the next living participant after the one whose turn it was, wrapping to the start of the order"
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1,
+      "rule": "the round it was, plus one exactly when the search for the next living participant wrapped past the last rank"
+    }
+  },
+  "inputs": [
+    "participant.id",
+    "participant.kind",
+    "participant.dex",
+    "participant.roll",
+    "participant.enteredInitiative",
+    "participant.initiative",
+    "participant.draw",
+    "participant.alive",
+    "participant.hidden",
+    "combat.order",
+    "combat.current",
+    "combat.round"
+  ],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}
