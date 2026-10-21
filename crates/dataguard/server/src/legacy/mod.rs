@@ -7,7 +7,5 @@
 // ---
 pub(crate) mod create_entities_from_note;
 // ---
-pub(crate) mod export_campaign;
-// ---
 pub(crate) mod extract_from_notes;
 // ---

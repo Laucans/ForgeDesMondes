@@ -5,10 +5,7 @@
 //! its own writes, in the apply transaction (`aggregate_ai_settings`), and so
 //! does the Entity aggregate (`aggregate_entity`); an element's terms are
 //! read here at a start ([`ProjectingStore::elements`]), for an analysis of
-//! notes to recognise. An export (`campaign.exportCampaign`) writes
-//! its campaign's partition, `Campaign/<its id>`, with the stamp alone:
-//! [`ProjectingStore`] writes `campaign.last_exported_at`, and no other
-//! column. An analysis of notes (`ai.extractFromNotes`) writes a partition
+//! notes to recognise. An analysis of notes (`ai.extractFromNotes`) writes a partition
 //! per imported note, `NoteImport/<its id>`, and one per proposal: once the
 //! note is applied, [`ProjectingStore`] adds its `imported_note` row and the
 //! `note_proposal` row of every proposal of it applied, in one transaction —
@@ -16,17 +13,14 @@
 //! (`campaign.createEntitiesFromNote`) writes each proposal's partition
 //! again, its check and the element it created: [`ProjectingStore`] writes
 //! `note_proposal.checked` and `created_entity_id` — the element's once the
-//! tables hold it, whichever the engine applied first. A
-//! campaign's row is its table's over the engine's, and an archive is read
-//! from the tables ([`ProjectingStore::archived`]). Every other method is
+//! tables hold it, whichever the engine applied first. Every other method is
 //! the inner store's.
 //!
 //! The projection runs after the engine's own transaction: when it fails,
 //! the engine's row stays applied and the error is logged by its SQLSTATE
 //! alone — never a value. [`ProjectingStore::repair`]
 //! projects the row again at the next start. The tables' CHECKs, their
-//! foreign keys and their triggers judge it a second time. A stamp the table
-//! lost is written again at the next start, never over a later one.
+//! foreign keys and their triggers judge it a second time.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -51,57 +45,6 @@ const ELEMENTS: &str = "SELECT jsonb_build_object(
         'alias', coalesce((SELECT jsonb_agg(a.alias) FROM entity_alias a WHERE a.entity_id = e.id), '[]')
     )::text
     FROM entity e";
-
-/// A campaign as its table holds it, under the Campaign aggregate's fields,
-/// `$1` its id in whatever case: what the engine judges an export against —
-/// the fixtures' campaigns, and every one no command wrote yet. A campaign
-/// the engine deleted (its tombstone) is none.
-const CAMPAIGN_ROW: &str = "SELECT jsonb_strip_nulls(jsonb_build_object(
-        'id', id, 'name', name, 'kind', kind, 'pitch', pitch, 'art', art, 'glyph', glyph,
-        'coverMediaId', cover_media_id, 'createdAt', created_at,
-        'lastExportedAt', last_exported_at, 'importedAt', imported_at,
-        'originCampaignId', origin_campaign_id, 'soundMasterVolume', sound_master_volume
-    ))::text
-    FROM campaign c WHERE c.id::text = lower($1)
-        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
-            WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
-
-/// The last export the engine stamped on the campaign partition `$1` names —
-/// on every one when it is null — written on its row: the one column an
-/// export changes (`export-stamps-date`), never moved back. After each apply
-/// of a campaign, and at a start, so a stamp whose projection failed after
-/// its apply is written again. A stamp that is no time is left aside, so it
-/// keeps no other campaign's from its row.
-const STAMP_EXPORTS: &str = "UPDATE campaign c
-    SET last_exported_at = (r.fields ->> 'lastExportedAt')::timestamptz
-    FROM dataguard_rows r
-    WHERE r.partition = 'Campaign/' || c.id::text AND NOT r.tombstoned
-        AND ($1::text IS NULL OR r.partition = $1::text)
-        AND pg_input_is_valid(r.fields ->> 'lastExportedAt', 'timestamptz')
-        AND (c.last_exported_at IS NULL
-            OR c.last_exported_at < (r.fields ->> 'lastExportedAt')::timestamptz)";
-
-/// What an archive holds of the campaign `$1` names, in whatever case, as
-/// the tables hold it — the campaign, its players, its elements each with
-/// its sheet, its aliases and its versions — in one statement, so one
-/// snapshot: each row under its columns' names, in a stable order. A
-/// campaign the engine deleted is none.
-const ARCHIVE: &str = "SELECT jsonb_build_object(
-        'campaign', to_jsonb(c),
-        'players', coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.created_at, p.id)
-            FROM player p WHERE p.campaign_id = c.id), '[]'),
-        'elements', coalesce((SELECT jsonb_agg(to_jsonb(e) || jsonb_build_object(
-                'character', (SELECT to_jsonb(ch) FROM character ch WHERE ch.entity_id = e.id),
-                'aliases', coalesce((SELECT jsonb_agg(a.alias ORDER BY a.alias, a.id)
-                    FROM entity_alias a WHERE a.entity_id = e.id), '[]'),
-                'versions', coalesce((SELECT jsonb_agg(to_jsonb(v) ORDER BY v.version_number)
-                    FROM entity_version v WHERE v.entity_id = e.id), '[]'))
-            ORDER BY e.created_at, e.id)
-            FROM entity e WHERE e.campaign_id = c.id), '[]')
-    )::text
-    FROM campaign c WHERE c.id::text = lower($1)
-        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
-            WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
 
 /// The imported notes the engine holds and the tables do not — of the note
 /// `$1` names, or of every one when it is null: an analysis whose note was
@@ -180,9 +123,6 @@ const PROPOSALS: &str =
 const TOMBSTONED: &str =
     "SELECT EXISTS (SELECT 1 FROM dataguard_rows WHERE partition = $1 AND tombstoned)";
 
-/// The partitions of the Campaign aggregate: `Campaign/<campaign id>`.
-const CAMPAIGN: &str = "Campaign/";
-
 /// A [`PgStore`] whose applied writes of the aggregates it still projects
 /// reach the tables, reading at a start the elements' terms the tables hold.
 pub struct ProjectingStore {
@@ -200,8 +140,6 @@ impl ProjectingStore {
     /// failure: at a start, so a projection that failed after its apply is
     /// made again.
     pub async fn repair(&self) {
-        // --- Campaign
-        self.repair_exports(None).await;
         // --- NoteImport
         self.repair_notes(None).await;
         // ---
@@ -250,33 +188,6 @@ impl ProjectingStore {
         }
     }
 
-    /// Writes the last export the engine stamped on the row of the campaign
-    /// `partition` names — of every campaign, `None` — logging a failure:
-    /// after each apply of a campaign, and at a start.
-    async fn repair_exports(&self, partition: Option<&str>) {
-        let written = {
-            let client = self.inner.client().lock().await;
-            client.execute(STAMP_EXPORTS, &[&partition]).await
-        };
-        if let Err(e) = written {
-            eprintln!(
-                "projection: campaign not stamped: {}",
-                e.as_db_error().map_or("-", |db| db.code().code())
-            );
-        }
-    }
-
-    /// The campaign `id` names as an archive holds it — `{campaign, players,
-    /// elements}` — or `None` when the tables hold no such campaign.
-    pub async fn archived(
-        &self,
-        id: &str,
-    ) -> std::result::Result<Option<Value>, tokio_postgres::Error> {
-        let client = self.inner.client().lock().await;
-        let row = client.query_opt(ARCHIVE, &[&id]).await?;
-        Ok(row.and_then(|row| serde_json::from_str(row.get::<_, &str>(0)).ok()))
-    }
-
     /// Whether the engine deleted `partition`'s row: its tombstone.
     pub async fn tombstoned(
         &self,
@@ -285,25 +196,6 @@ impl ProjectingStore {
         let client = self.inner.client().lock().await;
         let row = client.query_one(TOMBSTONED, &[&partition]).await?;
         Ok(row.get(0))
-    }
-
-    /// The campaign `partition` names as its table holds it, when it does.
-    async fn table_row(
-        &self,
-        partition: &str,
-    ) -> std::result::Result<BTreeMap<String, Value>, tokio_postgres::Error> {
-        let Some(id) = partition.strip_prefix(CAMPAIGN) else {
-            return Ok(BTreeMap::new());
-        };
-        let client = self.inner.client().lock().await;
-        let row = client.query_opt(CAMPAIGN_ROW, &[&id]).await?;
-        Ok(row
-            .and_then(|row| serde_json::from_str::<Value>(row.get::<_, &str>(0)).ok())
-            .and_then(|row| match row {
-                Value::Object(row) => Some(row.into_iter().collect()),
-                _ => None,
-            })
-            .unwrap_or_default())
     }
 
     /// Records every element the tables hold in the terms it keeps: at a
@@ -373,28 +265,8 @@ impl Store for ProjectingStore {
         self.inner.data_version().await
     }
 
-    /// A campaign's row is its table's over the engine's own: a campaign the
-    /// fixtures hold exists for the engine before any command wrote it, and
-    /// what the engine copied of it when it applied a command is never
-    /// judged over what the table holds now. Tables not migrated yet hold
-    /// none.
     async fn row(&self, partition: &str) -> Result<BTreeMap<String, Value>> {
-        let mut row = self.inner.row(partition).await?;
-        if !partition.starts_with(CAMPAIGN) {
-            return Ok(row);
-        }
-        let table = match self.table_row(partition).await {
-            Ok(row) => row,
-            Err(e) => {
-                eprintln!(
-                    "projection: {partition} not read: {}",
-                    e.as_db_error().map_or("-", |db| db.code().code())
-                );
-                BTreeMap::new()
-            }
-        };
-        row.extend(table);
-        Ok(row)
+        self.inner.row(partition).await
     }
 
     async fn collision(&self, entry: &Entry) -> Result<Collision> {
@@ -413,11 +285,6 @@ impl Store for ProjectingStore {
         // --- NoteImport
         if let Some(note) = noted(write) {
             self.repair_notes(Some(note)).await;
-        }
-        // --- Campaign
-        if write.partition.starts_with(CAMPAIGN) {
-            // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
-            self.repair_exports(Some(&write.partition)).await;
         }
         // ---
         Ok(version)

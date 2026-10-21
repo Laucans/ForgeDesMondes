@@ -11,6 +11,10 @@
 //! `import-creates-copy` gives the archive's other rows new ids too, which
 //! the import's DataCapability does: here, an import is a new row, never one
 //! that exists — the original's least of all.
+//!
+//! Over PostgreSQL, the aggregate also projects its writes into the
+//! `campaign` table and hydrates the campaigns the fixtures wrote there
+//! ([`projection`]).
 
 use std::collections::BTreeMap;
 
@@ -18,7 +22,13 @@ use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
+mod projection;
+
 const AGGREGATE: &str = "Campaign";
+
+/// The aggregate's manifest (contract I), as the registry plants it: what a
+/// DataCapability targeting it is tested against.
+pub const AGGREGATE_JSON: &str = include_str!("../aggregate.json");
 
 /// The kinds of campaign, as the table types them.
 const KINDS: [&str; 2] = ["campagne", "oneshot"];
@@ -65,10 +75,13 @@ impl Judge for Campaign {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge.
+/// What the aggregate plugs into the engine: its judge, and over
+/// PostgreSQL its projection into the `campaign` table.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Plugin::new().judge(AGGREGATE, Campaign)
+    Plugin::new()
+        .judge(AGGREGATE, Campaign)
+        .project_pg(AGGREGATE, projection::Stamps)
 }
 
 /// The fields the command writes: its `touches`, and its payload's keys.

@@ -63,6 +63,5 @@ list-players = { path = "../../campaign/capabilities/list-players" }
 
 # --- DataCapabilities (the branches of the legacy submit chain) ---
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
-export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }

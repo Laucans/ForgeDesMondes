@@ -54,7 +54,6 @@ use ports_llm::Llm;
 use ports_speech_to_text::SpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 
-mod exports;
 mod legacy;
 mod notes;
 mod projection;
@@ -82,7 +81,6 @@ struct Served<L, S> {
     llm: Arc<L>,
     speech: Arc<S>,
     reads: Arc<Reads>,
-    exports: Arc<exports::Exports>,
 }
 
 impl<L, S> Clone for Served<L, S> {
@@ -93,14 +91,7 @@ impl<L, S> Clone for Served<L, S> {
             llm: self.llm.clone(),
             speech: self.speech.clone(),
             reads: self.reads.clone(),
-            exports: self.exports.clone(),
         }
-    }
-}
-
-impl<L, S> FromRef<Served<L, S>> for Arc<exports::Exports> {
-    fn from_ref(served: &Served<L, S>) -> Self {
-        served.exports.clone()
     }
 }
 
@@ -313,7 +304,6 @@ pub fn router_reading<L: Llm + 'static, S: SpeechToText + 'static>(
             llm,
             speech,
             reads,
-            exports: Arc::default(),
         })
 }
 
@@ -391,10 +381,6 @@ async fn submit<L: Llm, S: SpeechToText>(
             legacy::create_entities_from_note::submit(served, body, &now).await
         }
         // ---
-        export_campaign::DATA_CAPABILITY => {
-            legacy::export_campaign::submit(served, body, &now).await
-        }
-        // ---
         _ => reply(
             axum::http::StatusCode::ACCEPTED,
             served.engine.submit(body).await,
@@ -409,25 +395,6 @@ fn now() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     aggregate_ai_settings::timestamp(u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
-}
-
-/// `body` queued by the engine, as the legacy chain leaves it: `warning`
-/// told after the engine's own, `archive` kept until the command is applied
-/// ([`status`]).
-async fn queued<L, S>(
-    served: &Served<L, S>,
-    body: Submission,
-    warning: Option<&str>,
-    archive: Option<export_campaign::Archive>,
-) -> Reply<harness_dataguard::api::Submitted> {
-    let submitted = submit_prepared(served, body).await.map(|mut submitted| {
-        submitted.warnings.extend(warning.map(str::to_string));
-        if let Some(archive) = archive {
-            served.exports.keep(&submitted.command_id, archive);
-        }
-        submitted
-    });
-    reply(axum::http::StatusCode::ACCEPTED, submitted)
 }
 
 /// What the engine answers to `body`, which the legacy chain prepared: its
@@ -470,26 +437,17 @@ fn fresh_uuid() -> Result<String, getrandom::Error> {
     ))
 }
 
-/// A command's result; an export's, once applied, with its archive —
-/// `result.archive.file`, the file's name, and `result.archive.content`, the
-/// document —
-/// which the shell hands to the DM as a download.
-async fn status(
-    State(engine): State<Shared>,
-    State(exports): State<Arc<exports::Exports>>,
-    Path(id): Path<String>,
-) -> Reply<serde_json::Value> {
+/// A command's result; once applied, with what its `Prepare` attached for
+/// its author — an export's archive, `result.attachment.file` and
+/// `result.attachment.content`, which the shell hands to the DM as a
+/// download.
+async fn status(State(engine): State<Shared>, Path(id): Path<String>) -> Reply<serde_json::Value> {
     reply(
         axum::http::StatusCode::OK,
-        engine.status(&id).await.map(|r| {
-            let mut answer = serde_json::json!({ "result": r });
-            let applied = answer["result"]["status"] == "applied";
-            if let Some(archive) = exports.of(&id).filter(|_| applied) {
-                answer["result"]["archive"] =
-                    serde_json::json!({ "file": archive.file, "content": archive.content });
-            }
-            answer
-        }),
+        engine
+            .status(&id)
+            .await
+            .map(|r| serde_json::json!({ "result": r })),
     )
 }
 

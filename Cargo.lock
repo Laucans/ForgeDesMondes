@@ -28,6 +28,8 @@ dependencies = [
 name = "aggregate-campaign"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
  "tokio",
@@ -446,7 +448,6 @@ dependencies = [
  "create-entities-from-note",
  "data",
  "dataguard-registry",
- "export-campaign",
  "extract-from-notes",
  "get-campaign",
  "get-entity",
@@ -514,8 +515,12 @@ dependencies = [
 name = "export-campaign"
 version = "0.1.0"
 dependencies = [
+ "aggregate-campaign",
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
