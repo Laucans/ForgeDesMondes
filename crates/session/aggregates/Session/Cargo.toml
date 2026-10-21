@@ -14,6 +14,6 @@ async-trait = "0.1"
 serde_json = "1"
 
 [dev-dependencies]
-# The migrations' applier the server runs: the tables the projection writes.
+# The migrations' applier the server runs: the tables the projections write.
 data = { path = "../../../data" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

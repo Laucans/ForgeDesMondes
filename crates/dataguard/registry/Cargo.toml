@@ -44,6 +44,7 @@ ignored = [
     "list-players",
     "list-scenes",
     "list-sessions",
+    "reorder-scenes",
     "restore-entity-version",
     "save-entity",
     "save-grid-settings",
@@ -86,6 +87,7 @@ list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
 list-scenes = { path = "../../session/capabilities/list-scenes" }
 list-sessions = { path = "../../session/capabilities/list-sessions" }
+reorder-scenes = { path = "../../session/data-capabilities/reorder-scenes" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
