@@ -1,0 +1,9 @@
+{
+  "capability": "session.listScenes",
+  "system": "session",
+  "version": "1.0.0",
+  "description": "A session's scenes by rank, 1 to n, for session preparation and the Médias page: each with its id, its order, its title, the ids of its places, characters (PCs and NPCs) and events, the ids of its media, the ids of the elements still to create, its notes and its battlemap. The media of a scene are the ones linked to it directly and the ones whose place is one of its places — derived at read time, never stored — and a medium with no place is attached to nothing. A scene's battlemap instance is null until the battlemap milestone produces it.",
+  "input": { "session": "string" },
+  "output": "{ id: string, order: number, title: string, places: string[], characters: string[], events: string[], media: string[], toCreate: string[], battlemap: null, notes: string | null }[]",
+  "reads": ["queries/list-scenes.graphql"]
+}
