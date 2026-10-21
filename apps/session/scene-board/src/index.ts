@@ -173,9 +173,9 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
         const item = clicked.closest<HTMLElement>('[data-scene]');
         const scene = current.scenes.find((s) => s.id === item?.dataset.scene);
         const battlemap = item?.querySelector<HTMLSelectElement>('select[data-map-select]')?.value ?? '';
-        // one-instance-per-scene: a scene that has its instance offers no second one.
+        // one-instance-per-scene: a scene that has its instance offers no second one. The key is one click's: a retry after a refusal is a new command, never the first one's replayed result.
         if (!scene || scene.battlemap !== null || battlemap === '') return;
-        void act('Impossible de créer l’instance.', () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, 'BattlemapInstance', scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}`));
+        void act('Impossible de créer l’instance.', () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, 'BattlemapInstance', scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}:${Date.now()}`));
         return;
       }
     }

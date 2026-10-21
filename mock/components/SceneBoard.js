@@ -216,9 +216,9 @@
     const character = (id) => board.characters.find((c) => c.id === id)?.name ?? id;
     const mediaTitle = (id) => [...board.medias.battlemaps, ...board.medias.illustrations].find((m) => m.id === id)?.title ?? id;
     const rows = [
-      ["Lieux", scene.places.map((id) => link("lieu", `fiche-entite.html?id=${id}`, id, `${scene.id}-place-${id}`))],
-      ["PNJ", scene.characters.map((id) => link("pnj", `fiche-entite.html?id=${id}`, character(id), `${scene.id}-char-${id}`))],
-      ["\xC9v\xE9nements", scene.events.map((id) => link("media", `fiche-entite.html?id=${id}`, id, `${scene.id}-event-${id}`))],
+      ["Lieux", scene.places.map((id) => link("lieu", `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-place-${id}`))],
+      ["PNJ", scene.characters.map((id) => link("pnj", `fiche-entite.html?id=${encodeURIComponent(id)}`, character(id), `${scene.id}-char-${id}`))],
+      ["\xC9v\xE9nements", scene.events.map((id) => link("media", `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-event-${id}`))],
       ["M\xE9dias", scene.media.map((id) => link("media", "medias.html", mediaTitle(id), `${scene.id}-media-${id}`))],
       ["\xC0 cr\xE9er", scene.toCreate.map((id) => link("todo", `#to-create-${id}`, id, `${scene.id}-todo-${id}`))]
     ];
@@ -409,7 +409,7 @@
           const scene = current.scenes.find((s) => s.id === item?.dataset.scene);
           const battlemap = item?.querySelector("select[data-map-select]")?.value ?? "";
           if (!scene || scene.battlemap !== null || battlemap === "") return;
-          void act("Impossible de cr\xE9er l\u2019instance.", () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, "BattlemapInstance", scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}`));
+          void act("Impossible de cr\xE9er l\u2019instance.", () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, "BattlemapInstance", scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}:${Date.now()}`));
           return;
         }
       }
@@ -495,8 +495,8 @@
     // session.addScene: a scene at the end, its rank the next one.
     "session.addScene": async (server, { payload }) => {
       const scenes = await server.load("session.listScenes");
-      const next = scenes.length + 1;
-      scenes.push({ id: `sc${Date.now().toString(36)}`, order: next, title: String(payload.title || "Nouvelle sc\xE8ne"), places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: "" });
+      const next = Math.max(0, ...scenes.map((sc) => sc.order)) + 1;
+      scenes.push({ id: `sc-${server.uuid().slice(0, 8)}`, order: next, title: String(payload.title || "Nouvelle sc\xE8ne"), places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: "" });
       return void 0;
     },
     // session.reorderScenes: every rank rewritten at once. `scene-order-contiguous`:

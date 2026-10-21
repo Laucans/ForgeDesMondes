@@ -388,8 +388,8 @@
     // session.addScene: a scene at the end, its rank the next one.
     "session.addScene": async (server, { payload }) => {
       const scenes = await server.load("session.listScenes");
-      const next = scenes.length + 1;
-      scenes.push({ id: `sc${Date.now().toString(36)}`, order: next, title: String(payload.title || "Nouvelle sc\xE8ne"), places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: "" });
+      const next = Math.max(0, ...scenes.map((sc) => sc.order)) + 1;
+      scenes.push({ id: `sc-${server.uuid().slice(0, 8)}`, order: next, title: String(payload.title || "Nouvelle sc\xE8ne"), places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: "" });
       return void 0;
     },
     // session.reorderScenes: every rank rewritten at once. `scene-order-contiguous`:

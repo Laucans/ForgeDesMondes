@@ -133,7 +133,8 @@ test('picking a battlemap for a scene triggers table.createBattlemapInstance, on
   (b.$('#sc1-battlemap select') as HTMLSelectElement).value = 'bm-moulin';
   const scenes = b.data['session.listScenes'] as Array<{ id: string; battlemap: string | null }>;
   await b.click('#sc1-battlemap [data-writes]');
-  assert.deepEqual(b.sent.map((s) => [s.dataCapability, s.payload, s.idempotencyKey]), [['table.createBattlemapInstance@1', { session: 's4', scene: 'sc1', battlemap: 'bm-moulin' }, 'table.createBattlemapInstance:sc1']]);
+  assert.deepEqual(b.sent.map((s) => [s.dataCapability, s.payload]), [['table.createBattlemapInstance@1', { session: 's4', scene: 'sc1', battlemap: 'bm-moulin' }]]);
+  assert.match(b.sent[0]?.idempotencyKey ?? '', /^table\.createBattlemapInstance:sc1:\d+$/, 'one key per click, so a retry is a new command');
   // the server now gives the scene its instance: the board offers no second one
   scenes[0]!.battlemap = 'bmi-moulin-sc1';
   await b.click('#scenes-add');
@@ -195,4 +196,10 @@ test('a command that is not applied in time is said so, and the board shows what
   await b.click('[data-remove-pj="elowen"]');
   assert.match(b.$('#scenes-notice').textContent ?? '', /pas encore appliquée \(état : queued\)/);
   assert.equal(b.reads.filter((r) => r.id === 'session.getSession').length, 2);
+});
+
+test('an entity link carries its id encoded, so a name with « & » or a space still opens that entity', async () => {
+  const scenes = (fixtureOf('session.listScenes') as Array<Record<string, unknown>>).map((scene) => ({ ...scene, places: ['la cave & le puits'] }));
+  const b = await board({ scenes });
+  assert.equal(b.$('#sc1-place-la\\ cave\\ \\&\\ le\\ puits').getAttribute('href'), 'fiche-entite.html?id=la%20cave%20%26%20le%20puits');
 });

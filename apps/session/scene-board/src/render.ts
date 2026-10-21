@@ -67,9 +67,9 @@ function chips(scene: Scene, board: Board): string {
   const character = (id: string): string => board.characters.find((c) => c.id === id)?.name ?? id;
   const mediaTitle = (id: string): string => [...board.medias.battlemaps, ...board.medias.illustrations].find((m) => m.id === id)?.title ?? id;
   const rows: Array<[string, string[]]> = [
-    ['Lieux', scene.places.map((id) => link('lieu', `fiche-entite.html?id=${id}`, id, `${scene.id}-place-${id}`))],
-    ['PNJ', scene.characters.map((id) => link('pnj', `fiche-entite.html?id=${id}`, character(id), `${scene.id}-char-${id}`))],
-    ['Événements', scene.events.map((id) => link('media', `fiche-entite.html?id=${id}`, id, `${scene.id}-event-${id}`))],
+    ['Lieux', scene.places.map((id) => link('lieu', `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-place-${id}`))],
+    ['PNJ', scene.characters.map((id) => link('pnj', `fiche-entite.html?id=${encodeURIComponent(id)}`, character(id), `${scene.id}-char-${id}`))],
+    ['Événements', scene.events.map((id) => link('media', `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-event-${id}`))],
     ['Médias', scene.media.map((id) => link('media', 'medias.html', mediaTitle(id), `${scene.id}-media-${id}`))],
     ['À créer', scene.toCreate.map((id) => link('todo', `#to-create-${id}`, id, `${scene.id}-todo-${id}`))],
   ];
