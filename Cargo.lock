@@ -466,6 +466,7 @@ dependencies = [
  "save-grid-settings",
  "save-settings",
  "set-media-place",
+ "set-token-visibility",
  "test-connection",
  "upload-media",
 ]
@@ -1799,6 +1800,19 @@ dependencies = [
  "harness-dataguard",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "set-token-visibility"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

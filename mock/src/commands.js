@@ -354,4 +354,23 @@ export const COMMANDS = {
     token.r = payload.r;
     return undefined;
   },
+  // table.setTokenVisibility (crates/table/data-capabilities/set-token-visibility):
+  // the token `payload.token` of the instance `targetId` (or
+  // `payload.instance`) hidden from the players or revealed — its `visible`
+  // alone; its initiative rank and every other stay as they are
+  // (`hidden-keeps-rank`). A visibility that is no boolean is refused by
+  // `players-see-band-only`; an unknown token is `not-found`; a token that
+  // stands on another instance than the one named is refused by
+  // `instance-isolated`, as the DataGuard judges it.
+  'table.setTokenVisibility': async (server, { payload, targetId }) => {
+    if (typeof payload.visible !== 'boolean') return ['players-see-band-only'];
+    const id = targetId || payload.instance;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const holder = instances.find((i) => i.state.tokens.some((t) => t.id === payload.token));
+    if (!holder) return ['not-found'];
+    if (holder.id !== id) return ['instance-isolated'];
+    holder.state.tokens.find((t) => t.id === payload.token).visible = payload.visible;
+    return undefined;
+  },
 };
