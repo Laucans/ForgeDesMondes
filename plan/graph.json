@@ -926,8 +926,8 @@
     "media.listMedia": {
       "kind": "capability",
       "producer": 19,
-      "state": "built",
-      "version": 1
+      "state": "evolving",
+      "version": 2
     },
     "media.saveGridSettings": {
       "kind": "data-capability",
