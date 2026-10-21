@@ -14,6 +14,8 @@
 //! A version is never modified once written (`every-change-versioned`), so
 //! the history only grows.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -119,7 +121,7 @@ fn origin(source: &str) -> &'static str {
 /// changes of each are derived by [`version`] from its snapshot and the one
 /// before it.
 #[must_use]
-pub fn answer(rows: &Value, entity: &str) -> Option<Value> {
+pub fn answer_rows(rows: &Value, entity: &str) -> Option<Value> {
     let own: Vec<&Value> = rows
         .as_array()?
         .iter()
@@ -156,6 +158,25 @@ pub fn answer(rows: &Value, entity: &str) -> Option<Value> {
         })
         .collect();
     Some(json!({ "name": name, "versions": versions }))
+}
+
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &["entity"];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `entity`, as [`SQL`] binds it; a
+/// variable absent is the empty text, which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("entity")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+    .unwrap_or(Value::Null)
 }
 
 #[cfg(test)]
@@ -221,7 +242,7 @@ mod tests {
 
     #[test]
     fn the_versions_come_newest_first_with_number_date_origin_source_and_changes() {
-        let got = answer(&four_versions(), MORLOX).expect("found");
+        let got = answer_rows(&four_versions(), MORLOX).expect("found");
         assert_eq!(got["name"], "Morlox");
         let versions = got["versions"].as_array().expect("an array");
         let numbers: Vec<&Value> = versions.iter().map(|v| &v["v"]).collect();
@@ -244,7 +265,7 @@ mod tests {
 
     #[test]
     fn the_answer_has_the_keys_of_the_fixture() {
-        let got = answer(&four_versions(), MORLOX).expect("found");
+        let got = answer_rows(&four_versions(), MORLOX).expect("found");
         let fixture = fixture();
         let expected = &fixture["morlox"];
         assert_eq!(got["name"], expected["name"]);
@@ -261,7 +282,7 @@ mod tests {
 
     #[test]
     fn a_change_is_the_field_with_its_old_and_new_value() {
-        let got = answer(&four_versions(), MORLOX).expect("found");
+        let got = answer_rows(&four_versions(), MORLOX).expect("found");
         assert_eq!(
             got["versions"][1]["changes"],
             json!([
@@ -281,7 +302,7 @@ mod tests {
 
     #[test]
     fn the_first_version_lists_every_field_against_an_empty_snapshot() {
-        let got = answer(&four_versions(), MORLOX).expect("found");
+        let got = answer_rows(&four_versions(), MORLOX).expect("found");
         let first = &got["versions"][3]["changes"];
         let fields: Vec<&str> = first
             .as_array()
@@ -301,7 +322,7 @@ mod tests {
 
     #[test]
     fn a_restoration_shows_its_source_and_the_version_it_came_from() {
-        let got = answer(&four_versions(), MORLOX).expect("found");
+        let got = answer_rows(&four_versions(), MORLOX).expect("found");
         let restored = &got["versions"][0];
         assert_eq!(restored["source"], "restauration");
         assert_eq!(restored["restoredFrom"], 2);
@@ -383,10 +404,10 @@ mod tests {
         rows.as_array_mut()
             .expect("an array")
             .push(row(OTHER, 1, "dm", &s, None, None));
-        let got = answer(&rows, MORLOX).expect("found");
+        let got = answer_rows(&rows, MORLOX).expect("found");
         assert_eq!(got["versions"].as_array().expect("an array").len(), 4);
         assert_eq!(
-            answer(&rows, OTHER).expect("found")["versions"]
+            answer_rows(&rows, OTHER).expect("found")["versions"]
                 .as_array()
                 .expect("an array")
                 .len(),
@@ -402,16 +423,16 @@ mod tests {
             "restored_from": null,
         }]);
         assert_eq!(
-            answer(&rows, MORLOX),
+            answer_rows(&rows, MORLOX),
             Some(json!({ "name": "Morlox", "versions": [] }))
         );
     }
 
     #[test]
     fn an_unknown_element_is_not_found_without_error() {
-        assert_eq!(answer(&four_versions(), OTHER), None);
-        assert_eq!(answer(&json!([]), MORLOX), None);
-        assert_eq!(answer(&Value::Null, MORLOX), None);
+        assert_eq!(answer_rows(&four_versions(), OTHER), None);
+        assert_eq!(answer_rows(&json!([]), MORLOX), None);
+        assert_eq!(answer_rows(&Value::Null, MORLOX), None);
     }
 
     #[test]
@@ -465,5 +486,15 @@ mod tests {
                 "the query names {field}, the SQL does not select v.{column}"
             );
         }
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = four_versions();
+        let variables = BTreeMap::from([("entity".to_string(), json!(MORLOX))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, MORLOX).expect("found"));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

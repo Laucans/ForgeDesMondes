@@ -1,0 +1,19 @@
+[package]
+name = "aggregate-ai-settings"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Aggregate AiSettings: the generation providers and the one settings row naming the active provider — its invariants judged as code (mode-fields, api-type-recognized, test-does-not-save, single-settings-row, text-only-payload)."
+publish = false
+
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+[dependencies]
+harness-dataguard = { workspace = true }
+serde_json = "1"
+# The API types ProviderApiType@1 names, as the port spells them.
+ports-llm = { path = "../../../ports/llm" }
+
+[dev-dependencies]
+# A Concept's fixtures, read from the repository.
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

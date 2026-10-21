@@ -31,6 +31,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 pub mod contract;
 pub mod fake;
+pub mod shared;
+
+pub use shared::SharedSpeechToText;
 
 /// The language every adapter transcribes, as a BCP 47 tag.
 pub const LANGUAGE: &str = "fr";

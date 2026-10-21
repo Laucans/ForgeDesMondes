@@ -17,6 +17,8 @@
 //! campaign is not. The mock-up's drawing of a map (`terrain`), the palette of
 //! an illustration and the weight of a file are in no row and in no answer.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -24,7 +26,7 @@ pub const CAPABILITY: &str = "media.listMedia";
 
 /// What the persisted query `listMedia.graphql` selects: every media, newest
 /// first, with the grid of a battlemap and whether it is its campaign's cover.
-/// The campaign is kept by [`answer`], not by the query.
+/// The campaign is kept by [`answer_rows`], not by the query.
 pub const SQL: &str = r#"SELECT m.id::text AS id,
     m.campaign_id::text AS campaign_id,
     m.kind,
@@ -53,7 +55,7 @@ const FEET_PER_HEX: u8 = 5;
 /// selects — as the library shows them. No row is an empty, well-formed
 /// answer.
 #[must_use]
-pub fn answer(rows: &Value, campaign_id: &str) -> Value {
+pub fn answer_rows(rows: &Value, campaign_id: &str) -> Value {
     let mut cover = Value::Null;
     let mut battlemaps = Vec::new();
     let mut illustrations = Vec::new();
@@ -161,6 +163,25 @@ fn ratio(width: &Value, height: &Value) -> Value {
     }
 }
 
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &[];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `campaignId` from the request: [`SQL`]
+/// selects every row, the answer picks; a variable absent is the empty text,
+/// which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("campaignId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,7 +224,7 @@ mod tests {
             battlemap_row("bm-2", CAMPAIGN, Some("moulin")),
             media("ill-1", CAMPAIGN, "illustration", None),
         ]);
-        let out = answer(&rows, CAMPAIGN);
+        let out = answer_rows(&rows, CAMPAIGN);
         assert_eq!(ids(&out["battlemaps"]), ["bm-1", "bm-2"]);
         assert_eq!(ids(&out["illustrations"]), ["ill-1"]);
         for map in out["battlemaps"].as_array().expect("battlemaps") {
@@ -223,7 +244,7 @@ mod tests {
             battlemap_row("bm-other", "c-autre", None),
             media("ill-other", "c-autre", "illustration", None),
         ]);
-        let out = answer(&rows, CAMPAIGN);
+        let out = answer_rows(&rows, CAMPAIGN);
         assert_eq!(ids(&out["battlemaps"]), ["bm-1"]);
         assert_eq!(ids(&out["illustrations"]), Vec::<&str>::new());
     }
@@ -235,7 +256,7 @@ mod tests {
             media("ill-1", CAMPAIGN, "illustration", None),
             media("ill-2", CAMPAIGN, "illustration", Some("valombre")),
         ]);
-        let out = answer(&rows, CAMPAIGN);
+        let out = answer_rows(&rows, CAMPAIGN);
         assert_eq!(out["battlemaps"][0]["place"], Value::Null);
         assert_eq!(out["illustrations"][0]["place"], Value::Null);
         assert_eq!(out["illustrations"][1]["place"], json!("valombre"));
@@ -248,7 +269,7 @@ mod tests {
         flat["hex_size_px"] = json!(480.5);
         let mut stored = battlemap_row("bm-2", CAMPAIGN, None);
         stored["feet_per_hex"] = json!(7);
-        let out = answer(&json!([flat, stored]), CAMPAIGN);
+        let out = answer_rows(&json!([flat, stored]), CAMPAIGN);
         for map in out["battlemaps"].as_array().expect("battlemaps") {
             assert_eq!(map["grid"]["feetPerHex"], json!(5));
         }
@@ -259,7 +280,7 @@ mod tests {
         let mut flat = battlemap_row("bm-flat", CAMPAIGN, None);
         flat["orientation"] = json!("plat");
         let rows = json!([battlemap_row("bm-pointy", CAMPAIGN, None), flat]);
-        let out = answer(&rows, CAMPAIGN);
+        let out = answer_rows(&rows, CAMPAIGN);
         let orient = |id: &str| {
             let maps = out["battlemaps"].as_array().expect("battlemaps");
             maps.iter().find(|m| m["id"] == id).expect("listed")["grid"]["orient"].clone()
@@ -274,9 +295,9 @@ mod tests {
         cover["is_cover"] = json!(true);
         let mut other = media("ill-other", "c-autre", "illustration", None);
         other["is_cover"] = json!(true);
-        let out = answer(&json!([other.clone(), cover]), CAMPAIGN);
+        let out = answer_rows(&json!([other.clone(), cover]), CAMPAIGN);
         assert_eq!(out["cover"], json!("ill-cover"));
-        let out = answer(&json!([other]), CAMPAIGN);
+        let out = answer_rows(&json!([other]), CAMPAIGN);
         assert_eq!(out["cover"], Value::Null);
     }
 
@@ -284,7 +305,7 @@ mod tests {
     fn a_battlemap_cover_is_still_the_cover() {
         let mut map = battlemap_row("bm-1", CAMPAIGN, None);
         map["is_cover"] = json!(true);
-        assert_eq!(answer(&json!([map]), CAMPAIGN)["cover"], json!("bm-1"));
+        assert_eq!(answer_rows(&json!([map]), CAMPAIGN)["cover"], json!("bm-1"));
     }
 
     #[test]
@@ -293,7 +314,7 @@ mod tests {
         ill["file_path"] = json!("C:\\medias\\valombre-couverture.jpg");
         ill["width_px"] = json!(1600);
         ill["height_px"] = json!(900);
-        let out = answer(&json!([ill]), CAMPAIGN);
+        let out = answer_rows(&json!([ill]), CAMPAIGN);
         assert_eq!(
             out["illustrations"][0]["file"],
             json!("valombre-couverture.jpg")
@@ -308,7 +329,7 @@ mod tests {
         let mut ill = media("ill-1", CAMPAIGN, "illustration", None);
         ill["height_px"] = json!(0);
         let map = media("bm-1", CAMPAIGN, "battlemap", None);
-        let out = answer(&json!([ill, map]), CAMPAIGN);
+        let out = answer_rows(&json!([ill, map]), CAMPAIGN);
         assert_eq!(out["illustrations"][0]["ratio"], Value::Null);
         assert_eq!(out["battlemaps"][0]["grid"], Value::Null);
     }
@@ -322,7 +343,7 @@ mod tests {
         let mut same_a = media("ill-a", CAMPAIGN, "illustration", None);
         same_a["title"] = json!("A");
         let rows = json!([old, media("sound-1", CAMPAIGN, "son", None), same_b, same_a]);
-        let out = answer(&rows, CAMPAIGN);
+        let out = answer_rows(&rows, CAMPAIGN);
         assert_eq!(ids(&out["illustrations"]), ["ill-a", "ill-b", "ill-old"]);
         assert_eq!(out["battlemaps"], json!([]));
     }
@@ -330,8 +351,8 @@ mod tests {
     #[test]
     fn no_row_is_an_empty_well_formed_answer() {
         let expected = json!({ "cover": null, "battlemaps": [], "illustrations": [] });
-        assert_eq!(answer(&json!([]), CAMPAIGN), expected);
-        assert_eq!(answer(&Value::Null, CAMPAIGN), expected);
+        assert_eq!(answer_rows(&json!([]), CAMPAIGN), expected);
+        assert_eq!(answer_rows(&Value::Null, CAMPAIGN), expected);
     }
 
     #[test]
@@ -345,7 +366,7 @@ mod tests {
             battlemap_row("bm-1", CAMPAIGN, None),
             media("ill-1", CAMPAIGN, "illustration", None),
         ]);
-        let out = answer(&rows, CAMPAIGN);
+        let out = answer_rows(&rows, CAMPAIGN);
         let keys = |v: &Value| -> Vec<String> {
             v.as_object().expect("an object").keys().cloned().collect()
         };
@@ -360,5 +381,15 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = json!([battlemap_row("bm-1", CAMPAIGN, None)]);
+        let variables = BTreeMap::from([("campaignId".to_string(), json!(CAMPAIGN))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, CAMPAIGN));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

@@ -21,6 +21,7 @@
 
 use std::collections::BTreeMap;
 
+use harness_dataguard::plugins::Plugin;
 use ports_llm::{Binary, Llm, Models, Provider, ProviderConfig, Secret, UNRECOGNISED_API_TYPE};
 use serde_json::Value;
 
@@ -55,6 +56,14 @@ pub struct Prepared {
 #[must_use]
 pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
+}
+
+/// What the DataCapability plugs into the engine: nothing yet — the legacy
+/// server (`crates/dataguard/server`) still prepares it, until its
+/// `Prepare` moves here.
+#[must_use]
+pub fn plugin() -> Plugin {
+    Default::default()
 }
 
 /// Tests the configuration `wire` carries through `llm`, at `tested_at`

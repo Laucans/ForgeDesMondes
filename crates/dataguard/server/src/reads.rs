@@ -12,10 +12,15 @@
 //! `campaign.…`) and carries its variables, which the query binds in the
 //! order of its `$1`, `$2`… A variable the caller did not give is the empty
 //! text: no row is that, and the Capability answers its "nothing" — null, or
-//! an empty list.
+//! an empty list. A read of any other system is the registry's: every
+//! Capability crate's answer (`dataguard_registry`), run by the engine's
+//! reads over a read-only connection of their own — the strangler's root,
+//! which takes each system's reads over as this module lets them go.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
+use harness_dataguard::postgres::ReadOnly;
 use harness_dataguard::{Error, Result};
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -23,6 +28,17 @@ use tokio_postgres::Client;
 use tokio_postgres::types::ToSql;
 
 use crate::MEMORY;
+
+/// A client on `url`, its connection driven in the background.
+async fn connect(url: &str) -> std::result::Result<Client, tokio_postgres::Error> {
+    let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("postgres (reads): {e}");
+        }
+    });
+    Ok(client)
+}
 
 /// How a Capability turns the rows of its query, and the variable it was
 /// given, into its answer.
@@ -37,55 +53,55 @@ const CAMPAIGN: [(&str, &str, Option<&str>, Answer); 9] = [
         list_campaigns::CAPABILITY,
         list_campaigns::SQL,
         None,
-        |rows, _| list_campaigns::answer(rows),
+        |rows, _| list_campaigns::answer_rows(rows),
     ),
     (
         get_campaign::CAPABILITY,
         get_campaign::SQL,
         Some("id"),
-        |rows, id| get_campaign::answer(rows, id).unwrap_or(Value::Null),
+        |rows, id| get_campaign::answer_rows(rows, id).unwrap_or(Value::Null),
     ),
     (
         list_players::CAPABILITY,
         list_players::SQL,
         Some("campaign"),
-        list_players::answer,
+        list_players::answer_rows,
     ),
     (
         list_characters::CAPABILITY,
         list_characters::SQL,
         Some("campaign"),
-        list_characters::answer,
+        list_characters::answer_rows,
     ),
     (
         list_places::CAPABILITY,
         list_places::SQL,
         Some("campaign"),
-        list_places::answer,
+        list_places::answer_rows,
     ),
     (
         list_events::CAPABILITY,
         list_events::SQL,
         Some("campaign"),
-        list_events::answer,
+        list_events::answer_rows,
     ),
     (
         get_entity::CAPABILITY,
         get_entity::SQL,
         Some("id"),
-        get_entity::answer,
+        get_entity::answer_rows,
     ),
     (
         list_entity_versions::CAPABILITY,
         list_entity_versions::SQL,
         Some("entity"),
-        |rows, entity| list_entity_versions::answer(rows, entity).unwrap_or(Value::Null),
+        |rows, entity| list_entity_versions::answer_rows(rows, entity).unwrap_or(Value::Null),
     ),
     (
         list_imported_notes::CAPABILITY,
         list_imported_notes::SQL,
         Some("campaign"),
-        list_imported_notes::answer,
+        list_imported_notes::answer_rows,
     ),
 ];
 
@@ -93,6 +109,15 @@ const CAMPAIGN: [(&str, &str, Option<&str>, Answer); 9] = [
 pub struct Reads {
     client: Option<Mutex<Client>>,
     names: Names,
+    /// The registry's Capabilities, for the reads of the systems this
+    /// module does not route.
+    registry: harness_dataguard::reads::Reads,
+}
+
+/// Every Capability crate's answer, as the registry gathers them, over no
+/// database yet.
+fn registered() -> harness_dataguard::reads::Reads {
+    harness_dataguard::reads::Reads::from(&dataguard_registry::plugins())
 }
 
 /// The names ids go by on the wire, where they are not the ones the store
@@ -144,13 +169,11 @@ impl Names {
 impl Reads {
     /// No database: a Capability answers from no row.
     #[must_use]
-    pub const fn none() -> Self {
+    pub fn none() -> Self {
         Self {
             client: None,
-            names: Names {
-                stored: BTreeMap::new(),
-                wire: BTreeMap::new(),
-            },
+            names: Names::default(),
+            registry: registered(),
         }
     }
 
@@ -176,15 +199,12 @@ impl Reads {
         if url == MEMORY {
             return Ok(Self::none());
         }
-        let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls).await?;
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("postgres (reads): {e}");
-            }
-        });
+        let client = connect(url).await?;
+        let registry = registered().with_connection(Arc::new(ReadOnly::new(connect(url).await?)));
         Ok(Self {
             client: Some(Mutex::new(client)),
             names: Names::default(),
+            registry,
         })
     }
 
@@ -199,14 +219,27 @@ impl Reads {
         let answer = match id.split_once('.') {
             Some(("ai", _)) => self.ai(id).await?,
             Some(("campaign", _)) => self.campaign(id, &variables).await?,
-            _ => Value::Null,
+            _ => self.registered(id, &variables).await?,
         };
         Ok(self.names.to_wire(answer))
     }
 
+    /// What the registry's Capability `id` answers to `variables`; `null`
+    /// for one no unit answers.
+    async fn registered(&self, id: &str, variables: &Value) -> Result<Value> {
+        let variables: BTreeMap<String, Value> = variables
+            .as_object()
+            .map(|given| given.clone().into_iter().collect())
+            .unwrap_or_default();
+        match self.registry.run(id, &variables).await {
+            Err(Error::UnregisteredQuery(_)) => Ok(Value::Null),
+            answered => answered,
+        }
+    }
+
     async fn ai(&self, id: &str) -> Result<Value> {
         match id {
-            get_settings::CAPABILITY => Ok(get_settings::answer(
+            get_settings::CAPABILITY => Ok(get_settings::answer_rows(
                 &self.rows(get_settings::SQL, &[]).await?,
             )),
             _ => Ok(Value::Null),
@@ -301,6 +334,21 @@ mod tests {
                 "{unknown}: an id no row holds has no answer"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_read_of_another_system_is_the_registry_s_capability() {
+        let reads = Reads::none();
+        let variables = serde_json::json!({ "campaignId": "cendres-valombre" });
+        let listed = reads
+            .run("media.listMedia", &variables)
+            .await
+            .expect("an answer");
+        assert_eq!(
+            listed,
+            serde_json::json!({ "cover": null, "battlemaps": [], "illustrations": [] }),
+            "media.listMedia over no row, from its own crate"
+        );
     }
 
     #[test]

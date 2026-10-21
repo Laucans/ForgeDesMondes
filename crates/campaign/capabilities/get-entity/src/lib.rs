@@ -19,6 +19,8 @@
 //! initials of the token (`default-token`): with neither a portrait nor a
 //! token image, the token is the initials of the name on `color`.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -87,7 +89,7 @@ pub const fn modifier(score: i64) -> i64 {
 /// as the DM reads it; `null` when no row is that element, which is an
 /// unknown element, not an empty sheet.
 #[must_use]
-pub fn answer(rows: &Value, id: &str) -> Value {
+pub fn answer_rows(rows: &Value, id: &str) -> Value {
     rows.as_array()
         .and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(id)))
         .and_then(entity)
@@ -202,6 +204,24 @@ fn initials(name: &str) -> String {
         .collect()
 }
 
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &["id"];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `id`, as [`SQL`] binds it; a variable
+/// absent is the empty text, which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -295,14 +315,14 @@ mod tests {
 
     #[test]
     fn elowen_with_a_dex_of_18_has_a_dex_modifier_of_plus_4() {
-        let got = answer(&json!([elowen()]), "elowen");
+        let got = answer_rows(&json!([elowen()]), "elowen");
         assert_eq!(got["stats"]["DEX"], 18);
         assert_eq!(got["modifiers"]["DEX"], 4);
     }
 
     #[test]
     fn every_ability_has_its_modifier_floored_from_its_score() {
-        let got = answer(&json!([elowen()]), "elowen");
+        let got = answer_rows(&json!([elowen()]), "elowen");
         for (label, modifier) in [
             ("FOR", 1),
             ("DEX", 4),
@@ -317,7 +337,7 @@ mod tests {
 
     #[test]
     fn a_score_left_unset_has_no_modifier() {
-        let got = answer(&json!([morlox()]), "morlox");
+        let got = answer_rows(&json!([morlox()]), "morlox");
         assert_eq!(got["stats"]["DEX"], Value::Null);
         assert_eq!(got["modifiers"]["DEX"], Value::Null);
     }
@@ -325,22 +345,22 @@ mod tests {
     #[test]
     fn a_pc_has_kind_pj_and_a_player_and_an_npc_has_kind_pnj_and_none() {
         let rows = json!([elowen(), morlox()]);
-        assert_eq!(answer(&rows, "elowen")["kind"], "pj");
-        assert_eq!(answer(&rows, "elowen")["player"], "jou-julie");
-        assert_eq!(answer(&rows, "morlox")["kind"], "pnj");
-        assert_eq!(answer(&rows, "morlox")["player"], Value::Null);
+        assert_eq!(answer_rows(&rows, "elowen")["kind"], "pj");
+        assert_eq!(answer_rows(&rows, "elowen")["player"], "jou-julie");
+        assert_eq!(answer_rows(&rows, "morlox")["kind"], "pnj");
+        assert_eq!(answer_rows(&rows, "morlox")["player"], Value::Null);
     }
 
     #[test]
     fn an_npc_never_shows_a_player_whatever_the_row_says() {
         let mut npc = morlox();
         npc["player_id"] = json!("jou-julie");
-        assert_eq!(answer(&json!([npc]), "morlox")["player"], Value::Null);
+        assert_eq!(answer_rows(&json!([npc]), "morlox")["player"], Value::Null);
     }
 
     #[test]
     fn a_sheet_has_its_stats_ac_hp_features_token_and_notes() {
-        let got = answer(&json!([elowen()]), "elowen");
+        let got = answer_rows(&json!([elowen()]), "elowen");
         for key in ["stats", "ca", "pvMax", "features", "initials", "notes"] {
             assert!(!got[key].is_null(), "{key} is missing from {got}");
         }
@@ -352,7 +372,7 @@ mod tests {
 
     #[test]
     fn the_features_are_the_actions_then_the_spells() {
-        let got = answer(&json!([elowen()]), "elowen");
+        let got = answer_rows(&json!([elowen()]), "elowen");
         let names: Vec<&str> = got["features"]
             .as_array()
             .expect("an array")
@@ -368,7 +388,7 @@ mod tests {
         r["aliases"] = Value::Null;
         r["actions"] = Value::Null;
         r["spells"] = Value::Null;
-        let got = answer(&json!([r]), "morlox");
+        let got = answer_rows(&json!([r]), "morlox");
         assert_eq!(got["aliases"], json!([]));
         assert_eq!(got["features"], json!([]));
     }
@@ -377,7 +397,7 @@ mod tests {
     fn with_no_token_image_and_no_portrait_the_token_is_the_initial_on_its_colour() {
         let mut bandit = row("bandit", "pnj", "Bandit");
         bandit["token_color"] = json!("danger");
-        let got = answer(&json!([bandit]), "bandit");
+        let got = answer_rows(&json!([bandit]), "bandit");
         assert_eq!(got["portrait"], false);
         assert_eq!(got["tokenImage"], false);
         assert_eq!(got["crop"], Value::Null);
@@ -387,12 +407,12 @@ mod tests {
 
     #[test]
     fn a_portrait_or_a_token_image_is_told_from_none() {
-        let got = answer(&json!([elowen()]), "elowen");
+        let got = answer_rows(&json!([elowen()]), "elowen");
         assert_eq!(got["portrait"], true);
         assert_eq!(got["crop"], json!({ "zoom": 140, "x": 50, "y": 32 }));
         let mut npc = morlox();
         npc["token_media_id"] = json!("t1");
-        let got = answer(&json!([npc]), "morlox");
+        let got = answer_rows(&json!([npc]), "morlox");
         assert_eq!(got["tokenImage"], true);
         assert_eq!(got["portrait"], false);
     }
@@ -412,12 +432,12 @@ mod tests {
             place("taverne-sanglier", "lieu", "La Taverne du Sanglier"),
             place("incendie-moulin", "evenement", "L’incendie du moulin"),
         ]);
-        let tavern = answer(&rows, "taverne-sanglier");
+        let tavern = answer_rows(&rows, "taverne-sanglier");
         assert_eq!(tavern["kind"], "lieu");
         assert_eq!(tavern["aliases"], json!(["la taverne"]));
         assert_eq!(tavern["description"], "Grande salle basse.");
         assert_eq!(tavern["notes"], "");
-        assert_eq!(answer(&rows, "incendie-moulin")["kind"], "evenement");
+        assert_eq!(answer_rows(&rows, "incendie-moulin")["kind"], "evenement");
         for key in [
             "stats",
             "modifiers",
@@ -433,15 +453,15 @@ mod tests {
 
     #[test]
     fn an_unknown_element_has_no_answer() {
-        assert_eq!(answer(&json!([elowen()]), "nobody"), Value::Null);
-        assert_eq!(answer(&json!([]), "elowen"), Value::Null);
-        assert_eq!(answer(&Value::Null, "elowen"), Value::Null);
+        assert_eq!(answer_rows(&json!([elowen()]), "nobody"), Value::Null);
+        assert_eq!(answer_rows(&json!([]), "elowen"), Value::Null);
+        assert_eq!(answer_rows(&Value::Null, "elowen"), Value::Null);
     }
 
     #[test]
     fn a_row_of_an_unknown_type_has_no_answer() {
         assert_eq!(
-            answer(&json!([row("x", "objet", "Épée")]), "x"),
+            answer_rows(&json!([row("x", "objet", "Épée")]), "x"),
             Value::Null
         );
     }
@@ -449,12 +469,12 @@ mod tests {
     #[test]
     fn only_the_asked_element_is_answered() {
         let rows = json!([morlox(), elowen()]);
-        assert_eq!(answer(&rows, "elowen")["name"], "Elowen Ventargent");
+        assert_eq!(answer_rows(&rows, "elowen")["name"], "Elowen Ventargent");
     }
 
     #[test]
     fn a_text_left_empty_is_an_empty_string_as_in_the_fixture() {
-        let got = answer(&json!([morlox()]), "morlox");
+        let got = answer_rows(&json!([morlox()]), "morlox");
         for key in ["description", "notes", "prompt", "background", "behavior"] {
             assert_eq!(got[key], "", "{key}");
         }
@@ -465,9 +485,9 @@ mod tests {
         for blank in [json!(null), json!(""), json!("   ")] {
             let mut r = elowen();
             r["dndbeyond_id"] = blank;
-            assert_eq!(answer(&json!([r]), "elowen")["ddb"], Value::Null);
+            assert_eq!(answer_rows(&json!([r]), "elowen")["ddb"], Value::Null);
         }
-        let got = answer(&json!([elowen()]), "elowen");
+        let got = answer_rows(&json!([elowen()]), "elowen");
         assert_eq!(
             got["ddb"],
             json!({
@@ -479,7 +499,7 @@ mod tests {
 
     #[test]
     fn a_pc_has_the_fixtures_values_for_what_the_store_holds() {
-        let got = answer(&json!([elowen()]), "elowen");
+        let got = answer_rows(&json!([elowen()]), "elowen");
         let expected = known("elowen");
         for key in [
             "id",
@@ -505,7 +525,7 @@ mod tests {
     #[test]
     fn a_place_and_an_event_have_the_fixtures_values() {
         let rows = json!([place("taverne-sanglier", "lieu", "La Taverne du Sanglier")]);
-        let got = answer(&rows, "taverne-sanglier");
+        let got = answer_rows(&rows, "taverne-sanglier");
         let expected = known("taverne-sanglier");
         assert_eq!(got["name"], expected["name"]);
         assert_eq!(got["id"], expected["id"]);
@@ -515,7 +535,7 @@ mod tests {
     fn every_key_of_a_sheet_is_a_key_of_the_fixture_but_the_derived_ones() {
         let known = known("elowen");
         let known = known.as_object().expect("an object");
-        let got = answer(&json!([elowen()]), "elowen");
+        let got = answer_rows(&json!([elowen()]), "elowen");
         for key in got.as_object().expect("an object").keys() {
             if matches!(key.as_str(), "modifiers" | "tokenImage") {
                 continue;
@@ -534,5 +554,15 @@ mod tests {
         assert!(SQL.contains("WHERE e.id::text = $1"), "{SQL}");
         assert!(SQL.contains("LEFT JOIN character"), "{SQL}");
         assert!(!SQL.to_ascii_lowercase().contains("modifier"), "{SQL}");
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = json!([elowen()]);
+        let variables = BTreeMap::from([("id".to_string(), json!("elowen"))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, "elowen"));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

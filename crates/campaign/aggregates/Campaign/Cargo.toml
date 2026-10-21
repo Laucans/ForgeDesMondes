@@ -1,0 +1,15 @@
+[package]
+name = "aggregate-campaign"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Aggregate Campaign: a campaign's row — its invariants judged as code (oneshot-single-session, import-creates-copy, export-stamps-date, master-volume-range)."
+publish = false
+
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+[dependencies]
+harness-dataguard = { workspace = true }
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

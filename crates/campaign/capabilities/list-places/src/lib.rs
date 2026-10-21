@@ -11,6 +11,8 @@
 //! `entity.type` decides the tab: only an element of type `lieu` is a place.
 //! No PC, NPC or event shows there.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -23,7 +25,7 @@ const PLACE: &str = "lieu";
 /// campaign bound to `$1` (compared as text, so that an id which is not a
 /// uuid lists nobody instead of failing), by name, each with its aliases as
 /// a JSON array (empty when it has none). `campaign_id` and `type` are
-/// selected too, so that [`answer`] keeps only the campaign's own places
+/// selected too, so that [`answer_rows`] keeps only the campaign's own places
 /// whoever ran the statement.
 pub const SQL: &str = r"SELECT e.id::text AS id,
     e.campaign_id::text AS campaign_id,
@@ -44,7 +46,7 @@ ORDER BY e.name, e.id";
 /// lists `[]`, one with no description `null`; no row is an empty,
 /// well-formed answer.
 #[must_use]
-pub fn answer(rows: &Value, campaign: &str) -> Value {
+pub fn answer_rows(rows: &Value, campaign: &str) -> Value {
     let places: Vec<Value> = rows
         .as_array()
         .map(|rows| {
@@ -65,6 +67,24 @@ pub fn answer(rows: &Value, campaign: &str) -> Value {
         })
         .unwrap_or_default();
     Value::Array(places)
+}
+
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &["campaign"];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `campaign`, as [`SQL`] binds it; a
+/// variable absent is the empty text, which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("campaign")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
 }
 
 #[cfg(test)]
@@ -156,7 +176,7 @@ mod tests {
 
     #[test]
     fn the_tavern_appears_with_its_aliases_and_description() {
-        let listed = answer(&rows_of_the_campaign(), CENDRES);
+        let listed = answer_rows(&rows_of_the_campaign(), CENDRES);
         let tavern = listed
             .as_array()
             .expect("an array")
@@ -171,13 +191,13 @@ mod tests {
 
     #[test]
     fn the_four_places_of_the_fixture_are_listed_in_the_order_of_the_rows() {
-        let listed = answer(&rows_of_the_campaign(), CENDRES);
+        let listed = answer_rows(&rows_of_the_campaign(), CENDRES);
         assert_eq!(ids(&listed), ids(&fixture()));
     }
 
     #[test]
     fn a_pc_an_npc_or_an_event_does_not_appear() {
-        let listed = answer(&rows_of_the_campaign(), CENDRES);
+        let listed = answer_rows(&rows_of_the_campaign(), CENDRES);
         for other_tab in ["gaspard", "elowen", "incendie"] {
             assert!(
                 !ids(&listed).contains(&other_tab),
@@ -198,22 +218,25 @@ mod tests {
             &[],
             None,
         ));
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         assert_eq!(ids(&listed).len(), 4);
         assert!(!ids(&listed).contains(&"lieu-intrus"), "{listed}");
-        assert_eq!(ids(&answer(&rows, OTHER)), ["lieu-intrus"]);
+        assert_eq!(ids(&answer_rows(&rows, OTHER)), ["lieu-intrus"]);
     }
 
     #[test]
     fn a_place_with_no_alias_lists_an_empty_array_and_no_description_is_null() {
         let rows = json!([row("cave", CENDRES, "lieu", "La cave", &[], None)]);
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         assert_eq!(listed[0]["aliases"], json!([]));
         assert_eq!(listed[0]["description"], Value::Null);
         let no_aliases_column = json!([{
             "id": "cave", "campaign_id": CENDRES, "type": "lieu", "name": "La cave",
         }]);
-        assert_eq!(answer(&no_aliases_column, CENDRES)[0]["aliases"], json!([]));
+        assert_eq!(
+            answer_rows(&no_aliases_column, CENDRES)[0]["aliases"],
+            json!([])
+        );
     }
 
     #[test]
@@ -221,7 +244,7 @@ mod tests {
         let mut rows = rows_of_the_campaign();
         rows[0]["notes"] = json!("secret du DM");
         rows[0]["illustration"] = json!("ill-salle-sanglier");
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         let mut keys: Vec<&str> = listed[0]
             .as_object()
             .expect("an object")
@@ -234,8 +257,8 @@ mod tests {
 
     #[test]
     fn no_row_is_an_empty_well_formed_answer() {
-        assert_eq!(answer(&json!([]), CENDRES), json!([]));
-        assert_eq!(answer(&Value::Null, CENDRES), json!([]));
+        assert_eq!(answer_rows(&json!([]), CENDRES), json!([]));
+        assert_eq!(answer_rows(&Value::Null, CENDRES), json!([]));
     }
 
     #[test]
@@ -289,5 +312,15 @@ mod tests {
                 "the query names {field}, the SQL does not select it"
             );
         }
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = rows_of_the_campaign();
+        let variables = BTreeMap::from([("campaign".to_string(), json!(CENDRES))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, CENDRES));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

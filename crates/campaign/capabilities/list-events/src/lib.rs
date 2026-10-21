@@ -10,6 +10,8 @@
 //! appears. A character (`pj`, `pnj`) or a place (`lieu`) is another read,
 //! and so is a session or a scene.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -22,7 +24,7 @@ const EVENT: &str = "evenement";
 /// campaign bound to `$1` (compared as text, so that an id which is not a
 /// uuid lists nothing instead of failing), in the order they were created,
 /// each with its aliases as a JSON array (empty when it has none).
-/// `campaign_id` and `type` are selected too, so that [`answer`] keeps only
+/// `campaign_id` and `type` are selected too, so that [`answer_rows`] keeps only
 /// the campaign's own events whoever ran the statement.
 pub const SQL: &str = r"SELECT e.id::text AS id,
     e.campaign_id::text AS campaign_id,
@@ -41,7 +43,7 @@ ORDER BY e.created_at, e.name, e.id";
 /// another campaign, or of another type, is left out; no row is an empty,
 /// well-formed answer.
 #[must_use]
-pub fn answer(rows: &Value, campaign: &str) -> Value {
+pub fn answer_rows(rows: &Value, campaign: &str) -> Value {
     let events: Vec<Value> = rows
         .as_array()
         .map(|rows| {
@@ -62,6 +64,24 @@ pub fn answer(rows: &Value, campaign: &str) -> Value {
         })
         .unwrap_or_default();
     Value::Array(events)
+}
+
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &["campaign"];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `campaign`, as [`SQL`] binds it; a
+/// variable absent is the empty text, which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("campaign")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
 }
 
 #[cfg(test)]
@@ -118,7 +138,7 @@ mod tests {
 
     #[test]
     fn the_events_of_the_campaign_appear_with_id_name_and_aliases() {
-        let listed = answer(&three_events(), CENDRES);
+        let listed = answer_rows(&three_events(), CENDRES);
         let key = |events: &Value| -> Vec<(Value, Value, Value)> {
             events
                 .as_array()
@@ -133,11 +153,11 @@ mod tests {
 
     #[test]
     fn each_event_shows_its_description() {
-        let listed = answer(&three_events(), CENDRES);
+        let listed = answer_rows(&three_events(), CENDRES);
         assert_eq!(listed[0]["description"], "About L’incendie du moulin");
         let mut rows = three_events();
         rows[1]["description"] = Value::Null;
-        assert_eq!(answer(&rows, CENDRES)[1]["description"], Value::Null);
+        assert_eq!(answer_rows(&rows, CENDRES)[1]["description"], Value::Null);
     }
 
     #[test]
@@ -147,7 +167,7 @@ mod tests {
         extra.push(row("elowen", CENDRES, "pj", "Elowen", &[]));
         extra.push(row("morlox", CENDRES, "pnj", "Morlox", &[]));
         extra.push(row("valombre", CENDRES, "lieu", "Valombre", &[]));
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         assert_eq!(listed.as_array().expect("an array").len(), 3);
         for name in ["elowen", "morlox", "valombre"] {
             assert!(!listed.to_string().contains(name), "{name} in {listed}");
@@ -164,17 +184,17 @@ mod tests {
             "Intrus",
             &[],
         ));
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         assert_eq!(listed.as_array().expect("an array").len(), 3);
         assert!(!listed.to_string().contains("intrus"), "{listed}");
-        assert_eq!(answer(&rows, OTHER)[0]["id"], "intrus");
+        assert_eq!(answer_rows(&rows, OTHER)[0]["id"], "intrus");
     }
 
     #[test]
     fn the_answer_holds_id_name_aliases_and_description_only() {
         let mut rows = three_events();
         rows[0]["notes"] = json!("secret");
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         let mut keys: Vec<&str> = listed[0]
             .as_object()
             .expect("an object")
@@ -188,13 +208,13 @@ mod tests {
     #[test]
     fn an_event_without_aliases_has_an_empty_list() {
         let rows = json!([row("e", CENDRES, "evenement", "Sans alias", &[])]);
-        assert_eq!(answer(&rows, CENDRES)[0]["aliases"], json!([]));
+        assert_eq!(answer_rows(&rows, CENDRES)[0]["aliases"], json!([]));
     }
 
     #[test]
     fn no_row_is_an_empty_well_formed_answer() {
-        assert_eq!(answer(&json!([]), CENDRES), json!([]));
-        assert_eq!(answer(&Value::Null, CENDRES), json!([]));
+        assert_eq!(answer_rows(&json!([]), CENDRES), json!([]));
+        assert_eq!(answer_rows(&Value::Null, CENDRES), json!([]));
     }
 
     #[test]
@@ -239,5 +259,15 @@ mod tests {
                 "the query names {field}, the SQL does not select {column}"
             );
         }
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = three_events();
+        let variables = BTreeMap::from([("campaign".to_string(), json!(CENDRES))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, CENDRES));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

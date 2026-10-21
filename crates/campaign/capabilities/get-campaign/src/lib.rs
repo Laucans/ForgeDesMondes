@@ -11,6 +11,8 @@
 //! sound counts and the next session join it with their own tables, and are
 //! not in the answer until those exist.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -42,7 +44,7 @@ WHERE c.id::text = $1"#;
 /// error. A missing count is zero, as the view counts nothing for an empty
 /// campaign.
 #[must_use]
-pub fn answer(rows: &Value, campaign: &str) -> Option<Value> {
+pub fn answer_rows(rows: &Value, campaign: &str) -> Option<Value> {
     let row = rows
         .as_array()?
         .iter()
@@ -66,6 +68,25 @@ pub fn answer(rows: &Value, campaign: &str) -> Option<Value> {
         "lastExport": row["last_exported_at"],
         "counts": counts,
     }))
+}
+
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &["id"];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `id`, as [`SQL`] binds it; a variable
+/// absent is the empty text, which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+    .unwrap_or(Value::Null)
 }
 
 #[cfg(test)]
@@ -101,7 +122,7 @@ mod tests {
     #[test]
     fn the_answer_carries_what_the_fixture_does() {
         let rows = json!([row(CENDRES, "Les Cendres de Valombre", Some("2026-10-04"))]);
-        let got = answer(&rows, CENDRES).expect("found");
+        let got = answer_rows(&rows, CENDRES).expect("found");
         let fixture = fixture();
         for key in [
             "name",
@@ -122,37 +143,37 @@ mod tests {
 
     #[test]
     fn the_last_export_is_the_stamp_of_the_row() {
-        let before = answer(&json!([row(CENDRES, "A", Some("2026-10-04"))]), CENDRES);
-        let after = answer(&json!([row(CENDRES, "A", Some("2026-10-17"))]), CENDRES);
+        let before = answer_rows(&json!([row(CENDRES, "A", Some("2026-10-04"))]), CENDRES);
+        let after = answer_rows(&json!([row(CENDRES, "A", Some("2026-10-17"))]), CENDRES);
         assert_eq!(before.expect("found")["lastExport"], "2026-10-04");
         assert_eq!(after.expect("found")["lastExport"], "2026-10-17");
     }
 
     #[test]
     fn a_campaign_never_exported_has_a_null_last_export() {
-        let got = answer(&json!([row(CENDRES, "A", None)]), CENDRES).expect("found");
+        let got = answer_rows(&json!([row(CENDRES, "A", None)]), CENDRES).expect("found");
         assert_eq!(got["lastExport"], Value::Null);
     }
 
     #[test]
     fn an_unknown_id_is_not_found_without_error() {
         let rows = json!([row(CENDRES, "A", None)]);
-        assert_eq!(answer(&rows, OTHER), None);
-        assert_eq!(answer(&json!([]), CENDRES), None);
-        assert_eq!(answer(&Value::Null, CENDRES), None);
+        assert_eq!(answer_rows(&rows, OTHER), None);
+        assert_eq!(answer_rows(&json!([]), CENDRES), None);
+        assert_eq!(answer_rows(&Value::Null, CENDRES), None);
     }
 
     #[test]
     fn only_the_campaign_asked_for_is_answered() {
         let rows = json!([row(OTHER, "Autre", None), row(CENDRES, "A", None)]);
-        assert_eq!(answer(&rows, CENDRES).expect("found")["name"], "A");
+        assert_eq!(answer_rows(&rows, CENDRES).expect("found")["name"], "A");
     }
 
     #[test]
     fn an_empty_campaign_counts_zero() {
         let mut empty = row(CENDRES, "A", None);
         empty["entity_counts"] = json!({});
-        let got = answer(&json!([empty]), CENDRES).expect("found");
+        let got = answer_rows(&json!([empty]), CENDRES).expect("found");
         assert_eq!(
             got["counts"],
             json!({ "players": 0, "characters": 0, "places": 0, "events": 0 })
@@ -212,5 +233,15 @@ mod tests {
                 "the query names {field}, the SQL does not select {column}"
             );
         }
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = json!([row(CENDRES, "Les Cendres de Valombre", Some("2026-10-04"))]);
+        let variables = BTreeMap::from([("id".to_string(), json!(CENDRES))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, CENDRES).expect("found"));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

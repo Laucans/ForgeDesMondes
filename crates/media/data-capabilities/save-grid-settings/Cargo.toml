@@ -7,4 +7,6 @@ description = "DataCapability media.saveGridSettings: a battlemap's hex grid —
 publish = false
 
 [dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
 serde_json = "1"

@@ -1,0 +1,17 @@
+[package]
+name = "aggregate-entity"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Aggregate Entity: a campaign's element, its sheet, its aliases and its versions — its invariants judged as code, alias-unique-in-campaign against the names and aliases of the campaign's other elements (AliasMatch@1)."
+publish = false
+
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+[dependencies]
+harness-dataguard = { workspace = true }
+serde_json = "1"
+# AliasMatch@1: a term normalised, its accents dropped.
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

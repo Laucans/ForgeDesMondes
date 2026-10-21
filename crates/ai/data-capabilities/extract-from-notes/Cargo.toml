@@ -7,6 +7,8 @@ description = "DataCapability ai.extractFromNotes: the DM's typed, pasted or dic
 publish = false
 
 [dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
 base64 = "0.22"
 ports-llm = { path = "../../../ports/llm" }
 ports-speech-to-text = { path = "../../../ports/speech-to-text" }

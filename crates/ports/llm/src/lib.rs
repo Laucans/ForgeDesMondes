@@ -37,8 +37,10 @@ use serde::{Deserialize, Serialize};
 pub mod api_type;
 pub mod contract;
 pub mod fake;
+pub mod shared;
 
 pub use api_type::{UNRECOGNISED_API_TYPE, detect_api_type};
+pub use shared::SharedLlm;
 
 /// What every connection test sends, and the journal records as its text.
 pub const CONNECTION_TEST_PROMPT: &str = "Réponds par le mot : ok";

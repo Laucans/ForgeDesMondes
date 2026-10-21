@@ -61,6 +61,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use aggregate_entity::{Aliases, parsed};
 use async_trait::async_trait;
 use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
@@ -71,8 +72,6 @@ use restore_entity_version::Kept;
 use serde_json::Value;
 use test_connection::NO_PROVIDER;
 
-use crate::ai_settings::uuid;
-use crate::aliases::Aliases;
 use crate::history::History;
 use crate::notes::Notes;
 use crate::versioning::{ENTITY, NOTE_IMPORT, element_of};
@@ -529,13 +528,19 @@ impl ProjectingStore {
     /// failure: at a start, so a projection that failed after its apply is
     /// made again.
     pub async fn repair(&self) {
+        // --- AiSettings
         self.repair_settings().await;
+        // --- Entity
         self.repair_elements().await;
+        // --- Campaign
         self.repair_exports(None).await;
+        // --- NoteImport
         self.repair_notes(None).await;
+        // --- Media
         self.repair_media(None).await;
         self.repair_grids(None).await;
         self.repair_places(None).await;
+        // ---
     }
 
     /// Adds the imported note `note` names — every one, `None` — and the
@@ -1099,7 +1104,7 @@ fn tested(write: &Write) -> Option<&str> {
     write
         .partition
         .strip_prefix("AiSettings/")
-        .filter(|id| uuid(id))
+        .filter(|id| parsed(id).is_some())
 }
 
 /// A field as text; `None` when absent, `null` or not a string.
@@ -1162,23 +1167,41 @@ impl Store for ProjectingStore {
         self.inner.incoming(partition).await
     }
 
+    /// The inner store's apply, then each aggregate's projection — one
+    /// block each, on its own partitions, deleted when the aggregate
+    /// projects in the apply transaction (its `ProjectPg`).
     async fn apply(&self, write: &Write, result: &CommandResult) -> Result<u64> {
         let version = self.inner.apply(write, result).await?;
+        // --- AiSettings
         if projects(write) {
             self.repair_settings().await;
-        } else if let Some(provider) = tested(write) {
+        }
+        if let Some(provider) = tested(write) {
             self.record_test(&write.partition, provider, false).await;
-        } else if element(write) {
+        }
+        // --- Entity
+        if element(write) {
             self.repair_elements().await;
             if let Some(element) = element_of(write) {
                 self.stamp_created(element).await;
             }
-        } else if let Some(note) = noted(write) {
+        } else if let Some(element) = element_of(write) {
+            // A removal: tombstones are not projected, its terms and its
+            // versions go.
+            self.aliases.forget(element);
+            self.history.forget(element);
+        }
+        // --- NoteImport
+        if let Some(note) = noted(write) {
             self.repair_notes(Some(note)).await;
-        } else if write.partition.starts_with(CAMPAIGN) {
+        }
+        // --- Campaign
+        if write.partition.starts_with(CAMPAIGN) {
             // A campaign's tombstone stamps nothing: STAMP_EXPORTS skips it.
             self.repair_exports(Some(&write.partition)).await;
-        } else if media(write) {
+        }
+        // --- Media
+        if media(write) {
             // Its media first, an upload's: SAVE_GRIDS writes only the grid
             // of a media the table holds.
             self.repair_media(Some(&write.partition)).await;
@@ -1186,12 +1209,8 @@ impl Store for ProjectingStore {
             // Its place last: PLACE_MEDIAS writes only the place of a media
             // the table holds.
             self.repair_places(Some(&write.partition)).await;
-        } else if let Some(element) = element_of(write) {
-            // A removal: tombstones are not projected, its terms and its
-            // versions go.
-            self.aliases.forget(element);
-            self.history.forget(element);
         }
+        // ---
         Ok(version)
     }
 
@@ -1222,7 +1241,7 @@ mod tests {
     use tokio_postgres::{Client, NoTls};
 
     use super::*;
-    use crate::{Engine, bound};
+    use crate::{Engine, bound, plugins};
 
     const MIGRATION: &str = include_str!("../../../data/migrations/0001_ai_settings.sql");
     const CLOUD: &str = "a1000000-0000-4000-8000-000000000001";
@@ -1444,7 +1463,8 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(SystemClock),
             ),
-            Arc::default(),
+            plugins(&Arc::default()),
+            harness_dataguard::plugins::Shared::default(),
         )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");
@@ -1596,7 +1616,8 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(SystemClock),
             ),
-            Arc::default(),
+            plugins(&Arc::default()),
+            harness_dataguard::plugins::Shared::default(),
         )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");

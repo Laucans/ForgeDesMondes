@@ -4,7 +4,8 @@
 use ports_speech_to_text::contract::{Scenario, run};
 use ports_speech_to_text::fake::FakeSpeechToText;
 use ports_speech_to_text::{
-    Dictation, RequestJournal, SpeechToText, SpeechToTextError, Transcript, Vocabulary,
+    Dictation, RequestJournal, SharedSpeechToText, SpeechToText, SpeechToTextError, Transcript,
+    Vocabulary,
 };
 
 const HEARD: &str = "Élowen entre dans la Tour d'Argent, le tonnerre gronde.";
@@ -39,6 +40,26 @@ async fn the_contract_still_holds_on_a_fake_that_already_has_requests() {
     let fake = fake();
     run(&fake, &scenario()).await;
     run(&fake, &scenario()).await;
+}
+
+/// The handle a server shares with its units is the port behind it: it
+/// passes the contract, and every clone of it reads the same journal.
+#[tokio::test]
+async fn the_shared_handle_passes_the_contract_and_shares_its_journal() {
+    let shared = SharedSpeechToText::new(fake());
+    run(&shared, &scenario()).await;
+    let clone = shared.clone();
+    assert!(!shared.journal().list().is_empty());
+    assert_eq!(clone.journal().list(), shared.journal().list());
+}
+
+/// Behind the handle, a port that breaks the contract still breaks it.
+#[tokio::test]
+#[should_panic(expected = "the text heard")]
+async fn the_shared_handle_hands_the_port_s_own_transcript_over() {
+    let mut scenario = scenario();
+    scenario.expected = "Autre chose".into();
+    run(&SharedSpeechToText::new(fake()), &scenario).await;
 }
 
 #[tokio::test]

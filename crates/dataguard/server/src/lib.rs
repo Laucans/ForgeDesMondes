@@ -9,58 +9,43 @@
 //!
 //! `DATABASE_URL` names the database — or is `memory`, and the server runs
 //! on the engine's in-memory store, which forgets everything at exit: for
-//! a mock-up, a demo, a smoke test. The invariants a product executes
-//! beyond `aggregate.json`'s rules, and the AI that proposes
-//! reconciliations, are wired in `bound()` — the two places this file
-//! expects the product to grow.
+//! a mock-up, a demo, a smoke test.
+//!
+//! This is the legacy server, strangled unit by unit. Every unit's plugin
+//! comes from the registry (`dataguard_registry`, which
+//! `scripts/register.sh` writes): the aggregates' judges — the invariants
+//! beyond `aggregate.json`'s rules — and each DataCapability's `Prepare`
+//! once it has one, with what the server shares with them
+//! ([`planted_with`]). A DataCapability the legacy chain still prepares has
+//! its own module under `legacy/`, deleted when its `Prepare` moves to its
+//! crate; the projection and the reads below go the same way, aggregate by
+//! aggregate and system by system.
 //!
 //! A read (`POST /capabilities/<id>`) is answered by the Capability of the
-//! product that [`Reads`] serves, over the connection of its own that
-//! [`router_reading`] is given; [`router`] serves none.
+//! product that [`Reads`] serves — this server's own reads, then the
+//! registry's — over the connection of its own that [`router_reading`] is
+//! given; [`router`] serves none.
 //!
-//! Over a database, the engine's writes of the AI settings and of the
-//! campaign's elements reach the product's tables through
-//! [`projection::ProjectingStore`]; a save of the AI settings
-//! (`ai.saveSettings`) and a connection test (`ai.testConnection`) are
-//! prepared before they are submitted, with the `llm` port [`router`] is
-//! given. A save of an element (`campaign.saveEntity`) is prepared against
-//! the element's row as the queue will leave it, which [`Rows`] reads, and
-//! its version is settled when it is applied ([`versioning::Versioning`]). A
-//! restoration of an element (`campaign.restoreEntityVersion`) is prepared
-//! so too, against the versions the element has, which [`Rows`] keeps. An
-//! export of a campaign (`campaign.exportCampaign`) is prepared against what
-//! the tables hold of it, which [`Rows`] reads: its archive is answered with
-//! the command's result once its stamp is applied. An analysis of notes
-//! (`ai.extractFromNotes`) is made, before anything is queued, through the
-//! `llm` port and — for a dictation — the `speech-to-text` port the router
-//! is given, against the elements its campaign holds, which [`Rows`] knows:
-//! it is submitted as one command per proposal and one for the note. A
-//! validation of a note's proposals (`campaign.createEntitiesFromNote`) is
-//! made against the proposals the engine holds, which [`Rows`] knows by
-//! note: it is submitted as one Entity command per element it creates, then
-//! one command per proposal it checks or unchecks.
-//! An upload of a media
-//! (`media.uploadMedia`) is prepared against its place, which [`Rows`] reads:
-//! a place that is no lieu of the media's campaign is refused before it is
-//! queued. A save of a battlemap's grid (`media.saveGridSettings`) is judged
-//! against the media's row as its tables hold it — its kind first — and
-//! reaches `battlemap_grid`. A change of a media's place
-//! (`media.setMediaPlace`) is judged against the media and the place as
-//! [`Rows`] reads them — `media-place-is-lieu` first — before it is queued.
+//! Over a database, the engine's writes reach the product's tables through
+//! [`projection::ProjectingStore`], after the apply, and an element's version
+//! is settled when it is applied ([`versioning::Versioning`]). What each
+//! DataCapability of the legacy chain is prepared against — the rows
+//! [`Rows`] reads, the ports the router is given — is told by its module.
 
 use std::sync::Arc;
 
+use aggregate_entity::Aliases;
 use axum::extract::{FromRef, Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+pub use harness_dataguard as engine;
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::api::{HoldRequest, ReadResponse, ReviewDecision, Submission};
-use harness_dataguard::command::Entry;
 pub use harness_dataguard::engine::Engine;
-use harness_dataguard::guard::Invariants;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
+use harness_dataguard::plugins::{Plugins, RefusalKind};
 use harness_dataguard::postgres::{PgStore, SystemClock};
 use harness_dataguard::registry::Registry;
 use harness_dataguard::store::Store;
@@ -68,25 +53,13 @@ use ports_llm::Llm;
 use ports_speech_to_text::SpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 
-mod ai_settings;
-mod aliases;
-mod battlemap_instance;
-mod campaign;
-mod diffusion;
-mod entity;
 mod exports;
 mod history;
-mod media;
-mod note_import;
+mod legacy;
 mod notes;
-mod player;
 mod projection;
 mod provider;
 mod reads;
-mod session;
-mod sound;
-mod sound_playback;
-mod suggestion;
 mod versioning;
 
 pub use reads::Reads;
@@ -184,9 +157,24 @@ pub struct Planted {
 ///
 /// As [`plant`].
 pub async fn planted(url: &str) -> Result<Planted, PlantError> {
-    let aliases = Arc::new(aliases::Aliases::default());
+    planted_with(url, harness_dataguard::plugins::Shared::default()).await
+}
+
+/// [`planted`], the units reading what `shared` holds: the ports a
+/// DataCapability's `Prepare` declares it `needs`.
+///
+/// # Errors
+///
+/// As [`plant`]; and the engine refuses units that do not fit together — a
+/// need nothing shares (`Error::Misconfigured`).
+pub async fn planted_with(
+    url: &str,
+    shared: harness_dataguard::plugins::Shared,
+) -> Result<Planted, PlantError> {
+    let aliases = Arc::new(Aliases::default());
     let history = Arc::new(history::History::default());
     let notes = Arc::new(notes::Notes::default());
+    let plugins = plugins(&aliases);
     let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
@@ -197,8 +185,14 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
                 eprintln!("postgres: {e}");
             }
         });
-        let store = projection::ProjectingStore::new(PgStore::open(client).await?, aliases.clone())
-            .keeping(history.clone());
+        // The aggregates' projections in the apply transaction: none yet,
+        // each lands with its aggregate's move out of this server.
+        let inner = PgStore::open(client)
+            .await?
+            .with_projections(&plugins)
+            .await?;
+        let store =
+            projection::ProjectingStore::new(inner, aliases.clone()).keeping(history.clone());
         store.repair().await;
         store.repair_tests().await;
         store.elements().await;
@@ -223,7 +217,8 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
             Arc::new(MemoryNotifier::default()),
             Arc::new(SystemClock),
         ),
-        aliases.clone(),
+        plugins,
+        shared,
     )?;
     engine.load().await?;
     Ok(Planted {
@@ -235,10 +230,38 @@ pub async fn planted(url: &str) -> Result<Planted, PlantError> {
     })
 }
 
+/// The Entity aggregate's folder, as the registry names its unit.
+const ENTITY: &str = "crates/campaign/aggregates/Entity";
+
+/// Every unit's plugin, as the registry gathers them — but the Entity
+/// aggregate's judge reads `aliases`, which this server keeps after its
+/// tables ([`projection::ProjectingStore`], [`versioning::Versioning`]),
+/// where the aggregate's own plugin would keep the engine's writes: a save
+/// the tables refused takes no term.
+fn plugins(aliases: &Arc<Aliases>) -> Plugins {
+    dataguard_registry::AGGREGATES
+        .iter()
+        .chain(dataguard_registry::DATA_CAPABILITIES)
+        .chain(dataguard_registry::CAPABILITIES)
+        .filter_map(|unit| {
+            let plugin = unit.plugin?;
+            Some(if unit.folder == ENTITY {
+                aggregate_entity::judging(aliases.clone())
+            } else {
+                plugin()
+            })
+        })
+        .collect()
+}
+
 /// `engine` bound to what the checkout holds: the registry, every
-/// aggregate and DataCapability, and the invariants the product executes —
-/// `alias-unique-in-campaign` reading `aliases`.
-fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, PlantError> {
+/// aggregate and DataCapability, every unit's plugin — the aggregates'
+/// judges among them — and what `shared` holds for them.
+fn bound(
+    engine: Engine,
+    plugins: Plugins,
+    shared: harness_dataguard::plugins::Shared,
+) -> Result<Engine, PlantError> {
     let mut engine = engine.with_registry(Registry::parse(registry::REGISTRY)?);
     for text in registry::AGGREGATES {
         engine = engine.with_aggregate(Aggregate::parse(text)?);
@@ -246,45 +269,8 @@ fn bound(engine: Engine, aliases: Arc<aliases::Aliases>) -> Result<Engine, Plant
     for text in registry::DATA_CAPABILITIES {
         engine = engine.with_data_capability(DataCapability::parse(text)?);
     }
-    engine = engine.with_invariants(Arc::new(Product {
-        entity: entity::Entity::new(aliases),
-    }));
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
-    Ok(engine)
-}
-
-/// The invariants of every aggregate the product executes: the engine holds
-/// one judge, and each aggregate's own judges its rows alone.
-struct Product {
-    entity: entity::Entity,
-}
-
-impl Invariants for Product {
-    fn violated(
-        &self,
-        aggregate: &str,
-        state: &std::collections::BTreeMap<String, serde_json::Value>,
-        entry: &Entry,
-    ) -> Vec<String> {
-        let judges: [&dyn Invariants; 12] = [
-            &ai_settings::AiSettings,
-            &campaign::Campaign,
-            &player::Player,
-            &self.entity,
-            &media::Media,
-            &note_import::NoteImport,
-            &session::Session,
-            &sound::Sound,
-            &battlemap_instance::BattlemapInstance,
-            &diffusion::Diffusion,
-            &sound_playback::SoundPlayback,
-            &suggestion::Suggestion,
-        ];
-        judges
-            .iter()
-            .flat_map(|judge| judge.violated(aggregate, state, entry))
-            .collect()
-    }
+    Ok(engine.with_plugins(plugins).with_shared(shared))
 }
 
 /// The shell's wire protocol, answered by `engine`, whose rows are `rows`;
@@ -354,6 +340,11 @@ fn status_of(error: &Error) -> axum::http::StatusCode {
         Error::Forbidden(_) => StatusCode::FORBIDDEN,
         Error::NotNow(_) => StatusCode::CONFLICT,
         Error::Store(_) => StatusCode::SERVICE_UNAVAILABLE,
+        Error::Misconfigured(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        Error::Refused(refusal) => match refusal.kind {
+            RefusalKind::NotFound => StatusCode::NOT_FOUND,
+            RefusalKind::Unprocessable => StatusCode::UNPROCESSABLE_ENTITY,
+        },
     }
 }
 
@@ -369,43 +360,10 @@ fn reply<T>(status: axum::http::StatusCode, result: Result<T, Error>) -> Reply<T
     })
 }
 
-/// A command enters the queue; a save of the AI settings is first made the
-/// state it writes (`save_settings::prepare`), and its refusal, when its URL
-/// is not recognised, is told among the warnings. A connection test is first
-/// run through the port, and only its outcome is submitted
-/// (`test_connection::prepare`): the configuration it tested never is. A
-/// save of an element is made the state and the version it writes on the
-/// element's partition (`save_entity::prepare`), against the row the
-/// commands queued there will leave; a new element is given its id, and a
-/// save the tables could never hold is refused, 422, before it is queued. A
-/// restoration is made so the state and the version it writes
-/// (`restore_entity_version::prepare`), against the element's row and its
-/// versions: one naming a version the element does not have — or any of an
-/// element the engine does not hold — is refused, 404, and one naming no
-/// element, no version or a change there is not, 422. An export
-/// (`export_campaign::prepare`) is made the stamp it writes on its campaign's
-/// partition, and its archive is built from what the tables hold of the
-/// campaign now and kept until the command is applied ([`status`]): one of a
-/// campaign the tables do not hold is refused, 404, and one they cannot make
-/// an archive of, 422 — neither is queued, so nothing changes. An upload
-/// ([`uploaded`]) is made the media it writes on a new media's partition, a
-/// battlemap with its default grid; its place is read first
-/// ([`Rows::place`]), and an upload whose place is no lieu of its campaign
-/// is refused, 422, naming `media-place-is-lieu`, as is one the tables could
-/// never hold — neither is queued. A change of a media's place
-/// (`set_media_place::prepare`) is made the `placeId` it writes on the
-/// media's partition, judged against the media and the place as
-/// [`Rows::placed`] reads them: one of a media there is not — or named by
-/// anything but a uuid — is refused, 404; one naming a place that is no lieu
-/// of the media's campaign (`media-place-is-lieu`), or no media, or a
-/// malformed place, 422 — neither is queued. The replay of either, under an
-/// idempotency key already submitted, is answered as it was queued. A save
-/// of a battlemap's grid (`save_grid_settings::prepare`) is made the six
-/// fields it writes on the battlemap's partition: one naming no battlemap,
-/// carrying another field, lacking one, or holding a value no grid can is
-/// refused, 422, and not queued.
-/// An analysis of notes is answered by [`extract`], a validation of its
-/// proposals by [`validate`].
+/// A command enters the queue. A DataCapability the legacy chain still
+/// prepares is first made what it writes by its own module of [`legacy`] —
+/// its arm below, deleted with the module once its `Prepare` moves to its
+/// crate; any other is the engine's alone, its `Prepare` included.
 ///
 /// The element a command targets is its `targetId`, or the `id` of its
 /// `target`, as the Micro-UIs and the rules' tests name it.
@@ -413,12 +371,7 @@ async fn submit<L: Llm, S: SpeechToText>(
     State(served): State<Served<L, S>>,
     Json(raw): Json<serde_json::Value>,
 ) -> Reply<harness_dataguard::api::Submitted> {
-    let target = raw
-        .get("target")
-        .and_then(|target| target.get("id"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned);
-    let mut body: Submission = match serde_json::from_value(raw) {
+    let body: Submission = match serde_json::from_value(raw) {
         Ok(body) => body,
         Err(e) => {
             return Err((
@@ -427,219 +380,76 @@ async fn submit<L: Llm, S: SpeechToText>(
             ));
         }
     };
-    if body.target_id.is_none() {
-        body.target_id = target;
+    let now = now();
+    let served = &served;
+    match body.data_capability.split('@').next().unwrap_or_default() {
+        // ---
+        extract_from_notes::DATA_CAPABILITY => {
+            legacy::extract_from_notes::submit(served, body, &now).await
+        }
+        // ---
+        create_entities_from_note::DATA_CAPABILITY => {
+            legacy::create_entities_from_note::submit(served, body, &now).await
+        }
+        // ---
+        save_settings::DATA_CAPABILITY => legacy::save_settings::submit(served, body, &now).await,
+        // ---
+        test_connection::DATA_CAPABILITY => {
+            legacy::test_connection::submit(served, body, &now).await
+        }
+        // ---
+        save_entity::DATA_CAPABILITY => legacy::save_entity::submit(served, body, &now).await,
+        // ---
+        restore_entity_version::DATA_CAPABILITY => {
+            legacy::restore_entity_version::submit(served, body, &now).await
+        }
+        // ---
+        set_media_place::DATA_CAPABILITY => {
+            legacy::set_media_place::submit(served, body, &now).await
+        }
+        // ---
+        save_grid_settings::DATA_CAPABILITY => {
+            legacy::save_grid_settings::submit(served, body, &now).await
+        }
+        // ---
+        export_campaign::DATA_CAPABILITY => {
+            legacy::export_campaign::submit(served, body, &now).await
+        }
+        // ---
+        upload_media::DATA_CAPABILITY => legacy::upload_media::submit(served, body, &now).await,
+        // ---
+        _ => reply(
+            axum::http::StatusCode::ACCEPTED,
+            served.engine.submit(body).await,
+        ),
     }
-    let mut refusal = None;
-    let mut archive = None;
-    // To the millisecond: two tests in a second are told apart by the read of
-    // the last one (`ai.getSettings`).
-    let now = || {
-        let elapsed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        let stamp = save_settings::timestamp(elapsed.as_secs());
-        format!(
-            "{}.{:03}Z",
-            stamp.trim_end_matches('Z'),
-            elapsed.subsec_millis()
-        )
-    };
-    if extract_from_notes::names(&body.data_capability) {
-        return extract(&served, body, &now()).await;
-    }
-    if create_entities_from_note::names(&body.data_capability) {
-        return validate(&served, body, &now()).await;
-    }
-    if save_settings::names(&body.data_capability) {
-        let prepared = save_settings::prepare(served.llm.as_ref(), &body.payload, &now()).await;
-        body.payload = prepared.payload;
-        body.target_id = Some(save_settings::TARGET_ID.to_string());
-        refusal = prepared.refusal;
-    } else if test_connection::names(&body.data_capability) {
-        let prepared = test_connection::prepare(served.llm.as_ref(), &body.payload, &now()).await;
-        body.payload = prepared.payload;
-        body.target_id = Some(prepared.target_id);
-    } else if save_entity::names(&body.data_capability) {
-        let unrandom = |_| Error::Store("no randomness for an id".to_string());
-        let named = save_entity::element_id(&body.payload).or_else(|| body.target_id.clone());
-        let ids = match named {
-            Some(id) => fresh_uuid().map(|version| (id, version)),
-            None => fresh_uuid().and_then(|id| fresh_uuid().map(|version| (id, version))),
-        };
-        let (id, version) = match ids.map_err(unrandom) {
-            Ok(ids) => ids,
-            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
-        };
-        let base = match served.rows.projected(&format!("Entity/{id}")).await {
-            Ok(base) => base,
-            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
-        };
-        let now = now();
-        let fresh = save_entity::Fresh {
-            entity: &id,
-            version: &version,
-            now: &now,
-        };
-        match save_entity::prepare(&body.payload, &base, fresh) {
-            Ok(prepared) => {
-                body.payload = prepared.payload;
-                body.target_id = Some(prepared.target_id);
-            }
-            // What the tables could never hold is not queued.
-            Err(refusal) => {
-                return Err((
-                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(serde_json::json!({ "error": refusal.to_string() })),
-                ));
-            }
-        }
-    } else if restore_entity_version::names(&body.data_capability) {
-        let id = body
-            .target_id
-            .clone()
-            .or_else(|| restore_entity_version::element_id(&body.payload))
-            .unwrap_or_default();
-        let version = match fresh_uuid() {
-            Ok(version) => version,
-            Err(_) => {
-                let e = Error::Store("no randomness for an id".to_string());
-                return reply(axum::http::StatusCode::ACCEPTED, Err(e));
-            }
-        };
-        let base = match served.rows.projected(&format!("Entity/{id}")).await {
-            Ok(base) => base,
-            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
-        };
-        let now = now();
-        let fresh = restore_entity_version::Fresh {
-            version: &version,
-            now: &now,
-        };
-        let history = served.rows.versions(&id);
-        match restore_entity_version::prepare(&body.payload, &base, &history, &id, fresh) {
-            Ok(prepared) => {
-                body.payload = prepared.payload;
-                body.target_id = Some(id);
-            }
-            Err(refusal) => {
-                let status = if refusal == restore_entity_version::Refusal::UnknownVersion {
-                    axum::http::StatusCode::NOT_FOUND
-                } else {
-                    axum::http::StatusCode::UNPROCESSABLE_ENTITY
-                };
-                return Err((
-                    status,
-                    Json(serde_json::json!({ "error": refusal.to_string() })),
-                ));
-            }
-        }
-    } else if set_media_place::names(&body.data_capability) {
-        // A replay is the engine's to answer, as the change was queued: its
-        // place, since retyped, is not judged again.
-        let replayed = match &body.idempotency_key {
-            Some(key) => match served.rows.replayed(&body.data_capability, key).await {
-                Ok(replayed) => replayed,
-                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
-            },
-            None => false,
-        };
-        if !replayed {
-            // A media there is not is not found; anything else is unprocessable.
-            let refused = |refusal: set_media_place::Refusal| {
-                let status = if refusal == set_media_place::Refusal::UnknownMedia {
-                    axum::http::StatusCode::NOT_FOUND
-                } else {
-                    axum::http::StatusCode::UNPROCESSABLE_ENTITY
-                };
-                Err((
-                    status,
-                    Json(serde_json::json!({ "error": refusal.to_string() })),
-                ))
-            };
-            let asked = match set_media_place::asked(&body.payload, body.target_id.as_deref()) {
-                Ok(asked) => asked,
-                Err(refusal) => return refused(refusal),
-            };
-            let found = match served
-                .rows
-                .placed(&asked.media, asked.place.as_deref())
-                .await
-            {
-                Ok(found) => found,
-                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
-            };
-            let (media, place) = found.map_or((None, None), |(media, place)| (Some(media), place));
-            match set_media_place::prepare(&asked, media.as_ref(), place.as_ref()) {
-                Ok(prepared) => {
-                    body.payload = prepared.payload;
-                    body.target_id = Some(prepared.target_id);
-                }
-                Err(refusal) => return refused(refusal),
-            }
-        }
-    } else if save_grid_settings::names(&body.data_capability) {
-        match save_grid_settings::prepare(&body.payload, body.target_id.as_deref()) {
-            Ok(prepared) => {
-                body.payload = prepared.payload;
-                body.target_id = Some(prepared.target_id);
-            }
-            Err(refusal) => {
-                return Err((
-                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(serde_json::json!({ "error": refusal.to_string() })),
-                ));
-            }
-        }
-    } else if export_campaign::names(&body.data_capability) {
-        let id = body
-            .target_id
-            .clone()
-            .or_else(|| export_campaign::campaign_id(&body.payload))
-            .unwrap_or_default();
-        let tables = match served.rows.archived(&id).await {
-            Ok(Some(tables)) => tables,
-            Ok(None) => {
-                return Err((
-                    axum::http::StatusCode::NOT_FOUND,
-                    Json(
-                        serde_json::json!({ "error": export_campaign::Refusal::NoCampaign.to_string() }),
-                    ),
-                ));
-            }
-            Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
-        };
-        match export_campaign::prepare(&tables, &now()) {
-            Ok(prepared) => {
-                body.payload = prepared.payload;
-                body.target_id = Some(prepared.target_id);
-                archive = Some(prepared.archive);
-            }
-            Err(refusal) => {
-                return Err((
-                    axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(serde_json::json!({ "error": refusal.to_string() })),
-                ));
-            }
-        }
-    } else if upload_media::names(&body.data_capability) {
-        // A replay is the engine's to answer, as the upload was queued: its
-        // place, since retyped, is not read again.
-        let replayed = match &body.idempotency_key {
-            Some(key) => match served.rows.replayed(&body.data_capability, key).await {
-                Ok(replayed) => replayed,
-                Err(e) => return reply(axum::http::StatusCode::ACCEPTED, Err(e)),
-            },
-            None => false,
-        };
-        if !replayed {
-            let prepared = uploaded(&served.rows, &body.payload, &now()).await?;
-            body.payload = prepared.payload;
-            body.target_id = Some(prepared.target_id);
-        }
-    }
-    let submitted = served.engine.submit(body).await.map(|mut submitted| {
-        submitted.warnings.extend(refusal.map(str::to_string));
+}
+
+/// Now, to the millisecond (RFC 3339): two tests in a second are told apart
+/// by the read of the last one (`ai.getSettings`).
+fn now() -> String {
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let stamp = save_settings::timestamp(elapsed.as_secs());
+    format!(
+        "{}.{:03}Z",
+        stamp.trim_end_matches('Z'),
+        elapsed.subsec_millis()
+    )
+}
+
+/// `body` queued by the engine, as the legacy chain leaves it: `warning`
+/// told after the engine's own, `archive` kept until the command is applied
+/// ([`status`]).
+async fn queued<L, S>(
+    served: &Served<L, S>,
+    body: Submission,
+    warning: Option<&str>,
+    archive: Option<export_campaign::Archive>,
+) -> Reply<harness_dataguard::api::Submitted> {
+    let submitted = submit_prepared(served, body).await.map(|mut submitted| {
+        submitted.warnings.extend(warning.map(str::to_string));
         if let Some(archive) = archive {
             served.exports.keep(&submitted.command_id, archive);
         }
@@ -648,354 +458,24 @@ async fn submit<L: Llm, S: SpeechToText>(
     reply(axum::http::StatusCode::ACCEPTED, submitted)
 }
 
-/// An analysis of notes (`extract_from_notes::analyse`), made before anything
-/// is queued and submitted as its commands, `now` being when the note is
-/// imported: one per proposal, then the note's, whose result is answered —
-/// the note is applied after its proposals when each is queued
-/// (`Analysis::commands`). Each command is the caller's; an idempotency key
-/// is the note's alone: a note whose key the engine knows is answered again,
-/// and nothing is analysed. An analysis whose commands were not all
-/// submitted leaves proposals of a note never written, which the tables
-/// never show (`projection::ADD_PROPOSALS`). A failure of the `llm` port is told among
-/// the warnings, the note kept alone; the warnings of the proposals' commands
-/// are told there too. Notes of a campaign the engine does not hold are
-/// refused, 404, and notes that name none or hold no word, 422: neither is
-/// queued.
-async fn extract<L: Llm, S: SpeechToText>(
+/// What the engine answers to `body`, which the legacy chain prepared: its
+/// payload is the fields the command writes, never the wire's, so the
+/// engine's check of the wire's keys — `payload key(s) … not declared by
+/// <id>` — says nothing of it and is left out.
+async fn submit_prepared<L, S>(
     served: &Served<L, S>,
     body: Submission,
-    now: &str,
-) -> Reply<harness_dataguard::api::Submitted> {
-    use axum::http::StatusCode;
-    let refused =
-        |status: StatusCode, why: String| Err((status, Json(serde_json::json!({ "error": why }))));
-    if let Some(key) = &body.idempotency_key {
-        match served.rows.replayed(&body.data_capability, key).await {
-            Ok(false) => {}
-            // The engine answers the note's command again.
-            Ok(true) => return reply(StatusCode::ACCEPTED, served.engine.submit(body).await),
-            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-        }
-    }
-    let campaign = body
-        .payload
-        .get("campaign")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    if ai_settings::uuid(&campaign) {
-        match served.rows.projected(&format!("Campaign/{campaign}")).await {
-            Ok(row) if row.is_empty() => {
-                return refused(StatusCode::NOT_FOUND, format!("aucune campagne {campaign}"));
-            }
-            Ok(_) => {}
-            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-        }
-    }
-    let settings = match served.rows.projected(projection::AI_SETTINGS).await {
-        Ok(row) => row,
-        Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-    };
-    let known = served.rows.known(&campaign);
-    let analysis = match extract_from_notes::analyse(
-        served.llm.as_ref(),
-        &provider::active(&settings),
-        served.speech.as_ref(),
-        &body.payload,
-        &known,
-    )
-    .await
-    {
-        Ok(analysis) => analysis,
-        Err(refusal) => return refused(StatusCode::UNPROCESSABLE_ENTITY, refusal.to_string()),
-    };
-    let ids: Result<Vec<String>, _> = (0..=analysis.proposals.len())
-        .map(|_| fresh_uuid())
-        .collect();
-    let Ok(ids) = ids else {
-        let e = Error::Store("no randomness for an id".to_string());
-        return reply(StatusCode::ACCEPTED, Err(e));
-    };
-    let commands = analysis.commands(ids, now);
-    let command = |command: extract_from_notes::Command, key: Option<String>| Submission {
-        data_capability: body.data_capability.clone(),
-        payload: command.payload,
-        target_id: Some(command.target_id),
-        based_on: None,
-        idempotency_key: key,
-        caller: body.caller.clone(),
-    };
-    let mut warnings: Vec<String> = analysis.failure.into_iter().collect();
-    for proposal in commands.proposals {
-        match served.engine.submit(command(proposal, None)).await {
-            Ok(submitted) => warnings.extend(submitted.warnings),
-            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-        }
-    }
-    let submitted = served
-        .engine
-        .submit(command(commands.note, body.idempotency_key.clone()))
-        .await
-        .map(|mut submitted| {
-            submitted.warnings.splice(0..0, warnings);
-            submitted
+) -> Result<harness_dataguard::api::Submitted, Error> {
+    let undeclared = format!(
+        " not declared by {}",
+        body.data_capability.split('@').next().unwrap_or_default()
+    );
+    served.engine.submit(body).await.map(|mut submitted| {
+        submitted.warnings.retain(|warning| {
+            !(warning.starts_with("payload key(s) ") && warning.ends_with(&undeclared))
         });
-    reply(StatusCode::ACCEPTED, submitted)
-}
-
-/// A validation of a note's proposals (`create_entities_from_note::request`),
-/// made against the proposals the engine holds — the accepted ones and every
-/// other of their notes, which [`Rows`] knows — and submitted as its
-/// commands (`Request::batch`), `now` being when the elements are made. First
-/// the element each accepted proposal becomes, on its Entity partition: the
-/// DM's save of an element, written as `campaign.saveEntity` writes one —
-/// the Entity aggregate's DataCapability, under whose touches the engine
-/// judges every Entity invariant. An element the DataGuard judges at risk
-/// when it is queued — which it rejects once applied — is not recorded on its
-/// proposal, which stays as it was, and the warnings are told, each after
-/// the proposal's name; when no proposal is left to write, that element's
-/// command is answered. Then each proposal checked or unchecked, in id
-/// order: the last, applied after the others, is answered.
-/// An element's ids come from its proposal's, so a validation retried after a
-/// failure half-way finds the element it queued and does not queue it again. A
-/// proposal recording an element the engine holds none of — rejected once
-/// applied — is made again; one the DM deleted, never. Each command is
-/// the caller's; an idempotency key is the last proposal's alone, as an
-/// analysis's is its note's — a validation that writes no proposal keeps
-/// none. Validations run one at a time, each against the proposals the one
-/// before queued. A validation naming no campaign or no proposal
-/// is refused, 422, and one naming a proposal of no note of its campaign,
-/// 404: neither is queued.
-async fn validate<L: Llm, S: SpeechToText>(
-    served: &Served<L, S>,
-    body: Submission,
-    now: &str,
-) -> Reply<harness_dataguard::api::Submitted> {
-    use axum::http::StatusCode;
-    use create_entities_from_note::Fresh;
-    let refused =
-        |status: StatusCode, why: String| Err((status, Json(serde_json::json!({ "error": why }))));
-    // One validation at a time: the next reads the proposals the last one
-    // queued, so a proposal is never made twice by two at once.
-    let _validating = VALIDATING.lock().await;
-    if let Some(key) = &body.idempotency_key {
-        match served.rows.replayed(&body.data_capability, key).await {
-            Ok(false) => {}
-            // The engine answers the last proposal's command again.
-            Ok(true) => return reply(StatusCode::ACCEPTED, served.engine.submit(body).await),
-            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-        }
-    }
-    let request = match create_entities_from_note::request(&body.payload) {
-        Ok(request) => request,
-        Err(refusal) => return refused(StatusCode::UNPROCESSABLE_ENTITY, refusal.to_string()),
-    };
-    let proposals = match held(&served.rows, &request.accepted).await {
-        Ok(proposals) => proposals,
-        Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-    };
-    // The same ids every time: a validation retried after a failure half-way
-    // finds the elements it made, and does not make them twice.
-    let fresh: Vec<Fresh> = request.accepted.iter().map(|id| Fresh::of(id)).collect();
-    let batch = match request.batch(&proposals, fresh, now) {
-        Ok(batch) => batch,
-        Err(refusal) => return refused(StatusCode::NOT_FOUND, refusal.to_string()),
-    };
-    let command = |data_capability: &str, command: create_entities_from_note::Command| Submission {
-        data_capability: data_capability.to_owned(),
-        payload: command.payload,
-        target_id: Some(command.target_id),
-        based_on: None,
-        idempotency_key: None,
-        caller: body.caller.clone(),
-    };
-    let mut warnings = Vec::new();
-    let mut rejected = std::collections::BTreeSet::new();
-    let mut last_rejected = None;
-    for element in batch.elements {
-        // Queued by a validation that failed before it stamped its proposal.
-        let partition = format!("Entity/{}", element.command.target_id);
-        match served.rows.projected(&partition).await {
-            Ok(held) if !held.is_empty() => continue,
-            Ok(_) => {}
-            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-        }
-        // Made, then deleted by the DM: never made again, still recorded.
-        match served.rows.deleted(&partition).await {
-            Ok(true) => continue,
-            Ok(false) => {}
-            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-        }
-        let submitted = match served
-            .engine
-            .submit(command(save_entity::DATA_CAPABILITY, element.command))
-            .await
-        {
-            Ok(submitted) => submitted,
-            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-        };
-        // What the DataGuard judges at risk now, it rejects once applied; a
-        // review it opens, or a value declared ahead, it may still let through.
-        let at_risk = submitted
-            .warnings
-            .iter()
-            .any(|warning| warning.starts_with(AT_RISK));
-        if !at_risk {
-            warnings.extend(submitted.warnings);
-            continue;
-        }
-        let name = proposals
-            .iter()
-            .find(|proposal| proposal.id == element.proposal)
-            .and_then(|proposal| proposal.row.get("name"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or(&element.proposal);
-        warnings.extend(submitted.warnings.iter().map(|w| format!("{name} : {w}")));
-        rejected.insert(element.proposal);
-        last_rejected = Some(submitted);
-    }
-    let mut stamps: Vec<_> = batch
-        .stamps
-        .into_iter()
-        .filter(|stamp| !rejected.contains(&stamp.target_id))
-        .collect();
-    let Some(last) = stamps.pop() else {
-        // Every element accepted is at risk: the last one is answered.
-        return reply(
-            StatusCode::ACCEPTED,
-            last_rejected.ok_or_else(|| Error::Store("nothing validated".to_string())),
-        );
-    };
-    for stamp in stamps {
-        match served
-            .engine
-            .submit(command(&body.data_capability, stamp))
-            .await
-        {
-            Ok(submitted) => warnings.extend(submitted.warnings),
-            Err(e) => return reply(StatusCode::ACCEPTED, Err(e)),
-        }
-    }
-    let mut last = command(&body.data_capability, last);
-    last.idempotency_key = body.idempotency_key.clone();
-    let submitted = served.engine.submit(last).await.map(|mut submitted| {
-        submitted.warnings.splice(0..0, warnings);
         submitted
-    });
-    reply(StatusCode::ACCEPTED, submitted)
-}
-
-/// The warning the DataGuard gives a command whose state, as queued, breaks
-/// an invariant — which it rejects once applied.
-const AT_RISK: &str = "invariant(s) at risk";
-
-/// Held while a validation reads the proposals and queues its commands.
-static VALIDATING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-/// The proposals a validation of `accepted` is made against, as the commands
-/// queued will leave them: the accepted ones, and every other of their
-/// notes, each with its note's campaign, whether the element it recognises is
-/// one the engine still holds, and no element made when the engine holds
-/// none of the one it records and did not delete it.
-async fn held(
-    rows: &Rows,
-    accepted: &[String],
-) -> Result<Vec<create_entities_from_note::Proposal>, Error> {
-    let text = |row: &std::collections::BTreeMap<String, serde_json::Value>, field: &str| {
-        row.get(field)
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned)
-    };
-    let mut ids: std::collections::BTreeSet<String> = accepted.iter().cloned().collect();
-    for id in accepted {
-        let row = rows.projected(&format!("NoteImport/{id}")).await?;
-        if let Some(note) = text(&row, "noteId") {
-            ids.extend(rows.proposals(&note));
-        }
-    }
-    let mut campaigns: std::collections::BTreeMap<String, Option<String>> =
-        std::collections::BTreeMap::new();
-    let mut proposals = Vec::new();
-    for id in ids {
-        let mut row = rows.projected(&format!("NoteImport/{id}")).await?;
-        // An element rejected once applied leaves its proposal recording an
-        // element that never existed: the proposal is held as not made, and
-        // a validation makes it again. One the DM deleted stays made.
-        if let Some(element) = text(&row, "createdEntityId") {
-            let partition = format!("Entity/{element}");
-            if rows.projected(&partition).await?.is_empty() && !rows.deleted(&partition).await? {
-                row.remove("createdEntityId");
-            }
-        }
-        let campaign = match text(&row, "noteId") {
-            Some(note) => match campaigns.get(&note) {
-                Some(campaign) => campaign.clone(),
-                None => {
-                    let of = rows.projected(&format!("NoteImport/{note}")).await?;
-                    let campaign = text(&of, "campaignId");
-                    campaigns.insert(note, campaign.clone());
-                    campaign
-                }
-            },
-            None => None,
-        };
-        // An element deleted is no longer recognised: accepted, the proposal
-        // makes a new one.
-        let recognised = match text(&row, "existingEntityId") {
-            Some(element) => !rows
-                .projected(&format!("Entity/{element}"))
-                .await?
-                .is_empty(),
-            None => false,
-        };
-        proposals.push(create_entities_from_note::Proposal {
-            id,
-            row,
-            campaign,
-            recognised,
-        });
-    }
-    Ok(proposals)
-}
-
-/// An upload made the media it writes on a new media's partition
-/// (`upload_media`): checked first, then its campaign and its place read
-/// from [`Rows`]. What the tables could never hold, a campaign they do not
-/// hold, or a place that is no lieu of the campaign, is refused, 422; rows
-/// that cannot be read, 503.
-async fn uploaded(
-    rows: &Rows,
-    wire: &std::collections::BTreeMap<String, serde_json::Value>,
-    now: &str,
-) -> Result<upload_media::Prepared, (axum::http::StatusCode, Json<serde_json::Value>)> {
-    let refused = |refusal: upload_media::Refusal| {
-        (
-            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-            Json(serde_json::json!({ "error": refusal.to_string() })),
-        )
-    };
-    let unread = |e: Error| {
-        (
-            status_of(&e),
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-    };
-    let upload = upload_media::checked(wire).map_err(refused)?;
-    if !rows
-        .holds_campaign(upload.campaign())
-        .await
-        .map_err(unread)?
-    {
-        return Err(refused(upload_media::Refusal::UnknownCampaign));
-    }
-    let place = match upload.place() {
-        Some(id) => rows.place(id).await.map_err(unread)?,
-        None => None,
-    };
-    let media =
-        fresh_uuid().map_err(|_| unread(Error::Store("no randomness for an id".to_string())))?;
-    let fresh = upload_media::Fresh { media: &media, now };
-    upload.prepare(place.as_ref(), fresh).map_err(refused)
+    })
 }
 
 /// A random (version 4) uuid: a new element's id, a version's.
@@ -1265,7 +745,8 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
             ),
-            Arc::default(),
+            plugins(&Arc::default()),
+            harness_dataguard::plugins::Shared::default(),
         )
         .expect("the product's manifests parse");
         engine.load().await.expect("an empty queue");

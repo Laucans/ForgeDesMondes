@@ -11,6 +11,8 @@
 //! (`player-not-character`): the answer holds no sheet and no token, and the
 //! characters a player plays are another read.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -19,7 +21,7 @@ pub const CAPABILITY: &str = "campaign.listPlayers";
 /// What the persisted query `list-players.graphql` selects: the players of
 /// the campaign bound to `$1` (compared as text, so that an id which is not
 /// a uuid lists nobody instead of failing), by name. `campaign_id` is selected too, so that
-/// [`answer`] keeps only the campaign's own rows whoever ran the statement.
+/// [`answer_rows`] keeps only the campaign's own rows whoever ran the statement.
 pub const SQL: &str = r"SELECT p.id::text AS id,
     p.campaign_id::text AS campaign_id,
     p.name,
@@ -32,7 +34,7 @@ ORDER BY p.name, p.id";
 /// selects — as the tab reads them, in the order of the rows. A player of
 /// another campaign is left out; no row is an empty, well-formed answer.
 #[must_use]
-pub fn answer(rows: &Value, campaign: &str) -> Value {
+pub fn answer_rows(rows: &Value, campaign: &str) -> Value {
     let players: Vec<Value> = rows
         .as_array()
         .map(|rows| {
@@ -49,6 +51,24 @@ pub fn answer(rows: &Value, campaign: &str) -> Value {
         })
         .unwrap_or_default();
     Value::Array(players)
+}
+
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &["campaign"];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `campaign`, as [`SQL`] binds it; a
+/// variable absent is the empty text, which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("campaign")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
 }
 
 #[cfg(test)]
@@ -86,7 +106,7 @@ mod tests {
 
     #[test]
     fn the_four_players_of_the_campaign_appear_with_id_and_name() {
-        let listed = answer(&four_players(), CENDRES);
+        let listed = answer_rows(&four_players(), CENDRES);
         let pairs = |players: &Value| -> Vec<(Value, Value)> {
             players
                 .as_array()
@@ -101,7 +121,7 @@ mod tests {
 
     #[test]
     fn each_player_shows_its_notes_or_null() {
-        let listed = answer(&four_players(), CENDRES);
+        let listed = answer_rows(&four_players(), CENDRES);
         assert_eq!(listed[0]["notes"], "Joue Elowen, prend des notes");
         assert_eq!(listed[1]["notes"], Value::Null);
     }
@@ -112,10 +132,10 @@ mod tests {
         rows.as_array_mut()
             .expect("an array")
             .push(row("jou-intruse", OTHER, "Intruse", None));
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         assert_eq!(listed.as_array().expect("an array").len(), 4);
         assert!(!listed.to_string().contains("jou-intruse"), "{listed}");
-        assert_eq!(answer(&rows, OTHER)[0]["id"], "jou-intruse");
+        assert_eq!(answer_rows(&rows, OTHER)[0]["id"], "jou-intruse");
     }
 
     #[test]
@@ -123,7 +143,7 @@ mod tests {
         let mut rows = four_players();
         rows[0]["sheet"] = json!({ "level": 5 });
         rows[0]["token"] = json!("elowen.png");
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         let mut keys: Vec<&str> = listed[0]
             .as_object()
             .expect("an object")
@@ -136,8 +156,8 @@ mod tests {
 
     #[test]
     fn no_row_is_an_empty_well_formed_answer() {
-        assert_eq!(answer(&json!([]), CENDRES), json!([]));
-        assert_eq!(answer(&Value::Null, CENDRES), json!([]));
+        assert_eq!(answer_rows(&json!([]), CENDRES), json!([]));
+        assert_eq!(answer_rows(&Value::Null, CENDRES), json!([]));
     }
 
     #[test]
@@ -182,5 +202,15 @@ mod tests {
                 "the query names {field}, the SQL does not select it"
             );
         }
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = four_players();
+        let variables = BTreeMap::from([("campaign".to_string(), json!(CENDRES))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, CENDRES));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

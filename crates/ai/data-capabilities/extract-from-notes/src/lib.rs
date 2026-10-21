@@ -29,6 +29,7 @@ use std::fmt;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use harness_dataguard::plugins::Plugin;
 use ports_llm::{GenerateRequest, Llm, ProviderConfig, TextKind};
 use ports_speech_to_text::{Dictation, SpeechToText, SpeechToTextError, Vocabulary};
 use serde_json::Value;
@@ -44,6 +45,14 @@ pub const TYPES: [&str; 4] = ["pj", "pnj", "lieu", "evenement"];
 #[must_use]
 pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
+}
+
+/// What the DataCapability plugs into the engine: nothing yet — the legacy
+/// server (`crates/dataguard/server`) still prepares it, until its
+/// `Prepare` moves here.
+#[must_use]
+pub fn plugin() -> Plugin {
+    Default::default()
 }
 
 /// Why notes are not analysed: nothing is queued.

@@ -20,6 +20,8 @@
 //! (it is the letters of the name, never stored) and the DEX modifier is not
 //! in the answer: a list shows no modifier.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -29,7 +31,7 @@ pub const CAPABILITY: &str = "campaign.listCharacters";
 /// of the campaign bound to `$1` (compared as text, so that an id which is not
 /// a uuid lists nobody instead of failing) which have a sheet and are a pj or
 /// a pnj, PCs first, then in the order they were created. `campaign_id` and
-/// `type` are selected too, so that [`answer`] keeps only the campaign's own
+/// `type` are selected too, so that [`answer_rows`] keeps only the campaign's own
 /// characters whoever ran the statement.
 pub const SQL: &str = r#"SELECT e.id::text AS id,
     e.campaign_id::text AS campaign_id,
@@ -83,7 +85,7 @@ const ABILITIES: [(&str, &str); 6] = [
 /// element of another campaign, or of a type that is neither pj nor pnj, is
 /// left out; no row is an empty, well-formed answer.
 #[must_use]
-pub fn answer(rows: &Value, campaign: &str) -> Value {
+pub fn answer_rows(rows: &Value, campaign: &str) -> Value {
     let characters: Vec<Value> = rows
         .as_array()
         .map(|rows| {
@@ -166,6 +168,24 @@ fn initials(name: &str) -> String {
         .collect()
 }
 
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &["campaign"];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `campaign`, as [`SQL`] binds it; a
+/// variable absent is the empty text, which names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("campaign")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -234,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_pc_has_kind_pj_and_a_player_and_an_npc_has_kind_pnj_and_none() {
-        let listed = answer(&json!([elowen(), morlox()]), CENDRES);
+        let listed = answer_rows(&json!([elowen(), morlox()]), CENDRES);
         assert_eq!(by_id(&listed, "elowen")["kind"], "pj");
         assert_eq!(by_id(&listed, "elowen")["player"], "jou-julie");
         assert_eq!(by_id(&listed, "morlox")["kind"], "pnj");
@@ -245,7 +265,10 @@ mod tests {
     fn an_npc_never_shows_a_player_whatever_the_row_says() {
         let mut npc = morlox();
         npc["player_id"] = json!("jou-julie");
-        assert_eq!(answer(&json!([npc]), CENDRES)[0]["player"], Value::Null);
+        assert_eq!(
+            answer_rows(&json!([npc]), CENDRES)[0]["player"],
+            Value::Null
+        );
     }
 
     #[test]
@@ -255,7 +278,7 @@ mod tests {
             row("tour", CENDRES, "lieu", "La Tour d’Ébène"),
             row("incendie", CENDRES, "evenement", "L’incendie du moulin"),
         ]);
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         assert_eq!(listed.as_array().expect("an array").len(), 1);
         assert!(!listed.to_string().contains("tour"), "{listed}");
         assert!(!listed.to_string().contains("incendie"), "{listed}");
@@ -264,14 +287,14 @@ mod tests {
     #[test]
     fn a_character_of_another_campaign_does_not_appear() {
         let rows = json!([elowen(), row("intrus", OTHER, "pnj", "Intrus")]);
-        let listed = answer(&rows, CENDRES);
+        let listed = answer_rows(&rows, CENDRES);
         assert_eq!(listed.as_array().expect("an array").len(), 1);
-        assert_eq!(answer(&rows, OTHER)[0]["id"], "intrus");
+        assert_eq!(answer_rows(&rows, OTHER)[0]["id"], "intrus");
     }
 
     #[test]
     fn a_pc_has_the_fixtures_values_for_what_the_store_holds() {
-        let listed = answer(&json!([elowen()]), CENDRES);
+        let listed = answer_rows(&json!([elowen()]), CENDRES);
         let got = &listed[0];
         let expected = by_id(&fixture(), "elowen").clone();
         for key in [
@@ -300,7 +323,7 @@ mod tests {
         let mut npc = morlox();
         npc["token_color"] = json!("secondary");
         npc["portrait_media_id"] = json!("m2");
-        let got = &answer(&json!([npc]), CENDRES)[0];
+        let got = &answer_rows(&json!([npc]), CENDRES)[0];
         let fixture = fixture();
         let expected = by_id(&fixture, "morlox");
         for key in [
@@ -313,7 +336,7 @@ mod tests {
 
     #[test]
     fn every_key_of_the_answer_is_a_key_of_the_fixture() {
-        let listed = answer(&json!([elowen(), morlox()]), CENDRES);
+        let listed = answer_rows(&json!([elowen(), morlox()]), CENDRES);
         let known: Vec<String> = fixture()[0]
             .as_object()
             .expect("an object")
@@ -342,7 +365,7 @@ mod tests {
 
     #[test]
     fn a_text_left_empty_is_an_empty_string_as_in_the_fixture() {
-        let listed = answer(&json!([morlox()]), CENDRES);
+        let listed = answer_rows(&json!([morlox()]), CENDRES);
         for key in ["description", "prompt", "background", "behavior", "notes"] {
             assert_eq!(listed[0][key], "", "{key}");
         }
@@ -361,7 +384,7 @@ mod tests {
             let mut r = elowen();
             r["dndbeyond_id"] = json!(blank);
             assert_eq!(
-                answer(&json!([r]), CENDRES)[0]["ddb"],
+                answer_rows(&json!([r]), CENDRES)[0]["ddb"],
                 Value::Null,
                 "{blank:?}"
             );
@@ -369,7 +392,7 @@ mod tests {
         let mut padded = elowen();
         padded["dndbeyond_id"] = json!(" 112847390 ");
         assert_eq!(
-            answer(&json!([padded]), CENDRES)[0]["ddb"]["url"],
+            answer_rows(&json!([padded]), CENDRES)[0]["ddb"]["url"],
             "https://www.dndbeyond.com/characters/112847390"
         );
     }
@@ -379,15 +402,15 @@ mod tests {
         let mut r = morlox();
         r["aliases"] = Value::Null;
         r["actions"] = Value::Null;
-        let listed = answer(&json!([r]), CENDRES);
+        let listed = answer_rows(&json!([r]), CENDRES);
         assert_eq!(listed[0]["aliases"], json!([]));
         assert_eq!(listed[0]["features"], json!([]));
     }
 
     #[test]
     fn no_row_is_an_empty_well_formed_answer() {
-        assert_eq!(answer(&json!([]), CENDRES), json!([]));
-        assert_eq!(answer(&Value::Null, CENDRES), json!([]));
+        assert_eq!(answer_rows(&json!([]), CENDRES), json!([]));
+        assert_eq!(answer_rows(&Value::Null, CENDRES), json!([]));
     }
 
     #[test]
@@ -399,5 +422,15 @@ mod tests {
         assert!(!SQL.contains(';'), "a second statement in {SQL}");
         assert!(SQL.contains("WHERE e.campaign_id::text = $1"), "{SQL}");
         assert!(SQL.contains("e.type IN ('pj', 'pnj')"), "{SQL}");
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = json!([elowen(), morlox()]);
+        let variables = BTreeMap::from([("campaign".to_string(), json!(CENDRES))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, CENDRES));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

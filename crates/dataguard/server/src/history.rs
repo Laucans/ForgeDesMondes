@@ -2,7 +2,7 @@
 //! (`campaign.restoreEntityVersion`) is prepared against — the engine's row
 //! holds the last version alone.
 //!
-//! It follows the tables, as [`crate::aliases::Aliases`] does: over a
+//! It follows the tables, as [`aggregate_entity::Aliases`] does: over a
 //! database, `crate::projection` reads an element's versions from
 //! `entity_version` once its projection is committed, and every element's at
 //! a start — numbered as the tables number them, which is what the DM reads
@@ -14,9 +14,8 @@
 use std::collections::BTreeMap;
 use std::sync::RwLock;
 
+use aggregate_entity::parsed;
 use restore_entity_version::Kept;
-
-use crate::aliases::parsed;
 
 /// Every element's versions, by element id, by number.
 #[derive(Debug, Default)]

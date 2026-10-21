@@ -22,6 +22,8 @@
 //! Concept's fixtures; the `feetPerHex` of an answer comes from it, so a hex
 //! is 5 feet whatever the store holds.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
 
 /// The Capability's identifier, as a Micro-UI cites it.
@@ -53,7 +55,7 @@ const FEET_PER_HEX: i64 = 5;
 /// The battlemap `id` among `rows` — an array of the objects [`SQL`] selects
 /// — as the screens read it; `null` when no row has that id.
 #[must_use]
-pub fn answer(rows: &Value, id: &str) -> Value {
+pub fn answer_rows(rows: &Value, id: &str) -> Value {
     let Some(row) = rows
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["id"] == id))
@@ -156,6 +158,25 @@ fn feet(hexes: &Value) -> Value {
     }
 }
 
+/// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
+/// what the registry hands the query.
+pub const VARIABLES: &[&str] = &[];
+
+/// The answer to a read, as the registry serves it: the rows of [`SQL`] and
+/// the request's variables. It reads `id` from the request: [`SQL`] selects
+/// every row, the answer picks; a variable absent is the empty text, which
+/// names nothing.
+#[must_use]
+pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    answer_rows(
+        rows,
+        variables
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -205,7 +226,7 @@ mod tests {
 
     #[test]
     fn the_answer_has_the_keys_of_the_fixture() {
-        let answer = answer(&rows(), GUE);
+        let answer = answer_rows(&rows(), GUE);
         for key in fixture().as_object().expect("an object").keys() {
             assert!(answer.get(key).is_some(), "{key} is missing from {answer}");
         }
@@ -216,7 +237,7 @@ mod tests {
 
     #[test]
     fn the_grid_comes_back_exactly_as_saved_with_five_feet_a_hex() {
-        let answer = answer(&rows(), MOULIN);
+        let answer = answer_rows(&rows(), MOULIN);
         assert_eq!(
             answer["grid"],
             json!({ "size": 64.5, "ox": -3.25, "oy": 8, "orient": "flat", "color": "accent",
@@ -228,7 +249,7 @@ mod tests {
 
     #[test]
     fn whole_numbers_the_database_pads_with_decimals_are_whole_numbers() {
-        let grid = &answer(&rows(), GUE)["grid"];
+        let grid = &answer_rows(&rows(), GUE)["grid"];
         // 30.00 and 12.00 read as 30 and 12, so that 30 saved is 30 read.
         assert_eq!(grid["size"], json!(30));
         assert_eq!(grid["ox"], json!(12));
@@ -242,7 +263,7 @@ mod tests {
 
     #[test]
     fn the_media_is_the_one_stored() {
-        let answer = answer(&rows(), GUE);
+        let answer = answer_rows(&rows(), GUE);
         assert_eq!(answer["id"], GUE);
         assert_eq!(answer["file"], "gue-des-corbeaux.jpg");
         assert_eq!(answer["uploadedAt"], "2026-10-14");
@@ -258,11 +279,11 @@ mod tests {
     fn an_unknown_id_an_illustration_or_no_row_is_no_battlemap() {
         // An illustration is not selected: its id is among no row.
         for id in ["b1000000-0000-4000-8000-0000000000ff", "ill-cover", ""] {
-            assert_eq!(answer(&rows(), id), Value::Null, "{id}");
+            assert_eq!(answer_rows(&rows(), id), Value::Null, "{id}");
         }
-        assert_eq!(answer(&json!([]), GUE), Value::Null);
-        assert_eq!(answer(&Value::Null, GUE), Value::Null);
-        assert_eq!(answer(&json!({ "id": GUE }), GUE), Value::Null);
+        assert_eq!(answer_rows(&json!([]), GUE), Value::Null);
+        assert_eq!(answer_rows(&Value::Null, GUE), Value::Null);
+        assert_eq!(answer_rows(&json!({ "id": GUE }), GUE), Value::Null);
     }
 
     #[test]
@@ -281,9 +302,13 @@ mod tests {
         ];
         for settings in odd {
             let rows = json!([row(GUE, &settings)]);
-            assert_eq!(answer(&rows, GUE)["grid"]["feetPerHex"], 5, "{settings}");
+            assert_eq!(
+                answer_rows(&rows, GUE)["grid"]["feetPerHex"],
+                5,
+                "{settings}"
+            );
         }
-        let refused = answer(&json!([row(GUE, &json!({ "opacity": 40 }))]), GUE);
+        let refused = answer_rows(&json!([row(GUE, &json!({ "opacity": 40 }))]), GUE);
         assert_eq!(refused["grid"]["opacity"], json!(40));
     }
 
@@ -321,7 +346,7 @@ mod tests {
     #[test]
     fn the_grid_of_an_answer_is_valid_per_the_concept() {
         for id in [GUE, MOULIN] {
-            let grid = answer(&rows(), id)["grid"].clone();
+            let grid = answer_rows(&rows(), id)["grid"].clone();
             let checked = hex_grid(grid);
             assert_eq!(checked["valid"], true, "{checked}");
             assert_eq!(checked["problems"], json!([]));
@@ -409,5 +434,15 @@ mod tests {
         }
         // A battlemap alone: an illustration has no grid.
         assert!(SQL.contains("m.kind = 'battlemap'"));
+    }
+
+    #[test]
+    fn the_registry_s_answer_reads_its_variable_from_the_request() {
+        let rows = rows();
+        let variables = BTreeMap::from([("id".to_string(), json!(GUE))]);
+        let answered = answer(&rows, &variables);
+        assert_ne!(answered, Value::Null);
+        assert_eq!(answered, answer_rows(&rows, GUE));
+        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
     }
 }

@@ -6,7 +6,9 @@ layout and the contracts are `docs/ARCHITECTURE.md`
 <!-- harness:architecture v2 -->
 
 This document is read by whoever builds the write side — the engine
-(`harness-dataguard`, taken by git), the product's `crates/dataguard/server`,
+(`harness-dataguard`, taken by git), the product's `crates/dataguard/server`
+(the engine planted with every unit of `crates/dataguard/registry`, which
+`scripts/register.sh` writes) and `crates/server` (the product's binary),
 an aggregate — and by nobody else: a Capability or a Micro-UI learns what it
 needs from principle 10 and contracts F, H and I of `docs/ARCHITECTURE.md`.
 
@@ -88,6 +90,12 @@ partitions advance in parallel.
 8. **Double check of the invariants.** At enqueue, on the projected state, to
    warn early; at application, on the real state, which alone decides.
 
+An application is **one transaction**: the aggregate's row, its projections
+into the product's own tables (an aggregate's `ProjectPg`, run after the row
+and before the commit), the next `dataVersion` and the journal. A projection
+that refuses rolls all of it back, and the command is rejected at the head as
+an invariant would reject it (`CommandRejected`, with the projection's reason).
+
 A confirmed command advances in its place up to the head. Only a command that
 reaches the head unconfirmed leaves the queue, and comes back only at the end,
 after a recompute. The author may also cancel at any time before application.
@@ -95,6 +103,23 @@ after a recompute. The author may also cancel at any time before application.
 **Relative commands** (`stock -= 2`) compose with the commands ahead instead of
 overwriting them: they are never stale and **need no confirmation**; only the
 invariants are checked, at application.
+
+**Merging fields** (`merge` in `aggregate.json`) are never stale either: a
+value declared ahead, or one that moved since the author read it, asks
+nothing. `merge: set` unions the arrays written, in order, without
+duplicates (`tags: [a]` then `[b, a]` gives `[a, b]`); `merge: last-writer`
+lets the last write win. The projected view still shows what is ahead.
+
+**Derived fields** (`kind: derived`) are recomputed from other rows: the
+engine refuses (`Forbidden`) a command that writes one, before it is
+queued.
+
+**What the engine checks of its units.** At start, every invariant a
+`DataCapability` lists must be one its target aggregate declares, or the
+engine refuses to start (`Misconfigured`). A payload key the manifest's
+`payload` does not declare is accepted with a warning in `Submitted.warnings`.
+`onUpdate` on a relation is deprecated and ignored: a partition's id never
+changes.
 
 ### Default durations
 
@@ -144,6 +169,117 @@ reject at the head if an invariant or a cascade forbids it, and the
 Messages travel over **server-sent events** from the Integrity DataGuard, one
 subscription per author; infrastructure components subscribe the same way.
 
+## The units' code
+
+Every unit is a crate in its folder, registered by
+`bash scripts/register.sh`; the registry's glue calls one item per crate.
+An aggregate and a DataCapability take the engine from the workspace
+(`harness-dataguard = { workspace = true }`), and their `plugin()` says what
+they plug in. A Capability never names the engine. Short forms, from
+`harness_dataguard::plugins`:
+
+**`Prepare`** — a DataCapability's code
+(`crates/credit/data-capabilities/request-limit/src/lib.rs`): the
+submission turned into what it writes, or refused before anything queues.
+
+```rust
+pub struct Policy(pub f64); // filled by crates/server's `Shared`
+
+struct RequestLimit;
+
+#[async_trait]
+impl Prepare for RequestLimit {
+    async fn prepare(&self, cx: &Context<'_>, payload: &BTreeMap<String, Value>,
+                     target_id: Option<&str>) -> Result<Prepared, Refusal> {
+        let ceiling = cx.shared.get::<Policy>().map_or(0.0, |p| p.0);
+        let asked = payload.get("creditLimit").and_then(Value::as_f64).unwrap_or(0.0);
+        if asked > ceiling {
+            return Err(Refusal::unprocessable("over the policy")); // 422
+        }
+        let customer = payload.get("customerId").and_then(Value::as_str).unwrap_or_default();
+        if cx.row(&format!("Customer/{customer}")).await?.is_empty() {
+            return Err(Refusal::not_found(format!("no customer {customer}"))); // 404
+        }
+        Ok(Prepared { payload: payload.clone(),
+                      target_id: target_id.map(str::to_string), ..Prepared::default() })
+    }
+}
+
+pub fn plugin() -> Plugin {
+    Plugin::new().prepare("credit.requestLimitChange", RequestLimit).needs::<Policy>()
+}
+```
+
+What the `Context` lends: `base`, the target row as the pending commands
+leave it; `cx.row("<Aggregate>/<id>")`, any other row the same way (a
+fixture the product's tables hold is hydrated by its aggregate's
+`ProjectPg::hydrate`); `cx.rows`, read-only SQL over PostgreSQL (`None` in
+memory); `now` and `now_millis`; `ids`; `shared`. What `Prepared` carries
+beside the payload and the row: `warnings`; `then`, follow-up submissions
+the engine makes once this command is queued, in order, by the same caller,
+each through the whole submit path and not atomically (the first refused
+stops the rest and undoes nothing; their outcomes come back in the
+answer's `then`; a follow-up's own `then` is refused); `attachment`, what
+the author reads in the command's result once it is applied (an export's
+archive). The undeclared-key warning judges the payload the author sent,
+before the `Prepare` rewrites it.
+
+**`Judge`** — an aggregate's invariants as code
+(`crates/credit/aggregates/Account/src/lib.rs`, library
+`aggregate_account`): the ids the row after the command violates. Only
+the real state, at application, decides.
+
+```rust
+struct Ceiling;
+
+impl Judge for Ceiling {
+    fn violated(&self, state: &BTreeMap<String, Value>, _entry: &Entry) -> Vec<String> {
+        let limit = state.get("creditLimit").and_then(Value::as_f64).unwrap_or(0.0);
+        if limit > 10_000.0 { vec!["limit-under-ceiling".into()] } else { Vec::new() }
+    }
+}
+```
+
+**`Project` / `ProjectPg`** — what follows an applied write of the
+aggregate. `Project` sees it in memory; `ProjectPg` writes the product's
+tables inside the transaction that applies it (the engine's `postgres`
+feature), and refusing rolls the whole command back. Its `hydrate` (none by
+default) answers a row its tables hold but the engine never wrote, such as
+fixtures loaded by SQL: the store asks it when it has no row of its own.
+
+```rust
+struct Ledger;
+
+#[async_trait]
+impl ProjectPg for Ledger {
+    async fn project(&self, write: &Write, tx: &Transaction<'_>) -> Result<(), ProjectionError> {
+        let limit = write.values.get("creditLimit").and_then(Value::as_f64);
+        tx.execute("insert into limit_history (account, credit_limit) values ($1, $2)",
+                   &[&write.partition, &limit]).await?;
+        Ok(())
+    }
+}
+
+pub fn plugin() -> Plugin {
+    Plugin::new().judge("Account", Ceiling).project_pg("Account", Ledger)
+}
+```
+
+**`Answer`** — a Capability's read, written as four items the glue wraps
+into an `Answer` (`crates/credit/capabilities/calculate-risk/src/lib.rs`);
+the server runs `SQL` in a `READ ONLY` transaction, the variables bound in
+order, and hands the rows (a JSON array) to `answer`.
+
+```rust
+pub const CAPABILITY: &str = "credit.calculateRisk";
+pub const SQL: &str = "select score from risk where account = $1";
+pub const VARIABLES: &[&str] = &["accountId"];
+
+pub fn answer(rows: &Value, _variables: &BTreeMap<String, Value>) -> Value {
+    json!({ "score": rows.get(0).and_then(|r| r.get("score")).cloned() })
+}
+```
+
 ## Interface contracts of the engine
 
 Contracts G, H, J, K and L, in the same shape as the others: JSON Schema in
@@ -168,6 +304,7 @@ state: awaiting_confirmation  # queued | awaiting_confirmation | confirmed | awa
 confirmation: { by: carol }
 parked: { ttl: 24h, onExpire: drop }
 requeuedFrom: null            # the original commandId if requeued
+attachment: null              # what the Prepare computed, answered once applied (H)
 ```
 
 ### H. Command result
@@ -178,6 +315,7 @@ status: applied               # applied | rejected | expired | cancelled
 dataVersion: 1043             # for the consistent read after write
 violations: []                # violated invariants if rejected
 reviewId: null
+attachment: { archive: c_130.zip }  # optional: what the Prepare computed, once applied
 ```
 
 ### J. Impact plan

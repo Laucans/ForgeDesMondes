@@ -7,4 +7,6 @@ description = "DataCapability media.setMediaPlace: a media of a campaign, battle
 publish = false
 
 [dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
 serde_json = "1"

@@ -1,4 +1,4 @@
-//! The Diffusion aggregate (`crates/dataguard/aggregates/Diffusion/aggregate.json`)
+//! The Diffusion aggregate (`crates/live/aggregates/Diffusion/aggregate.json`)
 //! on its table, as `0012_diffusion.sql` lays it, against the harness's
 //! PostgreSQL (`DATABASE_URL`): every field the aggregate declares is a
 //! column of `diffusion`, every relation it declares is a foreign key that
@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
-const AGGREGATE: &str = include_str!("../../aggregates/Diffusion/aggregate.json");
+const AGGREGATE: &str = include_str!("../../../live/aggregates/Diffusion/aggregate.json");
 
 /// A session's player view written whole, under the session its payload
 /// names: test-only, no DataCapability of the product writes a diffusion yet.
