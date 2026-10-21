@@ -45,6 +45,7 @@ ignored = [
     "save-grid-settings",
     "save-settings",
     "set-media-place",
+    "show-on-player-view",
     "test-connection",
     "upload-media",
 ]
@@ -83,5 +84,6 @@ save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
+show-on-player-view = { path = "../../live/data-capabilities/show-on-player-view" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }

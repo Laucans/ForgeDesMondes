@@ -664,15 +664,26 @@
       return void 0;
     },
     // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
-    // the battlemap becomes the player view's base, framed as the DM framed it.
+    // a battlemap instance of the session, or an illustration of the campaign,
+    // becomes the player view's base, framed as the DM framed it (1 and 0, 0
+    // when no framing is sent); the floating window stays as it is. Any other
+    // base would leave it incoherent (`base-coherent`).
     "live.showOnPlayerView": async (server, { payload: payload2 }) => {
-      const data = await instanceOf(server, payload2.instance);
-      if (payload2.kind !== "battlemap" || !data) return ["base-coherent"];
+      let base;
+      if (payload2.kind === "battlemap") {
+        const data = await instanceOf(server, payload2.instance);
+        if (!data) return ["base-coherent"];
+        base = { kind: "battlemap", id: data.id };
+      } else if (payload2.kind === "illustration") {
+        const listed = [await server.load("media"), await server.load("media.listMedia")];
+        if (!listed.some((media) => media && media.illustrations.some((i) => i.id === payload2.media))) return ["base-coherent"];
+        base = { kind: "illustration", id: payload2.media };
+      } else return ["base-coherent"];
       const store = window.Mock && window.Mock.store;
       if (store) {
         const diffusion = store.get("diffusion", { base: { kind: "cover" }, window: null, view: null });
-        diffusion.base = { kind: "battlemap", id: data.id };
-        diffusion.view = { z: payload2.zoom, px: payload2.panX, py: payload2.panY };
+        diffusion.base = base;
+        diffusion.view = { z: payload2.zoom ?? 1, px: payload2.panX ?? 0, py: payload2.panY ?? 0 };
         store.set("diffusion", diffusion);
       }
       return void 0;
