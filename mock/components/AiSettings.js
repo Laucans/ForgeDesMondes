@@ -527,10 +527,13 @@
       const { kind, place = null } = payload2;
       if (kind !== "battlemap" && kind !== "illustration") return ["media-kind"];
       if (place && !(await server.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["media-place-is-lieu"];
-      const media = await server.load("media");
       const base = { id: server.uuid(), title: String(payload2.title || "").trim() || "Sans titre", file: payload2.file || "", uploadedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), place };
-      if (kind === "battlemap") media.battlemaps.push({ ...base, width: payload2.width || 0, height: payload2.height || 0, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 } });
-      else media.illustrations.push(base);
+      for (const name of ["media", "media.listMedia"]) {
+        const media = await server.load(name);
+        if (!media) continue;
+        if (kind === "battlemap") media.battlemaps.push({ ...base, width: payload2.width || 0, height: payload2.height || 0, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 } });
+        else media.illustrations.push({ ...base, ratio: payload2.width > 0 && payload2.height > 0 ? Math.round(payload2.width / payload2.height * 100) / 100 : null });
+      }
       return void 0;
     },
     // media.saveGridSettings (crates/media/data-capabilities/save-grid-settings):
@@ -559,6 +562,25 @@
       const place = payload2.place ?? null;
       if (place !== null && !(await server.load("campaign.listPlaces")).some((p) => p.id === place)) return ["media-place-is-lieu"];
       for (const medium of found) medium.place = place;
+      return void 0;
+    },
+    // session.addPlaceToSession (planned, #162): a place of the campaign joins a
+    // scene of the session — `payload.scene`, else the first — and stays there
+    // once (a place already in the scene is not linked twice). Its media follow
+    // by `session-media-by-place`: they are listed in the scene's media, never
+    // stored apart. A place that is no lieu of the campaign is refused by
+    // `scene-links-same-campaign`; a scene the session does not have is `not-found`.
+    "session.addPlaceToSession": async (server, { payload: payload2 }) => {
+      const place = payload2.place;
+      if (!(await server.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["scene-links-same-campaign"];
+      const scenes = await server.load("session.listScenes") || [];
+      const scene = payload2.scene ? scenes.find((sc) => sc.id === payload2.scene) : scenes[0];
+      if (!scene) return ["not-found"];
+      if (!scene.places.includes(place)) scene.places.push(place);
+      const library = await server.load("media.listMedia") || { battlemaps: [], illustrations: [] };
+      for (const medium of library.battlemaps.concat(library.illustrations)) {
+        if (medium.place === place && !scene.media.includes(medium.id)) scene.media.push(medium.id);
+      }
       return void 0;
     },
     // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
