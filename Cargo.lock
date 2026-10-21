@@ -6,6 +6,7 @@ version = 4
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "harness-dataguard",
  "platform-conformance",
  "ports-llm",
@@ -114,6 +115,14 @@ dependencies = [
  "harness-dataguard",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "ai-provider"
+version = "0.1.0"
+dependencies = [
+ "ports-llm",
+ "serde_json",
 ]
 
 [[package]]
@@ -424,7 +433,9 @@ dependencies = [
 name = "dataguard-server"
 version = "0.1.0"
 dependencies = [
+ "aggregate-ai-settings",
  "aggregate-entity",
+ "ai-provider",
  "async-trait",
  "axum",
  "base64 0.22.1",
@@ -450,11 +461,9 @@ dependencies = [
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
- "save-settings",
  "serde",
  "serde_json",
  "set-media-place",
- "test-connection",
  "thiserror",
  "tokio",
  "tokio-postgres",
@@ -1613,7 +1622,10 @@ dependencies = [
 name = "save-settings"
 version = "0.1.0"
 dependencies = [
+ "aggregate-ai-settings",
+ "async-trait",
  "harness-dataguard",
+ "platform-conformance",
  "ports-llm",
  "serde_json",
  "tokio",
@@ -1888,7 +1900,10 @@ dependencies = [
 name = "test-connection"
 version = "0.1.0"
 dependencies = [
+ "aggregate-ai-settings",
+ "async-trait",
  "harness-dataguard",
+ "platform-conformance",
  "ports-llm",
  "serde_json",
  "tokio",

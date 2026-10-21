@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, UNRECOGNISED_API_TYPE};
-use save_settings::{MISSING_MODELS, Prepared, names, prepare, timestamp};
+use save_settings::{MISSING_MODELS, Prepared, names, prepare};
 use serde_json::{Value, json};
 
 const HOME: &str = "http://192.168.1.40:4096";
@@ -236,23 +236,4 @@ fn names_is_this_data_capability_with_or_without_its_version() {
     assert!(names("ai.saveSettings@1"));
     assert!(!names("ai.saveSettingsNow"));
     assert!(!names("ai.testConnection@1"));
-}
-
-#[test]
-fn timestamp_is_rfc_3339_in_utc() {
-    for (seconds, text) in [
-        (0, "1970-01-01T00:00:00Z"),
-        (951_782_400, "2000-02-29T00:00:00Z"),
-        (1_792_231_200, "2026-10-17T10:00:00Z"),
-        (4_102_444_799, "2099-12-31T23:59:59Z"),
-        // A century that is no leap year, a fourth one that is, an era's end.
-        (4_107_542_399, "2100-02-28T23:59:59Z"),
-        (4_107_542_400, "2100-03-01T00:00:00Z"),
-        (4_233_686_400, "2104-02-29T00:00:00Z"),
-        (13_569_465_599, "2399-12-31T23:59:59Z"),
-        (13_574_606_400, "2400-02-29T12:00:00Z"),
-        (13_574_649_600, "2400-03-01T00:00:00Z"),
-    ] {
-        assert_eq!(timestamp(seconds), text);
-    }
 }

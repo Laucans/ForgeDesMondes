@@ -637,7 +637,7 @@ mod tests {
         assert_eq!(listed.lines().count(), units, "{listed}");
         for line in [
             "aggregate        crates/campaign/aggregates/Entity  needs: -",
-            "data-capability  crates/ai/data-capabilities/save-settings  needs: -",
+            "data-capability  crates/ai/data-capabilities/save-settings  needs: ports_llm::shared::SharedLlm",
             "capability       crates/ai/capabilities/get-settings  needs: -",
         ] {
             assert!(listed.lines().any(|l| l == line), "{line} in {listed}");
