@@ -1,0 +1,20 @@
+[package]
+name = "move-window"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.moveWindow: the DM drags the floating window open over the live session's player view, on the session's Diffusion partition — its x and y set, brought back onto the screen, its width and its media untouched, a window that is not open rejected under window-fields-together."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target aggregate: how a diffusion is stamped.
+aggregate-diffusion = { path = "../../aggregates/Diffusion" }
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
