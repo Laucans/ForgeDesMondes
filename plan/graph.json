@@ -79,8 +79,7 @@
         "media.listMedia",
         "media.saveGridSettings",
         "media.setMediaPlace",
-        "media.uploadMedia",
-        "session.listScenes"
+        "media.uploadMedia"
       ],
       "consumes": [
         "Campaign",
@@ -112,6 +111,7 @@
         "session.addScene",
         "session.createSession",
         "session.getSession",
+        "session.listScenes",
         "session.listSessions",
         "session.removePresentCharacter",
         "session.reorderScenes",
@@ -124,7 +124,6 @@
         "media.listMedia",
         "media.setMediaPlace",
         "media.uploadMedia",
-        "session.listScenes",
         "table.createBattlemapInstance",
         "campaign.listCharacters"
       ],
@@ -1011,7 +1010,7 @@
     },
     "session.listScenes": {
       "kind": "capability",
-      "producer": 19,
+      "producer": 20,
       "state": "mocked",
       "version": 1
     },
