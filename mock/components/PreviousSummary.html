@@ -33,22 +33,11 @@
   .mf-previous__lines time { color: var(--color-text-muted); font-variant-numeric: tabular-nums; font-size: var(--font-size-small); }
 </style>
 <script>
+// The Micro-UI's real code (apps/session/previous-summary), bundled by mock/build.sh: it fills this card on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  Mock.fixture('fixtures/PreviousSummary.json').then(d => {
-    $('#previous-title').textContent = 'Séance ' + d.session.order + ' — ' + d.session.title;
-    $('#previous-summary-text').textContent = d.summary;
-    $('#previous-meta').textContent = new Date(d.session.date + 'T12:00:00').toLocaleDateString('fr-FR', { dateStyle: 'full' }) + ' · ' + d.summaryMeta;
-    $('#previous-mentions-list').innerHTML = d.mentions.map(m => `<a class="chip chip--${m.type === 'pnj' ? 'pnj' : m.type === 'lieu' ? 'lieu' : 'media'}" id="previous-mention-${esc(m.id)}" href="fiche-entite.html?id=${esc(m.id)}">${esc(m.name)}</a>`).join('');
-    $('#previous-threads-list').innerHTML = d.threads.map((t, i) => `<li id="previous-thread-${i + 1}">${esc(t)}</li>`).join('');
-    $('#previous-journal-meta').textContent = d.journalStats;
-    $('#previous-journal-lines').innerHTML = d.journal.map(l => `<li><time>${esc(l.t)}</time><span>${esc(l.text)}</span></li>`).join('');
-  });
-  root.addEventListener('click', e => {
-    if (e.target.closest('#previous-journal-open')) $('#previous-journal').hidden = false;
-    if (e.target.closest('#previous-journal-close')) $('#previous-journal').hidden = true;
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/PreviousSummary.js';
+  root.appendChild(bundle);
 })();
 </script>
