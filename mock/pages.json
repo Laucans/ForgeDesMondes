@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "4457dfed9618f3a4"
+      "builtFrom": "1512f9260769bf0f"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "d6c75fa4ca6e56e6"
+      "builtFrom": "e5a6dc75caf88a4d"
     },
     {
       "name": "SessionList",
@@ -214,7 +214,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "b4c9174cbf7e052a"
+      "builtFrom": "f1c323f6fd2cc499"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +278,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "ae160288e05b47da"
+      "builtFrom": "7601d0af0351c0a9"
     },
     {
       "name": "PreviousSummary",
@@ -296,7 +296,7 @@
       "actions": [],
       "props": {},
       "source": "apps/session/previous-summary",
-      "builtFrom": "8de5df9eda9e021d"
+      "builtFrom": "e14a6d83decedf0f"
     },
     {
       "name": "OralBrief",
@@ -421,7 +421,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "3f0b4f4129e38e1d"
+      "builtFrom": "d41ebd763e253038"
     },
     {
       "name": "SoundLibrary",
@@ -467,7 +467,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "4b5d966f7ffa397f"
+      "builtFrom": "222183ad31cd3b2e"
     },
     {
       "name": "ElementsPanel",

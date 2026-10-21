@@ -52,16 +52,6 @@ export const COMMANDS = {
     (await server.load('live.getDiffusion')).window = null;
     return undefined;
   },
-  // session.closeSession (crates/session/data-capabilities/close-session):
-  // the live session is closed and its microphone paused (`close-session`);
-  // a session already closed is not closed again (`status-lifecycle`). The
-  // journal and the summary are the fixtures' own, which the recap reads.
-  'session.closeSession': async (server) => {
-    const live = await server.load('session.getLiveSession');
-    if (live.status === 'closed') return ['status-lifecycle'];
-    Object.assign(live, { status: 'closed', microphone: { on: false } });
-    return undefined;
-  },
   // media.uploadMedia (crates/media/data-capabilities/upload-media): a
   // battlemap or an illustration added to the library, the path the DM chose
   // recorded and no file copied. A battlemap arrives with its default grid
@@ -219,6 +209,32 @@ export const COMMANDS = {
     const note = server.noteText || '';
     imports.unshift({ id: `imp-${server.uuid()}`, date: new Date().toISOString().slice(0, 10), title: note.split('\n')[0].replace(/[.\s]+$/, '') || 'Notes importées', chars: note.length, proposed: proposals.length, created: created.length });
     server.noteProposals = [];
+    return undefined;
+  },
+  // session.closeSession (crates/session/data-capabilities/close-session): the
+  // live session closed in one action (`close-session`) — its microphone off,
+  // its close dated, its journal kept as it was — and a summary of its journal
+  // written by the active provider's summary model, the journal's text alone
+  // sent, as a Journal request (`text-only-no-audio`). The summary is the one
+  // the next preparation shows. A session that is not live is refused by
+  // `status-lifecycle`; one that is not the live session is `not-found`.
+  'session.closeSession': async (server, { payload, targetId }) => {
+    const live = await server.load('session.getLiveSession');
+    if (!live || live.id !== (targetId || payload.id)) return ['not-found'];
+    if ((live.status || 'live') !== 'live') return ['status-lifecycle'];
+    const settings = await server.load('ai.getSettings');
+    const binary = settings.mode === 'binary' && settings.binary;
+    const model = (binary || settings.providers?.[settings.provider] || {}).summaryModel || '';
+    const provider = binary ? `${binary.binary}-binary` : settings.provider === 'opencode' ? 'opencode-server' : 'cloud';
+    const { journal = [] } = (await server.load('session.getSessionJournal')) || {};
+    const lines = journal.length ? journal.map((line) => `${line.t} ${line.text}`) : ['(aucune ligne transcrite)'];
+    const text = [`Journal de la séance « ${live.title} »`, ...lines].join('\n');
+    const requests = (await server.load('ai.listProviderRequests'))?.requests;
+    if (requests) requests.push({ sequence: requests.length + 1, kind: 'journal', provider, text, modalities: ['text'] });
+    const summary = `Résumé de la séance ${live.order} généré par ${model} à partir de ${journal.length} lignes du journal.`;
+    Object.assign(live, { status: 'closed', closedAt: new Date().toISOString(), microphone: { on: false }, summary, summaryModel: model });
+    const previous = await server.load('session.getPreviousSessionSummary');
+    if (previous) Object.assign(previous, { session: { id: live.id, order: live.order, title: live.title, date: live.date }, summary, summaryMeta: `Généré à la clôture par ${model}` });
     return undefined;
   },
   // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
