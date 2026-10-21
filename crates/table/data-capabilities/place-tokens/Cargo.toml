@@ -1,0 +1,23 @@
+[package]
+name = "place-tokens"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.placeTokens: a character dropped on a battlemap instance at a hex, once or « × n » — each token its own row, numbered after the ones taken, an NPC's HP copied from its sheet, a PC once and only when present."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+# A token's id, derived from its instance, its character and its number
+# (UUIDv5): a token queued is found on its partition before it is applied.
+uuid = { version = "1", default-features = false, features = ["v5"] }
+
+[dev-dependencies]
+# Its target aggregate, which its tests plant beside it.
+aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
+# The migrations' applier the server runs: the tables its tests read.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

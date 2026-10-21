@@ -471,6 +471,52 @@
       scene.battlemap = id;
       return void 0;
     },
+    // table.placeTokens (crates/table/data-capabilities/place-tokens): a
+    // character dropped on the instance `targetId` (or `payload.instance`) at a
+    // hex, `count` times (1 to 12, 1 by default). An NPC's tokens are numbered
+    // after the highest its tokens hold (`multi-drop-numbering`), named « Bandit
+    // 4 », and copy the sheet's HP max as their HP; a PC is dropped once, only
+    // when present at the session, with no number and no HP (`token-roster`,
+    // `pj-hp-not-tracked`). Every token stands on the hex, visible, with no
+    // condition. An unknown instance or character is `not-found`; a hex that is
+    // no pair of whole numbers is refused by `single-position-source`.
+    "table.placeTokens": async (server, { payload, targetId }) => {
+      const count = payload.count ?? 1;
+      if (!Number.isInteger(payload.q) || !Number.isInteger(payload.r)) return ["single-position-source"];
+      if (!Number.isInteger(count) || count < 1 || count > 12) return ["multi-drop-numbering"];
+      const id = targetId || payload.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instance = id === fixture.id ? fixture : server.instances && server.instances.get(id);
+      const character = (await server.load("campaign.listCharacters")).find((c) => c.id === payload.character);
+      if (!instance || !character || !["pj", "pnj"].includes(character.kind)) return ["not-found"];
+      const tokens = instance.state.tokens;
+      const placed = tokens.filter((t) => t.char === character.id);
+      const pnj = character.kind === "pnj";
+      if (!pnj) {
+        const session = await server.load("session.getSession");
+        if (count !== 1 || placed.length || !session.present.includes(character.id)) return ["token-roster"];
+      }
+      let number = Math.max(0, ...placed.map((t) => t.num || 0));
+      for (let i = 0; i < count; i++) {
+        const num = pnj ? ++number : null;
+        tokens.push({
+          id: server.uuid(),
+          char: character.id,
+          kind: character.kind,
+          name: pnj ? `${character.name.trim()} ${num}` : character.name.trim(),
+          num,
+          q: payload.q,
+          r: payload.r,
+          visible: true,
+          hp: pnj ? character.pvMax ?? null : null,
+          hpMax: pnj ? character.pvMax ?? null : null,
+          states: [],
+          dead: false
+        });
+      }
+      if (!instance.roster.includes(character.id)) instance.roster.push(character.id);
+      return void 0;
+    },
     "campaign.restoreEntityVersion": async (server, { payload, targetId }) => {
       const history = (await server.load("campaign.listEntityVersions"))[targetId];
       const target = history && history.versions.find((v) => v.v === payload.version);
