@@ -346,23 +346,6 @@ fn every_refusal_says_why_in_words() {
 }
 
 #[test]
-fn the_version_a_row_carries_is_kept_as_it_was_written() {
-    let kept = Kept::of(&base()).expect("a version");
-    assert_eq!(kept.id, V2);
-    assert_eq!(kept.number, 2);
-    assert_eq!(kept.snapshot["notes"], "A trahi.");
-    assert!(kept.diff.is_empty());
-    let mut bare = base();
-    bare.remove("diff");
-    assert_eq!(Kept::of(&bare).map(|k| k.diff), Some(Vec::new()));
-    for field in ["entityVersionId", "versionNumber", "snapshot"] {
-        let mut without = base();
-        without.remove(field);
-        assert_eq!(Kept::of(&without), None, "{field}");
-    }
-}
-
-#[test]
 fn lists_and_objects_are_compared_as_json_their_numbers_by_value() {
     let snapshot = |crop: Value, actions: Value| {
         object(json!({ "name": "Morlox", "tokenCrop": crop, "actions": actions }))
