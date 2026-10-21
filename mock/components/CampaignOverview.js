@@ -589,7 +589,19 @@
   };
 
   // mock/src/reads.js
+  var STATUS_LABELS = { prep: "En pr\xE9paration", live: "En direct", closed: "Jou\xE9e" };
   var READS = {
+    // session.getSession (crates/session/capabilities/get-session): one session's
+    // header and the PCs present, a session of `session.listSessions` (the ones
+    // created since included), its status labelled as SessionLifecycle@1 says. An
+    // unknown id is no session: `null`, as the server answers it.
+    "session.getSession": async (server, { id }) => {
+      const session = (await server.load("session.listSessions")).find((s) => s.id === id);
+      if (!session) return null;
+      const status = session.status === "played" ? "closed" : session.status;
+      const { summary: _summary, label: _label, ...header } = session;
+      return { ...header, status, statusLabel: STATUS_LABELS[status] ?? null };
+    },
     // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
     // the notes already imported, newest first, and the proposals of the latest
     // analysed note still awaiting validation. The imports are the fixture's
