@@ -39,6 +39,29 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
 export const COMMANDS = {
+  // live.showCover: the players'
+  // view goes back to the campaign cover, whatever its base was.
+  'live.showCover': async (server) => {
+    const diffusion = await server.load('live.getDiffusion');
+    Object.assign(diffusion, { base: { kind: 'cover', id: 'ill-cover' }, view: null });
+    return undefined;
+  },
+  // live.closeWindow: the floating
+  // illustration over the players' view is closed; their base stays.
+  'live.closeWindow': async (server) => {
+    (await server.load('live.getDiffusion')).window = null;
+    return undefined;
+  },
+  // session.closeSession (crates/session/data-capabilities/close-session):
+  // the live session is closed and its microphone paused (`close-session`);
+  // a session already closed is not closed again (`status-lifecycle`). The
+  // journal and the summary are the fixtures' own, which the recap reads.
+  'session.closeSession': async (server) => {
+    const live = await server.load('session.getLiveSession');
+    if (live.status === 'closed') return ['status-lifecycle'];
+    Object.assign(live, { status: 'closed', microphone: { on: false } });
+    return undefined;
+  },
   // media.uploadMedia (crates/media/data-capabilities/upload-media): a
   // battlemap or an illustration added to the library, the path the DM chose
   // recorded and no file copied. A battlemap arrives with its default grid
