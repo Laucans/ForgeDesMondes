@@ -25,6 +25,7 @@ const SEANCE: &str = "51000000-0000-4000-8000-00000000000a";
 const NOWHERE: &str = "51000000-0000-4000-8000-0000000000ff";
 const TAVERNE: &str = "e1000000-0000-4000-8000-00000000000b";
 const PHARE: &str = "e1000000-0000-4000-8000-00000000000d";
+const MORLOX: &str = "e1000000-0000-4000-8000-00000000000e";
 
 /// A session recorded, test-only: `session.createSession` is a unit of its own.
 const ADD_SESSION: &str = r#"{"dataCapability":"test.addSession","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"Session","id":"$sessionId"},"mode":"overwrite","callableBy":["*"]}"#;
@@ -33,7 +34,8 @@ const ADD_SESSION: &str = r#"{"dataCapability":"test.addSession","owner":"datagu
 const SAVE_ELEMENT: &str = r#"{"dataCapability":"test.saveElement","owner":"dataguard","version":1,"effect":"upsert","target":{"aggregate":"Entity","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 
 /// The engine as the server plants this unit and its target aggregate, with
-/// Valombre's session and its tavern, and Brume's lighthouse.
+/// Valombre's session, its tavern and Morlox (an NPC), and Brume's
+/// lighthouse.
 async fn valombre() -> (Engine, Arc<MemoryStore>) {
     let store = Arc::new(MemoryStore::default());
     let mut engine = Engine::new(
@@ -68,6 +70,10 @@ async fn valombre() -> (Engine, Arc<MemoryStore>) {
         (
             "test.saveElement",
             json!({ "id": PHARE, "type": "lieu", "entityCampaignId": BRUME }),
+        ),
+        (
+            "test.saveElement",
+            json!({ "id": MORLOX, "type": "pnj", "entityCampaignId": VALOMBRE }),
         ),
     ] {
         submit(&engine, data_capability, payload)
@@ -181,6 +187,16 @@ async fn a_place_of_another_campaign_or_a_malformed_scene_is_refused_before_it_i
             "{message}"
         );
     }
+    let answer = submit(
+        &engine,
+        "session.addScene",
+        json!({ "session": SEANCE, "title": "Morlox", "places": [MORLOX] }),
+    )
+    .await;
+    assert_eq!(
+        refused(&engine, answer, RefusalKind::Unprocessable).await,
+        "places : seuls des lieux de la campagne"
+    );
     let answer = submit(
         &engine,
         "session.addScene",

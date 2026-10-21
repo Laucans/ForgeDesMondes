@@ -198,11 +198,20 @@ impl Scratch {
             .collect()
     }
 
+    /// Drops the scratch database. A role that is no superuser cannot end
+    /// an autovacuum worker still on it: it is tried again a moment later.
     async fn drop(self) {
         drop(self.client);
-        connect(&url())
-            .await
-            .batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name))
+        let admin = connect(&url()).await;
+        let sql = format!("DROP DATABASE {} WITH (FORCE)", self.name);
+        for _ in 0..20 {
+            if admin.batch_execute(&sql).await.is_ok() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        admin
+            .batch_execute(&sql)
             .await
             .expect("the scratch database dropped");
     }
@@ -241,38 +250,85 @@ async fn scene_order_contiguous_ranks_a_scene_after_its_session_s_last_whatever_
     let scratch = Scratch::new("ranks").await;
     let engine = scratch.serve().await;
     // Two scenes queued side by side: neither is rejected, each takes the
-    // next rank.
-    submit(&engine, "test.addRow", scene(ARRIVEE, "L'arrivée", &[])).await;
+    // next rank, in the order of their ids.
     submit(&engine, "test.addRow", scene(GUE, "Le gué", &[])).await;
+    submit(&engine, "test.addRow", scene(ARRIVEE, "L'arrivée", &[])).await;
     for result in applied(&engine).await {
         assert_eq!(result.status, State::Applied, "{result:?}");
     }
-    let mut ranks = scratch.scenes().await;
-    let (titles, positions): (Vec<_>, Vec<_>) = ranks
-        .drain(..)
-        .map(|(position, title)| (title, position))
-        .unzip();
-    assert_eq!(positions, [1, 2, 3, 4]);
-    assert_eq!(titles[..2], ["La route", "Le bourg"]);
-    let mut added = titles[2..].to_vec();
-    added.sort();
-    assert_eq!(added, ["L'arrivée", "Le gué"]);
-    // A scene written again keeps its rank.
+    let ranked = |titles: [&str; 4]| -> Vec<(i32, String)> {
+        titles
+            .into_iter()
+            .zip(1..)
+            .map(|(title, rank)| (rank, title.to_owned()))
+            .collect()
+    };
+    assert_eq!(
+        scratch.scenes().await,
+        ranked(["La route", "Le bourg", "L'arrivée", "Le gué"])
+    );
+    // A scene written again keeps its rank, and takes its new title.
     submit(
         &engine,
         "test.updateRow",
-        json!({ "sceneId": ARRIVEE, "sceneTitle": "L'arrivée" }),
+        json!({ "sceneId": ARRIVEE, "sceneTitle": "L'arrivée de nuit" }),
+    )
+    .await;
+    assert_eq!(applied(&engine).await[0].status, State::Applied);
+    assert_eq!(
+        scratch.scenes().await,
+        ranked(["La route", "Le bourg", "L'arrivée de nuit", "Le gué"])
+    );
+    // Its tombstone takes it out: the scene after it moves up one rank.
+    submit(&engine, "test.deleteRow", json!({ "sceneId": ARRIVEE })).await;
+    assert_eq!(applied(&engine).await[0].status, State::Applied);
+    assert_eq!(
+        scratch.scenes().await,
+        [
+            (1, "La route".to_owned()),
+            (2, "Le bourg".to_owned()),
+            (3, "Le gué".to_owned()),
+        ]
+    );
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_scene_written_again_takes_its_row_s_notes_and_links() {
+    let scratch = Scratch::new("again").await;
+    let engine = scratch.serve().await;
+    submit(
+        &engine,
+        "test.addRow",
+        scene(ARRIVEE, "L'arrivée", &[TAVERNE, MOULIN]),
+    )
+    .await;
+    assert_eq!(applied(&engine).await[0].status, State::Applied);
+    submit(
+        &engine,
+        "test.updateRow",
+        json!({ "sceneId": ARRIVEE, "notes": null, "entityId": [MOULIN] }),
     )
     .await;
     assert_eq!(applied(&engine).await[0].status, State::Applied);
     assert_eq!(
         scratch
-            .scenes()
-            .await
-            .iter()
-            .map(|(position, _)| *position)
-            .collect::<Vec<_>>(),
-        [1, 2, 3, 4]
+            .rows("SELECT title, notes FROM scene WHERE position = 3")
+            .await,
+        [json!({ "title": "L'arrivée", "notes": null })]
+    );
+    // The tavern unlinked, its media with it; the mill first now.
+    assert_eq!(
+        scratch
+            .rows("SELECT entity_id::text AS element, position FROM scene_entity")
+            .await,
+        [json!({ "element": MOULIN, "position": 1 })]
+    );
+    assert_eq!(
+        scratch
+            .rows("SELECT media_id::text AS media FROM session_media_view")
+            .await,
+        [json!({ "media": ROUE })]
     );
     scratch.drop().await;
 }
@@ -320,21 +376,6 @@ async fn session_media_by_place_attaches_the_media_of_the_places_a_scene_links()
             json!({ "media": ROUE, "place": MOULIN }),
         ]
     );
-    // A link added later is added to the scene's, those it had kept.
-    submit(
-        &engine,
-        "test.updateRow",
-        json!({ "sceneId": ARRIVEE, "entityId": [TAVERNE] }),
-    )
-    .await;
-    assert_eq!(applied(&engine).await[0].status, State::Applied);
-    assert_eq!(
-        scratch
-            .rows("SELECT entity_id::text AS element FROM scene_entity ORDER BY position")
-            .await
-            .len(),
-        2
-    );
     scratch.drop().await;
 }
 
@@ -355,12 +396,15 @@ async fn scene_links_same_campaign_rejects_an_element_of_another_campaign_or_non
             .unwrap_or_default();
         assert!(reason.contains("scene-links-same-campaign"), "{reason}");
     }
-    // A session the tables do not hold.
-    let mut lost = scene(GUE, "Le gué", &[]);
-    lost["sceneSessionId"] = json!(NOWHERE);
-    submit(&engine, "test.addRow", lost).await;
-    let result = applied(&engine).await.remove(0);
-    assert_eq!(result.status, State::Rejected, "{result:?}");
+    // A session the tables do not hold, one named by no uuid, none: each
+    // rejects its command, and the applier goes on.
+    for session in [json!(NOWHERE), json!("seance-4"), Value::Null] {
+        let mut lost = scene(GUE, "Le gué", &[]);
+        lost["sceneSessionId"] = session;
+        submit(&engine, "test.addRow", lost).await;
+        let result = applied(&engine).await.remove(0);
+        assert_eq!(result.status, State::Rejected, "{result:?}");
+    }
     // Nothing of them was written.
     assert_eq!(scratch.scenes().await.len(), 2);
     assert!(scratch.rows("SELECT * FROM scene_entity").await.is_empty());

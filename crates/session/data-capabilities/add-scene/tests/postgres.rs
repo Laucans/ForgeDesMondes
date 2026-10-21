@@ -184,11 +184,20 @@ impl Scratch {
             .collect()
     }
 
+    /// Drops the scratch database. A role that is no superuser cannot end
+    /// an autovacuum worker still on it: it is tried again a moment later.
     async fn drop(self) {
         drop(self.client);
-        connect(&url())
-            .await
-            .batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name))
+        let admin = connect(&url()).await;
+        let sql = format!("DROP DATABASE {} WITH (FORCE)", self.name);
+        for _ in 0..20 {
+            if admin.batch_execute(&sql).await.is_ok() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        admin
+            .batch_execute(&sql)
             .await
             .expect("the scratch database dropped");
     }
@@ -306,5 +315,37 @@ async fn a_place_of_another_campaign_is_refused_and_nothing_is_written() {
         before
     );
     assert!(scratch.rows("SELECT * FROM scene_entity").await.is_empty());
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn scenes_queued_side_by_side_are_ranked_in_the_order_the_dm_added_them() {
+    let scratch = Scratch::new("order").await;
+    let engine = scratch.serve().await;
+    let titles = [
+        "Le gué",
+        "La tour",
+        "Le marché",
+        "Les catacombes",
+        "Le retour",
+    ];
+    for title in titles {
+        add(&engine, json!({ "session": SEANCE, "title": title }))
+            .await
+            .expect("queued");
+        // The next one is asked a moment later.
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    for result in engine.run_once().await.expect("the applier ran") {
+        assert_eq!(result.status, State::Applied, "{result:?}");
+    }
+    let ranked: Vec<(i32, String)> = scratch.scenes().await;
+    let expected: Vec<(i32, String)> = ["La route", "Le bourg"]
+        .into_iter()
+        .chain(titles)
+        .zip(1..)
+        .map(|(title, rank)| (rank, title.to_owned()))
+        .collect();
+    assert_eq!(ranked, expected);
     scratch.drop().await;
 }

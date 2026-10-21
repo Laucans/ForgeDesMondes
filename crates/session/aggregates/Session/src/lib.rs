@@ -31,7 +31,9 @@ use serde_json::Value;
 
 mod scenes;
 
-pub use scenes::{LINKS, NOTES, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, Scenes};
+pub use scenes::{
+    LINKS, NOTES, PARTITION, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, Scenes,
+};
 
 const AGGREGATE: &str = "Session";
 
@@ -258,9 +260,10 @@ fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     })
 }
 
-/// A uuid written 8-4-4-4-12 in hex digits, in either case: what an
-/// element's id is.
-fn uuid(id: &str) -> bool {
+/// A uuid written 8-4-4-4-12 in hex digits, in either case: what a
+/// session's, a scene's or an element's id is.
+#[must_use]
+pub fn uuid(id: &str) -> bool {
     id.len() == 36
         && id.char_indices().all(|(at, c)| match at {
             8 | 13 | 18 | 23 => c == '-',

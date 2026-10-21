@@ -2,7 +2,9 @@
 //! the screen sends becomes the scene's row, or is refused before anything
 //! is queued.
 
-use add_scene::{Asked, ENTITY_CAMPAIGN_ID, Refusal, Row, SESSION_CAMPAIGN_ID, asked, prepare};
+use add_scene::{
+    Asked, ENTITY_CAMPAIGN_ID, Refusal, Row, SESSION_CAMPAIGN_ID, TYPE, asked, prepare, scene_id,
+};
 use serde_json::{Value, json};
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
@@ -21,6 +23,13 @@ fn wire(value: Value) -> Row {
 
 fn row(field: &str, campaign: &str) -> Row {
     Row::from([(field.to_owned(), json!(campaign))])
+}
+
+/// An element of `campaign` of type `kind`, as the store holds it.
+fn element(campaign: &str, kind: &str) -> Row {
+    let mut row = row(ENTITY_CAMPAIGN_ID, campaign);
+    row.insert(TYPE.to_owned(), json!(kind));
+    row
 }
 
 #[test]
@@ -96,10 +105,7 @@ fn a_scene_writes_its_row_on_its_own_partition_and_its_rank_is_left_to_the_aggre
         "places": [TAVERNE, MOULIN],
     }));
     let session = row(SESSION_CAMPAIGN_ID, &VALOMBRE.to_uppercase());
-    let places = [
-        row(ENTITY_CAMPAIGN_ID, VALOMBRE),
-        row(ENTITY_CAMPAIGN_ID, VALOMBRE),
-    ];
+    let places = [element(VALOMBRE, "lieu"), element(VALOMBRE, "lieu")];
     assert_eq!(
         prepare(&asked, SCENE, &session, &places),
         Ok(wire(json!({
@@ -128,17 +134,12 @@ fn a_session_there_is_not_or_a_place_of_another_campaign_is_refused() {
     let asked = asked_from(json!({ "session": SEANCE, "title": "L'arrivée", "places": [TAVERNE] }));
     let session = row(SESSION_CAMPAIGN_ID, VALOMBRE);
     assert_eq!(
-        prepare(
-            &asked,
-            SCENE,
-            &Row::new(),
-            &[row(ENTITY_CAMPAIGN_ID, VALOMBRE)]
-        ),
+        prepare(&asked, SCENE, &Row::new(), &[element(VALOMBRE, "lieu")]),
         Err(Refusal::UnknownSession)
     );
     for places in [
         // A place of Brume, an element there is not, none at all.
-        vec![row(ENTITY_CAMPAIGN_ID, BRUME)],
+        vec![element(BRUME, "lieu")],
         vec![Row::new()],
         vec![],
     ] {
@@ -153,4 +154,27 @@ fn a_session_there_is_not_or_a_place_of_another_campaign_is_refused() {
             .to_string()
             .starts_with("scene-links-same-campaign")
     );
+    // An element of the campaign that is no place: an NPC, a lieu without
+    // its type.
+    for place in [element(VALOMBRE, "pnj"), row(ENTITY_CAMPAIGN_ID, VALOMBRE)] {
+        assert_eq!(
+            prepare(&asked, SCENE, &session, &[place]),
+            Err(Refusal::NotAPlace)
+        );
+    }
+}
+
+#[test]
+fn a_scene_s_id_is_a_uuid_beginning_with_the_time_it_was_asked_at() {
+    let fresh = "3F2A9C4E-1B7D-4E8F-9A6B-0C5D7E1F2A3B";
+    let id = scene_id(0x0193_4f2a_1b7c, fresh);
+    assert_eq!(id, "01934f2a-1b7c-73f2-8a9c-4e1b7d4e8f9a");
+    assert!(aggregate_session::uuid(&id), "{id}");
+    // Asked one millisecond later, whatever its random part: after it.
+    assert!(scene_id(0x0193_4f2a_1b7d, "00000000-0000-4000-8000-000000000000") > id);
+    // An id with too few hex digits is padded: still a uuid.
+    let short = scene_id(1, "new_1");
+    assert_eq!(short, "00000000-0001-7e10-8000-000000000000");
+    // Only the 48 bits of the time are kept.
+    assert!(scene_id(u64::MAX, fresh).starts_with("ffffffff-ffff-7"));
 }

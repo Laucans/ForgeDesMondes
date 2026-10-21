@@ -2,9 +2,9 @@
 //! a scene to the session they are preparing, with its title, its notes and
 //! the places it links.
 //!
-//! A scene is one command on a partition of its own, `Session/<a fresh
-//! id>`. What the screen sends is `{ "session", "title", "notes"?,
-//! "places"? }`, and it becomes the aggregate's fields in two steps:
+//! A scene is one command on a partition of its own, `Session/<its id>`.
+//! What the screen sends is `{ "session", "title", "notes"?, "places"? }`,
+//! and it becomes the aggregate's fields in two steps:
 //!
 //! - [`asked`] reads the request: the session is a uuid — no session has
 //!   any other id ([`Refusal::UnknownSession`]); the title is a text with
@@ -15,22 +15,27 @@
 //!   the store holds them: a session the store does not hold is refused
 //!   ([`Refusal::UnknownSession`]); a place that is no element of the
 //!   session's campaign breaks `scene-links-same-campaign`
-//!   ([`Refusal::OtherCampaign`]), and nothing is queued.
+//!   ([`Refusal::OtherCampaign`]); an element of it that is no « lieu » is
+//!   no place ([`Refusal::NotAPlace`]). Nothing is queued.
 //!
 //! The scene's rank is not chosen here: the Session aggregate settles it
 //! when the scene is applied, after the session's last, so scenes queued
 //! side by side each take the next one (`scene-order-contiguous`), and it
-//! judges the places again then. The media of a place it links are the
-//! session's through `session_media_view`, never written
-//! (`session-media-by-place`).
+//! judges the places again then. The engine applies them in the order of
+//! their ids, so a scene's id begins with the time it was asked at
+//! ([`scene_id`]): they are ranked in the order the DM added them. The
+//! media of a place it links are the session's through
+//! `session_media_view`, never written (`session-media-by-place`).
 //!
 //! The rows are read under the aggregates' fields: the session's
-//! `sessionCampaignId` (Session), a place's `entityCampaignId` (Entity) —
-//! the tables' first, the engine's laid over them.
+//! `sessionCampaignId` (Session), a place's `type` and `entityCampaignId`
+//! (Entity) — the tables' first, the engine's laid over them.
 
 use std::collections::BTreeMap;
 
-use aggregate_session::{LINKS, NOTES, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE};
+use aggregate_session::{
+    LINKS, NOTES, PARTITION, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, uuid,
+};
 use async_trait::async_trait;
 use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::Value;
@@ -44,26 +49,31 @@ const TITLE: &str = "title";
 const PLACES: &str = "places";
 const FIELDS: [&str; 4] = [SESSION, TITLE, NOTES, PLACES];
 
-/// The session's campaign, and an element's, under the aggregates' fields.
+/// The session's campaign, and an element's type and campaign, under the
+/// aggregates' fields.
 pub const SESSION_CAMPAIGN_ID: &str = "sessionCampaignId";
 pub const ENTITY_CAMPAIGN_ID: &str = "entityCampaignId";
+pub const TYPE: &str = "type";
 
-/// The partitions of the Session aggregate, and of the Entity aggregate,
-/// whose elements a place is one of.
-const SESSION_PARTITION: &str = "Session/";
+/// The type of element a place is.
+const LIEU: &str = "lieu";
+
+/// The partitions of the Entity aggregate, whose elements a place is one of.
 const ENTITY_PARTITION: &str = "Entity/";
 
-/// A session as the tables hold it live: its campaign.
+/// The session `$1` names, as the tables hold it live: its campaign.
 const SESSION_ROW: &str = "SELECT s.campaign_id::text AS \"sessionCampaignId\"
     FROM session s
-    WHERE s.id::text = $1
+    WHERE s.id = $1::uuid
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned)";
 
-/// An element as the tables hold it live: its campaign.
-const ELEMENT_ROW: &str = "SELECT e.campaign_id::text AS \"entityCampaignId\"
+/// The elements the list `$1` names, as the tables hold them live: each
+/// one's id, type and campaign.
+const ELEMENT_ROWS: &str = "SELECT e.id::text AS id, e.type AS \"type\",
+        e.campaign_id::text AS \"entityCampaignId\"
     FROM entity e
-    WHERE e.id::text = $1
+    WHERE e.id IN (SELECT listed::uuid FROM jsonb_array_elements_text($1::jsonb) AS listed)
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned)";
 
@@ -99,6 +109,8 @@ pub enum Refusal {
     UnknownSession,
     /// A place is no element of the session's campaign.
     OtherCampaign,
+    /// An element of the session's campaign is no « lieu ».
+    NotAPlace,
 }
 
 impl std::fmt::Display for Refusal {
@@ -116,6 +128,7 @@ impl std::fmt::Display for Refusal {
                 f,
                 "{SAME_CAMPAIGN} : une scène ne lie que des éléments de la campagne de sa séance"
             ),
+            Self::NotAPlace => write!(f, "places : seuls des lieux de la campagne"),
         }
     }
 }
@@ -126,10 +139,11 @@ pub fn plugin() -> Plugin {
     Plugin::new().prepare(DATA_CAPABILITY, Scenes)
 }
 
-/// A scene made the row it writes on a fresh partition, judged against its
-/// session and its places ([`rows`]): one of a session there is not is
-/// refused, 404; one malformed, or linking a place of another campaign
-/// (`scene-links-same-campaign`), 422 — neither is queued.
+/// A scene made the row it writes on a partition of its own, judged against
+/// its session and its places ([`session`], [`elements`]): one of a session
+/// there is not is refused, 404; one malformed, or linking anything but a
+/// place of the session's campaign (`scene-links-same-campaign`), 422 —
+/// neither is queued.
 struct Scenes;
 
 #[async_trait]
@@ -141,12 +155,9 @@ impl Prepare for Scenes {
         _target_id: Option<&str>,
     ) -> Result<plugins::Prepared, plugins::Refusal> {
         let asked = asked(payload).map_err(refused)?;
-        let session = row(context, SESSION_PARTITION, SESSION_ROW, &asked.session).await?;
-        let mut places = Vec::with_capacity(asked.places.len());
-        for place in &asked.places {
-            places.push(row(context, ENTITY_PARTITION, ELEMENT_ROW, place).await?);
-        }
-        let scene = context.ids.fresh().to_ascii_lowercase();
+        let session = session(context, &asked.session).await?;
+        let places = elements(context, &asked.places).await?;
+        let scene = scene_id(context.now_millis, &context.ids.fresh());
         let payload = prepare(&asked, &scene, &session, &places).map_err(refused)?;
         Ok(plugins::Prepared {
             payload,
@@ -166,31 +177,87 @@ fn refused(refusal: Refusal) -> plugins::Refusal {
     }
 }
 
-/// The row `id` names in `partition` as a scene is judged against it: over
-/// PostgreSQL, as the tables hold it live (`sql`) — the fixtures' among
-/// them — and, laid over it, the engine's row as the commands queued on it
-/// will leave it. Empty when neither holds it.
-async fn row(
+/// What the tables' read answers, as rows; a failed read is unprocessable.
+async fn read(
     context: &Context<'_>,
-    partition: &str,
     sql: &str,
-    id: &str,
-) -> Result<Row, plugins::Refusal> {
-    let mut row = match context.rows {
-        Some(rows) => {
-            let found = rows
-                .rows(sql, &[Value::from(id)])
-                .await
-                .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?;
-            match found.as_array().and_then(|found| found.first()) {
-                Some(Value::Object(row)) => row.clone().into_iter().collect(),
-                _ => Row::new(),
-            }
-        }
-        None => Row::new(),
+    parameter: Value,
+) -> Result<Vec<Row>, plugins::Refusal> {
+    let Some(rows) = context.rows else {
+        return Ok(Vec::new());
     };
-    row.extend(context.row(&format!("{partition}{id}")).await?);
+    let found = rows
+        .rows(sql, &[parameter])
+        .await
+        .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?;
+    Ok(found
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| match row {
+            Value::Object(row) => Some(row.clone().into_iter().collect()),
+            _ => None,
+        })
+        .collect())
+}
+
+/// The session `id` names as a scene is judged against it: over
+/// PostgreSQL, as the tables hold it live — the fixtures' among them — and,
+/// laid over it, the engine's row as the commands queued on it will leave
+/// it. Empty when neither holds it.
+async fn session(context: &Context<'_>, id: &str) -> Result<Row, plugins::Refusal> {
+    let mut row = read(context, SESSION_ROW, Value::from(id))
+        .await?
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    row.extend(context.row(&format!("{PARTITION}{id}")).await?);
     Ok(row)
+}
+
+/// The elements `ids` name, in order, the same way: one read of the tables
+/// for them all, each one's engine row laid over its own.
+async fn elements(context: &Context<'_>, ids: &[String]) -> Result<Vec<Row>, plugins::Refusal> {
+    let mut tables = if ids.is_empty() {
+        Vec::new()
+    } else {
+        read(context, ELEMENT_ROWS, Value::from(ids.to_vec())).await?
+    };
+    let mut elements = Vec::with_capacity(ids.len());
+    for id in ids {
+        let at = tables
+            .iter()
+            .position(|row| row.get("id").and_then(Value::as_str) == Some(id));
+        let mut row = at.map(|at| tables.swap_remove(at)).unwrap_or_default();
+        row.remove("id");
+        row.extend(context.row(&format!("{ENTITY_PARTITION}{id}")).await?);
+        elements.push(row);
+    }
+    Ok(elements)
+}
+
+/// A scene's id: a uuid whose first 48 bits are `millis`, the time it was
+/// asked at, and whose rest is `fresh`'s hex digits — a uuid of version 7.
+/// The ids of scenes asked one after the other sort in that order.
+#[must_use]
+pub fn scene_id(millis: u64, fresh: &str) -> String {
+    let random: Vec<char> = fresh
+        .chars()
+        .filter(char::is_ascii_hexdigit)
+        .map(|c| c.to_ascii_lowercase())
+        .chain(std::iter::repeat('0'))
+        .take(18)
+        .collect();
+    let random: String = random.into_iter().collect();
+    let time = format!("{:012x}", millis & 0xffff_ffff_ffff);
+    format!(
+        "{}-{}-7{}-8{}-{}",
+        &time[..8],
+        &time[8..],
+        &random[..3],
+        &random[3..6],
+        &random[6..]
+    )
 }
 
 /// What `wire` asks.
@@ -256,20 +323,28 @@ pub fn asked(wire: &Row) -> Result<Asked, Refusal> {
 /// # Errors
 ///
 /// [`Refusal::UnknownSession`] when there is no session,
-/// [`Refusal::OtherCampaign`] when a place is no element of its campaign.
+/// [`Refusal::OtherCampaign`] when a place is no element of its campaign —
+/// or `places` does not answer each of them — and [`Refusal::NotAPlace`]
+/// when one is an element of it that is no « lieu ».
 pub fn prepare(asked: &Asked, scene: &str, session: &Row, places: &[Row]) -> Result<Row, Refusal> {
-    let campaign = |row: &Row, field: &str| {
+    let text = |row: &Row, field: &str| {
         row.get(field)
             .and_then(Value::as_str)
             .map(str::to_ascii_lowercase)
     };
-    let ours = campaign(session, SESSION_CAMPAIGN_ID).ok_or(Refusal::UnknownSession)?;
+    let ours = text(session, SESSION_CAMPAIGN_ID).ok_or(Refusal::UnknownSession)?;
     if places.len() != asked.places.len()
         || places
             .iter()
-            .any(|place| campaign(place, ENTITY_CAMPAIGN_ID).as_ref() != Some(&ours))
+            .any(|place| text(place, ENTITY_CAMPAIGN_ID).as_ref() != Some(&ours))
     {
         return Err(Refusal::OtherCampaign);
+    }
+    if places
+        .iter()
+        .any(|place| text(place, TYPE).as_deref() != Some(LIEU))
+    {
+        return Err(Refusal::NotAPlace);
     }
     let mut row = Row::from([
         (SCENE_ID.to_owned(), Value::from(scene)),
@@ -287,14 +362,4 @@ pub fn prepare(asked: &Asked, scene: &str, session: &Row, places: &[Row]) -> Res
         row.insert(LINKS.to_owned(), Value::from(asked.places.clone()));
     }
     Ok(row)
-}
-
-/// A uuid written 8-4-4-4-12 in hex digits, in either case: what
-/// `session.id` and `entity.id` hold.
-fn uuid(id: &str) -> bool {
-    id.len() == 36
-        && id.char_indices().all(|(at, c)| match at {
-            8 | 13 | 18 | 23 => c == '-',
-            _ => c.is_ascii_hexdigit(),
-        })
 }

@@ -89,8 +89,9 @@ export const COMMANDS = {
   // its title, its notes and the places it links — each a place of the
   // fixtures' campaign, else `scene-links-same-campaign` — whose media
   // follow it to the session (`session-media-by-place`, derived, never
-  // stored). A blank title is `scene-title-required`: the mock answers
-  // violation ids, where the server answers 422.
+  // stored). Its notes are kept as written. A blank title is
+  // `scene-title-required`: the mock answers violation ids, where the
+  // server answers 422.
   'session.addScene': async (server, { payload }) => {
     const title = String(payload.title || '').trim();
     if (!title) return ['scene-title-required'];
@@ -110,7 +111,7 @@ export const COMMANDS = {
       media,
       toCreate: [],
       battlemap: null,
-      notes: String(payload.notes || '').trim() || null,
+      notes: typeof payload.notes === 'string' ? payload.notes : null,
     });
     return undefined;
   },
