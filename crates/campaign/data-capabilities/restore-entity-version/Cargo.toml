@@ -9,8 +9,14 @@ publish = false
 [dependencies]
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 harness-dataguard = { workspace = true }
+# Its target aggregate: the versions it keeps and shares, and how an element's dates are written.
+aggregate-entity = { path = "../../aggregates/Entity" }
+async-trait = "0.1"
 serde_json = "1"
 
 [dev-dependencies]
 # The Concept `diff` is held to.
 platform-conformance = { path = "../../../platform/conformance" }
+# A restoration is of versions saves made.
+save-entity = { path = "../save-entity" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
