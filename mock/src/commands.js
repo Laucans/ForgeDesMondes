@@ -332,4 +332,26 @@ export const COMMANDS = {
     entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: 'dm', source: 'Fiche enregistrée par le DM', seen: true, changes });
     return undefined;
   },
+  // table.moveToken (crates/table/data-capabilities/move-token): the token
+  // `payload.token` of the instance `targetId` (or `payload.instance`) dropped
+  // on the hex (q, r) — its position alone, the one both views read
+  // (`single-position-source`); no other token, nor the battlemap and its
+  // grid, moves. A hex that is no pair of whole numbers an `integer` holds is
+  // refused by `single-position-source`; an unknown token is `not-found`; a
+  // token that stands on another instance than the one named — or on none
+  // named — is refused by `instance-isolated`, as the DataGuard judges it.
+  'table.moveToken': async (server, { payload, targetId }) => {
+    const axis = (n) => Number.isInteger(n) && n >= -(2 ** 31) && n < 2 ** 31;
+    if (!axis(payload.q) || !axis(payload.r)) return ['single-position-source'];
+    const id = targetId || payload.instance;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const holder = instances.find((i) => i.state.tokens.some((t) => t.id === payload.token));
+    if (!holder) return ['not-found'];
+    if (holder.id !== id) return ['instance-isolated'];
+    const token = holder.state.tokens.find((t) => t.id === payload.token);
+    token.q = payload.q;
+    token.r = payload.r;
+    return undefined;
+  },
 };

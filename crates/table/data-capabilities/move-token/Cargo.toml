@@ -1,0 +1,21 @@
+[package]
+name = "move-token"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.moveToken: one token of a battlemap instance dropped on another hex, on its own BattlemapInstance partition — its axial (q, r) alone, the one position both views read; never another token, nor the original battlemap and its grid (instance-isolated)."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+uuid = { version = "1", default-features = false }
+
+[dev-dependencies]
+# Its target aggregate, which its tests plant beside it.
+aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
+# The migrations' applier the server runs: the tables its tests read.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
