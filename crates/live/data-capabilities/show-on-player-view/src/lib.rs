@@ -124,9 +124,10 @@ impl Prepare for Sends {
         };
         let now = aggregate_diffusion::timestamp(context.now_millis);
         let prepared = prepare(payload, &found, &now).map_err(refused)?;
+        // The partition is the manifest's `$sessionId`, which the payload
+        // carries: whatever target the caller names, the session's row.
         Ok(plugins::Prepared {
             payload: prepared.payload,
-            target_id: Some(prepared.target_id),
             warnings: prepared.warning.into_iter().map(String::from).collect(),
             ..plugins::Prepared::default()
         })
@@ -200,7 +201,7 @@ pub struct Found {
 pub struct Prepared {
     /// The state it writes on the session's diffusion row.
     pub payload: Row,
-    /// The partition it writes: the session's id.
+    /// The partition it writes: the session's id, its `sessionId`.
     pub target_id: String,
     /// Why the DataGuard will refuse it, when it will.
     pub warning: Option<&'static str>,

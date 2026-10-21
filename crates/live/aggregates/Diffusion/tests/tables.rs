@@ -70,7 +70,8 @@ struct Scratch {
 }
 
 impl Scratch {
-    async fn new(name: &str) -> Scratch {
+    /// A database of its own, empty: no table of the product.
+    async fn bare(name: &str) -> Scratch {
         let name = format!("diffusion_tables_test_{name}_{}", std::process::id());
         let admin = connect(&url()).await;
         for sql in [
@@ -80,7 +81,16 @@ impl Scratch {
             admin.batch_execute(&sql).await.expect("a scratch database");
         }
         let url = naming(&name);
-        let mut client = connect(&url).await;
+        let client = connect(&url).await;
+        Scratch { name, url, client }
+    }
+
+    async fn new(name: &str) -> Scratch {
+        let Scratch {
+            name,
+            url,
+            mut client,
+        } = Scratch::bare(name).await;
         let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/migrations");
         data::migrate(&mut client, &migrations)
             .await
@@ -298,5 +308,45 @@ async fn a_diffusion_only_the_table_holds_is_the_engine_s_row_until_a_command_wr
             .expect("read");
         assert_eq!(none, None, "{partition}");
     }
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_table_it_cannot_write_fails_the_step_unrefused() {
+    let scratch = Scratch::bare("bare").await;
+    // A `diffusion` with every column and no key: nothing to hydrate, and an
+    // upsert with no conflict to resolve on — neither a CHECK, a foreign
+    // key nor a value refused.
+    scratch
+        .client
+        .batch_execute(
+            "CREATE TABLE diffusion (session_id uuid, base_kind text, base_media_id uuid,
+                 base_instance_id uuid, window_media_id uuid, window_x numeric,
+                 window_y numeric, window_width numeric, view_zoom numeric,
+                 view_pan_x numeric, view_pan_y numeric, updated_at timestamptz)",
+        )
+        .await
+        .expect("a diffusion with no key");
+    let engine = scratch.serve().await;
+    let submission: Submission = serde_json::from_value(json!({
+        "dataCapability": "test.show@1",
+        "payload": portrait(json!(1), None),
+        "caller": { "by": "dm", "from": "live.PlayerStage", "roles": ["role:approver"] },
+    }))
+    .expect("a submission");
+    engine.submit(submission).await.expect("queued");
+    // The store fails, the command is neither applied nor rejected: it
+    // stays at the head.
+    assert!(engine.run_once().await.is_err());
+    assert!(engine.run_once().await.is_err());
+    let rows = scratch
+        .client
+        .query(
+            "SELECT partition FROM dataguard_rows WHERE partition LIKE 'Diffusion/%'",
+            &[],
+        )
+        .await
+        .expect("the engine's rows");
+    assert!(rows.is_empty(), "{rows:?}");
     scratch.drop().await;
 }

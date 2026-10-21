@@ -167,6 +167,9 @@ mod tests {
     #[test]
     fn timestamp_is_rfc_3339_in_utc_to_the_millisecond() {
         assert_eq!(timestamp(0), "1970-01-01T00:00:00.000Z");
+        // The first day of a year counted from March, exactly 370 of them
+        // since the era began.
+        assert_eq!(timestamp(5_097_600_000), "1970-03-01T00:00:00.000Z");
         // 2026-10-21T10:00:00.123Z, and the last millisecond of a leap year.
         assert_eq!(timestamp(1_792_576_800_123), "2026-10-21T10:00:00.123Z");
         assert_eq!(timestamp(951_868_799_999), "2000-02-29T23:59:59.999Z");

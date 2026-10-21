@@ -195,8 +195,14 @@ impl Scratch {
 /// A send of `payload`, by the DM, approver of their own campaign's critical
 /// fields — the session and the kind of its base.
 async fn send(engine: &Engine, payload: Value) -> Result<Submitted> {
+    send_on(engine, None, payload).await
+}
+
+/// The same, naming `target` as the element it is sent from.
+async fn send_on(engine: &Engine, target: Option<&str>, payload: Value) -> Result<Submitted> {
     let submission: Submission = serde_json::from_value(json!({
         "dataCapability": "live.showOnPlayerView@1",
+        "targetId": target,
         "payload": payload,
         "caller": { "by": "dm", "from": "table.Battlemap", "roles": ["role:approver"] },
     }))
@@ -247,14 +253,18 @@ async fn the_first_send_makes_the_live_session_s_row_and_a_battlemap_then_replac
         )]
     );
 
-    // The Battlemap names no campaign: the instance's is the one.
-    send(
+    // The Battlemap names no campaign: the instance's is the one. The
+    // element a send names as its target is not the row it writes: the
+    // session's is.
+    let submitted = send_on(
         &engine,
+        Some(INSTANCE),
         json!({ "kind": "battlemap", "instance": INSTANCE.to_uppercase(),
                 "zoom": 1.5, "panX": 120.5, "panY": -40 }),
     )
     .await
     .expect("queued");
+    assert_eq!(submitted.partition, format!("Diffusion/{SEANCE}"));
     let result = engine.run_once().await.expect("the applier ran").remove(0);
     assert_eq!(result.status, State::Applied, "{result:?}");
     assert_eq!(
