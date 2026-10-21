@@ -31,6 +31,7 @@ ignored = [
     "get-battlemap",
     "get-campaign",
     "get-entity",
+    "get-session",
     "get-settings",
     "list-campaigns",
     "list-characters",
@@ -70,6 +71,7 @@ extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 get-battlemap = { path = "../../media/capabilities/get-battlemap" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
+get-session = { path = "../../session/capabilities/get-session" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
