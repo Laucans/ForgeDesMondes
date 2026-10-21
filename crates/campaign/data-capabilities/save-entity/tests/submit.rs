@@ -1,46 +1,68 @@
-//! campaign.saveEntity through the wire protocol, over the in-memory engine
-//! as the server plants it: a save is prepared against the element's row,
-//! judged, queued per element and applied with the version it adds
-//! (EntityVersion@1). The tables it reaches are `save_entity_projection.rs`'s.
+//! campaign.saveEntity through the engine, over its in-memory store, as the
+//! server plants it with the Entity aggregate: a save is prepared against
+//! the element's row, judged, queued per element and applied, the version it
+//! adds settled after the element's last one (EntityVersion@1). The tables
+//! it reaches are the Entity aggregate's `tests/projection.rs`.
 
 use std::sync::Arc;
 
-use axum::Router;
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use dataguard_server::{Engine, MEMORY, Planted, Rows, planted, router};
+use aggregate_entity::{History, Kept};
+use harness_dataguard::Error;
+use harness_dataguard::aggregate::Aggregate;
+use harness_dataguard::api::Submission;
 use harness_dataguard::command::{CommandResult, State};
+use harness_dataguard::engine::Engine;
+use harness_dataguard::manifest::DataCapability;
+use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
+use harness_dataguard::plugins::RefusalKind;
+use harness_dataguard::postgres::SystemClock;
+use harness_dataguard::store::{RandomIds, Store};
 use serde_json::{Map, Value, json};
-use tower::ServiceExt;
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BRUME: &str = "c1000000-0000-4000-8000-000000000002";
 const CLAIRE: &str = "b1000000-0000-4000-8000-000000000001";
 
-/// The engine as the server plants it, its rows and its wire protocol.
+/// The engine as the server plants this DataCapability and its aggregate,
+/// its store and the versions the aggregate keeps.
 struct Served {
-    engine: Arc<Engine>,
-    rows: Rows,
-    app: Router,
+    engine: Engine,
+    store: Arc<MemoryStore>,
+    history: Arc<History>,
 }
 
 async fn served() -> Served {
-    let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
-    let engine = Arc::new(engine);
-    let app = router(
-        engine.clone(),
-        rows.clone(),
-        Arc::new(ports_llm::fake::FakeLlm::new()),
+    let store = Arc::new(MemoryStore::default());
+    let history = Arc::new(History::default());
+    let engine = Engine::new(
+        store.clone(),
+        Arc::new(MemoryNotifier::default()),
+        Arc::new(SystemClock),
+    )
+    .with_aggregate(Aggregate::parse(aggregate_entity::MANIFEST).expect("contract I"))
+    .with_data_capability(DataCapability::parse(save_entity::MANIFEST).expect("contract F"))
+    .with_ids(Arc::new(RandomIds))
+    .with_plugins(
+        [
+            aggregate_entity::keeping(history.clone()),
+            save_entity::plugin(),
+        ]
+        .into_iter()
+        .collect(),
     );
-    Served { engine, rows, app }
+    engine.load().await.expect("the units fit");
+    Served {
+        engine,
+        store,
+        history,
+    }
 }
 
 impl Served {
-    /// `POST /commands` of campaign.saveEntity by `by`, the DM's editor
-    /// calling it — the DM approves their own campaign's critical fields, as
-    /// the AiSettings Micro-UI has them approve their settings: the answer,
-    /// as JSON.
-    async fn submit(&self, by: &str, payload: Value, key: Option<&str>) -> Value {
+    /// campaign.saveEntity by `by`, the DM's editor calling it — the DM
+    /// approves their own campaign's critical fields: the answer, or why
+    /// it was refused.
+    async fn submitted(&self, by: &str, payload: Value, key: Option<&str>) -> Result<Value, Error> {
         let mut body = json!({
             "dataCapability": "campaign.saveEntity@1",
             "payload": payload,
@@ -49,25 +71,16 @@ impl Served {
         if let Some(key) = key {
             body["idempotencyKey"] = json!(key);
         }
-        let (status, answer) = self.post("/commands", body).await;
-        assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
-        answer
+        let submission: Submission = serde_json::from_value(body).expect("a submission");
+        self.engine
+            .submit(submission)
+            .await
+            .map(|submitted| serde_json::to_value(submitted).expect("JSON"))
     }
 
-    async fn post(&self, uri: &str, body: Value) -> (StatusCode, Value) {
-        let request = Request::post(uri)
-            .header("content-type", "application/json")
-            .body(Body::from(body.to_string()))
-            .expect("a request");
-        let response = self.app.clone().oneshot(request).await.expect("an answer");
-        let status = response.status();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("a body");
-        (
-            status,
-            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
-        )
+    /// The same, queued.
+    async fn submit(&self, by: &str, payload: Value, key: Option<&str>) -> Value {
+        self.submitted(by, payload, key).await.expect("queued")
     }
 
     /// One pass of the single applier, which settles one command.
@@ -86,12 +99,20 @@ impl Served {
 
     /// The row the engine holds for `element`.
     async fn row(&self, element: &str) -> Map<String, Value> {
-        self.rows
-            .projected(&format!("Entity/{element}"))
+        self.store
+            .row(&format!("Entity/{element}"))
             .await
             .expect("the row")
             .into_iter()
             .collect()
+    }
+
+    /// `element`'s last version, as it was settled.
+    fn last(&self, element: &str) -> Kept {
+        self.history
+            .of(element)
+            .pop()
+            .unwrap_or_else(|| panic!("a version of {element}"))
     }
 }
 
@@ -109,11 +130,8 @@ fn applied(result: &CommandResult) {
 }
 
 /// The fields a version's diff names.
-fn changed(row: &Map<String, Value>) -> Vec<&str> {
-    row["diff"]
-        .as_array()
-        .expect("a diff")
-        .iter()
+fn changed(diff: &[Value]) -> Vec<&str> {
+    diff.iter()
         .map(|change| change["field"].as_str().expect("a field"))
         .collect()
 }
@@ -169,25 +187,30 @@ async fn a_new_npc_is_saved_with_its_sheet_aliases_and_version_1_holding_the_ful
     assert_eq!(row["alias"], json!(["le gobelin", "le marchand"]));
     assert_eq!(row["versionNumber"], 1);
     assert_eq!(row["source"], "dm");
-    assert_eq!(
-        row["snapshot"],
-        json!({
-            "type": "pnj",
-            "name": "Morlox",
-            "notes": "Doit 40 po à Vesna.",
-            "aliases": ["le gobelin", "le marchand"],
-            "strength": 8, "dexterity": 15, "constitution": 10,
-            "intelligence": 13, "wisdom": 9, "charisma": 12,
-            "armorClass": 13, "hpMax": 21,
-            "spells": [], "actions": [],
-            "tokenColor": "danger",
-        })
-    );
+    // Its dates, to the millisecond.
+    let created = row["entityCreatedAt"].as_str().expect("a date");
+    assert_eq!(created.len(), "2026-10-17T10:00:00.000Z".len(), "{created}");
+    assert_eq!(row["updatedAt"], created);
+    let snapshot = json!({
+        "type": "pnj",
+        "name": "Morlox",
+        "notes": "Doit 40 po à Vesna.",
+        "aliases": ["le gobelin", "le marchand"],
+        "strength": 8, "dexterity": 15, "constitution": 10,
+        "intelligence": 13, "wisdom": 9, "charisma": 12,
+        "armorClass": 13, "hpMax": 21,
+        "spells": [], "actions": [],
+        "tokenColor": "danger",
+    });
+    assert_eq!(row["snapshot"], snapshot);
+    let version = s.last(&id);
+    assert_eq!(version.number, 1);
+    assert_eq!(Some(&json!(version.id)), row.get("entityVersionId"));
+    assert_eq!(Value::Object(version.snapshot.clone()), snapshot);
     // The first version is compared with an empty snapshot.
-    let snapshot = row["snapshot"].as_object().expect("a snapshot");
-    let mut every: Vec<&str> = snapshot.keys().map(String::as_str).collect();
+    let mut every: Vec<&str> = version.snapshot.keys().map(String::as_str).collect();
     every.sort_unstable();
-    assert_eq!(changed(&row), every);
+    assert_eq!(changed(&version.diff), every);
 }
 
 #[tokio::test]
@@ -202,12 +225,38 @@ async fn a_pc_whose_notes_change_takes_a_new_version_whose_diff_lists_only_notes
     let row = s.row(&id).await;
     assert_eq!(row["versionNumber"], 2);
     assert_ne!(row["entityVersionId"], first["entityVersionId"]);
+    let version = s.last(&id);
+    assert_eq!(version.number, 2);
     assert_eq!(
-        row["diff"],
-        json!([{ "field": "notes", "old": "Cherche son frère.", "new": "Cherche son frère Aerin." }])
+        version.diff,
+        [
+            json!({ "field": "notes", "old": "Cherche son frère.", "new": "Cherche son frère Aerin." })
+        ]
     );
     assert_eq!(row["entityCreatedAt"], first["entityCreatedAt"]);
     assert_eq!(row["playerId"], CLAIRE);
+}
+
+#[tokio::test]
+async fn an_element_the_command_alone_targets_is_saved_on_its_own_row() {
+    let s = served().await;
+    let (id, result) = s.save(elowen(None, "v1")).await;
+    applied(&result);
+    // The editor names it as the command's target, not in `entity`.
+    let submission: Submission = serde_json::from_value(json!({
+        "dataCapability": "campaign.saveEntity@1",
+        "target": { "aggregate": "Entity", "id": id },
+        "payload": { "entity": { "notes": "v2" } },
+        "caller": { "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] },
+    }))
+    .expect("a submission");
+    let answer = s.engine.submit(submission).await.expect("queued");
+    assert_eq!(answer.partition, format!("Entity/{id}"));
+    applied(&s.settled().await);
+    let row = s.row(&id).await;
+    assert_eq!(row["notes"], "v2");
+    assert_eq!(row["name"], "Elowen Ventargent");
+    assert_eq!(s.last(&id).number, 2);
 }
 
 #[tokio::test]
@@ -226,6 +275,7 @@ async fn an_alias_naming_another_element_by_its_alias_or_name_is_rejected_and_no
         assert_eq!(result.status, State::Rejected, "{alias}: {result:?}");
         assert_eq!(result.violations, ["alias-unique-in-campaign"], "{alias}");
         assert_eq!(s.row(&morlox_id).await, before, "{alias}");
+        assert_eq!(s.history.of(&morlox_id).len(), 1, "{alias}");
     }
     // A new element whose name doubles another's alias is refused too.
     let mut payload = morlox();
@@ -261,13 +311,7 @@ async fn a_dex_modifier_given_is_never_written() {
     assert_eq!(row["dexterity"], 15);
     for field in ["dexterityModifier", "mods"] {
         assert!(!row.contains_key(field), "{field}");
-        assert!(
-            !row["snapshot"]
-                .as_object()
-                .expect("a snapshot")
-                .contains_key(field),
-            "{field}"
-        );
+        assert!(!s.last(&id).snapshot.contains_key(field), "{field}");
     }
 }
 
@@ -286,20 +330,15 @@ async fn two_saves_of_one_element_submitted_together_queue_and_neither_is_reject
     );
     applied(&s.settled().await);
     let command = second["commandId"].as_str().expect("an id");
-    let (status, confirmed) = s
-        .post(
-            &format!("/commands/{command}/confirm"),
-            json!({ "by": "dm-2" }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "{confirmed}");
+    s.engine.confirm(command, "dm-2").await.expect("confirmed");
     applied(&s.settled().await);
     let row = s.row(&id).await;
     assert_eq!(row["notes"], "v3");
-    assert_eq!(row["versionNumber"], 3);
+    let version = s.last(&id);
+    assert_eq!(version.number, 3);
     assert_eq!(
-        row["diff"],
-        json!([{ "field": "notes", "old": "v2", "new": "v3" }])
+        version.diff,
+        [json!({ "field": "notes", "old": "v2", "new": "v3" })]
     );
 }
 
@@ -309,38 +348,29 @@ async fn a_save_queued_behind_one_cancelled_takes_the_next_number_and_its_diff_f
     let (id, result) = s.save(elowen(None, "v1")).await;
     applied(&result);
     // Held, so neither reaches the head before the first is cancelled.
-    let (status, hold) = s
-        .post(
-            "/holds",
-            json!({ "partition": format!("Entity/{id}"), "by": "dm" }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::CREATED, "{hold}");
+    let hold = s
+        .engine
+        .hold(&format!("Entity/{id}"), "dm", None)
+        .await
+        .expect("held");
     let first = s.submit("dm", elowen(Some(&id), "v2"), None).await;
     let second = s.submit("dm-2", elowen(Some(&id), "v3"), None).await;
-    // Numbered after the one ahead when it was submitted.
     let command = first["commandId"].as_str().expect("an id");
-    let (status, _) = s
-        .post(
-            &format!("/commands/{command}/cancel"),
-            json!({ "by": "dm" }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK);
+    s.engine.cancel(command, "dm").await.expect("cancelled");
     let command = second["commandId"].as_str().expect("an id");
-    s.post(
-        &format!("/commands/{command}/confirm"),
-        json!({ "by": "dm-2" }),
-    )
-    .await;
-    let hold = hold["id"].as_str().expect("a hold");
-    s.post(&format!("/holds/{hold}/release"), json!({})).await;
+    // Numbered after the one ahead when it was submitted.
+    let _ = s.engine.confirm(command, "dm-2").await;
+    s.engine.release(&hold.id).await.expect("released");
     applied(&s.settled().await);
-    let row = s.row(&id).await;
-    assert_eq!(row["versionNumber"], 2);
+    // The engine's row keeps the number the save was prepared with; the
+    // version settled follows the real one.
+    assert_eq!(s.row(&id).await["versionNumber"], 3);
+    let versions = s.history.of(&id);
+    assert_eq!(versions.len(), 2, "{versions:?}");
+    assert_eq!(versions[1].number, 2);
     assert_eq!(
-        row["diff"],
-        json!([{ "field": "notes", "old": "v1", "new": "v3" }])
+        versions[1].diff,
+        [json!({ "field": "notes", "old": "v1", "new": "v3" })]
     );
 }
 
@@ -351,13 +381,11 @@ async fn an_edit_queued_behind_a_create_rejected_is_rejected_too_and_no_element_
     applied(&result);
     // A place: no sheet trips its edit by accident.
     let id = "e1000000-0000-4000-8000-0000000000aa";
-    let (status, hold) = s
-        .post(
-            "/holds",
-            json!({ "partition": format!("Entity/{id}"), "by": "dm" }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::CREATED, "{hold}");
+    let hold = s
+        .engine
+        .hold(&format!("Entity/{id}"), "dm", None)
+        .await
+        .expect("held");
     // Its alias is Elowen's: the create is rejected once it reaches the head.
     s.submit(
         "dm",
@@ -377,14 +405,9 @@ async fn an_edit_queued_behind_a_create_rejected_is_rejected_too_and_no_element_
         .await;
     let command = edit["commandId"].as_str().expect("an id");
     if edit["result"]["status"] == "awaiting_confirmation" {
-        s.post(
-            &format!("/commands/{command}/confirm"),
-            json!({ "by": "dm-2" }),
-        )
-        .await;
+        s.engine.confirm(command, "dm-2").await.expect("confirmed");
     }
-    let hold = hold["id"].as_str().expect("a hold");
-    s.post(&format!("/holds/{hold}/release"), json!({})).await;
+    s.engine.release(&hold.id).await.expect("released");
     let mut settled = s.engine.run_once().await.expect("the applier ran");
     settled.extend(s.engine.run_once().await.expect("the applier ran"));
     assert_eq!(settled.len(), 2, "{settled:?}");
@@ -392,6 +415,7 @@ async fn an_edit_queued_behind_a_create_rejected_is_rejected_too_and_no_element_
     assert_eq!(settled[1].status, State::Rejected, "{settled:?}");
     assert_eq!(settled[1].violations, ["every-change-versioned"]);
     assert!(s.row(id).await.is_empty(), "{:?}", s.row(id).await);
+    assert!(s.history.of(id).is_empty());
 }
 
 #[tokio::test]
@@ -415,7 +439,7 @@ async fn the_same_idempotency_key_twice_adds_one_version() {
             .expect("the applier ran")
             .is_empty()
     );
-    assert_eq!(s.row(&id).await["versionNumber"], 2);
+    assert_eq!(s.history.of(&id).len(), 2);
 }
 
 #[tokio::test]
@@ -440,7 +464,7 @@ async fn a_player_on_an_npc_or_a_sheet_on_a_place_is_rejected_by_character_is_pj
 }
 
 #[tokio::test]
-async fn a_save_the_tables_could_never_hold_is_refused_422_and_never_queued() {
+async fn a_save_the_tables_could_never_hold_is_refused_unprocessable_and_never_queued() {
     let s = served().await;
     for (payload, why) in [
         (
@@ -456,18 +480,13 @@ async fn a_save_the_tables_could_never_hold_is_refused_422_and_never_queued() {
             "un élément est un pj, un pnj, un lieu ou un evenement",
         ),
     ] {
-        let (status, answer) = s
-            .post(
-                "/commands",
-                json!({
-                    "dataCapability": "campaign.saveEntity@1",
-                    "payload": payload,
-                    "caller": { "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] },
-                }),
-            )
-            .await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{answer}");
-        assert_eq!(answer["error"], why);
+        match s.submitted("dm", payload, None).await {
+            Err(Error::Refused(refusal)) => {
+                assert_eq!(refusal.kind, RefusalKind::Unprocessable, "{why}");
+                assert_eq!(refusal.message, why);
+            }
+            other => panic!("{why}: {other:?}"),
+        }
     }
     assert!(
         s.engine

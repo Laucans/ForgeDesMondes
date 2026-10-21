@@ -45,7 +45,12 @@ dependencies = [
 name = "aggregate-entity"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "data",
  "harness-dataguard",
+ "platform-conformance",
+ "restore-entity-version",
+ "save-entity",
  "serde_json",
  "tokio",
  "unicode-normalization",
@@ -446,7 +451,6 @@ dependencies = [
  "platform-conformance",
  "ports-llm",
  "ports-speech-to-text",
- "restore-entity-version",
  "save-entity",
  "save-grid-settings",
  "save-settings",
@@ -1462,9 +1466,13 @@ dependencies = [
 name = "restore-entity-version"
 version = "0.1.0"
 dependencies = [
+ "aggregate-entity",
+ "async-trait",
  "harness-dataguard",
  "platform-conformance",
+ "save-entity",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1590,9 +1598,12 @@ dependencies = [
 name = "save-entity"
 version = "0.1.0"
 dependencies = [
+ "aggregate-entity",
+ "async-trait",
  "harness-dataguard",
  "platform-conformance",
  "serde_json",
+ "tokio",
  "unicode-normalization",
 ]
 

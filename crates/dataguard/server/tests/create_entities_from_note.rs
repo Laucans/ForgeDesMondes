@@ -303,8 +303,8 @@ async fn a_validation_retried_after_a_failure_half_way_finds_its_element_and_mak
     let (_, proposals) = s.analysed(VALOMBRE).await;
     let pnj = first(&proposals, "pnj");
     // The failure: the element was queued, applied, and its proposal never
-    // recorded it. It is queued as the route does, under the ids its
-    // proposal gives it.
+    // recorded it. It is queued as the route does, under the id its
+    // proposal gives it: a save of its campaign, type, name and excerpt.
     let wire: Fields = [
         ("campaign".to_owned(), json!(VALOMBRE)),
         ("accepted".to_owned(), json!([pnj])),
@@ -325,10 +325,24 @@ async fn a_validation_retried_after_a_failure_half_way_finds_its_element_and_mak
         )
         .expect("a batch");
     let element = &batch.elements[0].command;
+    let mut entity = json!({ "id": element.target_id });
+    for (wire, field) in [
+        ("kind", "type"),
+        ("name", "name"),
+        ("description", "description"),
+    ] {
+        if let Some(value) = element.payload.get(field) {
+            entity[wire] = value.clone();
+        }
+    }
     s.engine
         .submit(Submission {
             data_capability: "campaign.saveEntity@1".to_owned(),
-            payload: element.payload.clone(),
+            payload: [
+                ("campaign".to_owned(), json!(VALOMBRE)),
+                ("entity".to_owned(), entity),
+            ]
+            .into(),
             target_id: Some(element.target_id.clone()),
             caller: serde_json::from_value(caller()).expect("a caller"),
             ..Submission::default()

@@ -27,8 +27,8 @@ tower = { version = "0.5", default-features = false, features = ["util"] }
 [dependencies]
 harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v4", features = ["postgres", "uuid"] }
 dataguard-registry = { path = "../registry" }
-# The Entity aggregate's index of names and aliases, which its judge reads:
-# kept here, as the tables hold it, until the Entity aggregate projects.
+# The Entity aggregate's index of names and aliases, which an analysis of
+# notes recognises the campaign's elements by (`Rows::known`).
 aggregate-entity = { path = "../../campaign/aggregates/Entity" }
 async-trait = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
@@ -60,7 +60,6 @@ list-players = { path = "../../campaign/capabilities/list-players" }
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
-restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }

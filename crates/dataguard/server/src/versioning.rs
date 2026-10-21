@@ -1,16 +1,10 @@
-//! The Entity aggregate's versions, settled when a write is applied.
+//! What the legacy chain keeps of each applied write, and the rows it reads.
 //!
-//! A save is numbered, snapshotted and diffed when it is submitted, against
-//! the row the commands queued ahead of it will leave ([`Rows::projected`]):
-//! what the DataGuard judges. [`Versioning`] settles it at application, on
-//! the single applier, against the row as it really is — the same
-//! computation (`save_entity::versioned`): a command ahead that was
-//! cancelled or rejected leaves no gap in the numbers and no change in the
-//! diff that never happened. Over the engine's memory it keeps [`Aliases`]
-//! too, which `alias-unique-in-campaign` reads, and the [`History`] of the
-//! versions a restoration is prepared against; over a database the
-//! projection keeps them, once the tables hold the write. Every other method
-//! is the inner store's.
+//! [`Versioning`] keeps the terms of every element the engine applied —
+//! a write the tables refused is never applied — in [`Aliases`], which an
+//! analysis of notes recognises the campaign's elements by
+//! ([`Rows::known`]), and records each applied proposal among its note's.
+//! Every other method is the inner store's.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -22,11 +16,8 @@ use harness_dataguard::Result;
 use harness_dataguard::command::{CommandResult, Entry};
 use harness_dataguard::queue::Hold;
 use harness_dataguard::store::{Collision, Store, Write};
-use restore_entity_version::Kept;
-use save_entity::{stamp, versioned};
 use serde_json::Value;
 
-use crate::history::History;
 use crate::notes::Notes;
 use crate::projection::{Placing, ProjectingStore};
 
@@ -50,31 +41,23 @@ fn proposal_of(write: &Write) -> Option<(&str, &str)> {
     Some((proposal, note))
 }
 
-/// A store whose applied Entity writes carry their settled version, and
-/// whose applied proposals are recorded among their note's.
+/// A store whose applied elements' terms are kept, and whose applied
+/// proposals are recorded among their note's.
 pub struct Versioning {
     inner: Arc<dyn Store>,
-    aliases: Option<Arc<Aliases>>,
-    history: Option<Arc<History>>,
+    aliases: Arc<Aliases>,
     notes: Arc<Notes>,
 }
 
 impl Versioning {
-    /// The store over `inner`, keeping `aliases` — `None` when `inner` keeps
-    /// them itself, after its tables.
-    pub fn new(inner: Arc<dyn Store>, aliases: Option<Arc<Aliases>>) -> Self {
+    /// The store over `inner`, keeping the applied elements' terms in
+    /// `aliases`.
+    pub fn new(inner: Arc<dyn Store>, aliases: Arc<Aliases>) -> Self {
         Self {
             inner,
             aliases,
-            history: None,
             notes: Arc::default(),
         }
-    }
-
-    /// The same, keeping `history` too — as `aliases`, when `inner` does not.
-    #[must_use]
-    pub fn keeping(self, history: Option<Arc<History>>) -> Self {
-        Self { history, ..self }
     }
 
     /// The same, recording the proposals of each note in `notes`.
@@ -130,39 +113,11 @@ impl Store for Versioning {
             }
             return Ok(version);
         };
+        let version = self.inner.apply(write, result).await?;
         if write.tombstone {
-            let version = self.inner.apply(write, result).await?;
-            if let Some(aliases) = &self.aliases {
-                aliases.forget(element);
-            }
-            if let Some(history) = &self.history {
-                history.forget(element);
-            }
-            return Ok(version);
-        }
-        let before = self.inner.row(&write.partition).await?;
-        let mut values = write.values.clone();
-        // A save carries a version of its own (`every-change-versioned`
-        // refuses one reusing the last id); a write carrying none keeps the
-        // row's.
-        let versioning = values.get("entityVersionId") != before.get("entityVersionId");
-        if versioning {
-            let version = versioned(&before, &values);
-            stamp(&mut values, version);
-        }
-        let settled = Write {
-            partition: write.partition.clone(),
-            values,
-            tombstone: false,
-        };
-        let version = self.inner.apply(&settled, result).await?;
-        if let Some(aliases) = &self.aliases {
-            aliases.record(element, &settled.values);
-        }
-        if let Some(history) = self.history.as_ref().filter(|_| versioning)
-            && let Some(kept) = Kept::of(&settled.values)
-        {
-            history.record(element, kept);
+            self.aliases.forget(element);
+        } else {
+            self.aliases.record(element, &write.values);
         }
         Ok(version)
     }
@@ -186,23 +141,16 @@ impl Store for Versioning {
 #[derive(Clone)]
 pub struct Rows {
     store: Arc<dyn Store>,
-    history: Arc<History>,
     tables: Option<Arc<ProjectingStore>>,
     aliases: Arc<Aliases>,
     notes: Arc<Notes>,
 }
 
 impl Rows {
-    /// The rows of `store`, whose elements have no version kept.
+    /// The rows of `store`.
     pub fn new(store: Arc<dyn Store>) -> Self {
-        Self::keeping(store, Arc::default())
-    }
-
-    /// The rows of `store`, the versions of its elements kept in `history`.
-    pub(crate) fn keeping(store: Arc<dyn Store>, history: Arc<History>) -> Self {
         Self {
             store,
-            history,
             tables: None,
             aliases: Arc::default(),
             notes: Arc::default(),
@@ -381,11 +329,6 @@ impl Rows {
             .map(|media| (media, over(table_place.flatten(), engine_place))))
     }
 
-    /// The versions of `element` a restoration can name, oldest first.
-    pub fn versions(&self, element: &str) -> Vec<Kept> {
-        self.history.of(element)
-    }
-
     /// The proposals of the imported note `note` names that the engine
     /// applied, by id: a proposal still queued may never be.
     pub fn proposals(&self, note: &str) -> Vec<String> {
@@ -448,87 +391,40 @@ mod tests {
         }
     }
 
-    /// Morlox's row as a save leaves it, numbered `number` with version `id`.
-    fn saved(name: &str, id: &str, number: u64) -> Value {
+    /// Morlox's row as a save leaves it.
+    fn saved(name: &str) -> Value {
         json!({
             "entityId": "e1000000-0000-4000-8000-000000000003",
             "entityCampaignId": "c1000000-0000-4000-8000-000000000001",
             "type": "pnj",
             "name": name,
             "alias": ["le gobelin"],
-            "entityVersionId": id,
-            "versionNumber": number,
-            "source": "dm",
-            "snapshot": {},
-            "diff": [],
         })
     }
 
     #[tokio::test]
-    async fn an_applied_save_carries_the_version_after_the_real_row_s_and_records_its_terms() {
+    async fn an_applied_element_s_terms_are_known_until_it_is_removed() {
         let inner = Arc::new(MemoryStore::default());
         let aliases = Arc::new(Aliases::default());
-        let store = Versioning::new(inner.clone(), Some(aliases.clone()));
-        // Numbered 5 when submitted, behind saves that never landed.
+        let store = Versioning::new(inner.clone(), aliases.clone());
         store
-            .apply(&write(saved("Morlox", "v1", 5), false), &result())
+            .apply(&write(saved("Morlox"), false), &result())
             .await
             .expect("applied");
-        let row = inner.row_now(MORLOX);
-        assert_eq!(row["versionNumber"], 1);
-        assert_eq!(
-            row["snapshot"],
-            json!({ "type": "pnj", "name": "Morlox", "aliases": ["le gobelin"] })
-        );
-        assert_eq!(row["diff"].as_array().map(Vec::len), Some(3));
-        let other = write(saved("Bandit", "v9", 1), false).values;
-        assert_eq!(
-            aliases.taken("bandit", &other),
-            Some("le gobelin".to_owned())
-        );
-
-        store
-            .apply(&write(saved("Morlox le Vil", "v2", 7), false), &result())
-            .await
-            .expect("applied");
-        let row = inner.row_now(MORLOX);
-        assert_eq!(row["versionNumber"], 2);
-        assert_eq!(
-            row["diff"],
-            json!([{ "field": "name", "old": "Morlox", "new": "Morlox le Vil" }])
-        );
-    }
-
-    #[tokio::test]
-    async fn a_write_carrying_no_version_of_its_own_keeps_the_row_s_and_a_removal_frees_its_terms()
-    {
-        let inner = Arc::new(MemoryStore::default());
-        let aliases = Arc::new(Aliases::default());
-        let store = Versioning::new(inner.clone(), Some(aliases.clone()));
-        store
-            .apply(&write(saved("Morlox", "v1", 1), false), &result())
-            .await
-            .expect("applied");
-        let before = inner.row_now(MORLOX);
-        // The same version id: no new version is made of it.
-        let mut same = saved("Morlox le Vil", "v1", 1);
-        same["snapshot"] = before["snapshot"].clone();
-        same["diff"] = before["diff"].clone();
-        store
-            .apply(&write(same, false), &result())
-            .await
-            .expect("applied");
-        let row = inner.row_now(MORLOX);
-        assert_eq!(row["versionNumber"], before["versionNumber"]);
-        assert_eq!(row["snapshot"], before["snapshot"]);
-        assert_eq!(row["name"], "Morlox le Vil");
+        assert_eq!(inner.row_now(MORLOX)["name"], "Morlox");
+        let known = aliases.known("c1000000-0000-4000-8000-000000000001");
+        assert_eq!(known.len(), 1);
+        assert_eq!(known[0].aliases, ["le gobelin"]);
 
         store
             .apply(&write(json!({}), true), &result())
             .await
             .expect("removed");
-        let other = write(saved("Bandit", "v9", 1), false).values;
-        assert_eq!(aliases.taken("bandit", &other), None);
+        assert!(
+            aliases
+                .known("c1000000-0000-4000-8000-000000000001")
+                .is_empty()
+        );
     }
 
     /// A command pending on `partition`, at `position`, writing `payload`.
@@ -563,7 +459,7 @@ mod tests {
                 .colliding("campaign.saveEntity", collision.clone())
                 .pointed_at(MORLOX, incoming.clone()),
         );
-        let store = Versioning::new(inner.clone(), None);
+        let store = Versioning::new(inner.clone(), Arc::default());
         let entry = pending("c_1", MORLOX, 1, json!({ "name": "Morlox" }));
         store.save(&entry).await.expect("saved");
         assert_eq!(store.pending().await.expect("pending"), vec![entry.clone()]);

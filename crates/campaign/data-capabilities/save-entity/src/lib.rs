@@ -27,17 +27,25 @@
 //! - the version is the next one (EntityVersion@1, source `dm`): its number,
 //!   the complete snapshot of the element as the save leaves it, and the diff
 //!   from the previous snapshot. [`versioned`] computes it from the row before
-//!   and the row after: here against the row the queue will have left, and
-//!   again by the store against the real one when the save is applied.
+//!   and the row after, here against the row the queue will have left; the
+//!   Entity aggregate settles it again when the save is applied, after the
+//!   element's last version.
+//!
+//! The engine runs [`plugin`]'s `Prepare`: on the element's row as the queue
+//! leaves it, with fresh ids and now.
 
 use std::collections::BTreeMap;
 
-use harness_dataguard::plugins::Plugin;
+use async_trait::async_trait;
+use harness_dataguard::plugins::{self as engine, Context, Plugin};
 use serde_json::{Map, Value};
 use unicode_normalization::UnicodeNormalization;
 
 /// This DataCapability's id, as `data-capability.json` names it.
 pub const DATA_CAPABILITY: &str = "campaign.saveEntity";
+
+/// This DataCapability's manifest (contract F), as the engine parses it.
+pub const MANIFEST: &str = include_str!("../data-capability.json");
 
 /// Where a save by the DM comes from (EntityVersion@1).
 pub const SOURCE: &str = "dm";
@@ -260,12 +268,50 @@ pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new().prepare(DATA_CAPABILITY, Save)
+}
+
+/// A save made what it writes ([`prepare`]): on the element `entity.id`
+/// names — else the one the command targets, else a new one given a fresh
+/// id — its row as the queue leaves it, a fresh version id and now; on the
+/// partition its `entityId` names. A save the tables could never hold is
+/// refused as unprocessable.
+struct Save;
+
+#[async_trait]
+impl engine::Prepare for Save {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &Row,
+        target_id: Option<&str>,
+    ) -> Result<engine::Prepared, engine::Refusal> {
+        let named = element_id(payload).or_else(|| target_id.map(str::to_owned));
+        // The element's row as the queue leaves it — whether the command
+        // targets it or `entity.id` alone names it — empty for a new one.
+        let base = match &named {
+            Some(id) => context.row(&format!("Entity/{id}")).await?,
+            None => Row::new(),
+        };
+        let entity = named.unwrap_or_else(|| context.ids.fresh());
+        let version = context.ids.fresh();
+        let now = aggregate_entity::timestamp(context.now_millis);
+        let fresh = Fresh {
+            entity: &entity,
+            version: &version,
+            now: &now,
+        };
+        let prepared = prepare(payload, &base, fresh)
+            .map_err(|refusal| engine::Refusal::unprocessable(refusal.to_string()))?;
+        // The partition is the one the payload's `entityId` names.
+        Ok(engine::Prepared {
+            payload: prepared.payload,
+            ..engine::Prepared::default()
+        })
+    }
 }
 
 /// The fields the editor sends: under `entity`, or the payload itself.

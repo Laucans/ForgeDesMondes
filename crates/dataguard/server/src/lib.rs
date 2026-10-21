@@ -26,9 +26,10 @@
 //! registry's — over the connection of its own that [`router_reading`] is
 //! given; [`router`] serves none.
 //!
-//! Over a database, the engine's writes reach the product's tables through
-//! [`projection::ProjectingStore`], after the apply, and an element's version
-//! is settled when it is applied ([`versioning::Versioning`]). What each
+//! Over a database, the engine's writes reach the product's tables: an
+//! aggregate whose crate projects them does so in the apply transaction
+//! (its `ProjectPg`, which the store runs), the others through
+//! [`projection::ProjectingStore`], after the apply. What each
 //! DataCapability of the legacy chain is prepared against — the rows
 //! [`Rows`] reads, the ports the router is given — is told by its module.
 
@@ -48,13 +49,12 @@ use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::plugins::{Plugins, RefusalKind};
 use harness_dataguard::postgres::{PgStore, SystemClock};
 use harness_dataguard::registry::Registry;
-use harness_dataguard::store::Store;
+use harness_dataguard::store::{RandomIds, Store};
 use ports_llm::Llm;
 use ports_speech_to_text::SpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 
 mod exports;
-mod history;
 mod legacy;
 mod notes;
 mod projection;
@@ -171,10 +171,11 @@ pub async fn planted_with(
     url: &str,
     shared: harness_dataguard::plugins::Shared,
 ) -> Result<Planted, PlantError> {
+    // The elements' terms an analysis of notes recognises (`Rows::known`),
+    // kept here until `ai.extractFromNotes` reads them itself.
     let aliases = Arc::new(Aliases::default());
-    let history = Arc::new(history::History::default());
     let notes = Arc::new(notes::Notes::default());
-    let plugins = plugins(&aliases);
+    let plugins = plugins();
     let mut tables = None;
     let store: Arc<dyn Store> = if url == MEMORY {
         Arc::new(MemoryStore::default())
@@ -185,32 +186,23 @@ pub async fn planted_with(
                 eprintln!("postgres: {e}");
             }
         });
-        // The aggregates' projections in the apply transaction: none yet,
-        // each lands with its aggregate's move out of this server.
+        // The aggregates' projections in the apply transaction, each landed
+        // with its aggregate's move out of this server.
         let inner = PgStore::open(client)
             .await?
             .with_projections(&plugins)
             .await?;
-        let store =
-            projection::ProjectingStore::new(inner, aliases.clone()).keeping(history.clone());
+        let store = projection::ProjectingStore::new(inner, aliases.clone());
         store.repair().await;
         store.repair_tests().await;
         store.elements().await;
-        store.versions(None).await;
         store.notes(&notes).await;
         let store = Arc::new(store);
         tables = Some(store.clone());
         store
     };
-    // Over memory, the engine's rows are the tables: they keep the terms and
-    // the versions.
-    let kept = (url == MEMORY).then(|| aliases.clone());
-    let versions = (url == MEMORY).then(|| history.clone());
-    let store: Arc<dyn Store> = Arc::new(
-        versioning::Versioning::new(store, kept)
-            .keeping(versions)
-            .noting(notes.clone()),
-    );
+    let store: Arc<dyn Store> =
+        Arc::new(versioning::Versioning::new(store, aliases.clone()).noting(notes.clone()));
     let engine = bound(
         Engine::new(
             store.clone(),
@@ -223,34 +215,20 @@ pub async fn planted_with(
     engine.load().await?;
     Ok(Planted {
         engine,
-        rows: Rows::keeping(store, history)
+        rows: Rows::new(store)
             .reading(tables)
             .knowing(aliases)
             .noting(notes),
     })
 }
 
-/// The Entity aggregate's folder, as the registry names its unit.
-const ENTITY: &str = "crates/campaign/aggregates/Entity";
-
-/// Every unit's plugin, as the registry gathers them — but the Entity
-/// aggregate's judge reads `aliases`, which this server keeps after its
-/// tables ([`projection::ProjectingStore`], [`versioning::Versioning`]),
-/// where the aggregate's own plugin would keep the engine's writes: a save
-/// the tables refused takes no term.
-fn plugins(aliases: &Arc<Aliases>) -> Plugins {
+/// Every unit's plugin, as the registry gathers them.
+fn plugins() -> Plugins {
     dataguard_registry::AGGREGATES
         .iter()
         .chain(dataguard_registry::DATA_CAPABILITIES)
         .chain(dataguard_registry::CAPABILITIES)
-        .filter_map(|unit| {
-            let plugin = unit.plugin?;
-            Some(if unit.folder == ENTITY {
-                aggregate_entity::judging(aliases.clone())
-            } else {
-                plugin()
-            })
-        })
+        .filter_map(|unit| unit.plugin.map(|plugin| plugin()))
         .collect()
 }
 
@@ -270,7 +248,11 @@ fn bound(
         engine = engine.with_data_capability(DataCapability::parse(text)?);
     }
     // engine = engine.with_proposer(Arc::new(my_product::Proposer));
-    Ok(engine.with_plugins(plugins).with_shared(shared))
+    // A new row's id, and a version's, is a uuid, as the tables hold it.
+    Ok(engine
+        .with_ids(Arc::new(RandomIds))
+        .with_plugins(plugins)
+        .with_shared(shared))
 }
 
 /// The shell's wire protocol, answered by `engine`, whose rows are `rows`;
@@ -396,12 +378,6 @@ async fn submit<L: Llm, S: SpeechToText>(
         // ---
         test_connection::DATA_CAPABILITY => {
             legacy::test_connection::submit(served, body, &now).await
-        }
-        // ---
-        save_entity::DATA_CAPABILITY => legacy::save_entity::submit(served, body, &now).await,
-        // ---
-        restore_entity_version::DATA_CAPABILITY => {
-            legacy::restore_entity_version::submit(served, body, &now).await
         }
         // ---
         set_media_place::DATA_CAPABILITY => {
@@ -747,7 +723,7 @@ mod tests {
                 Arc::new(MemoryNotifier::default()),
                 Arc::new(harness_dataguard::memory::FixedClock::at(1000)),
             ),
-            plugins(&Arc::default()),
+            plugins(),
             harness_dataguard::plugins::Shared::default(),
         )
         .expect("the product's manifests parse");
