@@ -9,4 +9,12 @@ publish = false
 [dependencies]
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 harness-dataguard = { workspace = true }
+# Its target aggregate: the place of a media, as the tables hold it.
+aggregate-media = { path = "../../aggregates/Media" }
+async-trait = "0.1"
 serde_json = "1"
+
+[dev-dependencies]
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

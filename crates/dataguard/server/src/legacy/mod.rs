@@ -11,9 +11,3 @@ pub(crate) mod export_campaign;
 // ---
 pub(crate) mod extract_from_notes;
 // ---
-pub(crate) mod save_grid_settings;
-// ---
-pub(crate) mod set_media_place;
-// ---
-pub(crate) mod upload_media;
-// ---

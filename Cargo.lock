@@ -61,6 +61,8 @@ dependencies = [
 name = "aggregate-media"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
  "tokio",
@@ -463,15 +465,12 @@ dependencies = [
  "ports-llm",
  "ports-speech-to-text",
  "save-entity",
- "save-grid-settings",
  "serde",
  "serde_json",
- "set-media-place",
  "thiserror",
  "tokio",
  "tokio-postgres",
  "tower",
- "upload-media",
 ]
 
 [[package]]
@@ -1620,8 +1619,12 @@ dependencies = [
 name = "save-grid-settings"
 version = "0.1.0"
 dependencies = [
+ "aggregate-media",
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1756,8 +1759,12 @@ dependencies = [
 name = "set-media-place"
 version = "0.1.0"
 dependencies = [
+ "aggregate-media",
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -2141,8 +2148,12 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 name = "upload-media"
 version = "0.1.0"
 dependencies = [
+ "aggregate-media",
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
