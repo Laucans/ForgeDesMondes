@@ -6,47 +6,47 @@
 //! The engine writes one partition per command. A validation is the
 //! proposals' commands, on their `NoteImport/<proposal id>` partitions,
 //! which the NoteImport aggregate judges (`no-creation-before-validation`),
-//! and the elements it creates, each on its `Entity/<element id>` partition,
-//! which the Entity aggregate judges and its store projects into `entity`,
-//! `character` and `entity_version`. What the DM sends is `{ campaign,
-//! accepted }`; [`Request::batch`] turns it into those commands, against the
-//! proposals of the notes the accepted ones are of, as the engine holds
-//! them:
+//! and the elements it creates, each the DM's save of an element
+//! (`campaign.saveEntity`, the Entity aggregate's DataCapability) on its
+//! `Entity/<element id>` partition, under whose touches the engine judges
+//! every Entity invariant and which adds its first version. What the DM sends
+//! is `{ campaign, accepted }`; [`Request::batch`] turns it into those
+//! commands, against the proposals of the notes the accepted ones are of, as
+//! the engine holds them:
 //!
 //! - an accepted proposal is checked, and becomes an element of its type,
 //!   its name and its excerpt for description — unless it already created
 //!   one (`createdEntityId`), or recognises an element the campaign still
 //!   holds: no element is made twice. The proposal records the element it
 //!   became;
-//! - a PC or an NPC has its sheet, with a token colour to fall back on
-//!   (`default-token`); a place or an event has none
-//!   (`character-is-pj-or-pnj`);
-//! - every element made starts with its first version (EntityVersion@1,
-//!   source `dm`: the DM's validation is their explicit save): number 1, its
-//!   complete snapshot, and the diff from an empty one;
 //! - every other proposal of those notes is unchecked, unless it created its
 //!   element already, which it never forgets;
 //! - a validation naming no campaign or no proposal is refused before
 //!   anything is queued ([`Refusal`]), as is one naming a proposal of no
 //!   note of its campaign.
+//!
+//! The engine runs it through this crate's [`plugin`]: the last proposal's
+//! command is the one submitted — its idempotency key, its result — and the
+//! `Prepare` asks the engine for the others after it (`Prepared.then`): the
+//! elements' saves first, then the other proposals'.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
-use harness_dataguard::plugins::Plugin;
+use aggregate_note_import::{Announced, Notes};
+use async_trait::async_trait;
+use harness_dataguard::api::Submission;
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::{Map, Value};
 
 /// This DataCapability's id, as `data-capability.json` names it.
 pub const DATA_CAPABILITY: &str = "campaign.createEntitiesFromNote";
 
-/// Where the first version of an element the DM validated comes from
-/// (EntityVersion@1).
-pub const SOURCE: &str = "dm";
+/// The DataCapability's manifest (contract F), as the engine parses it.
+pub const MANIFEST: &str = include_str!("../data-capability.json");
 
-/// The colour a new PC's or NPC's token falls back on (`default-token`).
-pub const DEFAULT_TOKEN_COLOR: &str = "accent";
-
-/// The types of element that have a character sheet.
-const CHARACTERS: [&str; 2] = ["pj", "pnj"];
+/// The DataCapability an element is saved through: the Entity aggregate's.
+pub const SAVE_ENTITY: &str = "campaign.saveEntity";
 
 /// The types a proposal may have.
 const TYPES: [&str; 4] = ["pj", "pnj", "lieu", "evenement"];
@@ -108,24 +108,21 @@ pub struct Proposal {
     pub recognised: bool,
 }
 
-/// The ids an element made is given: its own, and its first version's.
+/// The id an element made is given.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fresh {
     /// The element's id.
     pub entity: String,
-    /// Its first version's id.
-    pub version: String,
 }
 
 impl Fresh {
-    /// The ids the element `proposal` becomes is given: the same ones every
+    /// The id the element `proposal` becomes is given: the same one every
     /// time, so a validation retried after a failure half-way finds the
     /// element it made and does not make it twice.
     #[must_use]
     pub fn of(proposal: &str) -> Self {
         Self {
             entity: derived_uuid("entity", proposal),
-            version: derived_uuid("version", proposal),
         }
     }
 }
@@ -162,7 +159,9 @@ pub struct Command {
     /// `NoteImport/<target_id>` for a proposal, `Entity/<target_id>` for an
     /// element.
     pub target_id: String,
-    /// The fields it writes, by the aggregate's names.
+    /// A proposal's: the fields it writes, by the aggregate's names. An
+    /// element's: its save as the DM's editor sends it, which
+    /// `campaign.saveEntity` maps.
     pub payload: Row,
 }
 
@@ -185,31 +184,192 @@ pub struct Batch {
     pub stamps: Vec<Command>,
 }
 
-/// The version an element's first save adds (EntityVersion@1).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Version {
-    /// 1, then the previous number plus 1.
-    pub number: u64,
-    /// The element after the save, complete.
-    pub snapshot: Map<String, Value>,
-    /// What changed from the previous snapshot, `{field, old, new}` sorted
-    /// by field.
-    pub diff: Vec<Value>,
-}
-
 /// Whether `id` names this DataCapability, with or without its `@version`.
 #[must_use]
 pub fn names(id: &str) -> bool {
     id.split('@').next() == Some(DATA_CAPABILITY)
 }
 
-/// What the DataCapability plugs into the engine: nothing yet — the legacy
-/// server (`crates/dataguard/server`) still prepares it, until its
-/// `Prepare` moves here.
+/// What the DataCapability plugs into the engine: its `Prepare`, which
+/// reads the proposals of each note the NoteImport aggregate keeps.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Default::default()
+    Plugin::new()
+        .prepare(
+            DATA_CAPABILITY,
+            Validate {
+                announced: Arc::default(),
+                validating: Arc::default(),
+            },
+        )
+        .needs::<Notes>()
 }
+
+/// A validation made the commands it submits ([`Request::batch`]), against
+/// the proposals as the queue leaves them ([`held`]): the last proposal's
+/// command is the one submitted, the elements' saves and the other
+/// proposals' its follow-ups, in that order — each follow-up of this
+/// DataCapability written as it was announced ([`Announced`]). A validation
+/// naming no campaign or no proposal is refused, 422, and one naming a
+/// proposal of no note of its campaign, 404: neither is queued.
+///
+/// Validations are prepared one at a time, each against the proposals the
+/// one before queued. Its follow-ups are queued once it is, outside that
+/// order: one prepared meanwhile may save an element again — under the same
+/// id ([`Fresh::of`]), so never a second element.
+struct Validate {
+    announced: Arc<Announced>,
+    validating: Arc<tokio::sync::Mutex<()>>,
+}
+
+/// Why a validation is refused when the NoteImport aggregate shares no
+/// proposals: the engine refuses to load first, so a server never answers
+/// it.
+const NO_NOTES: &str = "les propositions des notes ne sont pas partagées";
+
+#[async_trait]
+impl Prepare for Validate {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &Row,
+        target_id: Option<&str>,
+    ) -> Result<plugins::Prepared, plugins::Refusal> {
+        if let Some(stamp) = self.announced.take(target_id, payload) {
+            return Ok(plugins::Prepared {
+                payload: stamp,
+                target_id: target_id.map(str::to_owned),
+                ..plugins::Prepared::default()
+            });
+        }
+        let _validating = self.validating.lock().await;
+        let request = request(payload)
+            .map_err(|refusal| plugins::Refusal::unprocessable(refusal.to_string()))?;
+        let notes = context
+            .shared
+            .get::<Notes>()
+            .ok_or_else(|| plugins::Refusal::unprocessable(NO_NOTES))?;
+        let proposals = held(context, &notes, &request.accepted).await?;
+        let fresh = request.accepted.iter().map(|id| Fresh::of(id)).collect();
+        let Batch {
+            elements,
+            mut stamps,
+        } = request
+            .batch(&proposals, fresh)
+            .map_err(|refusal| plugins::Refusal::not_found(refusal.to_string()))?;
+        // An accepted proposal is always stamped: there is a last.
+        let last = stamps
+            .pop()
+            .ok_or_else(|| plugins::Refusal::unprocessable(Refusal::NothingAccepted.to_string()))?;
+        let mut saves = Vec::new();
+        for Element { command, .. } in elements {
+            // Queued by a validation that failed before it stamped its
+            // proposal, or made, then deleted by the DM: never made again,
+            // still recorded.
+            let partition = format!("Entity/{}", command.target_id);
+            if !context.row(&partition).await?.is_empty() || deleted(context, &partition).await? {
+                continue;
+            }
+            // The element is the one its payload's `entity.id` names.
+            saves.push(Submission {
+                data_capability: SAVE_ENTITY.to_owned(),
+                payload: command.payload,
+                ..Submission::default()
+            });
+        }
+        let others = stamps.into_iter().map(|stamp| {
+            self.announced
+                .follow_up(DATA_CAPABILITY, &stamp.target_id, stamp.payload)
+        });
+        Ok(plugins::Prepared {
+            payload: last.payload,
+            target_id: Some(last.target_id),
+            then: saves.into_iter().chain(others).collect(),
+            ..plugins::Prepared::default()
+        })
+    }
+}
+
+/// `field` of `row` as text, when it is.
+fn text(row: &Row, field: &str) -> Option<String> {
+    row.get(field).and_then(Value::as_str).map(str::to_owned)
+}
+
+/// The proposals a validation of `accepted` is made against, as the queue
+/// leaves them: the accepted ones, and every other of their notes that the
+/// engine applied (`notes`), each with its note's campaign, whether the
+/// element it recognises is one the engine still holds, and no element made
+/// when the engine holds none of the one it records and did not delete it.
+async fn held(
+    context: &Context<'_>,
+    notes: &Notes,
+    accepted: &[String],
+) -> Result<Vec<Proposal>, plugins::Refusal> {
+    let mut ids: BTreeSet<String> = accepted.iter().cloned().collect();
+    for id in accepted {
+        let row = context.row(&format!("NoteImport/{id}")).await?;
+        if let Some(note) = text(&row, NOTE) {
+            ids.extend(notes.of(&note));
+        }
+    }
+    let mut campaigns: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let mut proposals = Vec::new();
+    for id in ids {
+        let mut row = context.row(&format!("NoteImport/{id}")).await?;
+        // An element rejected once applied leaves its proposal recording an
+        // element that never existed: the proposal is held as not made, and
+        // a validation makes it again. One the DM deleted stays made.
+        if let Some(element) = text(&row, CREATED) {
+            let partition = format!("Entity/{element}");
+            if context.row(&partition).await?.is_empty() && !deleted(context, &partition).await? {
+                row.remove(CREATED);
+            }
+        }
+        let campaign = match text(&row, NOTE) {
+            Some(note) => match campaigns.get(&note) {
+                Some(campaign) => campaign.clone(),
+                None => {
+                    let of = context.row(&format!("NoteImport/{note}")).await?;
+                    let campaign = text(&of, "campaignId");
+                    campaigns.insert(note, campaign.clone());
+                    campaign
+                }
+            },
+            None => None,
+        };
+        // An element deleted is no longer recognised: accepted, the proposal
+        // makes a new one.
+        let recognised = match text(&row, "existingEntityId") {
+            Some(element) => !context.row(&format!("Entity/{element}")).await?.is_empty(),
+            None => false,
+        };
+        proposals.push(Proposal {
+            id,
+            row,
+            campaign,
+            recognised,
+        });
+    }
+    Ok(proposals)
+}
+
+/// Whether the engine deleted `partition`'s row — its tombstone — which it
+/// reads as empty, as one never written: over its tables. Over its memory
+/// none is: its rows keep a deleted row's values.
+async fn deleted(context: &Context<'_>, partition: &str) -> Result<bool, plugins::Refusal> {
+    let Some(rows) = context.rows else {
+        return Ok(false);
+    };
+    let found = rows
+        .rows(TOMBSTONED, &[Value::from(partition)])
+        .await
+        .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?;
+    Ok(found.as_array().is_some_and(|found| !found.is_empty()))
+}
+
+/// The engine's tombstone of the partition `$1` names, when it holds one.
+const TOMBSTONED: &str =
+    "SELECT partition FROM dataguard_rows WHERE partition = $1::text AND tombstoned";
 
 /// A string that holds more than blanks.
 fn filled(value: &Value) -> Option<&str> {
@@ -276,8 +436,8 @@ impl Request {
 
     /// The commands this validation submits, `proposals` being every
     /// proposal of the notes the accepted ones are of — those included — and
-    /// `fresh` the ids of the element each accepted proposal may become, in
-    /// the order accepted; `now` is when the elements are made, RFC 3339.
+    /// `fresh` the id of the element each accepted proposal may become, in
+    /// the order accepted.
     ///
     /// # Errors
     ///
@@ -286,17 +446,12 @@ impl Request {
     ///
     /// # Panics
     ///
-    /// When `fresh` does not hold one pair of ids per accepted proposal.
-    pub fn batch(
-        &self,
-        proposals: &[Proposal],
-        fresh: Vec<Fresh>,
-        now: &str,
-    ) -> Result<Batch, Refusal> {
+    /// When `fresh` does not hold one id per accepted proposal.
+    pub fn batch(&self, proposals: &[Proposal], fresh: Vec<Fresh>) -> Result<Batch, Refusal> {
         assert_eq!(
             fresh.len(),
             self.accepted.len(),
-            "one pair of ids per accepted proposal"
+            "one id per accepted proposal"
         );
         let mut elements = Vec::new();
         let mut stamps = BTreeMap::new();
@@ -309,7 +464,7 @@ impl Request {
             if value(&proposal.row, CREATED).is_null() && !proposal.recognised {
                 // Of the campaign its note is of, as the engine writes it.
                 let campaign = proposal.campaign.as_deref().unwrap_or(&self.campaign);
-                let command = element(proposal, campaign, &fresh, now);
+                let command = element(proposal, campaign, &fresh);
                 stamp.insert(CREATED.into(), fresh.entity.into());
                 elements.push(Element {
                     proposal: id.clone(),
@@ -347,118 +502,24 @@ fn stamp_of(proposal: &Proposal, checked: bool) -> Row {
     ])
 }
 
-/// The element `proposal` becomes in `campaign`, with its first version.
-fn element(proposal: &Proposal, campaign: &str, fresh: &Fresh, now: &str) -> Command {
-    let kind = value(&proposal.row, "type").clone();
-    let mut payload = Row::from([
-        ("entityId".to_owned(), fresh.entity.clone().into()),
-        ("entityCampaignId".to_owned(), campaign.into()),
-        ("type".to_owned(), kind.clone()),
-        ("name".to_owned(), value(&proposal.row, "name").clone()),
-        ("entityCreatedAt".to_owned(), now.into()),
-        ("updatedAt".to_owned(), now.into()),
-    ]);
+/// The element `proposal` becomes in `campaign`: its save as the DM's
+/// editor sends it — its campaign, its id, its type, its name and its
+/// excerpt for description — which `campaign.saveEntity` makes an element
+/// with its first version, a PC or an NPC with its sheet and its token
+/// colour.
+fn element(proposal: &Proposal, campaign: &str, fresh: &Fresh) -> Command {
+    let mut entity = Map::new();
+    entity.insert("id".into(), fresh.entity.clone().into());
+    entity.insert("kind".into(), value(&proposal.row, "type").clone());
+    entity.insert("name".into(), value(&proposal.row, "name").clone());
     if let Some(excerpt) = filled(value(&proposal.row, "excerpt")) {
-        payload.insert("description".into(), excerpt.trim().into());
-    }
-    if kind.as_str().is_some_and(|kind| CHARACTERS.contains(&kind)) {
-        for (field, value) in [
-            ("characterEntityId", Value::from(fresh.entity.clone())),
-            ("tokenColor", DEFAULT_TOKEN_COLOR.into()),
-            ("spells", Value::Array(Vec::new())),
-            ("actions", Value::Array(Vec::new())),
-        ] {
-            payload.insert(field.into(), value);
-        }
-    }
-    let snapshot: Map<String, Value> = payload
-        .iter()
-        .filter(|(field, _)| SNAPSHOT.contains(&field.as_str()))
-        .map(|(field, value)| (field.clone(), value.clone()))
-        .collect();
-    let version = version(None, snapshot);
-    for (field, value) in [
-        ("entityVersionId", Value::from(fresh.version.clone())),
-        ("entityVersionEntityId", fresh.entity.clone().into()),
-        ("entityVersionCreatedAt", now.into()),
-        ("source", SOURCE.into()),
-        ("restoredFromVersionId", Value::Null),
-        ("versionNumber", version.number.into()),
-        ("snapshot", Value::Object(version.snapshot)),
-        ("diff", Value::Array(version.diff)),
-    ] {
-        payload.insert(field.into(), value);
+        entity.insert("description".into(), excerpt.trim().into());
     }
     Command {
         target_id: fresh.entity.clone(),
-        payload,
-    }
-}
-
-/// The fields of an element made from a proposal its snapshot holds: what
-/// the DM sees and restores — never an id or a date.
-const SNAPSHOT: [&str; 6] = [
-    "type",
-    "name",
-    "description",
-    "tokenColor",
-    "spells",
-    "actions",
-];
-
-/// The version `snapshot` is, after `previous` — its number and its
-/// snapshot — or as the first one, `None` (EntityVersion@1).
-#[must_use]
-pub fn version(
-    previous: Option<(u64, &Map<String, Value>)>,
-    snapshot: Map<String, Value>,
-) -> Version {
-    let empty = Map::new();
-    let (number, before) = previous.map_or((1, &empty), |(number, before)| (number + 1, before));
-    let diff = diff(before, &snapshot);
-    Version {
-        number,
-        snapshot,
-        diff,
-    }
-}
-
-/// The field-by-field difference from `previous` to `snapshot`
-/// (EntityVersion@1): a field whose value differs, an absent field and a
-/// `null` being the same, sorted by field in code point order.
-fn diff(previous: &Map<String, Value>, snapshot: &Map<String, Value>) -> Vec<Value> {
-    let fields: BTreeSet<&String> = previous.keys().chain(snapshot.keys()).collect();
-    fields
-        .into_iter()
-        .filter_map(|field| {
-            let old = previous.get(field).unwrap_or(&Value::Null);
-            let new = snapshot.get(field).unwrap_or(&Value::Null);
-            (!same(old, new)).then(|| {
-                let mut change = Map::new();
-                change.insert("field".into(), field.clone().into());
-                change.insert("old".into(), old.clone());
-                change.insert("new".into(), new.clone());
-                Value::Object(change)
-            })
-        })
-        .collect()
-}
-
-/// Two JSON values compared as JSON, numbers by value (15 and 15.0 are the
-/// same number).
-fn same(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Number(a), Value::Number(b)) => {
-            a == b || matches!((a.as_f64(), b.as_f64()), (Some(x), Some(y)) if x == y)
-        }
-        (Value::Array(a), Value::Array(b)) => {
-            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(a, b))
-        }
-        (Value::Object(a), Value::Object(b)) => {
-            a.len() == b.len()
-                && a.iter()
-                    .all(|(key, a)| b.get(key).is_some_and(|b| same(a, b)))
-        }
-        _ => a == b,
+        payload: Row::from([
+            ("campaign".to_owned(), campaign.into()),
+            ("entity".to_owned(), Value::Object(entity)),
+        ]),
     }
 }

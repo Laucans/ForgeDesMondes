@@ -1,18 +1,17 @@
 //! A validation of a note's proposals made its commands: one element per
-//! accepted proposal that has none and recognises none, with its sheet when
-//! it is a PC or an NPC and its first version; every accepted proposal
+//! accepted proposal that has none and recognises none, saved as the DM's
+//! editor saves one (`campaign.saveEntity`); every accepted proposal
 //! checked, every other unchecked unless it created its element; and the
 //! validations the tables could never hold refused.
 
 use create_entities_from_note::{
-    Batch, DEFAULT_TOKEN_COLOR, Fresh, Proposal, Refusal, Request, Row, SOURCE, names, request,
+    Batch, Fresh, Proposal, Refusal, Request, Row, SAVE_ENTITY, names, request,
 };
 use serde_json::{Value, json};
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BRUMES: &str = "c1000000-0000-4000-8000-000000000002";
 const NOTE: &str = "a1000000-0000-4000-8000-000000000001";
-const NOW: &str = "2026-10-20T18:00:00.000Z";
 
 fn row(value: Value) -> Row {
     let Value::Object(fields) = value else {
@@ -53,7 +52,6 @@ fn fresh(n: usize) -> Vec<Fresh> {
     (1..=n)
         .map(|i| Fresh {
             entity: format!("e{i}"),
-            version: format!("v{i}"),
         })
         .collect()
 }
@@ -64,7 +62,7 @@ fn validated(accepted: &[&str], proposals: &[Proposal]) -> Batch {
         accepted: accepted.iter().map(|id| (*id).to_owned()).collect(),
     };
     request
-        .batch(proposals, fresh(accepted.len()), NOW)
+        .batch(proposals, fresh(accepted.len()))
         .expect("a batch")
 }
 
@@ -183,75 +181,43 @@ fn each_accepted_proposal_becomes_one_element_and_records_it_the_others_unchecke
 }
 
 #[test]
-fn an_npc_is_made_with_its_sheet_its_token_colour_and_its_first_version() {
+fn an_element_is_saved_as_the_dm_s_editor_saves_one_under_its_id() {
     let batch = validated(&["p1"], &note());
-    let payload = &batch.elements[0].command.payload;
-    let snapshot = json!({
-        "type": "pnj",
-        "name": "Mère Ombeline",
-        "description": "l’herboriste aveugle",
-        "tokenColor": DEFAULT_TOKEN_COLOR,
-        "spells": [],
-        "actions": [],
-    });
-    let expected = row(json!({
-        "entityId": "e1",
-        "entityCampaignId": VALOMBRE,
-        "type": "pnj",
-        "name": "Mère Ombeline",
-        "description": "l’herboriste aveugle",
-        "entityCreatedAt": NOW,
-        "updatedAt": NOW,
-        "characterEntityId": "e1",
-        "tokenColor": "accent",
-        "spells": [],
-        "actions": [],
-        "entityVersionId": "v1",
-        "entityVersionEntityId": "e1",
-        "entityVersionCreatedAt": NOW,
-        "source": SOURCE,
-        "restoredFromVersionId": null,
-        "versionNumber": 1,
-        "snapshot": snapshot,
-        "diff": [
-            { "field": "actions", "old": null, "new": [] },
-            { "field": "description", "old": null, "new": "l’herboriste aveugle" },
-            { "field": "name", "old": null, "new": "Mère Ombeline" },
-            { "field": "spells", "old": null, "new": [] },
-            { "field": "tokenColor", "old": null, "new": "accent" },
-            { "field": "type", "old": null, "new": "pnj" },
-        ],
-    }));
-    assert_eq!(payload, &expected);
-    assert_eq!(SOURCE, "dm");
+    let element = &batch.elements[0].command;
+    assert_eq!(element.target_id, "e1");
+    assert_eq!(
+        element.payload,
+        row(json!({
+            "campaign": VALOMBRE,
+            "entity": {
+                "id": "e1",
+                "kind": "pnj",
+                "name": "Mère Ombeline",
+                "description": "l’herboriste aveugle",
+            },
+        }))
+    );
+    assert_eq!(SAVE_ENTITY, "campaign.saveEntity");
 }
 
 #[test]
-fn a_pc_has_a_sheet_and_a_place_or_an_event_none() {
+fn a_pc_a_place_and_an_event_are_saved_of_their_type() {
     let batch = validated(&["p2", "p3", "p4"], &note());
-    let sheet = |i: usize| {
-        let payload = &batch.elements[i].command.payload;
-        (
-            payload.contains_key("characterEntityId"),
-            payload.contains_key("tokenColor"),
-            payload.contains_key("spells"),
-            payload.contains_key("actions"),
-        )
-    };
-    assert_eq!(sheet(0), (true, true, true, true));
-    assert_eq!(batch.elements[0].command.payload["characterEntityId"], "e1");
-    assert_eq!(sheet(1), (false, false, false, false));
-    assert_eq!(sheet(2), (false, false, false, false));
+    let kinds: Vec<&Value> = batch
+        .elements
+        .iter()
+        .map(|element| &element.command.payload["entity"]["kind"])
+        .collect();
+    assert_eq!(kinds, ["pj", "lieu", "evenement"]);
 }
 
 #[test]
 fn an_element_of_a_blank_excerpt_has_no_description() {
     let batch = validated(&["p4"], &note());
     let payload = &batch.elements[0].command.payload;
-    assert!(!payload.contains_key("description"), "{payload:?}");
     assert_eq!(
-        payload["snapshot"],
-        json!({ "type": "evenement", "name": "Le moulin a brûlé" })
+        payload["entity"],
+        json!({ "id": "e1", "kind": "evenement", "name": "Le moulin a brûlé" })
     );
 }
 
@@ -313,11 +279,8 @@ fn an_element_is_of_the_campaign_its_note_is_of_whatever_the_case_given() {
         campaign: VALOMBRE.to_uppercase(),
         accepted: vec!["p1".to_owned()],
     };
-    let batch = request.batch(&note(), fresh(1), NOW).expect("a batch");
-    assert_eq!(
-        batch.elements[0].command.payload["entityCampaignId"],
-        VALOMBRE
-    );
+    let batch = request.batch(&note(), fresh(1)).expect("a batch");
+    assert_eq!(batch.elements[0].command.payload["campaign"], VALOMBRE);
 }
 
 #[test]
@@ -340,7 +303,7 @@ fn a_proposal_of_another_campaign_or_of_no_note_is_unknown_and_never_unchecked()
             accepted: vec!["p4".to_owned(), unknown.to_owned()],
         };
         assert_eq!(
-            request.batch(&proposals, fresh(2), NOW),
+            request.batch(&proposals, fresh(2)),
             Err(Refusal::Unknown(unknown.to_owned()))
         );
     }
@@ -349,33 +312,33 @@ fn a_proposal_of_another_campaign_or_of_no_note_is_unknown_and_never_unchecked()
 }
 
 #[test]
-#[should_panic(expected = "one pair of ids per accepted proposal")]
-fn a_batch_wants_one_pair_of_ids_per_accepted_proposal() {
+#[should_panic(expected = "one id per accepted proposal")]
+fn a_batch_wants_one_id_per_accepted_proposal() {
     let request = Request {
         campaign: VALOMBRE.to_owned(),
         accepted: vec!["p1".to_owned(), "p2".to_owned()],
     };
-    let _ = request.batch(&note(), fresh(1), NOW);
+    let _ = request.batch(&note(), fresh(1));
 }
 
 #[test]
-fn an_element_is_given_the_same_uuids_every_time_from_its_proposal() {
+fn an_element_is_given_the_same_uuid_every_time_from_its_proposal() {
     let fresh = Fresh::of("p1");
     assert_eq!(fresh, Fresh::of("p1"));
     assert_ne!(fresh, Fresh::of("p2"));
-    assert_ne!(fresh.entity, fresh.version);
-    for id in [&fresh.entity, &fresh.version] {
-        let parts: Vec<usize> = id.split('-').map(str::len).collect();
-        assert_eq!(parts, [8, 4, 4, 4, 12], "{id}");
-        assert!(
-            id.chars().all(|c| c == '-' || c.is_ascii_hexdigit()),
-            "{id}"
-        );
-        // Version 5, variant 10.
-        assert_eq!(id.as_bytes()[14], b'5', "{id}");
-        assert!(
-            matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
-            "{id}"
-        );
-    }
+    // Derived from this DataCapability, what it names and the proposal.
+    assert_eq!(fresh.entity, "27be6454-e5d3-5651-b5d2-4fd54b17cee8");
+    let id = &fresh.entity;
+    let parts: Vec<usize> = id.split('-').map(str::len).collect();
+    assert_eq!(parts, [8, 4, 4, 4, 12], "{id}");
+    assert!(
+        id.chars().all(|c| c == '-' || c.is_ascii_hexdigit()),
+        "{id}"
+    );
+    // Version 5, variant 10.
+    assert_eq!(id.as_bytes()[14], b'5', "{id}");
+    assert!(
+        matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
+        "{id}"
+    );
 }
