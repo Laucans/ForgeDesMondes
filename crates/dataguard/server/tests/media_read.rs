@@ -2,9 +2,10 @@
 //! (`DATABASE_URL`), through the connection `Reads` opens: `media.getBattlemap`
 //! and `media.listMedia` are the registry's, served by the engine's reads,
 //! not by a route of this server. Their answer keeps the numbers the DM
-//! saved as numbers, picks the id or the campaign it is given and no other,
-//! and an id goes by the name the caller knows it by. The rows go in through
-//! the Data layer. A scratch database of its own, dropped when the test ends.
+//! saved as numbers, and picks the id or the campaign it is given and no
+//! other. (The names an id goes by on the wire are the product server's,
+//! `crates/server/tests/fixture_names.rs`.) The rows go in through the Data
+//! layer. A scratch database of its own, dropped when the test ends.
 
 use std::path::Path;
 
@@ -269,40 +270,6 @@ async fn a_campaign_s_library_lists_its_media_and_no_other_campaign_s() {
         json!({ "cover": null, "battlemaps": [], "illustrations": [] }),
         "no campaign given, none read"
     );
-
-    drop(reads);
-    drop_scratch(&name, client).await;
-}
-
-#[tokio::test]
-async fn a_media_id_goes_by_the_name_the_caller_knows_it_by() {
-    let (name, client) = scratch("media_read_names").await;
-    let reads = Reads::open(&named(&name))
-        .await
-        .expect("the reads open")
-        .named([
-            ("cendres".to_string(), CENDRES.to_string()),
-            ("gue".to_string(), GUE.to_string()),
-        ]);
-
-    let by_name = reads
-        .run("media.getBattlemap", &json!({ "id": "gue" }))
-        .await
-        .expect("an answer");
-    assert_eq!(by_name["id"], "gue");
-    // An id with no name is the stored one.
-    assert_eq!(by_name["place"], TAVERN);
-    let by_uuid = reads
-        .run("media.getBattlemap", &json!({ "id": GUE }))
-        .await
-        .expect("an answer");
-    assert_eq!(by_uuid, by_name);
-
-    let library = reads
-        .run("media.listMedia", &json!({ "campaignId": "cendres" }))
-        .await
-        .expect("an answer");
-    assert_eq!(library["battlemaps"][0]["id"], "gue");
 
     drop(reads);
     drop_scratch(&name, client).await;
