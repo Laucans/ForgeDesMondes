@@ -1,6 +1,6 @@
 {
   "files": {
-    ".cargo/mutants.toml": "b6f9126456581956",
+    ".cargo/mutants.toml": "ab79d2ee9283103e",
     ".github/workflows/ci.yml": "4124844744e7431e",
     ".github/workflows/gates.yml": "9a161522914b664f",
     ".gitignore": "600d6171799bdb07",
@@ -26,6 +26,8 @@
     "contracts/r-plan-graph.schema.json": "6795fe5a02a72ce5",
     "crates/dataguard/registry/build.rs": "d4791c9afb8889c7",
     "crates/dataguard/registry/src/lib.rs": "b95610a1b44e77be",
+    "crates/dataguard/server/Cargo.toml": "9412393f9e55e263",
+    "crates/dataguard/server/src/lib.rs": "a8d9952659554756",
     "crates/platform/conformance/Cargo.toml": "cdc993103aadd4ff",
     "data/model.json": "648bb79d0211ab3a",
     "docs/ARCHITECTURE.md": "f3adb08bda9f2c5c",

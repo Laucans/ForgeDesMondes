@@ -13,9 +13,9 @@ use serde_json::{Value, json};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
-const CAMPAIGN: &str = include_str!("../../../data/migrations/0002_campaign.sql");
-const PLAYER: &str = include_str!("../../../data/migrations/0003_player.sql");
-const MIGRATION: &str = include_str!("../../../data/migrations/0004_entity.sql");
+const CAMPAIGN: &str = include_str!("../migrations/0002_campaign.sql");
+const PLAYER: &str = include_str!("../migrations/0003_player.sql");
+const MIGRATION: &str = include_str!("../migrations/0004_entity.sql");
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BRUME: &str = "c1000000-0000-4000-8000-000000000002";
@@ -241,7 +241,7 @@ impl Scratch {
 /// `relation` as `data/model.json` describes it: each field's name, type,
 /// nullability and reference, in its order.
 fn modelled(relation: &str) -> Vec<(String, String, bool, Option<String>)> {
-    let model: Value = serde_json::from_str(include_str!("../../../../data/model.json"))
+    let model: Value = serde_json::from_str(include_str!("../../../data/model.json"))
         .expect("data/model.json is JSON");
     let table = model["tables"]
         .as_array()
@@ -278,7 +278,7 @@ async fn the_migration_replays_as_a_no_op_over_the_campaign_and_player_tables() 
     }
     // The server's applier after the rules' runtime's psql, which records
     // nothing: it runs every file again, in order, and nothing moves.
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/migrations");
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
     let applied = data::migrate(&mut s.client, std::path::Path::new(dir))
         .await
         .expect("replayed by the Data layer");
@@ -311,7 +311,7 @@ async fn the_tables_and_views_are_what_data_model_json_describes() {
     let mut s = Scratch::new("model").await;
     // The model describes the schema every migration builds: the later ones
     // give the sheet's portrait and token their foreign keys to media.id.
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/migrations");
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
     data::migrate(&mut s.client, std::path::Path::new(dir))
         .await
         .expect("migrated by the Data layer");

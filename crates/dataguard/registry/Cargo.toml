@@ -50,7 +50,7 @@ ignored = [
 ]
 
 [dependencies]
-harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v4", features = ["postgres", "uuid"] }
+harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v5", features = ["postgres", "uuid"] }
 aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
 aggregate-battlemap-instance = { path = "../../table/aggregates/BattlemapInstance" }
 aggregate-campaign = { path = "../../campaign/aggregates/Campaign" }

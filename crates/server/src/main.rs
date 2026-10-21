@@ -8,12 +8,12 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use dataguard_server::engine::plugins::Shared;
-use dataguard_server::{MEMORY, Planted, applier, planted_with};
+use dataguard_server::{MEMORY, applier};
 use ports_llm::SharedLlm;
 use ports_speech_to_text::SharedSpeechToText;
 use server::{
-    Config, Error, Names, Ports, app, fixtures, inventory, llm, reads, renaming, speech_to_text,
+    Config, Error, Names, Ports, app, fixtures, inventory, llm, plant, renaming, shared,
+    speech_to_text,
 };
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
@@ -61,10 +61,10 @@ async fn run() -> Result<(), Error> {
         eprintln!("server: no migrations/ folder — no migration to apply");
     }
 
-    let (reads, names) = match &config.fixtures {
+    let names = match &config.fixtures {
         None => {
             eprintln!("server: no FIXTURES_DIR — starting without fixtures");
-            (reads(&config).await?, Vec::new())
+            Vec::new()
         }
         Some(dir) => match fixtures(dir) {
             Err(e) => {
@@ -72,7 +72,7 @@ async fn run() -> Result<(), Error> {
                     "server: cannot read the fixtures in {}: {e} — starting without them",
                     dir.display()
                 );
-                (reads(&config).await?, Vec::new())
+                Vec::new()
             }
             Ok(plan) => {
                 if config.database_url == MEMORY {
@@ -99,24 +99,20 @@ async fn run() -> Result<(), Error> {
                 for (name, why) in &plan.skipped {
                     eprintln!("server: fixture {name} skipped — {why}");
                 }
-                (reads(&config).await?, plan.names)
+                plan.names
             }
         },
     };
-    let (reads, names) = (Arc::new(reads), Names::new(names));
+    let names = Names::new(names);
 
-    // One port each, shared: the legacy chain and the units' `Prepare`s
+    // One port each, shared: the units' `Prepare`s and the journal's route
     // reach the same fake, and read the same journal.
     let llm = SharedLlm::new(llm(config.ports, config.fixtures.as_deref()));
     let speech = SharedSpeechToText::new(speech_to_text(config.ports, config.fixtures.as_deref()));
-    let mut shared = Shared::default();
-    shared.insert(Arc::new(llm.clone()));
-    shared.insert(Arc::new(speech.clone()));
 
-    // After the fixtures: the engine records the aliases the tables hold.
-    let Planted { engine, rows } = planted_with(&config.database_url, shared).await?;
-    let engine = Arc::new(engine);
-    let (llm, speech) = (Arc::new(llm), Arc::new(speech));
+    // After the fixtures: the engine's aggregates warm from the tables they
+    // hold (the Entity aggregate's aliases, its versions).
+    let planted = plant(&config, shared(&llm, &speech)).await?;
     if config.read_only_url.is_none() && config.database_url != MEMORY {
         eprintln!(
             "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"
@@ -127,10 +123,10 @@ async fn run() -> Result<(), Error> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|source| Error::Serve { addr, source })?;
-    let applier = applier(engine.clone());
+    let applier = applier(Arc::clone(&planted.engine));
     eprintln!("server: listening on {addr}");
     // The fixtures' slugs on the wire, their uuids in the store (D8).
-    let app = renaming(app(engine, rows, llm, speech, reads), names);
+    let app = renaming(app(&planted, Arc::new(llm)), names);
     let served = axum::serve(listener, app)
         .with_graceful_shutdown(stopped())
         .await

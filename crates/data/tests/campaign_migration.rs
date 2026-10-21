@@ -8,7 +8,7 @@ use serde_json::Value;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
-const MIGRATION: &str = include_str!("../../../data/migrations/0002_campaign.sql");
+const MIGRATION: &str = include_str!("../migrations/0002_campaign.sql");
 
 fn url() -> String {
     std::env::var("DATABASE_URL").expect("DATABASE_URL names the harness's PostgreSQL")
@@ -92,7 +92,7 @@ fn campaign(kind: &str, volume: &str) -> String {
 /// `campaign` as `data/model.json` describes it: each field's name, type and
 /// nullability, in the table's order.
 fn modelled() -> Vec<(String, String, bool)> {
-    let model: Value = serde_json::from_str(include_str!("../../../../data/model.json"))
+    let model: Value = serde_json::from_str(include_str!("../../../data/model.json"))
         .expect("data/model.json is JSON");
     let table = model["tables"]
         .as_array()
@@ -130,7 +130,7 @@ async fn the_migration_replays_as_a_no_op() {
     assert_eq!(s.snapshot().await, first);
     // The server's applier after the rules' runtime's psql, which records
     // nothing: it runs every file again, and nothing moves.
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/migrations");
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
     let applied = data::migrate(&mut s.client, std::path::Path::new(dir))
         .await
         .expect("replayed by the Data layer");

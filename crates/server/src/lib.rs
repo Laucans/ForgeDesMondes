@@ -1,6 +1,7 @@
 //! The product's one server: the shell's wire protocol answered by the
-//! DataGuard engine of `crates/dataguard/server`, and `GET /health` — the
-//! binary `scripts/rules-runtime.sh` builds and starts.
+//! DataGuard engine as `crates/dataguard/server` plants it — the harness's
+//! skeleton, every unit of the registry — and `GET /health`: the binary
+//! `scripts/rules-runtime.sh` builds and starts.
 //!
 //! What the binary reads from its environment ([`Config::read`]):
 //!
@@ -18,6 +19,10 @@
 //!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]) and
 //!   loaded into the store by the Data layer ([`data::insert_missing`]) —
 //!   once: a restart loads nothing twice.
+//!
+//! What it shares with the units ([`shared`]) is the ports their `Prepare`s
+//! declare they need: the `llm` port and the `speech-to-text` port, one of
+//! each, which the units and [`app`]'s journal route reach alike.
 //!
 //! The server adds one read path of its own, and no write path: a read is
 //! served when the engine's registry holds its persisted query, a write only
@@ -47,12 +52,17 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use dataguard_server::{Engine, Reads, Rows};
+use dataguard_server::engine::engine::Engine;
+use dataguard_server::engine::plugins::Shared;
+use dataguard_server::engine::postgres::ReadOnly;
+use dataguard_server::engine::reads::Reads;
+use dataguard_server::engine::tokio_postgres;
+use dataguard_server::{MEMORY, Planted};
 pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
 pub use names::{Names, renaming};
-use ports_llm::Llm;
 use ports_llm::fake::FakeLlm;
-use ports_speech_to_text::SpeechToText;
+use ports_llm::{Llm, SharedLlm};
+use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Value, json};
 
@@ -78,9 +88,10 @@ pub enum Error {
     /// The Data layer could not reach the database or apply a migration.
     #[error(transparent)]
     Data(#[from] data::Error),
-    /// The DataGuard engine could not be planted.
-    #[error(transparent)]
-    Plant(#[from] dataguard_server::PlantError),
+    /// The DataGuard engine could not be planted, or its reads could not
+    /// reach the database.
+    #[error("{0}")]
+    Plant(dataguard_server::Failure),
     /// The server could not listen, or stopped serving.
     #[error("cannot serve on {addr}: {source}")]
     Serve {
@@ -204,41 +215,73 @@ pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> FakeSpeechToText
     }
 }
 
-/// The connection the Capabilities read through: `DATABASE_URL_READONLY` when
-/// `config` has one, else the database the server writes to — each read then
-/// runs in a `READ ONLY` transaction.
+/// What the server shares with its units: the `llm` port and the
+/// `speech-to-text` port, the ones their `Prepare`s declare they need. The
+/// engine refuses to start while a need has nobody to fill it.
+#[must_use]
+pub fn shared(llm: &SharedLlm, speech: &SharedSpeechToText) -> Shared {
+    let mut shared = Shared::default();
+    shared.insert(Arc::new(llm.clone()));
+    shared.insert(Arc::new(speech.clone()));
+    shared
+}
+
+/// The engine as `crates/dataguard/server` plants it over `config`'s
+/// database, sharing `shared` with the units; its Capabilities read through
+/// `DATABASE_URL_READONLY` when `config` has one ([`reads`]), else through
+/// the read-only connection the engine opens on `DATABASE_URL`.
+///
+/// # Errors
+///
+/// [`Error::Plant`] when the database cannot be reached, a manifest does not
+/// parse, or the units do not fit together.
+pub async fn plant(config: &Config, shared: Shared) -> Result<Planted, Error> {
+    let mut planted = dataguard_server::plant(&config.database_url, shared)
+        .await
+        .map_err(Error::Plant)?;
+    if let Some(url) = &config.read_only_url {
+        planted.reads = Arc::new(reads(url).await?);
+    }
+    Ok(planted)
+}
+
+/// Every Capability of the registry, reading the database `url` names over a
+/// connection of their own, every read in a `READ ONLY` transaction; over
+/// [`MEMORY`], from no row.
 ///
 /// # Errors
 ///
 /// [`Error::Plant`] when the database cannot be reached.
-pub async fn reads(config: &Config) -> Result<Reads, Error> {
-    let url = config
-        .read_only_url
-        .as_deref()
-        .unwrap_or(&config.database_url);
-    Ok(Reads::open(url).await?)
+pub async fn reads(url: &str) -> Result<Reads, Error> {
+    let reads = Reads::from(&dataguard_server::registry::plugins());
+    if url == MEMORY {
+        return Ok(reads);
+    }
+    let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls)
+        .await
+        .map_err(|e| Error::Plant(e.into()))?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("postgres (reads): {e}");
+        }
+    });
+    Ok(reads.with_connection(Arc::new(ReadOnly::new(client))))
 }
 
-/// The shell's wire protocol through `engine`, whose rows are `rows`, `llm`
-/// and `speech`, its reads through `reads`, `ai.listProviderRequests` from
-/// `llm`'s journal, and `GET /health`.
-pub fn app<L: Llm + 'static, S: SpeechToText + 'static>(
-    engine: Arc<Engine>,
-    rows: Rows,
-    llm: Arc<L>,
-    speech: Arc<S>,
-    reads: Arc<Reads>,
-) -> Router {
+/// The shell's wire protocol through what `planted` holds, its routes as
+/// `crates/dataguard/server` answers them; `ai.listProviderRequests` from
+/// `llm`'s journal; and `GET /health`.
+pub fn app<L: Llm + 'static>(planted: &Planted, llm: Arc<L>) -> Router {
     let journal = Router::new()
         .route(
             &format!("/capabilities/{}", list_provider_requests::CAPABILITY),
             post(provider_requests::<L>),
         )
         .with_state(Journal {
-            engine: engine.clone(),
-            llm: llm.clone(),
+            engine: planted.engine.clone(),
+            llm,
         });
-    dataguard_server::router_reading(engine, rows, llm, speech, reads)
+    dataguard_server::router(planted)
         .merge(journal)
         .route("/health", get(health))
 }
@@ -317,6 +360,7 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
+    use ports_speech_to_text::SpeechToText;
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
@@ -494,12 +538,19 @@ mod tests {
         }
     }
 
+    /// The engine over memory, as the binary plants it with the ports on
+    /// their fakes.
+    async fn memory() -> Planted {
+        let config = config(&[("DATABASE_URL", MEMORY)]).expect("a valid configuration");
+        let llm = SharedLlm::new(FakeLlm::new());
+        let speech = SharedSpeechToText::new(FakeSpeechToText::new(String::new()));
+        plant(&config, shared(&llm, &speech))
+            .await
+            .expect("the in-memory engine")
+    }
+
     /// The app over the in-memory engine, answering one request.
     async fn answer(method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
-        let dataguard_server::Planted { engine, rows } =
-            dataguard_server::planted(dataguard_server::MEMORY)
-                .await
-                .expect("the in-memory engine");
         let request = Request::builder().method(method).uri(uri);
         let request = match body {
             Some(body) => request
@@ -508,19 +559,10 @@ mod tests {
             None => request.body(Body::empty()),
         }
         .expect("a request");
-        let reads = Reads::open(dataguard_server::MEMORY)
+        let response = app(&memory().await, Arc::new(FakeLlm::new()))
+            .oneshot(request)
             .await
-            .expect("no database");
-        let response = app(
-            Arc::new(engine),
-            rows,
-            Arc::new(FakeLlm::new()),
-            Arc::new(FakeSpeechToText::new(String::new())),
-            Arc::new(reads),
-        )
-        .oneshot(request)
-        .await
-        .expect("an answer");
+            .expect("an answer");
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -586,6 +628,25 @@ mod tests {
             assert!(answer["data"].is_object(), "{answer}");
             assert!(answer["data"]["providers"].is_object(), "{answer}");
             assert!(answer.get("asOf").is_some(), "{answer}");
+        }
+    }
+
+    #[tokio::test]
+    async fn every_registered_query_is_served_under_its_hash() {
+        let registry: Value = serde_json::from_str(include_str!("../../../queries/registry.json"))
+            .expect("the registry");
+        let queries = registry["queries"].as_array().expect("its queries");
+        assert!(queries.len() >= 12, "{registry}");
+        for query in queries {
+            let capability = query["capability"].as_str().expect("a Capability");
+            let (status, answer) = answer(
+                Method::POST,
+                &format!("/capabilities/{capability}"),
+                Some(json!({ "sha256": query["sha256"], "variables": {} })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{capability}: {answer}");
+            assert!(answer.get("data").is_some(), "{capability}: {answer}");
         }
     }
 
@@ -703,24 +764,14 @@ mod tests {
     /// What `POST /capabilities/ai.listProviderRequests` answers over the
     /// in-memory engine, `llm` the port the app is given.
     async fn provider_requests_of(llm: Arc<FakeLlm>, body: Value) -> (StatusCode, Value) {
-        let dataguard_server::Planted { engine, rows } =
-            dataguard_server::planted(dataguard_server::MEMORY)
-                .await
-                .expect("the in-memory engine");
         let request = Request::post("/capabilities/ai.listProviderRequests")
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))
             .expect("a request");
-        let response = app(
-            Arc::new(engine),
-            rows,
-            llm,
-            Arc::new(FakeSpeechToText::new(String::new())),
-            Arc::new(Reads::none()),
-        )
-        .oneshot(request)
-        .await
-        .expect("an answer");
+        let response = app(&memory().await, llm)
+            .oneshot(request)
+            .await
+            .expect("an answer");
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await

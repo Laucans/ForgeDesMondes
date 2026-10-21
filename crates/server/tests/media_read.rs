@@ -7,12 +7,14 @@
 //! `crates/server/tests/fixture_names.rs`.) The rows go in through the Data
 //! layer. A scratch database of its own, dropped when the test ends.
 
+mod common;
+
 use std::path::Path;
 
+use common::Reads;
 use data::Table;
-use dataguard_server::Reads;
+use dataguard_server::engine::tokio_postgres::{self, NoTls};
 use serde_json::{Value, json};
-use tokio_postgres::NoTls;
 
 const CENDRES: &str = "c1000000-0000-4000-8000-000000000001";
 const OTHER: &str = "c1000000-0000-4000-8000-000000000002";
@@ -156,7 +158,7 @@ async fn scratch(name: &str) -> (String, tokio_postgres::Client) {
         admin.batch_execute(&sql).await.expect("a scratch database");
     }
     let mut client = connect(&named(&name)).await;
-    let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/migrations");
+    let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/migrations");
     data::migrate(&mut client, &migrations)
         .await
         .expect("migrated");

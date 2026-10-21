@@ -10,12 +10,14 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use dataguard_server::MEMORY;
 use dataguard_server::engine::tokio_postgres::{self, Client, NoTls};
-use dataguard_server::{MEMORY, Planted, Reads, planted};
+use ports_llm::SharedLlm;
 use ports_llm::fake::FakeLlm;
+use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Value, json};
-use server::{Names, app, fixtures, id, renaming};
+use server::{Config, Names, app, fixtures, plant, renaming, shared};
 use tower::ServiceExt;
 
 fn url() -> String {
@@ -94,66 +96,22 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
     data::insert_missing(&mut client, &plan.tables)
         .await
         .expect("the fixtures are inserted");
-    // A battlemap of the tavern, which no fixture loads yet, named as the
-    // fixtures name theirs.
-    let (gue, campaign_id, tavern) = (
-        id("media", "bm-gue"),
-        id("campaign", "cendres-valombre"),
-        id("entity", "taverne-sanglier"),
-    );
-    let battlemap = [
-        data::Table {
-            name: "media",
-            key: "id",
-            columns: &[
-                "id",
-                "campaign_id",
-                "kind",
-                "title",
-                "file_path",
-                "width_px",
-                "height_px",
-                "place_id",
-            ],
-            rows: vec![
-                json!({ "id": gue, "campaign_id": campaign_id, "kind": "battlemap",
-                "title": "Le Gué", "file_path": "gue.jpg", "width_px": 960, "height_px": 640,
-                "place_id": tavern }),
-            ],
-        },
-        data::Table {
-            name: "battlemap_grid",
-            key: "media_id",
-            columns: &[
-                "media_id",
-                "hex_size_px",
-                "offset_x",
-                "offset_y",
-                "orientation",
-                "color",
-                "opacity",
-            ],
-            rows: vec![
-                json!({ "media_id": gue, "hex_size_px": 30, "offset_x": 0, "offset_y": 0,
-                "orientation": "pointe", "color": "text", "opacity": 0.4 }),
-            ],
-        },
-    ];
-    data::insert_missing(&mut client, &battlemap)
-        .await
-        .expect("a battlemap");
-    let mut names = plan.names;
-    names.push(("bm-gue".to_string(), gue));
+    let names = plan.names;
 
-    let Planted { engine, rows } = planted(MEMORY).await.expect("the in-memory engine");
-    let reads = Reads::open(&named(&name)).await.expect("the reads open");
-    let served = app(
-        Arc::new(engine),
-        rows,
-        Arc::new(FakeLlm::new()),
-        Arc::new(FakeSpeechToText::new(String::new())),
-        Arc::new(reads),
-    );
+    // The engine over memory, its Capabilities reading the scratch database,
+    // as the binary plants it when DATABASE_URL_READONLY names one.
+    let config = Config::read(|var| match var {
+        "DATABASE_URL" => Some(MEMORY.to_string()),
+        "DATABASE_URL_READONLY" => Some(named(&name)),
+        _ => None,
+    })
+    .expect("a valid configuration");
+    let llm = SharedLlm::new(FakeLlm::new());
+    let speech = SharedSpeechToText::new(FakeSpeechToText::new(String::new()));
+    let planted = plant(&config, shared(&llm, &speech))
+        .await
+        .expect("the in-memory engine");
+    let served = app(&planted, Arc::new(llm));
     let renamed = renaming(served.clone(), Names::new(names));
 
     let campaign = json!({ "campaign": "cendres-valombre" });
@@ -190,16 +148,35 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
     .await;
     assert_eq!(overview["id"], "cendres-valombre", "{overview}");
 
-    let battlemap = read(&renamed, "media.getBattlemap", json!({ "id": "bm-gue" })).await;
-    assert_eq!(battlemap["id"], "bm-gue", "{battlemap}");
-    assert_eq!(battlemap["place"], "taverne-sanglier", "{battlemap}");
+    // The media the fixtures describe are loaded with them, by their names.
+    let battlemap = read(&renamed, "media.getBattlemap", json!({ "id": "bm-moulin" })).await;
+    assert_eq!(battlemap["id"], "bm-moulin", "{battlemap}");
+    assert_eq!(battlemap["place"], "moulin", "{battlemap}");
+    assert_eq!(battlemap["grid"]["orient"], "flat", "{battlemap}");
+    assert_eq!(
+        battlemap["grid"]["opacity"].as_f64(),
+        Some(0.55),
+        "{battlemap}"
+    );
     let library = read(
         &renamed,
         "media.listMedia",
         json!({ "campaignId": "cendres-valombre" }),
     )
     .await;
-    assert_eq!(library["battlemaps"][0]["id"], "bm-gue", "{library}");
+    let described = fixture("media.listMedia.json");
+    let media = |library: &Value, kind: &str| -> BTreeSet<(String, String)> {
+        library[kind]
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(|m| (m["id"].to_string(), m["place"].to_string()))
+            .collect()
+    };
+    for kind in ["battlemaps", "illustrations"] {
+        assert_eq!(media(&library, kind), media(&described, kind), "{library}");
+    }
+    assert_eq!(library["illustrations"].as_array().map(Vec::len), Some(5));
 
     // Without the names, a slug names no row: the store knows uuids only.
     assert_eq!(

@@ -403,6 +403,10 @@ dependencies = [
 name = "data"
 version = "0.1.0"
 dependencies = [
+ "aggregate-battlemap-instance",
+ "aggregate-diffusion",
+ "harness-dataguard",
+ "platform-conformance",
  "serde_json",
  "thiserror",
  "tokio",
@@ -455,18 +459,12 @@ name = "dataguard-server"
 version = "0.1.0"
 dependencies = [
  "axum",
- "data",
  "dataguard-registry",
  "harness-dataguard",
- "platform-conformance",
- "ports-llm",
- "ports-speech-to-text",
  "serde",
  "serde_json",
- "thiserror",
  "tokio",
  "tokio-postgres",
- "tower",
 ]
 
 [[package]]
@@ -666,7 +664,7 @@ dependencies = [
 [[package]]
 name = "harness-dataguard"
 version = "0.1.0"
-source = "git+https://github.com/laucans/custom-harness?tag=dataguard-v4#16370bcc4a0d0c5b5c08f708b6439dbd92f679c7"
+source = "git+https://github.com/laucans/custom-harness?tag=dataguard-v5#56cb6be9f54a5b29dae0cdf8e544600eaa63c556"
 dependencies = [
  "async-trait",
  "bytes",

@@ -6,12 +6,14 @@
 //! through the Data layer. A scratch database of its own, dropped when the
 //! test ends.
 
+mod common;
+
 use std::path::Path;
 
+use common::Reads;
 use data::Table;
-use dataguard_server::Reads;
+use dataguard_server::engine::tokio_postgres::{self, NoTls};
 use serde_json::{Value, json};
-use tokio_postgres::NoTls;
 
 const CENDRES: &str = "c1000000-0000-4000-8000-000000000001";
 const OTHER: &str = "c1000000-0000-4000-8000-000000000002";
@@ -130,7 +132,7 @@ async fn scratch(name: &str) -> (String, tokio_postgres::Client) {
         admin.batch_execute(&sql).await.expect("a scratch database");
     }
     let mut client = connect(&named(&name)).await;
-    let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/migrations");
+    let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/migrations");
     data::migrate(&mut client, &migrations)
         .await
         .expect("migrated");
@@ -191,10 +193,17 @@ async fn a_capability_answers_for_the_id_it_is_given_and_no_other() {
         "AbilityModifier@1: 18 gives +4"
     );
 
-    assert_eq!(
-        run("campaign.noSuchCapability", json!({})).await,
-        Value::Null,
-        "a Capability the product does not serve answers null"
+    // A Capability the product does not serve is refused, as the wire
+    // refuses it (404): the engine's reads have no "null" for it.
+    let refused = reads
+        .run("campaign.noSuchCapability", &json!({}))
+        .await
+        .expect_err("not served");
+    assert!(
+        refused
+            .to_string()
+            .contains("not a registered persisted query"),
+        "{refused}"
     );
 
     drop(reads);

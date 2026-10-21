@@ -14,3 +14,12 @@ tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+# The migrations' tests (`tests/*_migration.rs`): what the DataGuard judges of
+# a row the tables take — the engine, and the two aggregates whose judges the
+# tables leave to it.
+harness-dataguard = { workspace = true }
+aggregate-battlemap-instance = { path = "../table/aggregates/BattlemapInstance" }
+aggregate-diffusion = { path = "../live/aggregates/Diffusion" }
+# The Concepts' fixtures the Entity migration's SQL is held to (AliasMatch@1,
+# AbilityModifier@1).
+platform-conformance = { path = "../platform/conformance" }

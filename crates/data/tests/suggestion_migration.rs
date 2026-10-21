@@ -12,7 +12,7 @@ use serde_json::Value;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
-const AGGREGATE: &str = include_str!("../../../live/aggregates/Suggestion/aggregate.json");
+const AGGREGATE: &str = include_str!("../../live/aggregates/Suggestion/aggregate.json");
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 /// Valombre's NPCs.
@@ -28,11 +28,7 @@ fn url() -> String {
 }
 
 fn migrations() -> PathBuf {
-    Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../data/migrations"
-    ))
-    .to_path_buf()
+    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")).to_path_buf()
 }
 
 async fn connect(config: &tokio_postgres::Config) -> Client {
