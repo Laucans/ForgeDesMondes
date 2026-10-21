@@ -54,7 +54,48 @@ async function dressed(server, tokens) {
   });
 }
 
+let diffusionBridged = false;
+
+/**
+ * The diffusion row of `fixtures/live.getDiffusion.json`, shared by the tabs of
+ * this machine (the DM view, the player view, the piloted tab) through the
+ * mock-up's store: what one tab sends or drags the others read, as two views of
+ * the one row would. Kept in the mock-up's own shape: the window `{ id, x, y, w }`,
+ * the frame `{ z, px, py }`.
+ */
+export async function diffusionRow(server) {
+  const fixture = await server.load('live.getDiffusion');
+  const store = window.Mock && window.Mock.store;
+  if (store && !diffusionBridged) {
+    diffusionBridged = true;
+    store.on('diffusion', () => server.bump());
+  }
+  return store ? store.get('diffusion', fixture) : structuredClone(fixture);
+}
+
+/** Width over height of an illustration of the library (media.listMedia); a square when it is unknown. */
+export async function ratioOfIllustration(server, id) {
+  const media = await server.load('media.listMedia');
+  const found = media && media.illustrations.find((i) => i.id === id);
+  return found && found.ratio > 0 ? found.ratio : 1;
+}
+
 export const READS = {
+  // live.getDiffusion (crates/live/capabilities/get-diffusion): the one row both
+  // player views read, so view 'dm' and view 'player' answer the same values —
+  // position, size, zoom and pan. The window's x and w are fractions of the stage's
+  // width, y of its height; h, derived from the image's ratio, is in the width's unit
+  // and never stored. Nothing else leaves the row: no token, no HP figure, no note.
+  'live.getDiffusion': async (server) => {
+    const row = await diffusionRow(server);
+    const win = row.window;
+    const ratio = win ? await ratioOfIllustration(server, win.id || win.media) : 1;
+    return {
+      base: { kind: row.base.kind, id: row.base.id || '' },
+      window: win ? { media: win.id || win.media, x: win.x, y: win.y, w: win.w, h: win.w / ratio } : null,
+      view: row.view ? { zoom: row.view.z ?? row.view.zoom, panX: row.view.px ?? row.view.panX, panY: row.view.py ?? row.view.panY } : null,
+    };
+  },
   // table.getBattlemapInstance (crates/table/capabilities/get-battlemap-instance):
   // the DM sees everything; the players no hidden token, no hit point figure, no
   // note — each visible NPC gives its HealthBand@1 band instead.

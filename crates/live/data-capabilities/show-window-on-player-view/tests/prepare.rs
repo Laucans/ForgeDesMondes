@@ -31,14 +31,10 @@ fn portrait() -> Named {
 fn found(illustration: bool) -> Found {
     Found {
         session: Some(SEANCE.to_string()),
+        diffused: true,
         held: true,
         illustration,
     }
-}
-
-/// The session's row showing a battlemap.
-fn diffusing() -> Row {
-    wire(json!({ "sessionId": SEANCE, "baseKind": "battlemap" }))
 }
 
 #[test]
@@ -100,7 +96,7 @@ fn a_window_naming_no_campaign_no_media_or_no_uuid_is_refused() {
 
 #[test]
 fn an_illustration_opens_at_its_default_place_and_width_the_base_left_as_it_is() {
-    let prepared = prepare(&portrait(), &found(true), &diffusing(), NOW).expect("prepared");
+    let prepared = prepare(&portrait(), &found(true), NOW).expect("prepared");
     assert_eq!(prepared.target_id, SEANCE);
     assert_eq!(prepared.warning, None);
     assert_eq!(
@@ -124,28 +120,20 @@ fn the_default_window_sits_on_the_screen_with_a_width_its_height_can_follow() {
 }
 
 #[test]
-fn a_session_with_no_row_gets_its_own_showing_the_cover() {
-    let prepared = prepare(&portrait(), &found(true), &Row::new(), NOW).expect("prepared");
-    assert_eq!(prepared.target_id, SEANCE);
+fn a_session_whose_diffusion_is_not_committed_is_refused_and_nothing_is_written() {
+    let undiffused = Found {
+        diffused: false,
+        ..found(true)
+    };
     assert_eq!(
-        Value::Object(prepared.payload.into_iter().collect()),
-        json!({
-            "sessionId": SEANCE,
-            "baseKind": "cover",
-            "baseMediaId": null,
-            "baseInstanceId": null,
-            "windowMediaId": PORTRAIT,
-            "windowX": X,
-            "windowY": Y,
-            "windowWidth": WIDTH,
-            "updatedAt": NOW,
-        })
+        prepare(&portrait(), &undiffused, NOW),
+        Err(Refusal::NoDiffusion)
     );
 }
 
 #[test]
 fn a_media_with_no_proportions_to_keep_gets_no_width_and_a_warning() {
-    let prepared = prepare(&portrait(), &found(false), &diffusing(), NOW).expect("prepared");
+    let prepared = prepare(&portrait(), &found(false), NOW).expect("prepared");
     assert_eq!(prepared.payload["windowWidth"], json!(0.0));
     assert_eq!(prepared.payload["windowMediaId"], json!(PORTRAIT));
     assert_eq!(prepared.warning, Some(NOT_AN_ILLUSTRATION));
@@ -158,7 +146,7 @@ fn a_campaign_with_no_live_session_or_a_media_not_held_is_refused() {
         ..found(true)
     };
     assert_eq!(
-        prepare(&portrait(), &none, &Row::new(), NOW),
+        prepare(&portrait(), &none, NOW),
         Err(Refusal::NoLiveSession)
     );
     let unknown = Found {
@@ -166,7 +154,7 @@ fn a_campaign_with_no_live_session_or_a_media_not_held_is_refused() {
         ..found(false)
     };
     assert_eq!(
-        prepare(&portrait(), &unknown, &diffusing(), NOW),
+        prepare(&portrait(), &unknown, NOW),
         Err(Refusal::UnknownMedia)
     );
 }
@@ -179,6 +167,7 @@ fn each_refusal_says_why_in_the_dm_s_words() {
         (Refusal::NotAnId("media"), "media n'est pas un identifiant"),
         (Refusal::NoLiveSession, "aucune séance n'est en cours"),
         (Refusal::UnknownMedia, "ce média n'existe pas"),
+        (Refusal::NoDiffusion, "la vue joueurs n'a encore rien reçu"),
     ] {
         assert_eq!(refusal.to_string(), why);
     }
@@ -192,7 +181,7 @@ fn the_manifest_touches_what_a_window_changes_of_an_existing_row_and_nothing_of_
         manifest["dataCapability"],
         show_window_on_player_view::DATA_CAPABILITY
     );
-    let touched: Vec<String> = prepare(&portrait(), &found(true), &diffusing(), NOW)
+    let touched: Vec<String> = prepare(&portrait(), &found(true), NOW)
         .expect("prepared")
         .payload
         .into_keys()

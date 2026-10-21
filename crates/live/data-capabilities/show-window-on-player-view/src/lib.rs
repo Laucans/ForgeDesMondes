@@ -5,27 +5,26 @@
 //! The engine writes one partition per command: opening a window is one
 //! command on `Diffusion/<the session's id>`, the one row both player views
 //! read (single-diffusion-source), which the aggregate projects onto the
-//! `diffusion` table — made by it when the session had none, its window
-//! replaced otherwise. The session is the live session of the campaign the
-//! payload names; its `Prepare` reads it, and what the tables say of the
-//! media, over PostgreSQL from [`named`] ([`windowing`], `WINDOWING`), then
-//! the session's row as the queue leaves it; [`prepare`] turns them into the
+//! `diffusion` table — its window replaced. The session is the live session
+//! of the campaign the payload names; its `Prepare` reads it, and what the
+//! tables say of its diffusion and of the media, over PostgreSQL from
+//! [`named`] ([`windowing`], `WINDOWING`); [`prepare`] turns them into the
 //! state written:
 //!
 //! - the window shows the media at its default position and width ([`X`],
 //!   [`Y`], [`WIDTH`]), the three set together (window-fields-together); its
 //!   height is never written: it follows from the width and the
 //!   illustration's proportions (window-proportional);
-//! - the base is not written: it stays as the row holds it. A session with
-//!   no row yet gets one, its own (`sessionId`) showing the cover — what its
-//!   player view shows before anything is sent (base-coherent): fields made,
-//!   not existing ones changed, which the manifest's `touches` leave out;
+//! - the base is never written: the window floats over the base the row
+//!   holds, so the manifest's `touches` leave it out. A window makes no row:
+//!   a session whose diffusion is not committed in the tables (nothing sent
+//!   yet, or a first send still pending or awaiting review) is refused;
 //! - a media that is no illustration of the campaign, or one with no
 //!   proportions, gets no width its height could follow: it is queued all
 //!   the same, for the DataGuard to refuse under window-proportional, and a
 //!   warning says why;
 //! - a payload naming no campaign or no media, a campaign with no live
-//!   session, or a media the tables do not hold, is refused before it is
+//!   session or no diffusion yet, or a media the tables do not hold, is refused before it is
 //!   queued ([`Refusal`]): nothing changes. Over the engine's memory, which
 //!   has no table, no live session is known: every window is refused.
 
@@ -52,9 +51,6 @@ pub const WIDTH: f64 = 0.3;
 /// window-proportional refuses it.
 const NO_WIDTH: f64 = 0.0;
 
-/// The base a session shows before anything is sent.
-const COVER: &str = "cover";
-
 /// What the warning of a window the DataGuard will refuse says.
 pub const NOT_AN_ILLUSTRATION: &str = "ce média n'est pas une illustration de la campagne : la fenêtre ne peut garder ses proportions";
 
@@ -63,7 +59,8 @@ pub type Row = BTreeMap<String, Value>;
 
 /// What the tables say of what a window names, `$1` the campaign, `$2` the
 /// media, each a uuid: the campaign's live session — of two, the last one
-/// planned —, whether the tables hold the media, and whether it is an
+/// planned —, whether that session's diffusion is committed in the
+/// `diffusion` table, whether the tables hold the media, and whether it is an
 /// illustration of the campaign with a width and a height its window can
 /// keep the proportions of. A row the engine deleted (its tombstone) — a
 /// session, a media — is none.
@@ -81,6 +78,7 @@ const WINDOWING: &str = "WITH live AS (
                 WHERE r.partition = 'Media/' || m.id::text AND r.tombstoned)
     )
     SELECT (SELECT id::text FROM live) AS session,
+        EXISTS (SELECT 1 FROM diffusion d WHERE d.session_id = (SELECT id FROM live)) AS diffused,
         EXISTS (SELECT 1 FROM shown) AS held,
         EXISTS (SELECT 1 FROM shown
             WHERE campaign_id = ($1::text)::uuid AND kind = 'illustration'
@@ -94,10 +92,9 @@ pub fn plugin() -> Plugin {
 
 /// A window made the state it writes on its live session's diffusion row
 /// ([`prepare`]), against what the tables say of what it names
-/// ([`windowing`]) and the row as the queue leaves it: one with no
-/// proportions to keep is queued all the same, for the DataGuard to refuse
-/// under window-proportional, and told among the warnings; anything
-/// [`Refusal`] names is refused, 422, and not queued.
+/// ([`windowing`]): one with no proportions to keep is queued all the same,
+/// for the DataGuard to refuse under window-proportional, and told among the
+/// warnings; anything [`Refusal`] names is refused, 422, and not queued.
 struct Windows;
 
 #[async_trait]
@@ -116,18 +113,9 @@ impl Prepare for Windows {
                 .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?,
             None => Found::default(),
         };
-        let row = match &found.session {
-            Some(session) => {
-                context
-                    .row(&format!("{}{session}", aggregate_diffusion::PARTITION))
-                    .await?
-            }
-            None => Row::new(),
-        };
         let now = aggregate_diffusion::timestamp(context.now_millis);
-        let prepared = prepare(&named, &found, &row, &now).map_err(refused)?;
-        // The partition is the session's: the payload carries its
-        // `sessionId` only when it makes the row.
+        let prepared = prepare(&named, &found, &now).map_err(refused)?;
+        // The partition is the session's; the payload carries no `sessionId`.
         Ok(plugins::Prepared {
             payload: prepared.payload,
             target_id: Some(prepared.target_id),
@@ -163,6 +151,7 @@ pub async fn windowing(rows: &dyn Rows, named: &Named) -> harness_dataguard::Res
             .and_then(|row| row.get("session"))
             .and_then(Value::as_str)
             .map(str::to_owned),
+        diffused: yes("diffused"),
         held: yes("held"),
         illustration: yes("illustration"),
     })
@@ -182,6 +171,8 @@ pub struct Named {
 pub struct Found {
     /// The campaign's live session, its id in lower case, when it has one.
     pub session: Option<String>,
+    /// Whether the session's diffusion row is committed in the tables.
+    pub diffused: bool,
     /// Whether the tables hold the media at all.
     pub held: bool,
     /// Whether the media is an illustration of the campaign, with a width
@@ -213,6 +204,9 @@ pub enum Refusal {
     NoLiveSession,
     /// The tables hold no such media.
     UnknownMedia,
+    /// The session's diffusion is not committed: nothing was sent to the
+    /// player view yet, or a first send still waits (pending, in review).
+    NoDiffusion,
 }
 
 impl std::fmt::Display for Refusal {
@@ -223,6 +217,7 @@ impl std::fmt::Display for Refusal {
             Self::NotAnId(field) => write!(f, "{field} n'est pas un identifiant"),
             Self::NoLiveSession => f.write_str("aucune séance n'est en cours"),
             Self::UnknownMedia => f.write_str("ce média n'existe pas"),
+            Self::NoDiffusion => f.write_str("la vue joueurs n'a encore rien reçu"),
         }
     }
 }
@@ -241,24 +236,27 @@ pub fn named(wire: &Row) -> Result<Named, Refusal> {
 }
 
 /// The state opening `named`'s media in a window writes on the diffusion row
-/// of the campaign's live session, `row` as the commands queued there leave
-/// it, stamped `now`.
+/// of the campaign's live session, stamped `now`.
 ///
 /// # Errors
 ///
 /// [`Refusal::NoLiveSession`] when the campaign has no live session,
-/// [`Refusal::UnknownMedia`] when the tables hold no such media.
-pub fn prepare(named: &Named, found: &Found, row: &Row, now: &str) -> Result<Prepared, Refusal> {
+/// [`Refusal::UnknownMedia`] when the tables hold no such media,
+/// [`Refusal::NoDiffusion`] when the session's diffusion is not committed.
+pub fn prepare(named: &Named, found: &Found, now: &str) -> Result<Prepared, Refusal> {
     let session = found.session.clone().ok_or(Refusal::NoLiveSession)?;
     if !found.held {
         return Err(Refusal::UnknownMedia);
+    }
+    if !found.diffused {
+        return Err(Refusal::NoDiffusion);
     }
     let (width, warning) = if found.illustration {
         (WIDTH, None)
     } else {
         (NO_WIDTH, Some(NOT_AN_ILLUSTRATION))
     };
-    let mut payload = Row::from([
+    let payload = Row::from([
         (
             "windowMediaId".to_string(),
             Value::from(named.media.as_str()),
@@ -268,16 +266,6 @@ pub fn prepare(named: &Named, found: &Found, row: &Row, now: &str) -> Result<Pre
         ("windowWidth".to_string(), Value::from(width)),
         ("updatedAt".to_string(), Value::from(now)),
     ]);
-    // A session with no row yet — neither the engine's nor its table's — is
-    // given one: its own, showing the cover.
-    if row.is_empty() {
-        payload.extend([
-            ("sessionId".to_string(), Value::from(session.as_str())),
-            ("baseKind".to_string(), Value::from(COVER)),
-            ("baseMediaId".to_string(), Value::Null),
-            ("baseInstanceId".to_string(), Value::Null),
-        ]);
-    }
     Ok(Prepared {
         payload,
         target_id: session,

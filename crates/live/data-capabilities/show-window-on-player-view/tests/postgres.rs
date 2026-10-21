@@ -3,9 +3,9 @@
 //! media the tables hold, judged by the DataGuard and projected onto the
 //! session's `diffusion` row in the transaction that applies it. An
 //! illustration opens over the base, which stays as it was, and replaces the
-//! one a window showed; a session with no row gets one showing the cover; a
-//! media that is no illustration of the campaign is rejected under
-//! window-proportional; a campaign with no live session, or a media the
+//! one a window showed; a session with no committed diffusion is refused, a
+//! window making no row; a media that is no illustration of the campaign is
+//! rejected under window-proportional; a campaign with no live session, or a media the
 //! tables do not hold, is refused and nothing is queued. Each test works in
 //! a scratch database of its own, migrated as the server migrates it,
 //! dropped when it ends.
@@ -296,41 +296,21 @@ async fn a_window_opens_over_a_battlemap_replacing_the_one_open_the_base_unchang
 }
 
 #[tokio::test]
-async fn a_session_with_no_row_gets_one_showing_the_cover_and_a_second_window_replaces_the_first() {
+async fn a_session_with_no_committed_diffusion_is_refused_and_nothing_is_queued() {
     let scratch = Scratch::new("no_row").await;
     let engine = scratch.serve().await;
-    let cover = [json!("cover"), Value::Null, Value::Null];
 
-    // Twice in a row: the second is queued behind the first, which makes
-    // the row; both are applied on the one row.
-    let first = window(&engine, None, VALOMBRE, PORTRAIT)
-        .await
-        .expect("the first queued");
-    let second = window(&engine, None, VALOMBRE, PAYSAGE)
-        .await
-        .expect("the second queued behind it");
-    for submitted in [&first, &second] {
-        assert_eq!(submitted.result.status, State::Queued, "{submitted:?}");
-        assert_eq!(submitted.partition, format!("Diffusion/{SEANCE}"));
+    // Nothing sent to the player view yet: a window makes no row, the base
+    // being no business of its own.
+    match window(&engine, None, VALOMBRE, PORTRAIT).await {
+        Err(Error::Refused(refusal)) => {
+            assert_eq!(refusal.kind, RefusalKind::Unprocessable);
+            assert_eq!(refusal.message, "la vue joueurs n'a encore rien reçu");
+        }
+        other => panic!("a window on a session with no diffusion: {other:?}"),
     }
-    let applied: Vec<_> = engine
-        .run_once()
-        .await
-        .expect("the applier ran")
-        .into_iter()
-        .map(|result| (result.command_id, result.status))
-        .collect();
-    assert_eq!(
-        applied,
-        [
-            (first.command_id, State::Applied),
-            (second.command_id, State::Applied)
-        ]
-    );
-    assert_eq!(
-        scratch.diffusions(true).await,
-        [diffusion(cover, opened(PAYSAGE), 1.0, (0.0, 0.0))]
-    );
+    assert!(engine.run_once().await.expect("the applier ran").is_empty());
+    assert!(scratch.diffusions(true).await.is_empty());
     scratch.drop().await;
 }
 
