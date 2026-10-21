@@ -13,7 +13,8 @@
 //! - the window's `x` and `y`, fractions of the screen, and the stamp —
 //!   nothing else: the width (`live.resizeWindow`'s) and the media stay as
 //!   the row holds them. A position outside 0 to 1 is brought back to it,
-//!   the screen's edge, which the table's `numeric(6,4)` columns hold;
+//!   the screen's edge, to 4 decimals: what the table's `numeric(6,4)`
+//!   columns hold, so the engine's row and the table say the same;
 //! - a window that is not open is moved all the same, for the DataGuard to
 //!   refuse: a position with no media and no width breaks
 //!   window-fields-together, the command is rejected and the row stays;
@@ -181,9 +182,10 @@ pub fn prepare(
     })
 }
 
-/// `fraction` brought back onto the screen: from 0 to 1.
+/// `fraction` brought back onto the screen, from 0 to 1, to the 4 decimals
+/// `numeric(6,4)` keeps.
 fn on_screen(fraction: f64) -> f64 {
-    fraction.clamp(0.0, 1.0)
+    (fraction.clamp(0.0, 1.0) * 10_000.0).round() / 10_000.0
 }
 
 /// The number `wire` names under `field`.

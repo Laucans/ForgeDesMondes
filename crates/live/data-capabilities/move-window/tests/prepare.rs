@@ -105,11 +105,15 @@ fn a_drag_writes_x_y_and_the_stamp_alone_on_the_sessions_row() {
 }
 
 #[test]
-fn a_position_off_the_screen_is_brought_back_to_its_edge() {
+fn a_position_is_brought_onto_the_screen_to_four_decimals() {
     for ((x, y), (on_x, on_y)) in [
         ((120.0, 80.0), (1.0, 1.0)),
         ((-0.5, 1.5), (0.0, 1.0)),
         ((0.0, 1.0), (0.0, 1.0)),
+        // To the 4 decimals the table keeps, so the engine's row says what
+        // the table does.
+        ((0.123_456, 0.999_96), (0.1235, 1.0)),
+        ((0.000_04, 0.250_06), (0.0, 0.2501)),
     ] {
         let prepared = prepare(&at(x, y), Some(SEANCE.to_string()), NOW).expect("prepared");
         assert_eq!(prepared.payload["windowX"], json!(on_x), "{x}");
