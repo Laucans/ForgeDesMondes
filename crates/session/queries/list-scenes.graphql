@@ -1,0 +1,21 @@
+# fields: scene.id, scene.sessionId, scene.position, scene.title, scene.notes, sceneEntity.sceneId, sceneEntity.entityId, sceneEntity.position, entity.id, entity.type, sceneMedia.sceneId, sceneMedia.mediaId, media.id, media.placeId, media.uploadedAt, entityToCreate.id, entityToCreate.sceneId, entityToCreate.status, entityToCreate.createdAt
+# A session's scenes by rank, for preparation and the Médias page: the places,
+# the characters (PCs and NPCs) and the events linked to each, the entries
+# still to create, and its media — the ones linked to the scene directly and
+# the ones whose place is one of the scene's places (session-media-by-place,
+# derived at read time, never stored). A medium with no place is attached to
+# nothing but its direct links.
+query ListScenes($session: ID!) {
+  scenes(session: $session) {
+    id
+    sessionId
+    position
+    title
+    notes
+    places
+    characters
+    events
+    media
+    toCreate
+  }
+}

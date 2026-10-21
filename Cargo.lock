@@ -461,6 +461,7 @@ dependencies = [
  "list-media",
  "list-places",
  "list-players",
+ "list-scenes",
  "list-sessions",
  "restore-entity-version",
  "save-entity",
@@ -1089,6 +1090,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "list-scenes"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
