@@ -459,6 +459,7 @@ dependencies = [
  "list-media",
  "list-places",
  "list-players",
+ "place-tokens",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -1235,6 +1236,19 @@ name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
+name = "place-tokens"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "platform-conformance"
