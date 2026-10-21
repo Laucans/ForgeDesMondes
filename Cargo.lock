@@ -309,6 +309,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "close-session"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "ports-llm",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -429,6 +442,7 @@ dependencies = [
  "aggregate-sound",
  "aggregate-sound-playback",
  "aggregate-suggestion",
+ "close-session",
  "create-entities-from-note",
  "export-campaign",
  "extract-from-notes",

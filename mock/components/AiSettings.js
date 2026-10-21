@@ -645,6 +645,32 @@
       server.noteProposals = [];
       return void 0;
     },
+    // session.closeSession (crates/session/data-capabilities/close-session): the
+    // live session closed in one action (`close-session`) — its microphone off,
+    // its close dated, its journal kept as it was — and a summary of its journal
+    // written by the active provider's summary model, the journal's text alone
+    // sent, as a Journal request (`text-only-no-audio`). The summary is the one
+    // the next preparation shows. A session that is not live is refused by
+    // `status-lifecycle`; one that is not the live session is `not-found`.
+    "session.closeSession": async (server, { payload: payload2, targetId }) => {
+      const live = await server.load("session.getLiveSession");
+      if (!live || live.id !== (targetId || payload2.id)) return ["not-found"];
+      if ((live.status || "live") !== "live") return ["status-lifecycle"];
+      const settings = await server.load("ai.getSettings");
+      const binary = settings.mode === "binary" && settings.binary;
+      const model = (binary || settings.providers?.[settings.provider] || {}).summaryModel || "";
+      const provider = binary ? `${binary.binary}-binary` : settings.provider === "opencode" ? "opencode-server" : "cloud";
+      const { journal = [] } = await server.load("session.getSessionJournal") || {};
+      const lines = journal.length ? journal.map((line) => `${line.t} ${line.text}`) : ["(aucune ligne transcrite)"];
+      const text2 = [`Journal de la s\xE9ance \xAB ${live.title} \xBB`, ...lines].join("\n");
+      const requests = (await server.load("ai.listProviderRequests"))?.requests;
+      if (requests) requests.push({ sequence: requests.length + 1, kind: "journal", provider, text: text2, modalities: ["text"] });
+      const summary = `R\xE9sum\xE9 de la s\xE9ance ${live.order} g\xE9n\xE9r\xE9 par ${model} \xE0 partir de ${journal.length} lignes du journal.`;
+      Object.assign(live, { status: "closed", closedAt: (/* @__PURE__ */ new Date()).toISOString(), microphoneOn: false, summary, summaryModel: model });
+      const previous = await server.load("session.getPreviousSessionSummary");
+      if (previous) Object.assign(previous, { session: { id: live.id, order: live.order, title: live.title, date: live.date }, summary, summaryMeta: `G\xE9n\xE9r\xE9 \xE0 la cl\xF4ture par ${model}` });
+      return void 0;
+    },
     // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
     // DM's explicit save of an element, its sheet and its aliases, which adds a
     // version (EntityVersion@1, source `dm`) whose changes are the fields that
