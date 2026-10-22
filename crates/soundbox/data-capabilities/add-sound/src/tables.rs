@@ -20,19 +20,22 @@ use harness_dataguard::store::Write;
 use harness_dataguard::tokio_postgres::{Error, Transaction};
 
 /// The live sound the partition `$1` holds, as the engine holds it, added to
-/// `sound` when the table holds no row of its id. A row whose id is no uuid,
-/// or not its partition's, is none the table could hold.
+/// `sound` when the table holds no row of its id, its tags in their order.
+/// A row whose id is no uuid, or not its partition's, is none the table
+/// could hold.
 const ADD_SOUND: &str =
     "INSERT INTO sound (id, campaign_id, name, file_path, tags, volume, created_at)
     SELECT (v ->> 'id')::uuid, (v ->> 'campaignId')::uuid, v ->> 'name', v ->> 'filePath',
-        ARRAY(SELECT jsonb_array_elements_text(v -> 'tags')),
+        ARRAY(SELECT tag FROM jsonb_array_elements_text(v -> 'tags') WITH ORDINALITY AS t(tag, n)
+            ORDER BY n),
         (v ->> 'volume')::numeric, (v ->> 'createdAt')::timestamptz
     FROM dataguard_rows r
     CROSS JOIN LATERAL (SELECT r.fields::jsonb AS v) added
     WHERE r.partition = $1::text AND NOT r.tombstoned
         AND r.partition = 'Sound/' || (v ->> 'id')
         AND pg_input_is_valid(v ->> 'id', 'uuid')
-        AND NOT EXISTS (SELECT 1 FROM sound s WHERE s.id::text = v ->> 'id')";
+        AND NOT EXISTS (SELECT 1 FROM sound s WHERE s.id = CASE
+            WHEN pg_input_is_valid(v ->> 'id', 'uuid') THEN (v ->> 'id')::uuid END)";
 
 /// The Sound aggregate's projection of an added sound into `sound`.
 pub struct Sounds;

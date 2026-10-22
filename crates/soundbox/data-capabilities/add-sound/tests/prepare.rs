@@ -2,7 +2,7 @@
 //! (`add_sound::prepare`): the row it writes on its new partition — its
 //! tags normalised, its volume a fraction of 1 — or why it is refused.
 
-use add_sound::{Fresh, Refusal, Row, campaign_id, prepare, stamp};
+use add_sound::{Fresh, Refusal, Row, campaign_id, is_uuid, prepare, stamp};
 use serde_json::{Value, json};
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
@@ -205,5 +205,24 @@ fn now_is_rfc_3339_in_utc_to_the_millisecond() {
         (13_574_563_200_000, "2400-02-29T00:00:00.000Z"),
     ] {
         assert_eq!(stamp(millis), text, "{millis}");
+    }
+}
+
+#[test]
+fn a_campaign_is_named_by_a_uuid_in_lower_case() {
+    assert!(is_uuid(VALOMBRE));
+    assert!(is_uuid("0123abcd-ef45-6789-abcd-ef0123456789"));
+    for not in [
+        "",
+        "valombre",
+        "C1000000-0000-4000-8000-000000000001",
+        "c1000000-0000-4000-8000-00000000000g",
+        "c1000000-0000-4000-8000-0000000000001",
+        "c1000000-0000-4000-8000",
+        "c1000000-0000-4000-8000-000000000001-0000",
+        "c10000000-000-4000-8000-000000000001",
+        "c1000000:0000-4000-8000-000000000001",
+    ] {
+        assert!(!is_uuid(not), "{not}");
     }
 }

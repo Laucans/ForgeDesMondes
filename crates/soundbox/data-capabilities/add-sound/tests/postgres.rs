@@ -254,6 +254,48 @@ async fn tags_normalized_two_spellings_reach_the_table_as_one_tag() {
 }
 
 #[tokio::test]
+async fn tags_normalized_the_tags_reach_the_table_in_their_order() {
+    let s = Scratch::new("order").await;
+    let engine = s.serve().await;
+    let mut payload = crowd();
+    let typed = [
+        "Taverne",
+        "Intérieur",
+        "Foule",
+        "bois",
+        "Verre",
+        "nuit",
+        "Porte",
+        "écho",
+        "Zinc",
+        "ambre",
+    ];
+    payload["tags"] = json!(typed);
+    // Named in upper case: the campaign is found all the same.
+    payload["campaign"] = json!(VALOMBRE.to_uppercase());
+    let (_, result) = add(&engine, payload).await;
+    assert_eq!(result.status, State::Applied, "{result:?}");
+    let sounds = s.sounds().await;
+    assert_eq!(
+        sounds[0]["tags"],
+        json!([
+            "taverne",
+            "intérieur",
+            "foule",
+            "bois",
+            "verre",
+            "nuit",
+            "porte",
+            "écho",
+            "zinc",
+            "ambre",
+        ])
+    );
+    assert_eq!(sounds[0]["campaign"], json!(VALOMBRE));
+    s.drop().await;
+}
+
+#[tokio::test]
 async fn sound_volume_range_a_volume_of_120_is_rejected_and_nothing_written() {
     let s = Scratch::new("loud").await;
     let engine = s.serve().await;
@@ -270,13 +312,15 @@ async fn sound_volume_range_a_volume_of_120_is_rejected_and_nothing_written() {
 async fn a_campaign_the_tables_do_not_hold_is_not_found_and_nothing_queued() {
     let s = Scratch::new("nowhere").await;
     let engine = s.serve().await;
-    let mut payload = crowd();
-    payload["campaign"] = json!(NOWHERE);
-    match submit(&engine, "soundbox.addSound@1", payload, None).await {
-        Err(Error::Refused(refusal)) if refusal.kind == RefusalKind::NotFound => {
-            assert_eq!(refusal.message, "cette campagne n'existe pas");
+    for campaign in [NOWHERE, "valombre"] {
+        let mut payload = crowd();
+        payload["campaign"] = json!(campaign);
+        match submit(&engine, "soundbox.addSound@1", payload, None).await {
+            Err(Error::Refused(refusal)) if refusal.kind == RefusalKind::NotFound => {
+                assert_eq!(refusal.message, "cette campagne n'existe pas");
+            }
+            other => panic!("{campaign} not found: {other:?}"),
         }
-        other => panic!("not found: {other:?}"),
     }
     assert!(engine.run_once().await.expect("the applier ran").is_empty());
     assert_eq!(s.sounds().await, Vec::<Value>::new());

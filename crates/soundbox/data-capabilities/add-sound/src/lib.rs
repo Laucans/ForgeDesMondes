@@ -202,9 +202,9 @@ pub fn plugin() -> Plugin {
         .project_pg(AGGREGATE, tables::Sounds)
 }
 
-/// A live campaign the tables hold, `$1` its id in whatever case. A
-/// campaign the engine deleted (its tombstone) is none.
-const HELD_CAMPAIGN: &str = "SELECT c.id::text AS id FROM campaign c WHERE c.id::text = lower($1)
+/// A live campaign the tables hold, `$1` its id, a uuid. A campaign the
+/// engine deleted (its tombstone) is none.
+const HELD_CAMPAIGN: &str = "SELECT c.id::text AS id FROM campaign c WHERE c.id = $1::text::uuid
     AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
         WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
 
@@ -252,8 +252,12 @@ fn refused(refusal: Refusal) -> plugins::Refusal {
 }
 
 /// Whether the product holds the campaign `id` names, live: over PostgreSQL
-/// as the tables hold it, over the engine's memory as its row.
+/// as the tables hold it, over the engine's memory as its row. A text that
+/// is no uuid names none.
 async fn held(context: &Context<'_>, id: &str) -> Result<bool, plugins::Refusal> {
+    if !is_uuid(id) {
+        return Ok(false);
+    }
     let Some(rows) = context.rows else {
         return Ok(!context.row(&format!("{CAMPAIGN}{id}")).await?.is_empty());
     };
@@ -262,6 +266,20 @@ async fn held(context: &Context<'_>, id: &str) -> Result<bool, plugins::Refusal>
         .await
         .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?;
     Ok(found.as_array().is_some_and(|found| !found.is_empty()))
+}
+
+/// Whether `id` is a uuid as [`campaign_id`] names one: 8-4-4-4-12
+/// hexadecimal digits, in lower case.
+#[must_use]
+pub fn is_uuid(id: &str) -> bool {
+    let groups: Vec<&str> = id.split('-').collect();
+    groups.len() == 5
+        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(group, len)| {
+            group.len() == len
+                && group
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+        })
 }
 
 /// `millis` since the epoch as RFC 3339 in UTC, to the millisecond

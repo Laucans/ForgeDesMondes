@@ -747,21 +747,25 @@
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
-  var soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => String(t).trim().toLowerCase()).filter(Boolean))];
+  var soundTags = (tags) => [...new Set(tags.map((t) => [...t.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "")].map((c) => c.toLowerCase()).join("")).filter(Boolean))];
   var COMMANDS = {
     // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
-    // added to the library — its tags normalised (`tags-normalized`), its own
-    // volume a percentage from 0 to 100 (`sound-volume-range`), full when none
-    // is given. One with no name or no file is refused, as the server refuses
-    // it before anything is queued.
+    // added to the library. One with no name or no file is refused before
+    // anything is queued, as the server refuses it. Its tags, a list of texts,
+    // are normalised (`tags-normalized`); its own volume is a percentage from
+    // 0 to 100 — a number or the text of one — full when none is given
+    // (`sound-volume-range`).
     "soundbox.addSound": async (server, { payload: payload2 }) => {
-      const volume = payload2.volume == null ? 100 : Number(payload2.volume);
-      if (!(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
-      const name = String(payload2.name ?? "").trim();
-      const file = String(payload2.file ?? "").trim();
+      const name = typeof payload2.name === "string" ? payload2.name.trim() : "";
+      const file = typeof payload2.file === "string" ? payload2.file.trim() : "";
       if (!name || !file) return ["unprocessable"];
+      const tags = payload2.tags ?? [];
+      if (!Array.isArray(tags) || !tags.every((t) => typeof t === "string")) return ["tags-normalized"];
+      const given = payload2.volume ?? 100;
+      const volume = typeof given === "number" || typeof given === "string" && given.trim() !== "" ? Number(given) : NaN;
+      if (!(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
       const library = await server.load("soundbox.listSounds");
-      library.sounds.unshift({ id: server.uuid(), name, tags: soundTags(payload2.tags), duration: 0, volume: Math.round(volume), file });
+      library.sounds.unshift({ id: server.uuid(), name, tags: soundTags(tags), duration: 0, volume: Math.round(volume), file });
       return void 0;
     },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
