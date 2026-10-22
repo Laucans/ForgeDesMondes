@@ -475,6 +475,7 @@ dependencies = [
  "list-players",
  "move-token",
  "place-tokens",
+ "remove-token",
  "rename-token",
  "restore-entity-version",
  "save-entity",
@@ -1481,6 +1482,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "remove-token"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

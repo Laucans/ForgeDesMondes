@@ -44,6 +44,7 @@ ignored = [
     "list-players",
     "move-token",
     "place-tokens",
+    "remove-token",
     "rename-token",
     "restore-entity-version",
     "save-entity",
@@ -89,6 +90,7 @@ list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
 move-token = { path = "../../table/data-capabilities/move-token" }
 place-tokens = { path = "../../table/data-capabilities/place-tokens" }
+remove-token = { path = "../../table/data-capabilities/remove-token" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
