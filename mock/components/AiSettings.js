@@ -829,6 +829,15 @@
       w.x = onScreen(payload2.x, w.x);
       w.y = onScreen(payload2.y, w.y);
     }),
+    // live.closeWindow (crates/live/data-capabilities/close-window): the window's
+    // media, position and width are emptied together (window-fields-together);
+    // the base and the framing stay. A window already closed is closed again.
+    "live.closeWindow": async (server) => {
+      const row = await diffusionRow(server);
+      row.window = null;
+      if (window.Mock) window.Mock.store.set("diffusion", row);
+      return void 0;
+    },
     // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
     // is stored, the largest that fits the box asked for at the image's ratio — w
     // alone with no h — from 0.1 to the screen's width, to 4 decimals
