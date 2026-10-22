@@ -30,6 +30,7 @@ ignored = [
     "extract-from-notes",
     "get-battlemap",
     "get-campaign",
+    "get-diffusion",
     "get-entity",
     "get-settings",
     "list-campaigns",
@@ -73,6 +74,7 @@ export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 get-battlemap = { path = "../../media/capabilities/get-battlemap" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
+get-diffusion = { path = "../../live/capabilities/get-diffusion" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
