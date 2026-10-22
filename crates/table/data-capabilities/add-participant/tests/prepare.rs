@@ -185,7 +185,7 @@ fn character_of_a_token_on_the_instance_is_its_character_lowercase() {
 }
 
 #[test]
-fn character_of_no_token_of_the_instance_is_an_unknown_token() {
+fn character_of_no_token_of_the_instance_is_an_unknown_token_and_no_character_unknown() {
     let on = |instance: &str, character: Value| {
         row(json!({
             "tokenId": TOKEN,
@@ -193,10 +193,14 @@ fn character_of_no_token_of_the_instance_is_an_unknown_token() {
             "characterId": character,
         }))
     };
+    // On the instance, but of no character.
+    assert_eq!(
+        character_of(&joining(None), &on(INSTANCE, Value::Null)),
+        Err(Refusal::UnknownCharacter)
+    );
     for token in [
         Row::new(),
         on("b2000000-0000-4000-8000-000000000002", json!(CHARACTER)),
-        on(INSTANCE, Value::Null),
         row(json!({
             "tokenId": "70000000-0000-4000-8000-0000000000bb",
             "tokenInstanceId": INSTANCE,

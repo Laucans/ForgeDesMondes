@@ -91,16 +91,21 @@ pub const COMBAT: &str = "SELECT lower(r.fields ->> 'combatId') AS combat
     ORDER BY r.fields ->> 'startedAt' DESC NULLS LAST, r.partition
     LIMIT 1";
 
-/// The entries the engine holds of the combat `$1`, and the tokens it holds
-/// on the instance `$2`, by id: each token's entry in the combat, queued and
-/// not yet applied, is found on the partition its id names. What the engine
-/// tombstoned is not there.
+/// The entries the engine holds of the combat `$1` whose token it holds,
+/// and the tokens it holds on the instance `$2`, by id: each token's entry
+/// in the combat, queued and not yet applied, is found on the partition its
+/// id names. What the engine tombstoned is not there — nor the entry of a
+/// token taken off the map, which the tables' cascade removed and the
+/// carousel no longer shows.
 pub const PARTICIPANTS: &str = "SELECT
         coalesce((SELECT jsonb_agg(lower(e.fields ->> 'initiativeEntryId'))
             FROM dataguard_rows e
             WHERE e.partition LIKE 'BattlemapInstance/%' AND NOT e.tombstoned
                 AND e.partition = 'BattlemapInstance/' || lower(e.fields ->> 'initiativeEntryId')
-                AND lower(e.fields ->> 'initiativeEntryCombatId') = $1::text),
+                AND lower(e.fields ->> 'initiativeEntryCombatId') = $1::text
+                AND EXISTS (SELECT 1 FROM dataguard_rows t
+                    WHERE t.partition = 'BattlemapInstance/' || lower(e.fields ->> 'initiativeEntryTokenId')
+                        AND NOT t.tombstoned)),
             '[]') AS entries,
         coalesce((SELECT jsonb_agg(lower(t.fields ->> 'tokenId'))
             FROM dataguard_rows t
@@ -362,7 +367,7 @@ pub fn request(wire: &Row, target: Option<&str>) -> Result<Request, Refusal> {
 /// # Errors
 ///
 /// [`Refusal::UnknownToken`] when `token` is no token of the instance the
-/// request names, or names no character.
+/// request names, [`Refusal::UnknownCharacter`] when it names no character.
 pub fn character_of(request: &Request, token: &Row) -> Result<String, Refusal> {
     let held = |field: &str| token.get(field).and_then(Value::as_str).and_then(uuid);
     if held("tokenId").as_deref() != Some(request.token.as_str())
@@ -370,7 +375,7 @@ pub fn character_of(request: &Request, token: &Row) -> Result<String, Refusal> {
     {
         return Err(Refusal::UnknownToken);
     }
-    held("characterId").ok_or(Refusal::UnknownToken)
+    held("characterId").ok_or(Refusal::UnknownCharacter)
 }
 
 /// The rows `request` writes against what `seating` holds, with the
@@ -594,11 +599,10 @@ impl Prepare for Joins {
         let Some(rows) = context.rows else {
             return Err(refused(Refusal::NoOpenCombat));
         };
-        let combat = open_combat(context, rows, &request.instance).await?;
-        let entries = match &combat {
-            Some(combat) => participants(context, rows, combat, &request.instance).await?,
-            None => Vec::new(),
+        let Some(combat) = open_combat(context, rows, &request.instance).await? else {
+            return Err(refused(Refusal::NoOpenCombat));
         };
+        let entries = participants(context, rows, &combat, &request.instance).await?;
         let sheet = rows
             .rows(SHEET, &[json!(character)])
             .await
@@ -608,7 +612,7 @@ impl Prepare for Joins {
             dex: sheet["dex"].as_i64(),
         });
         let seating = Seating {
-            combat,
+            combat: Some(combat),
             entries,
             character,
         };
@@ -697,8 +701,8 @@ async fn open_combat(
 }
 
 /// The participants of `combat` on `instance`, each entry as the queue
-/// leaves it: the ones the engine holds, and each token's entry still
-/// queued on the partition its id names.
+/// leaves it: the ones the engine holds whose token is on the map, and each
+/// token's entry still queued on the partition its id names.
 async fn participants(
     context: &Context<'_>,
     rows: &dyn Rows,

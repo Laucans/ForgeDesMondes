@@ -1074,7 +1074,7 @@
       const dexScore = pc ? score ?? null : score ?? 10;
       const dex = dexScore === null ? 0 : Math.floor((dexScore - 10) / 2);
       const init = pc ? payload.initiative : 1 + Math.floor(Math.random() * 20) + dex;
-      const before = order.findLastIndex((o) => o.init > init || o.init === init && o.dex >= dex);
+      const before = order.findLastIndex((o) => o.init > init || o.init === init && (dexScore === null || o.dex >= dex));
       order.splice(before + 1, 0, { id: token.id, init, dex });
       combat.order = order;
       return void 0;

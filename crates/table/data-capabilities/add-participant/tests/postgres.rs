@@ -50,6 +50,7 @@ const T_GARRICK: &str = "70000000-0000-4000-8000-000000000006";
 /// and ending a combat.
 const OPEN_INSTANCE: &str = r#"{"dataCapability":"test.openInstance","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$battlemapInstanceId"},"mode":"overwrite","callableBy":["*"]}"#;
 const DROP_TOKEN: &str = r#"{"dataCapability":"test.dropToken","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$tokenId"},"mode":"overwrite","callableBy":["*"]}"#;
+const REMOVE_TOKEN: &str = r#"{"dataCapability":"test.removeToken","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"BattlemapInstance","id":"$token"},"mode":"overwrite","callableBy":["*"]}"#;
 const OPEN_COMBAT: &str = r#"{"dataCapability":"test.openCombat","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$combatId"},"mode":"overwrite","callableBy":["*"]}"#;
 const ENTER: &str = r#"{"dataCapability":"test.enter","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$initiativeEntryId"},"mode":"overwrite","callableBy":["*"]}"#;
 const END_COMBAT: &str = r#"{"dataCapability":"test.endCombat","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"BattlemapInstance","id":"$combat"},"touches":["BattlemapInstance.endedAt","BattlemapInstance.currentEntryId"],"mode":"overwrite","callableBy":["*"]}"#;
@@ -230,6 +231,7 @@ impl Scratch {
         .with_data_capability(manifest(include_str!("../data-capability.json")))
         .with_data_capability(manifest(OPEN_INSTANCE))
         .with_data_capability(manifest(DROP_TOKEN))
+        .with_data_capability(manifest(REMOVE_TOKEN))
         .with_data_capability(manifest(OPEN_COMBAT))
         .with_data_capability(manifest(ENTER))
         .with_data_capability(manifest(END_COMBAT))
@@ -709,5 +711,64 @@ async fn initiative_tiebreak_a_move_sent_alone_is_refused() {
         assert!(message.starts_with("initiative-tiebreak"), "{message}");
     }
     assert_eq!(ranks(&scratch.entries().await), [1, 2, 3, 4]);
+    scratch.drop().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn initiative_tiebreak_the_entry_of_a_token_off_the_map_neither_ranks_nor_makes_room() {
+    let scratch = Scratch::new("off_the_map").await;
+    let engine = scratch
+        .serve(add_participant::plugin_with(Scripted::new(&[13], &[42])))
+        .await;
+    scratch.plant(&engine).await;
+    scratch.fight(&engine).await;
+    // Vesna's token leaves the map: her entry stays among the engine's rows
+    // at rank 2, which the carousel no longer shows.
+    submit(&engine, "test.removeToken", json!({}), Some(T_VESNA))
+        .await
+        .expect("Vesna removed");
+    applied(&engine).await;
+    let vesna = scratch
+        .row(&partition(&entry_id(COMBAT, T_VESNA)))
+        .await
+        .expect("Vesna's entry");
+
+    // The wolf at 15 takes rank 2, free among the participants on the map:
+    // the Bandit stays at 3.
+    let joined = join(&engine, json!({ "token": T_LOUP }))
+        .await
+        .expect("joined");
+    assert!(joined.then.is_empty(), "{:?}", joined.then);
+    clean(&joined);
+    applied(&engine).await;
+    let wolf = entry_id(COMBAT, T_LOUP);
+    assert_eq!(
+        scratch.row(&partition(&wolf)).await.expect("the wolf")["rank"],
+        2
+    );
+    assert_eq!(
+        scratch
+            .row(&partition(&entry_id(COMBAT, T_BANDIT)))
+            .await
+            .expect("the Bandit")["rank"],
+        3
+    );
+    assert_eq!(
+        scratch.row(&partition(&entry_id(COMBAT, T_VESNA))).await,
+        Some(vesna)
+    );
+
+    // Vesna's entry at the wolf's rank makes no room for anyone.
+    let (kind, message) = refusal(
+        submit(
+            &engine,
+            "table.addParticipant@1",
+            json!({ "shift": wolf, "newcomer": entry_id(COMBAT, T_ELOWEN) }),
+            None,
+        )
+        .await,
+    );
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.starts_with("initiative-tiebreak"), "{message}");
     scratch.drop().await;
 }
