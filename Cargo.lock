@@ -449,6 +449,7 @@ dependencies = [
  "save-entity",
  "save-grid-settings",
  "save-settings",
+ "set-master-volume",
  "set-media-place",
  "test-connection",
  "upload-media",
@@ -1745,6 +1746,18 @@ dependencies = [
  "tokio",
  "tower",
  "uuid",
+]
+
+[[package]]
+name = "set-master-volume"
+version = "0.1.0"
+dependencies = [
+ "aggregate-campaign",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
