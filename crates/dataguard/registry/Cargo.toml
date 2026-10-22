@@ -49,6 +49,7 @@ ignored = [
     "save-grid-settings",
     "save-settings",
     "set-media-place",
+    "set-token-condition",
     "set-token-visibility",
     "test-connection",
     "upload-media",
@@ -92,6 +93,7 @@ save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
+set-token-condition = { path = "../../table/data-capabilities/set-token-condition" }
 set-token-visibility = { path = "../../table/data-capabilities/set-token-visibility" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }
