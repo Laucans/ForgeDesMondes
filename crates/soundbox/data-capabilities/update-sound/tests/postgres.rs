@@ -351,18 +351,42 @@ async fn a_sound_named_by_no_uuid_is_not_found_rather_than_an_error() {
     let scratch = Scratch::new("no_uuid").await;
     let engine = scratch.plant().await;
 
-    let refused = submit(
-        &engine,
-        "soundbox.updateSound@1",
+    for sound in [
         "porte",
-        json!({ "name": "Porte" }),
-    )
-    .await;
+        "cafe",
+        "50000000-0000-4000-8000-00000000000g",
+        "50000000-0000-4000-8000-0000000000020",
+        "500000000000-4000-8000-0000-00000002",
+    ] {
+        let refused = submit(
+            &engine,
+            "soundbox.updateSound@1",
+            sound,
+            json!({ "name": "Porte" }),
+        )
+        .await;
 
-    assert!(
-        matches!(refused, Err(Error::Refused(ref r)) if r.kind == RefusalKind::NotFound),
-        "{refused:?}"
-    );
+        assert!(
+            matches!(refused, Err(Error::Refused(ref r)) if r.kind == RefusalKind::NotFound),
+            "{sound}: {refused:?}"
+        );
+    }
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_write_of_a_sound_partition_the_table_could_never_hold_projects_nothing() {
+    let scratch = Scratch::new("no_uuid_write").await;
+    let engine = scratch.plant().await;
+    let before = scratch.tables().await;
+    submit(&engine, "test.removeSound@1", "cafe", json!({}))
+        .await
+        .expect("queued");
+
+    let removed = engine.run_once().await.expect("the applier ran");
+
+    assert_eq!(removed[0].status, State::Applied, "{removed:?}");
+    assert_eq!(scratch.tables().await, before);
     scratch.drop().await;
 }
 
