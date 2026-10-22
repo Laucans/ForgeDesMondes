@@ -50,6 +50,7 @@ ignored = [
     "set-master-volume",
     "set-media-place",
     "test-connection",
+    "update-sound",
     "upload-media",
 ]
 
@@ -92,4 +93,5 @@ save-settings = { path = "../../ai/data-capabilities/save-settings" }
 set-master-volume = { path = "../../soundbox/data-capabilities/set-master-volume" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
+update-sound = { path = "../../soundbox/data-capabilities/update-sound" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }
