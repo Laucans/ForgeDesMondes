@@ -292,7 +292,7 @@ mod tests {
                 })
                 .collect();
             assert!(
-                SQL.contains(&format!("AS {column}")) || SQL.contains(&column),
+                SQL.contains(&format!("AS {column}")),
                 "the query names {field}, the SQL does not select {column}"
             );
         }
