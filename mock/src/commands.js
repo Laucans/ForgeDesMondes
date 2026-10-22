@@ -419,4 +419,30 @@ export const COMMANDS = {
     token.states = payload.on ? (held.includes(state) ? held : [...held, state]) : held.filter((s) => s !== state);
     return undefined;
   },
+  // table.changeHitPoints (crates/table/data-capabilities/change-hit-points):
+  // the NPC token `payload.token` of the instance `targetId` (or
+  // `payload.instance`) wounded or healed by `payload.delta` — its HP alone,
+  // landing between 0 and its HP max (`pj-hp-not-tracked`); the other tokens
+  // of its character are untouched (`hp-change-one-token`). At 0 it is dead,
+  // derived from its HP alone (`dead-derived`). A change that is no whole
+  // number, or one on a PC's token, which tracks no HP, is refused by
+  // `pj-hp-not-tracked`; an unknown token is `not-found`; a token that stands
+  // on another instance than the one named — or on none named — is refused
+  // by `instance-isolated`, as the DataGuard judges it. Ids are compared in
+  // any case and without the blanks around them, as the server does.
+  'table.changeHitPoints': async (server, { payload, targetId }) => {
+    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+    if (!Number.isInteger(payload.delta)) return ['pj-hp-not-tracked'];
+    const id = targetId || payload.instance;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const holder = instances.find((i) => i.state.tokens.some((t) => same(t.id, payload.token)));
+    if (!holder) return ['not-found'];
+    if (!same(id, holder.id)) return ['instance-isolated'];
+    const token = holder.state.tokens.find((t) => same(t.id, payload.token));
+    if (!Number.isInteger(token.hp) || !Number.isInteger(token.hpMax)) return ['pj-hp-not-tracked'];
+    token.hp = Math.max(0, Math.min(token.hpMax, token.hp + payload.delta));
+    token.dead = token.hp === 0;
+    return undefined;
+  },
 };

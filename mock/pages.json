@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "25167d8b863ceb1b"
+      "builtFrom": "6490fef4af08c3eb"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "295c9c53def01575"
+      "builtFrom": "4780ba3f1014e4e5"
     },
     {
       "name": "SessionList",
@@ -214,7 +214,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "988520eaaa500629"
+      "builtFrom": "6ecd6c8fa6698d81"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +278,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "4896ac6c301bf319"
+      "builtFrom": "49af3b7335ac4eb1"
     },
     {
       "name": "PreviousSummary",
@@ -340,7 +340,7 @@
       ],
       "props": {},
       "source": "apps/session/scene-board",
-      "builtFrom": "e8be2dcfa70ba824"
+      "builtFrom": "7a582845ca13b44e"
     },
     {
       "name": "Battlemap",
@@ -421,7 +421,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "8634617243f02f76"
+      "builtFrom": "5e307dcaed3b36a0"
     },
     {
       "name": "SoundLibrary",

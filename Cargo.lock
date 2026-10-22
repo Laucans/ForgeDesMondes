@@ -309,6 +309,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "change-hit-points"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -442,6 +455,7 @@ dependencies = [
  "aggregate-sound",
  "aggregate-sound-playback",
  "aggregate-suggestion",
+ "change-hit-points",
  "create-battlemap-instance",
  "create-entities-from-note",
  "export-campaign",
