@@ -734,7 +734,8 @@ async fn participants(
             .and_then(Value::as_str)
             .and_then(uuid)
             .is_some_and(|of| of == combat);
-        if let Some(entry) = Seated::of(&row).filter(|entry| of_combat && entry.id == id) {
+        // Every entry is written on the partition its own id names.
+        if let Some(entry) = Seated::of(&row).filter(|_| of_combat) {
             seated.push(entry);
         }
     }
