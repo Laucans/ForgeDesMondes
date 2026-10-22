@@ -251,7 +251,7 @@
       "query": "ListSounds",
       "capability": "soundbox.listSounds",
       "file": "crates/soundbox/queries/listSounds.graphql",
-      "sha256": "949f24a42bf440493fbd6a7eb3d24c26f6a9a69d6c9ac57e85a4f068c3709efc",
+      "sha256": "02a3f592cf2261151c5cdc2cf421cbea58d7879b619bc74f32911a9386fa78c8",
       "fields": [
         "campaign.id",
         "campaign.soundMasterVolume",
@@ -263,7 +263,9 @@
         "sound.volume",
         "sound.createdAt",
         "soundPlayback.soundId",
-        "soundPlayback.stoppedAt"
+        "soundPlayback.sessionId",
+        "soundPlayback.stoppedAt",
+        "session.status"
       ]
     }
   ]

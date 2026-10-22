@@ -1,9 +1,10 @@
-# fields: campaign.id, campaign.soundMasterVolume, sound.id, sound.campaignId, sound.name, sound.filePath, sound.tags, sound.volume, sound.createdAt, soundPlayback.soundId, soundPlayback.stoppedAt
+# fields: campaign.id, campaign.soundMasterVolume, sound.id, sound.campaignId, sound.name, sound.filePath, sound.tags, sound.volume, sound.createdAt, soundPlayback.soundId, soundPlayback.sessionId, soundPlayback.stoppedAt, session.status
 # The soundbox's read: a campaign's sounds with their normalised tags, their own
 # volume, the campaign's master volume and whether a playback of each is running
 # now. The effective gain is not read: it is derived from the two volumes
 # (EffectiveVolume@1). The name search and the tag filter read the name and the
-# tags alone (tags-normalized). The playing state is the DM's (dm-side-only).
+# tags alone (tags-normalized). The playing state is the DM's (dm-side-only):
+# a playback not stopped, in a session that is not closed.
 query ListSounds($campaign: ID!) {
   campaign(id: $campaign) {
     id
@@ -18,7 +19,11 @@ query ListSounds($campaign: ID!) {
       createdAt
       playbacks {
         soundId
+        sessionId
         stoppedAt
+        session {
+          status
+        }
       }
     }
   }
