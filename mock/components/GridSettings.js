@@ -744,14 +744,30 @@
     const home = settings.providers.opencode.url;
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
-  function soundTags(tags) {
-    const list = Array.isArray(tags) ? tags : [];
-    return [...new Set(list.map((t) => String(t).trim().toLowerCase()).filter(Boolean))];
-  }
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
+  var soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => [...String(t).replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "")].map((c) => c.toLowerCase()).join("")).filter(Boolean))];
   var COMMANDS = {
+    // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
+    // added to the library. One with no name or no file is refused before
+    // anything is queued, as the server refuses it. Its tags, a list of texts,
+    // are normalised (`tags-normalized`); its own volume is a percentage from
+    // 0 to 100 — a number or the text of one — full when none is given
+    // (`sound-volume-range`).
+    "soundbox.addSound": async (server, { payload: payload2 }) => {
+      const name = typeof payload2.name === "string" ? payload2.name.trim() : "";
+      const file = typeof payload2.file === "string" ? payload2.file.trim() : "";
+      if (!name || !file) return ["unprocessable"];
+      const tags = payload2.tags ?? [];
+      if (!Array.isArray(tags) || !tags.every((t) => typeof t === "string")) return ["tags-normalized"];
+      const given = payload2.volume ?? 100;
+      const volume = typeof given === "number" || typeof given === "string" && given.trim() !== "" ? Number(given) : NaN;
+      if (!(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
+      const library = await server.load("soundbox.listSounds");
+      library.sounds.unshift({ id: server.uuid(), name, tags: soundTags(tags), duration: 0, volume: Math.round(volume), file });
+      return void 0;
+    },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
     // battlemap or an illustration added to the library, the path the DM chose
     // recorded and no file copied. A battlemap arrives with its default grid
@@ -830,17 +846,6 @@
       const now = /* @__PURE__ */ new Date();
       const pad = (n) => String(n).padStart(2, "0");
       campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-      return void 0;
-    },
-    // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
-    // added to the library. Its tags are normalised as SoundTag@1 does (lower
-    // case, no duplicate), its volume is a percentage that stays in [0, 100]
-    // (`sound-volume-range`).
-    "soundbox.addSound": async (server, { payload: payload2 }) => {
-      const volume = Number(payload2.volume);
-      if (!(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
-      const library = await server.load("soundbox.listSounds");
-      library.sounds.unshift({ id: server.uuid(), name: String(payload2.name || ""), tags: soundTags(payload2.tags), duration: 2, volume, file: String(payload2.file || ""), playing: false });
       return void 0;
     },
     // soundbox.updateSound (crates/soundbox/data-capabilities/update-sound): the

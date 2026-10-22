@@ -27,12 +27,6 @@ function apiType(settings, url) {
 }
 
 
-// SoundTag@1 as the fixtures know it: lower case, trimmed, no duplicate.
-function soundTags(tags) {
-  const list = Array.isArray(tags) ? tags : [];
-  return [...new Set(list.map((t) => String(t).trim().toLowerCase()).filter(Boolean))];
-}
-
 // AliasMatch@1: the term without white space around it, in lowercase, with
 // no accent (a combining mark U+0300 to U+036F of the decomposed letter).
 const normalized = (term) => String(term ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC');
@@ -44,7 +38,31 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 // modifier least of all, computed from the score (AbilityModifier@1).
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
+// SoundTag@1: each tag trimmed of White_Space and lowercased character by
+// character, an empty one dropped, then a tag seen earlier dropped — the
+// first occurrence stays, the order is kept.
+const soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => [...String(t).replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '')].map((c) => c.toLowerCase()).join('')).filter(Boolean))];
+
 export const COMMANDS = {
+  // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
+  // added to the library. One with no name or no file is refused before
+  // anything is queued, as the server refuses it. Its tags, a list of texts,
+  // are normalised (`tags-normalized`); its own volume is a percentage from
+  // 0 to 100 — a number or the text of one — full when none is given
+  // (`sound-volume-range`).
+  'soundbox.addSound': async (server, { payload }) => {
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+    const file = typeof payload.file === 'string' ? payload.file.trim() : '';
+    if (!name || !file) return ['unprocessable'];
+    const tags = payload.tags ?? [];
+    if (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string')) return ['tags-normalized'];
+    const given = payload.volume ?? 100;
+    const volume = typeof given === 'number' || (typeof given === 'string' && given.trim() !== '') ? Number(given) : NaN;
+    if (!(volume >= 0 && volume <= 100)) return ['sound-volume-range'];
+    const library = await server.load('soundbox.listSounds');
+    library.sounds.unshift({ id: server.uuid(), name, tags: soundTags(tags), duration: 0, volume: Math.round(volume), file });
+    return undefined;
+  },
   // media.uploadMedia (crates/media/data-capabilities/upload-media): a
   // battlemap or an illustration added to the library, the path the DM chose
   // recorded and no file copied. A battlemap arrives with its default grid
@@ -124,17 +142,6 @@ export const COMMANDS = {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    return undefined;
-  },
-  // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
-  // added to the library. Its tags are normalised as SoundTag@1 does (lower
-  // case, no duplicate), its volume is a percentage that stays in [0, 100]
-  // (`sound-volume-range`).
-  'soundbox.addSound': async (server, { payload }) => {
-    const volume = Number(payload.volume);
-    if (!(volume >= 0 && volume <= 100)) return ['sound-volume-range'];
-    const library = await server.load('soundbox.listSounds');
-    library.sounds.unshift({ id: server.uuid(), name: String(payload.name || ''), tags: soundTags(payload.tags), duration: 2, volume, file: String(payload.file || ''), playing: false });
     return undefined;
   },
   // soundbox.updateSound (crates/soundbox/data-capabilities/update-sound): the
