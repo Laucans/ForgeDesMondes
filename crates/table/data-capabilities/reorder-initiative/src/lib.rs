@@ -11,7 +11,9 @@
 //! `BattlemapInstance/<its id>`, as `table.startCombat` seats it. A reorder
 //! is the command that writes the first entry's rank, then its follow-ups
 //! ([`plugins::Prepared::then`], [`follow_ups`]), one per other participant,
-//! each carrying the order and the entry it ranks, and judged again. Every
+//! each carrying the order and the entry it ranks, judged again, and taken
+//! only once the entries ahead of its own hold their new rank in the queue
+//! ([`follows`]): one sent alone, off a reorder, is refused. Every
 //! entry takes its place in the order as its rank, 1 to n, without gap or
 //! duplicate ([`ordered`]), and nothing else: never a visibility
 //! (`hidden-keeps-rank`: a hidden participant takes the rank it is given,
@@ -144,6 +146,9 @@ pub enum Refusal {
     /// The order omits a participant, repeats one, or names one that is not
     /// in the combat; or a follow-up's entry is not in its order.
     NotTheParticipants,
+    /// A follow-up whose entries ahead in the order do not hold their new
+    /// rank yet: no reorder queued it.
+    OutOfSequence,
 }
 
 impl Refusal {
@@ -164,6 +169,9 @@ impl std::fmt::Display for Refusal {
             Self::NoOpenCombat => f.write_str("cette instance n'a pas de combat en cours"),
             Self::NotTheParticipants => {
                 f.write_str("l'ordre nomme chaque participant du combat une fois, et eux seuls")
+            }
+            Self::OutOfSequence => {
+                f.write_str("ce rang suit ceux des participants qui le précèdent dans l'ordre")
             }
         }
     }
@@ -265,6 +273,20 @@ pub fn rank(entries: &[String], entry: &str) -> Result<i64, Refusal> {
         .ok_or(Refusal::NotTheParticipants)
 }
 
+/// Whether a follow-up comes after the ranks it follows: `before`, the rank
+/// each entry ahead of its own in the order holds as the queue leaves it, is
+/// that entry's place — the reorder's command and the follow-ups before it
+/// queued. A follow-up never ranks the first entry, the command's; one sent
+/// alone, off a reorder, finds the ranks ahead as they were.
+#[must_use]
+pub fn follows(before: &[Value]) -> bool {
+    !before.is_empty()
+        && before
+            .iter()
+            .zip(1_i64..)
+            .all(|(rank, place)| rank.as_i64() == Some(place))
+}
+
 /// The follow-ups of a reorder of `instance` whose order is `entries`, the
 /// command itself ranking the first: one for each other entry, in rank
 /// order, carrying the whole order.
@@ -294,9 +316,11 @@ fn uuid(text: &str) -> Option<String> {
 /// A reorder made the rank of one entry ([`ordered`], [`rank`]), judged
 /// against the engine's rows ([`LINEUP`]) and the combat's row as the queue
 /// leaves it; the DM's command ranks the first entry and makes the others
-/// its follow-ups ([`follow_ups`]). One naming no id, or no order, is
+/// its follow-ups ([`follow_ups`]), each taken once the entries ahead of its
+/// own hold their new rank ([`follows`]). One naming no id, or no order, is
 /// refused, 422; one naming an instance that is not there, 404; one whose
-/// order is not the combat's participants, 422 — nothing queued.
+/// order is not the combat's participants, or a follow-up out of sequence,
+/// 422 — nothing queued.
 struct Reorders;
 
 #[async_trait]
@@ -342,15 +366,28 @@ impl Prepare for Reorders {
                 .collect(),
         };
         let entries = ordered(&request, &lineup).map_err(refused)?;
-        let (entry, then) = match request.entry {
-            Some(entry) => (entry, Vec::new()),
-            None => (entries[0].clone(), follow_ups(&request.instance, &entries)),
+        // The DM's command ranks the first entry, and its follow-ups the
+        // others.
+        let Some(entry) = request.entry else {
+            return Ok(plugins::Prepared {
+                target_id: Some(entries[0].clone()),
+                payload: Row::from([("rank".to_owned(), json!(1))]),
+                then: follow_ups(&request.instance, &entries),
+                ..plugins::Prepared::default()
+            });
         };
         let rank = rank(&entries, &entry).map_err(refused)?;
+        let mut before = Vec::new();
+        for ahead in entries.iter().take_while(|ahead| **ahead != entry) {
+            let row = context.row(&partition(ahead)).await?;
+            before.push(row.get("rank").cloned().unwrap_or(Value::Null));
+        }
+        if !follows(&before) {
+            return Err(refused(Refusal::OutOfSequence));
+        }
         Ok(plugins::Prepared {
             target_id: Some(entry),
             payload: Row::from([("rank".to_owned(), json!(rank))]),
-            then,
             ..plugins::Prepared::default()
         })
     }

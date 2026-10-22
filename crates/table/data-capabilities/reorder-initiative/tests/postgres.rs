@@ -513,38 +513,51 @@ async fn a_token_taken_off_the_map_is_no_participant_to_order() {
     scratch.drop().await;
 }
 
+/// A follow-up of the order `order` ranking `entry`, sent as the engine
+/// sends one.
+async fn follow_up(engine: &Engine, order: &[&str], entry: &str) -> Result<Submitted> {
+    submit(
+        engine,
+        "table.reorderInitiative@1",
+        json!({ "order": order, "entry": entry }),
+        Some(INSTANCE),
+    )
+    .await
+}
+
 #[tokio::test(flavor = "current_thread")]
-async fn a_follow_up_ranks_its_entry_alone_and_one_out_of_its_order_is_refused() {
+async fn a_follow_up_sent_alone_off_a_reorder_is_refused_and_one_in_sequence_ranks_its_entry() {
     let scratch = Scratch::new("follow_up").await;
     let engine = scratch.serve().await;
     let order = [E_LOUP, E_ELOWEN, E_BANDIT, E_VESNA];
 
-    let (kind, message) = refusal(
-        submit(
-            &engine,
-            "table.reorderInitiative@1",
-            json!({ "order": order, "entry": COMBAT }),
-            Some(INSTANCE),
-        )
-        .await,
-    );
+    let (kind, message) = refusal(follow_up(&engine, &order, COMBAT).await);
     assert_eq!(kind, RefusalKind::Unprocessable);
     assert!(message.contains("chaque participant"), "{message}");
+    // The Wolf still ranks 4th, not 1st: the Bandit's rank would follow no
+    // reorder. The first entry is the command's, never a follow-up's.
+    for entry in [E_BANDIT, E_LOUP] {
+        let (kind, message) = refusal(follow_up(&engine, &order, entry).await);
+        assert_eq!(kind, RefusalKind::Unprocessable);
+        assert!(message.contains("précèdent"), "{message}");
+    }
+    assert!(engine.run_once().await.expect("a run").is_empty());
 
-    let ranked = submit(
-        &engine,
-        "table.reorderInitiative@1",
-        json!({ "order": order, "entry": E_BANDIT }),
-        Some(INSTANCE),
-    )
-    .await
-    .expect("queued");
-    assert_eq!(ranked.partition, partition(E_BANDIT));
-    assert!(ranked.then.is_empty(), "{:?}", ranked.then);
+    // Elowen 1st and the Bandit 2nd already: in the order that puts the
+    // Wolf before Vesna, the Wolf's follow-up is in sequence, then Vesna's,
+    // each ranking its entry alone.
+    let order = [E_ELOWEN, E_BANDIT, E_LOUP, E_VESNA];
+    let (_, message) = refusal(follow_up(&engine, &order, E_VESNA).await);
+    assert!(message.contains("précèdent"), "{message}");
+    for entry in [E_LOUP, E_VESNA] {
+        let ranked = follow_up(&engine, &order, entry).await.expect("queued");
+        assert_eq!(ranked.partition, partition(entry));
+        assert!(ranked.then.is_empty(), "{:?}", ranked.then);
+    }
     applied(&engine).await;
     assert_eq!(
         scratch.ranks().await,
-        [json!(1), json!(3), json!(3), json!(4)]
+        [json!(1), json!(2), json!(4), json!(3)]
     );
     scratch.drop().await;
 }
@@ -561,5 +574,14 @@ async fn a_reorder_queued_behind_another_asks_its_author_to_confirm_the_overwrit
         .await
         .expect("parked");
     assert_eq!(second.result.status, State::AwaitingConfirmation);
+    // Its follow-ups follow its own ranks, which the queue holds while their
+    // author decides.
+    assert_eq!(second.then.len(), 3, "{:?}", second.then);
+    for follow_up in &second.then {
+        let FollowUp::Submitted(rank) = follow_up else {
+            panic!("a rank refused: {follow_up:?}");
+        };
+        assert_eq!(rank.result.status, State::AwaitingConfirmation);
+    }
     scratch.drop().await;
 }

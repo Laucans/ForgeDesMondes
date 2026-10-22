@@ -6,8 +6,8 @@
 //! one), an instance unknown or with no open combat.
 
 use reorder_initiative::{
-    DATA_CAPABILITY, Lineup, Participant, Refusal, Request, Row, follow_ups, ordered, partition,
-    rank, request,
+    DATA_CAPABILITY, Lineup, Participant, Refusal, Request, Row, follow_ups, follows, ordered,
+    partition, rank, request,
 };
 use serde_json::{Value, json};
 
@@ -191,6 +191,7 @@ fn an_unknown_instance_or_one_with_no_open_combat_is_refused() {
         Refusal::NoOrder,
         Refusal::NoOpenCombat,
         Refusal::NotTheParticipants,
+        Refusal::OutOfSequence,
     ] {
         assert!(!refusal.not_found(), "{refusal:?}");
     }
@@ -233,8 +234,23 @@ fn the_refusals_say_why_in_french() {
         Refusal::UnknownInstance,
         Refusal::NoOpenCombat,
         Refusal::NotTheParticipants,
+        Refusal::OutOfSequence,
     ] {
         assert!(!refusal.to_string().is_empty(), "{refusal:?}");
     }
     assert_eq!(partition(E1), format!("BattlemapInstance/{E1}"));
+}
+
+#[test]
+fn a_follow_up_follows_only_the_entries_ahead_holding_their_places_and_never_ranks_the_first() {
+    assert!(follows(&[json!(1)]));
+    assert!(follows(&[json!(1), json!(2), json!(3)]));
+    // The first entry is the command's.
+    assert!(!follows(&[]));
+    // The command ahead not queued: the first entry kept its old rank.
+    assert!(!follows(&[json!(4)]));
+    assert!(!follows(&[json!(1), json!(3)]));
+    assert!(!follows(&[json!(2), json!(2)]));
+    // An entry ahead with no rank.
+    assert!(!follows(&[json!(1), Value::Null]));
 }
