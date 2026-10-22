@@ -52,6 +52,9 @@ const PLUIE_EN_COURS: &str = "b1000000-0000-4000-8000-000000000001";
 /// A playback's stop, test-only: `soundbox.stopAll` is a unit of its own.
 const STOP: &str = r#"{"dataCapability":"test.stopPlayback","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"SoundPlayback","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 
+/// A playback removed, test-only: no unit removes one.
+const REMOVE: &str = r#"{"dataCapability":"test.removePlayback","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"SoundPlayback","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
+
 fn url() -> String {
     std::env::var("DATABASE_URL").expect("DATABASE_URL names the harness's PostgreSQL")
 }
@@ -158,7 +161,7 @@ impl Scratch {
         .with_rows(Arc::new(ReadOnly::new(connect(&self.url).await)))
         .with_ids(Arc::new(RandomIds))
         .with_aggregate(Aggregate::parse(&aggregate).expect("contract I"));
-        for manifest in [include_str!("../data-capability.json"), STOP] {
+        for manifest in [include_str!("../data-capability.json"), STOP, REMOVE] {
             engine =
                 engine.with_data_capability(DataCapability::parse(manifest).expect("contract F"));
         }
@@ -377,5 +380,44 @@ async fn a_later_write_of_a_playback_the_table_holds_is_not_this_projection_s() 
         ))
         .await;
     assert_eq!(row, [json!({ "running": true })], "stopAll's to project");
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_playback_removed_writes_nothing_into_the_table() {
+    let scratch = Scratch::new("removed").await;
+    let engine = scratch.serve().await;
+    let foule = played(&engine, FOULE, json!({})).await;
+    // The table forgot it; its removal must not write it back.
+    scratch
+        .client
+        .batch_execute(&format!("DELETE FROM sound_playback WHERE id = '{foule}'"))
+        .await
+        .expect("forgotten");
+    submit(&engine, "test.removePlayback", &foule, json!({}))
+        .await
+        .expect("queued");
+    let removed = settled(&engine).await;
+    assert_eq!(removed.status, State::Applied, "{removed:?}");
+    assert_eq!(scratch.playbacks().await.len(), 1, "the rain alone");
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_table_that_fails_fails_the_step_and_rejects_nothing() {
+    let scratch = Scratch::new("fails").await;
+    let engine = scratch.serve().await;
+    submit(&engine, "soundbox.playSound@1", FOULE, json!({}))
+        .await
+        .expect("queued");
+    scratch
+        .client
+        .batch_execute("DROP TABLE sound_playback")
+        .await
+        .expect("the table gone");
+    match engine.run_once().await {
+        Err(Error::Store(_)) => {}
+        other => panic!("the store's failure, not the command's: {other:?}"),
+    }
     scratch.drop().await;
 }

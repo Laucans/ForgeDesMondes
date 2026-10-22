@@ -401,3 +401,67 @@ pub fn stamp(millis: u64) -> String {
         millis % 1000
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Refusal, Row, request, stamp};
+
+    #[test]
+    fn an_instant_is_written_as_rfc_3339_to_the_millisecond() {
+        for (millis, written) in [
+            (0, "1970-01-01T00:00:00.000Z"),
+            (951_827_696_007, "2000-02-29T12:34:56.007Z"),
+            (4_107_542_399_999, "2100-02-28T23:59:59.999Z"),
+            (1_735_689_599_123, "2024-12-31T23:59:59.123Z"),
+        ] {
+            assert_eq!(stamp(millis), written);
+        }
+    }
+
+    #[test]
+    fn every_day_from_1970_to_2400_is_the_calendar_s() {
+        let leap = |year: u64| year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        let (mut year, mut month, mut day) = (1970_u64, 1_u64, 1_u64);
+        for days in 0..157_000_u64 {
+            let at = (days * 86_400 + 3_723) * 1000;
+            assert_eq!(
+                stamp(at),
+                format!("{year:04}-{month:02}-{day:02}T01:02:03.000Z"),
+                "{days} days after 1970"
+            );
+            let length = match month {
+                2 if leap(year) => 29,
+                2 => 28,
+                4 | 6 | 9 | 11 => 30,
+                _ => 31,
+            };
+            day += 1;
+            if day > length {
+                (day, month) = (1, month + 1);
+            }
+            if month > 12 {
+                (month, year) = (1, year + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn a_sound_named_by_anything_but_a_uuid_is_refused() {
+        for sound in [
+            "abc",
+            "50000000-0000-4000-8000-00000000000g",
+            "50000000-0000-4000-8000-0000000000000",
+            "500000000000-4000-8000-0000-00000000",
+        ] {
+            assert_eq!(
+                request(&Row::new(), Some(sound), "dm"),
+                Err(Refusal::NotAnId("sound")),
+                "{sound}"
+            );
+        }
+        assert_eq!(
+            request(&Row::new(), None, "dm"),
+            Err(Refusal::NotAnId("sound"))
+        );
+    }
+}
