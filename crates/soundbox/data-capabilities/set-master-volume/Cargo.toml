@@ -1,0 +1,22 @@
+[package]
+name = "set-master-volume"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.setMasterVolume: the DM's master slider, in percent, written as the campaign's master volume from 0 to 1 (EffectiveVolume@1) — the one field the command writes on its Campaign partition, refused out of range by master-volume-range — and projected into campaign.sound_master_volume."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# The aggregate the command targets, its judge and its projection: what the
+# engine plants beside it (a dev-dependency, as isolation.sh allows).
+aggregate-campaign = { path = "../../../campaign/aggregates/Campaign" }
+# The migrations' applier the server runs: the projection's tests write the
+# tables as the product migrates them.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

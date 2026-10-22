@@ -44,6 +44,7 @@ ignored = [
     "save-entity",
     "save-grid-settings",
     "save-settings",
+    "set-master-volume",
     "set-media-place",
     "test-connection",
     "upload-media",
@@ -82,6 +83,7 @@ restore-entity-version = { path = "../../campaign/data-capabilities/restore-enti
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
+set-master-volume = { path = "../../soundbox/data-capabilities/set-master-volume" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }
