@@ -246,6 +246,43 @@
         "Media.opacity",
         "Campaign.coverMediaId"
       ]
+    },
+    {
+      "query": "GetBattlemapInstance",
+      "capability": "table.getBattlemapInstance",
+      "file": "crates/table/queries/get-battlemap-instance.graphql",
+      "sha256": "605097ed2883f5c19bba99864e968fe9a4ea3f977c778cfc9819ae34442c8824",
+      "fields": [
+        "battlemapInstance.id",
+        "battlemapInstance.battlemapMediaId",
+        "battlemapInstance.sessionId",
+        "battlemapInstance.sceneId",
+        "token.id",
+        "token.characterId",
+        "token.number",
+        "token.name",
+        "token.q",
+        "token.r",
+        "token.visible",
+        "token.hpCurrent",
+        "token.hpMax",
+        "token.conditions",
+        "entity.type",
+        "character.tokenColor",
+        "character.portraitMediaId",
+        "character.tokenCrop",
+        "combat.id",
+        "combat.round",
+        "combat.currentEntryId",
+        "combat.endedAt",
+        "initiativeEntry.id",
+        "initiativeEntry.tokenId",
+        "initiativeEntry.initiative",
+        "initiativeOrderView.entryId",
+        "initiativeOrderView.orderIndex",
+        "initiativeOrderView.shownToPlayers",
+        "initiativeOrderView.skipped"
+      ]
     }
   ]
 }

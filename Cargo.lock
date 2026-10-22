@@ -461,6 +461,7 @@ dependencies = [
  "export-campaign",
  "extract-from-notes",
  "get-battlemap",
+ "get-battlemap-instance",
  "get-campaign",
  "get-entity",
  "get-settings",
@@ -641,6 +642,14 @@ dependencies = [
 
 [[package]]
 name = "get-battlemap"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-battlemap-instance"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
