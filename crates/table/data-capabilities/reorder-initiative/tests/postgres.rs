@@ -514,50 +514,72 @@ async fn a_token_taken_off_the_map_is_no_participant_to_order() {
 }
 
 /// A follow-up of the order `order` ranking `entry`, sent as the engine
-/// sends one.
-async fn follow_up(engine: &Engine, order: &[&str], entry: &str) -> Result<Submitted> {
-    submit(
-        engine,
-        "table.reorderInitiative@1",
-        json!({ "order": order, "entry": entry }),
-        Some(INSTANCE),
-    )
-    .await
+/// sends one, under `seal` when it has one.
+async fn follow_up(
+    engine: &Engine,
+    order: &[&str],
+    entry: &str,
+    seal: Option<&str>,
+) -> Result<Submitted> {
+    let mut payload = json!({ "order": order, "entry": entry });
+    if let Some(seal) = seal {
+        payload["seal"] = json!(seal);
+    }
+    submit(engine, "table.reorderInitiative@1", payload, Some(INSTANCE)).await
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn a_follow_up_sent_alone_off_a_reorder_is_refused_and_one_in_sequence_ranks_its_entry() {
+async fn a_follow_up_sent_alone_off_a_reorder_is_refused_sealed_or_not() {
     let scratch = Scratch::new("follow_up").await;
     let engine = scratch.serve().await;
     let order = [E_LOUP, E_ELOWEN, E_BANDIT, E_VESNA];
 
-    let (kind, message) = refusal(follow_up(&engine, &order, COMBAT).await);
+    let (kind, message) = refusal(follow_up(&engine, &order, COMBAT, None).await);
     assert_eq!(kind, RefusalKind::Unprocessable);
     assert!(message.contains("chaque participant"), "{message}");
-    // The Wolf still ranks 4th, not 1st: the Bandit's rank would follow no
-    // reorder. The first entry is the command's, never a follow-up's.
+    // The first entry is the command's, never a follow-up's; none of these
+    // follows a reorder, so none carries a seal a reorder issued.
     for entry in [E_BANDIT, E_LOUP] {
-        let (kind, message) = refusal(follow_up(&engine, &order, entry).await);
+        let (kind, message) = refusal(follow_up(&engine, &order, entry, None).await);
         assert_eq!(kind, RefusalKind::Unprocessable);
-        assert!(message.contains("précèdent"), "{message}");
+        assert!(message.contains("aucun réordonnancement"), "{message}");
+    }
+
+    // Elowen 1st, the Bandit 2nd and Vesna 3rd already: the order that
+    // moves Vesna to the 2nd place finds the entry ahead of her in place,
+    // yet no reorder was sent. Without a seal, or with one of its own
+    // making, it would leave her and the Bandit both 2nd.
+    let order = [E_ELOWEN, E_VESNA, E_BANDIT, E_LOUP];
+    for seal in [None, Some(""), Some("c0ffee"), Some(INSTANCE)] {
+        let (kind, message) = refusal(follow_up(&engine, &order, E_VESNA, seal).await);
+        assert_eq!(kind, RefusalKind::Unprocessable);
+        assert!(
+            message.contains("aucun réordonnancement") || message.contains("pas un identifiant"),
+            "{seal:?}: {message}"
+        );
     }
     assert!(engine.run_once().await.expect("a run").is_empty());
+    assert_eq!(scratch.ranks().await, planted());
+    scratch.drop().await;
+}
 
-    // Elowen 1st and the Bandit 2nd already: in the order that puts the
-    // Wolf before Vesna, the Wolf's follow-up is in sequence, then Vesna's,
-    // each ranking its entry alone.
-    let order = [E_ELOWEN, E_BANDIT, E_LOUP, E_VESNA];
-    let (_, message) = refusal(follow_up(&engine, &order, E_VESNA).await);
-    assert!(message.contains("précèdent"), "{message}");
-    for entry in [E_LOUP, E_VESNA] {
-        let ranked = follow_up(&engine, &order, entry).await.expect("queued");
-        assert_eq!(ranked.partition, partition(entry));
-        assert!(ranked.then.is_empty(), "{:?}", ranked.then);
-    }
+#[tokio::test(flavor = "current_thread")]
+async fn a_follow_up_forged_after_a_real_reorder_is_refused_and_leaves_its_ranks() {
+    let scratch = Scratch::new("forged").await;
+    let engine = scratch.serve().await;
+    let order = [T_LOUP, T_ELOWEN, T_BANDIT, T_VESNA];
+    reorder(&engine, INSTANCE, &order).await.expect("queued");
     applied(&engine).await;
+
+    // The reorder issued its seal for these follow-ups only; the ranks
+    // ahead hold, and the seal is guessed.
+    let entries = [E_LOUP, E_ELOWEN, E_BANDIT, E_VESNA];
+    let (_, message) = refusal(follow_up(&engine, &entries, E_VESNA, Some("guessed")).await);
+    assert!(message.contains("aucun réordonnancement"), "{message}");
+    assert!(engine.run_once().await.expect("a run").is_empty());
     assert_eq!(
         scratch.ranks().await,
-        [json!(1), json!(2), json!(4), json!(3)]
+        [json!(2), json!(3), json!(4), json!(1)]
     );
     scratch.drop().await;
 }

@@ -11,9 +11,11 @@
 //! `BattlemapInstance/<its id>`, as `table.startCombat` seats it. A reorder
 //! is the command that writes the first entry's rank, then its follow-ups
 //! ([`plugins::Prepared::then`], [`follow_ups`]), one per other participant,
-//! each carrying the order and the entry it ranks, judged again, and taken
-//! only once the entries ahead of its own hold their new rank in the queue
-//! ([`follows`]): one sent alone, off a reorder, is refused. Every
+//! each carrying the order, the entry it ranks and the seal the command
+//! issued, judged again, and taken only if that seal is one the command left
+//! for that entry ([`Seals`]) and once the entries ahead of its own hold
+//! their new rank in the queue ([`follows`]): one sent alone, off a reorder,
+//! is refused — the ranks alone cannot tell it from a real one. Every
 //! entry takes its place in the order as its rank, 1 to n, without gap or
 //! duplicate ([`ordered`]), and nothing else: never a visibility
 //! (`hidden-keeps-rank`: a hidden participant takes the rank it is given,
@@ -37,7 +39,8 @@
 //! far stay. The DM sends the order again. That is the milestone's accepted
 //! risk, as for `table.startCombat`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use async_trait::async_trait;
 use harness_dataguard::api::Submission;
@@ -109,6 +112,9 @@ pub struct Request {
     /// The entry a follow-up ranks; `None` for the DM's command, which ranks
     /// the first.
     pub entry: Option<String>,
+    /// The seal a follow-up carries, issued by the command it follows; `None`
+    /// for the DM's command, or a follow-up forged without one.
+    pub seal: Option<String>,
 }
 
 /// A participant of the open combat: its initiative entry, and its token.
@@ -149,6 +155,9 @@ pub enum Refusal {
     /// A follow-up whose entries ahead in the order do not hold their new
     /// rank yet: no reorder queued it.
     OutOfSequence,
+    /// A follow-up the command it claims to follow did not issue: no seal,
+    /// another's, or one already taken.
+    Unsealed,
 }
 
 impl Refusal {
@@ -173,6 +182,7 @@ impl std::fmt::Display for Refusal {
             Self::OutOfSequence => {
                 f.write_str("ce rang suit ceux des participants qui le précèdent dans l'ordre")
             }
+            Self::Unsealed => f.write_str("ce rang ne suit aucun réordonnancement du MJ"),
         }
     }
 }
@@ -180,7 +190,7 @@ impl std::fmt::Display for Refusal {
 /// What the DataCapability plugs into the engine: its `Prepare`.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Plugin::new().prepare(DATA_CAPABILITY, Reorders)
+    Plugin::new().prepare(DATA_CAPABILITY, Reorders::default())
 }
 
 /// The reorder `wire` asks for on `target`, the instance the command names
@@ -189,7 +199,7 @@ pub fn plugin() -> Plugin {
 /// # Errors
 ///
 /// [`Refusal::NotAnId`] for an instance, a participant or an entry that is
-/// no uuid, [`Refusal::NoOrder`] for an order that is no list, or an empty
+/// no uuid, or a seal that is no text, [`Refusal::NoOrder`] for an order that is no list, or an empty
 /// one.
 pub fn request(wire: &Row, target: Option<&str>) -> Result<Request, Refusal> {
     let instance = target
@@ -219,10 +229,21 @@ pub fn request(wire: &Row, target: Option<&str>) -> Result<Request, Refusal> {
                 .ok_or(Refusal::NotAnId("entry"))?,
         ),
     };
+    let seal = match wire.get("seal") {
+        None | Some(Value::Null) => None,
+        Some(seal) => Some(
+            seal.as_str()
+                .map(str::trim)
+                .filter(|seal| !seal.is_empty())
+                .ok_or(Refusal::NotAnId("seal"))?
+                .to_owned(),
+        ),
+    };
     Ok(Request {
         instance,
         order,
         entry,
+        seal,
     })
 }
 
@@ -289,9 +310,9 @@ pub fn follows(before: &[Value]) -> bool {
 
 /// The follow-ups of a reorder of `instance` whose order is `entries`, the
 /// command itself ranking the first: one for each other entry, in rank
-/// order, carrying the whole order.
+/// order, carrying the whole order and the command's `seal`.
 #[must_use]
-pub fn follow_ups(instance: &str, entries: &[String]) -> Vec<Submission> {
+pub fn follow_ups(instance: &str, entries: &[String], seal: &str) -> Vec<Submission> {
     entries
         .iter()
         .skip(1)
@@ -300,6 +321,7 @@ pub fn follow_ups(instance: &str, entries: &[String]) -> Vec<Submission> {
             payload: Row::from([
                 ("order".to_owned(), json!(entries)),
                 ("entry".to_owned(), json!(entry)),
+                ("seal".to_owned(), json!(seal)),
             ]),
             target_id: Some(instance.to_owned()),
             ..Submission::default()
@@ -313,6 +335,57 @@ fn uuid(text: &str) -> Option<String> {
     Uuid::parse_str(text.trim()).ok().map(|id| id.to_string())
 }
 
+/// What the reorders issued and their follow-ups have not taken yet: per
+/// instance, the seal of its latest reorder and the entries whose follow-up
+/// is still to come. Held in the process, so a restart refuses the follow-ups
+/// in flight, and the DM sends the order again; a newer reorder of the
+/// instance voids the older one's.
+#[derive(Debug, Default)]
+pub struct Seals(Mutex<BTreeMap<String, Sealed>>);
+
+/// The seal of an instance's latest reorder, and the entries still to follow.
+#[derive(Debug)]
+struct Sealed {
+    seal: String,
+    pending: BTreeSet<String>,
+}
+
+impl Seals {
+    fn held(&self) -> MutexGuard<'_, BTreeMap<String, Sealed>> {
+        // The map holds plain data: a panic elsewhere left it whole.
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Records the reorder of `instance` sealed by `seal`, whose follow-ups
+    /// rank `entries`, and voids the earlier one's.
+    pub fn issue(&self, instance: &str, seal: &str, entries: &[String]) {
+        self.held().insert(
+            instance.to_owned(),
+            Sealed {
+                seal: seal.to_owned(),
+                pending: entries.iter().cloned().collect(),
+            },
+        );
+    }
+
+    /// Whether `seal` is the one the latest reorder of `instance` left for
+    /// the follow-up of `entry`.
+    #[must_use]
+    pub fn holds(&self, instance: &str, seal: &str, entry: &str) -> bool {
+        self.held()
+            .get(instance)
+            .is_some_and(|sealed| sealed.seal == seal && sealed.pending.contains(entry))
+    }
+
+    /// Takes the follow-up of `entry` off the pending ones: `false` when
+    /// [`Seals::holds`] would not have said so, or when it was taken.
+    pub fn take(&self, instance: &str, seal: &str, entry: &str) -> bool {
+        self.held()
+            .get_mut(instance)
+            .is_some_and(|sealed| sealed.seal == seal && sealed.pending.remove(entry))
+    }
+}
+
 /// A reorder made the rank of one entry ([`ordered`], [`rank`]), judged
 /// against the engine's rows ([`LINEUP`]) and the combat's row as the queue
 /// leaves it; the DM's command ranks the first entry and makes the others
@@ -321,7 +394,10 @@ fn uuid(text: &str) -> Option<String> {
 /// refused, 422; one naming an instance that is not there, 404; one whose
 /// order is not the combat's participants, or a follow-up out of sequence,
 /// 422 — nothing queued.
-struct Reorders;
+#[derive(Default)]
+struct Reorders {
+    seals: Seals,
+}
 
 #[async_trait]
 impl Prepare for Reorders {
@@ -369,14 +445,21 @@ impl Prepare for Reorders {
         // The DM's command ranks the first entry, and its follow-ups the
         // others.
         let Some(entry) = request.entry else {
+            let seal = context.ids.fresh();
+            self.seals.issue(&request.instance, &seal, &entries[1..]);
             return Ok(plugins::Prepared {
                 target_id: Some(entries[0].clone()),
                 payload: Row::from([("rank".to_owned(), json!(1))]),
-                then: follow_ups(&request.instance, &entries),
+                then: follow_ups(&request.instance, &entries, &seal),
                 ..plugins::Prepared::default()
             });
         };
         let rank = rank(&entries, &entry).map_err(refused)?;
+        let sealed = request
+            .seal
+            .as_deref()
+            .filter(|seal| self.seals.holds(&request.instance, seal, &entry))
+            .ok_or_else(|| refused(Refusal::Unsealed))?;
         let mut before = Vec::new();
         for ahead in entries.iter().take_while(|ahead| **ahead != entry) {
             let row = context.row(&partition(ahead)).await?;
@@ -384,6 +467,10 @@ impl Prepare for Reorders {
         }
         if !follows(&before) {
             return Err(refused(Refusal::OutOfSequence));
+        }
+        // Taken only now: a follow-up refused above can be sent again.
+        if !self.seals.take(&request.instance, sealed, &entry) {
+            return Err(refused(Refusal::Unsealed));
         }
         Ok(plugins::Prepared {
             target_id: Some(entry),
