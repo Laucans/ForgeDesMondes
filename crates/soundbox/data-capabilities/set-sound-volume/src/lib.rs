@@ -173,8 +173,9 @@ pub fn prepare(wire: &Row, target: Option<&str>) -> Result<Prepared, Refusal> {
         .get(VOLUME)
         .and_then(Value::as_f64)
         .map(|percent| {
+            // In range, a negative zero is the zero the table holds.
             let percent = if (0.0..=PERCENT).contains(&percent) {
-                percent.round()
+                percent.round().abs()
             } else {
                 percent
             };

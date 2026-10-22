@@ -50,6 +50,12 @@ fn a_percent_in_range_is_kept_to_the_whole_percent() {
 }
 
 #[test]
+fn a_negative_zero_is_stored_as_the_zero_the_table_holds() {
+    assert_eq!(volume(json!(-0.0)).to_string(), "0.0");
+    assert_eq!(volume(json!(-0.4)), json!(-0.004));
+}
+
+#[test]
 fn a_percent_out_of_range_is_never_clamped_nor_rounded() {
     assert_eq!(volume(json!(101)), json!(1.01));
     assert_eq!(volume(json!(100.4)), json!(1.004));
