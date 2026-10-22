@@ -445,6 +445,7 @@ dependencies = [
  "list-media",
  "list-places",
  "list-players",
+ "list-sounds",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -1064,6 +1065,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "list-sounds"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
 ]
 
 [[package]]
