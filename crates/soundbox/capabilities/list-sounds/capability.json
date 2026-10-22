@@ -1,0 +1,10 @@
+{
+  "capability": "soundbox.listSounds",
+  "system": "soundbox",
+  "version": "1.0.0",
+  "description": "A campaign's sound library for the DM, library and live soundbox alike: the campaign's master volume (a percent) and each of its sounds with its id, name, normalised tags (SoundTag@1: lowercase, trimmed, no duplicate, order kept), audio file, own volume (a percent), effective gain — the own volume times the master volume as a fraction, so that 55 % under a master of 80 % is 0.44 and the ratio between two sounds is kept (EffectiveVolume@1) — and whether a playback of it is running now (the DM's view only). The optional search keeps the sounds whose name holds it, whatever the case (accents as typed), and the optional tag keeps the sounds carrying that tag. An unknown campaign has no answer (null).",
+  "implements": "EffectiveVolume@1",
+  "input": { "campaign": "string", "search": "string?", "tag": "string?" },
+  "output": "{ masterVolume: number, sounds: { id: string, name: string, tags: string[], volume: number, file: string, gain: number, playing: boolean }[] } | null",
+  "reads": ["queries/listSounds.graphql"]
+}
