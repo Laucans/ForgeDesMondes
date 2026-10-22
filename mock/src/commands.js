@@ -38,7 +38,26 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 // modifier least of all, computed from the score (AbilityModifier@1).
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
+// SoundTag@1: each tag trimmed and lowercased, an empty one dropped, then a
+// tag seen earlier dropped — the first occurrence stays, the order is kept.
+const soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => String(t).trim().toLowerCase()).filter(Boolean))];
+
 export const COMMANDS = {
+  // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
+  // added to the library — its tags normalised (`tags-normalized`), its own
+  // volume a percentage from 0 to 100 (`sound-volume-range`), full when none
+  // is given. One with no name or no file is refused, as the server refuses
+  // it before anything is queued.
+  'soundbox.addSound': async (server, { payload }) => {
+    const volume = payload.volume == null ? 100 : Number(payload.volume);
+    if (!(volume >= 0 && volume <= 100)) return ['sound-volume-range'];
+    const name = String(payload.name ?? '').trim();
+    const file = String(payload.file ?? '').trim();
+    if (!name || !file) return ['unprocessable'];
+    const library = await server.load('soundbox.listSounds');
+    library.sounds.unshift({ id: server.uuid(), name, tags: soundTags(payload.tags), duration: 0, volume: Math.round(volume), file });
+    return undefined;
+  },
   // media.uploadMedia (crates/media/data-capabilities/upload-media): a
   // battlemap or an illustration added to the library, the path the DM chose
   // recorded and no file copied. A battlemap arrives with its default grid

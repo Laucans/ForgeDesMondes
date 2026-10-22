@@ -3,6 +3,19 @@
 version = 4
 
 [[package]]
+name = "add-sound"
+version = "0.1.0"
+dependencies = [
+ "aggregate-sound",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
@@ -417,6 +430,7 @@ dependencies = [
 name = "dataguard-registry"
 version = "0.1.0"
 dependencies = [
+ "add-sound",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
  "aggregate-campaign",

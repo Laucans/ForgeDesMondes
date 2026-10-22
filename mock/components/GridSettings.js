@@ -747,7 +747,23 @@
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
+  var soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => String(t).trim().toLowerCase()).filter(Boolean))];
   var COMMANDS = {
+    // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
+    // added to the library — its tags normalised (`tags-normalized`), its own
+    // volume a percentage from 0 to 100 (`sound-volume-range`), full when none
+    // is given. One with no name or no file is refused, as the server refuses
+    // it before anything is queued.
+    "soundbox.addSound": async (server, { payload: payload2 }) => {
+      const volume = payload2.volume == null ? 100 : Number(payload2.volume);
+      if (!(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
+      const name = String(payload2.name ?? "").trim();
+      const file = String(payload2.file ?? "").trim();
+      if (!name || !file) return ["unprocessable"];
+      const library = await server.load("soundbox.listSounds");
+      library.sounds.unshift({ id: server.uuid(), name, tags: soundTags(payload2.tags), duration: 0, volume: Math.round(volume), file });
+      return void 0;
+    },
     // media.uploadMedia (crates/media/data-capabilities/upload-media): a
     // battlemap or an illustration added to the library, the path the DM chose
     // recorded and no file copied. A battlemap arrives with its default grid
