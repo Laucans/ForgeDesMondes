@@ -474,6 +474,7 @@ dependencies = [
  "list-places",
  "list-players",
  "move-token",
+ "next-turn",
  "place-tokens",
  "remove-token",
  "rename-token",
@@ -1174,6 +1175,20 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "next-turn"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
  "serde_json",
  "tokio",
  "uuid",

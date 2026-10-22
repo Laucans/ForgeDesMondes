@@ -43,6 +43,7 @@ ignored = [
     "list-places",
     "list-players",
     "move-token",
+    "next-turn",
     "place-tokens",
     "remove-token",
     "rename-token",
@@ -89,6 +90,7 @@ list-media = { path = "../../media/capabilities/list-media" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
 move-token = { path = "../../table/data-capabilities/move-token" }
+next-turn = { path = "../../table/data-capabilities/next-turn" }
 place-tokens = { path = "../../table/data-capabilities/place-tokens" }
 remove-token = { path = "../../table/data-capabilities/remove-token" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
