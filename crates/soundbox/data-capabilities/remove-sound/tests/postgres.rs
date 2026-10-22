@@ -67,21 +67,13 @@ struct Scratch {
 
 impl Scratch {
     async fn new(name: &str) -> Scratch {
-        let name = format!("remove_sound_test_{name}_{}", std::process::id());
-        let admin = connect(&url()).await;
-        for sql in [
-            format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
-            format!("CREATE DATABASE {name}"),
-        ] {
-            admin.batch_execute(&sql).await.expect("a scratch database");
-        }
-        let url = naming(&name);
-        let mut client = connect(&url).await;
+        let mut scratch = Scratch::bare(name).await;
         let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/migrations");
-        data::migrate(&mut client, &migrations)
+        data::migrate(&mut scratch.client, &migrations)
             .await
             .expect("migrated");
-        client
+        scratch
+            .client
             .batch_execute(&format!(
                 "INSERT INTO campaign (id, name, kind) VALUES
                      ('{VALOMBRE}', 'Les Cendres de Valombre', 'campagne');
@@ -98,6 +90,21 @@ impl Scratch {
             ))
             .await
             .expect("the fixtures");
+        scratch
+    }
+
+    /// A database of its own, empty: the product's tables not migrated yet.
+    async fn bare(name: &str) -> Scratch {
+        let name = format!("remove_sound_test_{name}_{}", std::process::id());
+        let admin = connect(&url()).await;
+        for sql in [
+            format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
+            format!("CREATE DATABASE {name}"),
+        ] {
+            admin.batch_execute(&sql).await.expect("a scratch database");
+        }
+        let url = naming(&name);
+        let client = connect(&url).await;
         Scratch { name, url, client }
     }
 
@@ -358,5 +365,13 @@ async fn a_removal_naming_no_sound_the_product_holds_is_refused_404() {
     }
     assert!(engine.run_once().await.expect("the applier ran").is_empty());
     assert_eq!(scratch.sounds().await, [json!(FOULE), json!(PLUIE)]);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn without_the_sound_table_no_sound_is_held_to_remove() {
+    let scratch = Scratch::bare("unmigrated").await;
+    let engine = scratch.serve().await;
+    not_found(submit(&engine, "soundbox.removeSound@1", Some(FOULE), json!({})).await);
     scratch.drop().await;
 }

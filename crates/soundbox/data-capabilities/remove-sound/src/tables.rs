@@ -12,7 +12,8 @@
 //! tombstone, or of a partition whose id is no uuid, writes nothing here.
 //!
 //! A sound only the tables hold is the engine's row as the table holds it
-//! ([`Removals`]' `hydrate`): what a removal is judged against.
+//! ([`Removals`]' `hydrate`): what a removal is judged against. A database
+//! whose `sound` table is not migrated yet holds no sound.
 
 use std::collections::BTreeMap;
 
@@ -44,6 +45,10 @@ const REMOVE_SOUND: &str = concat!(
     UPDATE dataguard_rows r SET fields = gone.fields FROM gone
     WHERE r.partition = $2::text AND r.tombstoned AND r.fields = '{}'::jsonb"
 );
+
+/// Whether the `sound` table exists: a database not migrated yet holds
+/// none.
+const MIGRATED: &str = "SELECT to_regclass('sound') IS NOT NULL";
 
 /// The sound `$1` as its table holds it, under the aggregate's names.
 const SOUND_ROW: &str = concat!(
@@ -82,6 +87,9 @@ impl ProjectPg for Removals {
         let Some(id) = sound(partition) else {
             return Ok(None);
         };
+        if !client.query_one(MIGRATED, &[]).await?.get::<_, bool>(0) {
+            return Ok(None);
+        }
         let Some(row) = client.query_opt(SOUND_ROW, &[&id]).await? else {
             return Ok(None);
         };
