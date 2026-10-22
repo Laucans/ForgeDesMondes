@@ -112,7 +112,7 @@ impl Scratch {
     /// over this database: their projections in the apply transaction, the
     /// tables lent to the Prepares.
     async fn serve(&self) -> Engine {
-        let plugins = || -> Plugins {
+        self.serve_with(|| {
             [
                 aggregate_sound::plugin(),
                 aggregate_sound_playback::plugin(),
@@ -122,7 +122,12 @@ impl Scratch {
             ]
             .into_iter()
             .collect()
-        };
+        })
+        .await
+    }
+
+    /// The engine over this database with the units `plugins` makes.
+    async fn serve_with(&self, plugins: fn() -> Plugins) -> Engine {
         let store = PgStore::open(connect(&self.url).await)
             .await
             .expect("the store")
@@ -191,8 +196,14 @@ impl Scratch {
     /// The engine's row of `Sound/<sound>`: whether it is a tombstone, and
     /// its fields.
     async fn engine_row(&self, sound: &str) -> Value {
+        self.engine_partition(&format!("Sound/{sound}")).await
+    }
+
+    /// The engine's row of `partition`: whether it is a tombstone, and its
+    /// fields.
+    async fn engine_partition(&self, partition: &str) -> Value {
         self.rows(&format!(
-            "SELECT tombstoned, fields FROM dataguard_rows WHERE partition = 'Sound/{sound}'"
+            "SELECT tombstoned, fields FROM dataguard_rows WHERE partition = '{partition}'"
         ))
         .await
         .pop()
@@ -246,13 +257,20 @@ async fn settled(engine: &Engine) -> CommandResult {
     settled.remove(0)
 }
 
-/// `data_capability` submitted on `target` and applied.
-async fn applied(engine: &Engine, data_capability: &str, target: Option<&str>, payload: Value) {
-    submit(engine, data_capability, target, payload)
+/// `data_capability` submitted on `target` and applied: the partition it
+/// wrote.
+async fn applied(
+    engine: &Engine,
+    data_capability: &str,
+    target: Option<&str>,
+    payload: Value,
+) -> String {
+    let submitted = submit(engine, data_capability, target, payload)
         .await
         .expect("queued");
     let result = settled(engine).await;
     assert_eq!(result.status, State::Applied, "{result:?}");
+    submitted.partition
 }
 
 /// The door added through soundbox.addSound: its id.
@@ -291,10 +309,12 @@ async fn a_sound_removed_leaves_the_library_s_readers_and_its_tombstone_keeps_it
     let scratch = Scratch::new("removed").await;
     let engine = scratch.serve().await;
     let door = add_door(&engine).await;
-    applied(&engine, "soundbox.playSound@1", Some(&door), json!({})).await;
+    let playback = applied(&engine, "soundbox.playSound@1", Some(&door), json!({})).await;
     assert!(scratch.sounds().await.contains(&json!(door)));
     assert!(scratch.played().await.contains(&json!(door)));
     let added = scratch.engine_row(&door).await["fields"].clone();
+    let started = scratch.engine_partition(&playback).await;
+    assert_eq!(started["tombstoned"], json!(false));
 
     applied(&engine, "soundbox.removeSound@1", Some(&door), json!({})).await;
 
@@ -308,6 +328,10 @@ async fn a_sound_removed_leaves_the_library_s_readers_and_its_tombstone_keeps_it
     assert_eq!(tombstone["fields"], added);
     assert_eq!(tombstone["fields"]["name"], "Porte qui grince");
     assert_eq!(tombstone["fields"]["tags"], json!(["porte", "grincement"]));
+    // Its playback followed it in the engine too, a tombstone kept as it was.
+    let stopped = scratch.engine_partition(&playback).await;
+    assert_eq!(stopped["tombstoned"], json!(true));
+    assert_eq!(stopped["fields"], started["fields"]);
 
     // And so after a start: nothing brings it back.
     drop(engine);
@@ -373,5 +397,32 @@ async fn without_the_sound_table_no_sound_is_held_to_remove() {
     let scratch = Scratch::bare("unmigrated").await;
     let engine = scratch.serve().await;
     not_found(submit(&engine, "soundbox.removeSound@1", Some(FOULE), json!({})).await);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn without_the_sound_table_a_sound_the_engine_holds_is_removed_all_the_same() {
+    let scratch = Scratch::bare("engine_only").await;
+    // This unit alone with its aggregate: the others' projections need the
+    // tables.
+    let engine = scratch
+        .serve_with(|| {
+            [aggregate_sound::plugin(), remove_sound::plugin()]
+                .into_iter()
+                .collect()
+        })
+        .await;
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, fields) VALUES
+                 ('Sound/{FOULE}', '{{\"id\": \"{FOULE}\", \"name\": \"Bruit de foule\"}}')"
+        ))
+        .await
+        .expect("the engine's sound");
+    applied(&engine, "soundbox.removeSound@1", Some(FOULE), json!({})).await;
+    let tombstone = scratch.engine_row(FOULE).await;
+    assert_eq!(tombstone["tombstoned"], json!(true));
+    assert_eq!(tombstone["fields"]["name"], "Bruit de foule");
     scratch.drop().await;
 }

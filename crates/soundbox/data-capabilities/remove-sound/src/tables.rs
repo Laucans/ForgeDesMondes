@@ -5,22 +5,26 @@
 //! The product reads its tables, not the engine: a sound removed is taken
 //! out of `sound`, so no reader sees it, and its playbacks go with it
 //! (`sound_playback.sound_id`, `ON DELETE CASCADE`, as `SoundPlayback.
-//! soundId` declares). The tombstone in `dataguard_rows` keeps the sound as
-//! it was: the engine keeps the fields of a row it wrote, and a sound only
-//! the tables held — the fixtures', written by no command — gets them from
-//! its table row, which would be lost otherwise. A write that is no
-//! tombstone, or of a partition whose id is no uuid, writes nothing here.
+//! soundId` declares). The engine follows the same cascade: the playbacks
+//! it holds of the sound become tombstones too, kept as they were, so it
+//! never holds a playback of a sound it removed. The tombstone in
+//! `dataguard_rows` keeps the sound as it was: the engine keeps the fields
+//! of a row it wrote, and a sound only the tables held — the fixtures',
+//! written by no command — gets them from its table row, which would be
+//! lost otherwise. A write that is no tombstone, or of a partition whose id
+//! is no uuid, writes nothing here; nor does a database whose `sound` table
+//! is not migrated yet, which holds no sound.
 //!
 //! A sound only the tables hold is the engine's row as the table holds it
-//! ([`Removals`]' `hydrate`): what a removal is judged against. A database
-//! whose `sound` table is not migrated yet holds no sound.
+//! ([`Removals`]' `hydrate`): what a removal is judged against.
 
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use harness_dataguard::plugins::{ProjectPg, ProjectionError};
 use harness_dataguard::store::Write;
-use harness_dataguard::tokio_postgres::{Client, Error, Transaction};
+use harness_dataguard::tokio_postgres::types::ToSql;
+use harness_dataguard::tokio_postgres::{Client, Error, GenericClient, Transaction};
 use serde_json::Value;
 
 use crate::{PARTITION, uuid};
@@ -34,6 +38,14 @@ macro_rules! fields {
             'volume', s.volume, 'createdAt', s.created_at)"
     };
 }
+
+/// The playbacks of the sound `$1` the engine holds, made tombstones as the
+/// table cascades them: read before the sound leaves the table, found by
+/// the table's index on `sound_id` and the engine's primary key.
+const REMOVE_PLAYBACKS: &str = "UPDATE dataguard_rows r SET tombstoned = true
+    FROM sound_playback p
+    WHERE p.sound_id = $1::text::uuid AND r.partition = 'SoundPlayback/' || p.id::text
+        AND NOT r.tombstoned";
 
 /// The sound `$1` taken out of `sound`, its playbacks with it; the
 /// tombstone of its partition `$2` given its fields when the engine held
@@ -61,6 +73,11 @@ const SOUND_ROW: &str = concat!(
 /// the fixtures' sounds hydrated.
 pub struct Removals;
 
+/// Whether `client`'s database has the `sound` table.
+async fn migrated(client: &impl GenericClient) -> Result<bool, ProjectionError> {
+    Ok(client.query_one(MIGRATED, &[]).await?.get(0))
+}
+
 /// The sound id `partition` names, when it is a uuid.
 fn sound(partition: &str) -> Option<String> {
     partition.strip_prefix(PARTITION).and_then(uuid)
@@ -73,10 +90,18 @@ impl ProjectPg for Removals {
         let Some(id) = sound(&write.partition).filter(|_| write.tombstone) else {
             return Ok(());
         };
-        tx.execute(REMOVE_SOUND, &[&id, &write.partition])
-            .await
-            .map(drop)
-            .map_err(|error| judged(&write.partition, &error))
+        if !migrated(tx).await? {
+            return Ok(());
+        }
+        for (sql, params) in [
+            (REMOVE_PLAYBACKS, &[&id as &(dyn ToSql + Sync)][..]),
+            (REMOVE_SOUND, &[&id, &write.partition]),
+        ] {
+            tx.execute(sql, params)
+                .await
+                .map_err(|error| judged(&write.partition, &error))?;
+        }
+        Ok(())
     }
 
     async fn hydrate(
@@ -87,7 +112,7 @@ impl ProjectPg for Removals {
         let Some(id) = sound(partition) else {
             return Ok(None);
         };
-        if !client.query_one(MIGRATED, &[]).await?.get::<_, bool>(0) {
+        if !migrated(client).await? {
             return Ok(None);
         }
         let Some(row) = client.query_opt(SOUND_ROW, &[&id]).await? else {

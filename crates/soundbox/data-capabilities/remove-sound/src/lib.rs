@@ -2,9 +2,9 @@
 //! removes a sound they no longer want from the library. The removal is one
 //! command on `Sound/<its id>`, the sound's partition, of effect `delete`:
 //! the engine's soft delete. Its row is kept as a tombstone, the sound as it
-//! was, so the removal can be undone; the library's readers no longer see
-//! it, and its playbacks follow the cascade `SoundPlayback.soundId`
-//! declares.
+//! was, so a removal made by mistake can be undone (no command restores one
+//! yet); the library's readers no longer see it, and its playbacks follow
+//! the cascade `SoundPlayback.soundId` declares.
 //!
 //! A removal names nothing but its target: [`target`] reads the sound it
 //! names, and whatever the wire's payload holds is not written. One naming
