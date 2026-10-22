@@ -330,11 +330,20 @@ impl Scratch {
         entries
     }
 
+    /// Drops the database — again, a moment later, while a backend a role
+    /// that is no superuser cannot end (an autovacuum worker) is still in it.
     async fn drop(self) {
         drop(self.client);
-        connect(&url())
-            .await
-            .batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name))
+        let admin = connect(&url()).await;
+        let sql = format!("DROP DATABASE {} WITH (FORCE)", self.name);
+        for _ in 0..20 {
+            if admin.batch_execute(&sql).await.is_ok() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        admin
+            .batch_execute(&sql)
             .await
             .expect("the scratch database dropped");
     }
