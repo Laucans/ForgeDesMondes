@@ -147,7 +147,8 @@ fn initial(name: &str) -> String {
 /// One token as `view` may show it. A PC's hit points are never followed:
 /// whatever the row holds, a PC has none, no band and is never dead.
 fn token(row: &Value, dm: bool) -> Value {
-    let pc = row["kind"] == "pj";
+    // Only an NPC has hit points to show: anything that is not one is not followed.
+    let pc = row["kind"] != "pnj";
     let (hp, hp_max) = if pc {
         (Value::Null, Value::Null)
     } else {
@@ -196,9 +197,18 @@ fn combat(row: &Value, dm: bool) -> Value {
         return Value::Null;
     }
     let entries = combat["entries"].as_array().map_or(&[][..], Vec::as_slice);
+    // The players see a participant only when both the carousel's view and its
+    // token say it is shown: a stale flag on either side fails closed.
+    let tokens = row["tokens"].as_array().map_or(&[][..], Vec::as_slice);
+    let shown = |entry: &Value| {
+        entry["shown_to_players"] == true
+            && tokens
+                .iter()
+                .any(|token| token["id"] == entry["token_id"] && token["visible"] == true)
+    };
     let order: Vec<Value> = entries
         .iter()
-        .filter(|entry| entry["skipped"] != true && (dm || entry["shown_to_players"] == true))
+        .filter(|entry| entry["skipped"] != true && (dm || shown(entry)))
         .map(|entry| {
             let mut seat = json!({
                 "id": entry["token_id"],
@@ -211,15 +221,13 @@ fn combat(row: &Value, dm: bool) -> Value {
             seat
         })
         .collect();
-    // The turn of a participant the players do not see is not theirs to know.
+    // The turn of a participant the players do not see on their carousel is
+    // not theirs to know.
     let current = &combat["current_token_id"];
-    let hidden_turn = !dm
-        && entries
-            .iter()
-            .any(|entry| entry["token_id"] == *current && entry["shown_to_players"] != true);
+    let told = dm || order.iter().any(|seat| seat["id"] == *current);
     json!({
         "round": combat["round"],
-        "current": if hidden_turn { &Value::Null } else { current },
+        "current": if told { current } else { &Value::Null },
         "order": order,
     })
 }
@@ -392,7 +400,11 @@ mod tests {
             assert!(fixture.get(key).is_some(), "{key} left the fixture");
             assert!(answer.get(key).is_some(), "{key} is missing from {answer}");
         }
-        let expected = fixture["state"]["tokens"][4].as_object().expect("a token");
+        let expected = fixture["state"]["tokens"]
+            .as_array()
+            .and_then(|tokens| tokens.iter().find(|token| token["kind"] == "pnj"))
+            .and_then(Value::as_object)
+            .expect("an NPC token");
         let token = token_of(&answer, "t-bandit-1");
         for key in expected.keys().filter(|key| *key != "id") {
             // The fixture's `kind` is `pnj`, its `hp` the figure: both are ours.
@@ -541,6 +553,46 @@ mod tests {
         assert_eq!(
             answer_rows(&board(), "player")["state"]["combat"]["current"],
             "t-bandit-1"
+        );
+    }
+
+    #[test]
+    fn a_stale_flag_fails_closed_on_the_players_side() {
+        // The carousel's view still says shown, the token says hidden.
+        let mut stale = board();
+        stale[0]["combat"]["entries"][0]["shown_to_players"] = json!(true);
+        stale[0]["tokens"][0]["visible"] = json!(false);
+        stale[0]["combat"]["current_token_id"] = json!("t-elowen");
+        let players = answer_rows(&stale, "player");
+        let combat = &players["state"]["combat"];
+        assert_eq!(ids(&combat["order"]), ["t-bandit-1"]);
+        assert_eq!(combat["current"], Value::Null);
+        assert!(!players.to_string().contains("t-elowen"), "{players}");
+        // The DM still sees it, hidden, at its rank.
+        let dm = answer_rows(&stale, "dm");
+        assert_eq!(dm["state"]["combat"]["current"], "t-elowen");
+        assert_eq!(dm["state"]["combat"]["order"][0]["id"], "t-elowen");
+        // A turn that is on no carousel the players see is not told.
+        let mut lost = board();
+        lost[0]["combat"]["current_token_id"] = json!("t-nobody");
+        assert_eq!(
+            answer_rows(&lost, "player")["state"]["combat"]["current"],
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn only_an_npc_has_hit_points_to_show() {
+        let odd = with(
+            row("t-x", "monster", "Rat", Some(1), (0, 5)),
+            "kind",
+            json!("monster"),
+        );
+        let answer = answer_rows(&rows(vec![odd], Value::Null), "dm");
+        let token = token_of(&answer, "t-x");
+        assert_eq!(
+            (&token["hp"], &token["status"], &token["dead"]),
+            (&Value::Null, &Value::Null, &json!(false))
         );
     }
 
