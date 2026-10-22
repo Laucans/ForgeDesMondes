@@ -445,6 +445,7 @@ dependencies = [
  "list-media",
  "list-places",
  "list-players",
+ "play-sound",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -1229,6 +1230,18 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-normalization",
+]
+
+[[package]]
+name = "play-sound"
+version = "0.1.0"
+dependencies = [
+ "aggregate-sound-playback",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
