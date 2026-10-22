@@ -154,6 +154,8 @@ pub fn prepare(request: &Request, token: &Row) -> Result<Prepared, Refusal> {
     }
     let hp = |field: &str| token.get(field).and_then(Value::as_i64);
     let step = match (hp("hpCurrent"), hp("hpMax")) {
+        // A negative max is no row the Judge lets through; `max(0)` only
+        // keeps `clamp` from panicking on one.
         (Some(current), Some(max)) => current
             .saturating_add(request.delta)
             .clamp(0, max.max(0))
