@@ -2,103 +2,54 @@
   <section class="panel" id="sounds-list-panel" aria-labelledby="sounds-title">
     <div class="panel__head">
       <h2 id="sounds-title">Sons de la campagne</h2>
-      <span class="small muted" id="sounds-count"></span>
+      <span class="small muted" id="sounds-count" data-reads="soundbox.listSounds"></span>
     </div>
-    <div id="sounds-search"></div>
-    <div id="sounds-table" data-reads="soundbox.listSounds"></div>
+    <div id="sounds-search" data-kit="Input" data-props='{"id":"sounds-search-input","label":"Rechercher","type":"search","placeholder":"Nom ou tag : porte, combat, extérieur…"}'></div>
+    <div class="row" id="sounds-filter" aria-live="polite"></div>
+    <div id="sounds-table" data-reads="soundbox.listSounds" aria-live="polite"></div>
+    <div id="sounds-status" aria-live="polite"></div>
   </section>
   <aside class="stack" id="sounds-side">
     <form class="panel" id="sounds-upload" aria-labelledby="sounds-upload-title" onsubmit="return false">
       <h2 id="sounds-upload-title">Téléverser un son</h2>
       <p class="small muted">Effets ponctuels uniquement. Le nom sert aussi à la détection au micro : dites « la porte grince » et le son vous est proposé.</p>
-      <div id="sounds-upload-fields"></div>
+      <div id="sounds-upload-fields">
+        <div data-kit="FileDrop" data-props='{"id":"sounds-drop","title":"Déposez un son ou","hint":"Effet ponctuel, 30 s maximum","types":["OGG","MP3","WAV"],"wide":true}'></div>
+        <div data-kit="Input" data-props='{"id":"sounds-new-name","label":"Nom","placeholder":"Porte qui grince","wide":true}'></div>
+        <div data-kit="Input" data-props='{"id":"sounds-new-tags","label":"Tags","placeholder":"porte, bois, intérieur","wide":true,"hint":"Séparés par des virgules"}'></div>
+        <div data-kit="Button" data-props='{"items":[{"id":"sounds-new-submit","label":"Ajouter à la soundbox","variant":"primary","data-writes":"soundbox.addSound"}]}'></div>
+      </div>
+      <div id="sounds-upload-result" aria-live="polite"></div>
     </form>
     <form class="panel" id="sounds-edit" aria-labelledby="sounds-edit-title" onsubmit="return false" hidden>
       <h2 id="sounds-edit-title">Modifier le son</h2>
-      <div id="sounds-edit-fields"></div>
+      <div id="sounds-edit-fields">
+        <div data-kit="Input" data-props='{"id":"sounds-edit-name","label":"Nom","wide":true}'></div>
+        <div data-kit="Input" data-props='{"id":"sounds-edit-tags","label":"Tags","wide":true,"hint":"Séparés par des virgules"}'></div>
+        <div data-kit="Slider" data-props='{"bare":true,"fields":[{"id":"sounds-edit-volume","name":"volume","label":"Volume propre","value":75,"min":0,"max":100,"unit":"%"}]}'></div>
+        <div data-kit="Button" data-props='{"items":[{"id":"sounds-edit-save","label":"Enregistrer","variant":"primary","data-writes":"soundbox.updateSound"},{"id":"sounds-edit-delete","label":"Supprimer","variant":"danger","data-writes":"soundbox.removeSound"},{"id":"sounds-edit-cancel","label":"Fermer","variant":"ghost"}]}'></div>
+      </div>
+      <div id="sounds-edit-result" aria-live="polite"></div>
     </form>
   </aside>
 </div>
 <style>
   .mf-sounds .kit-input { max-width: none; }
   .mf-sounds__tags { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-  .mf-sounds__tags span { padding: 0 var(--space-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-pill); font-size: var(--font-size-small); color: var(--color-text-muted); }
+  .mf-sounds__tags button { padding: 0 var(--space-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-pill); background: transparent; font: inherit; font-size: var(--font-size-small); color: var(--color-text-muted); cursor: pointer; }
+  .mf-sounds__tags button:hover, .mf-sounds__tags button:focus-visible { border-color: var(--color-primary); color: var(--color-accent); }
+  .mf-sounds__tags button[aria-pressed="true"] { border-color: var(--color-primary); color: var(--color-primary); }
   .mf-sounds tr.is-playing td:first-child::before { content: "▶ "; color: var(--color-success); }
+  .mf-sounds .is-ok, .mf-sounds .is-error { padding: var(--space-2) var(--space-3); border-radius: var(--radius-medium); background: var(--color-surface); border: var(--border-width) solid var(--color-border); }
+  .mf-sounds .is-ok { border-color: var(--color-success); color: var(--color-success); }
+  .mf-sounds .is-error { border-color: var(--color-danger); color: var(--color-danger); }
 </style>
 <script>
+// The Micro-UI's real code (apps/soundbox/sound-library), bundled by mock/build.sh: it fills this card on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  let sounds = [], query = '', editing = null, file = null;
-  const dur = s => String(s.duration.toFixed(1)).replace('.', ',') + ' s';
-
-  function table() {
-    const q = Mock.norm(query);
-    const list = sounds.filter(s => !q || Mock.norm(s.name + ' ' + s.tags.join(' ')).includes(q));
-    $('#sounds-table').innerHTML = Mock.kitHTML('Table', { id: 'sounds-table-grid', html: true, columns: ['Nom', 'Tags', 'Fichier', { label: 'Durée', num: true }, { label: 'Volume', num: true }, ''],
-      rows: list.map(s => ({ id: 'sound-' + s.id, cells: [esc(s.name), `<span class="mf-sounds__tags">${s.tags.map(t => `<span>#${esc(t)}</span>`).join('')}</span>`, esc(s.file || '—'), dur(s), s.volume + ' %',
-        `<span class="row"><button type="button" class="chip" data-listen="${esc(s.id)}">Écouter</button><button type="button" class="chip" data-edit="${esc(s.id)}">Modifier</button></span>`] })) });
-    $('#sounds-count').textContent = sounds.length + ' sons · ' + new Set(sounds.flatMap(s => s.tags)).size + ' tags';
-    Mock.mount($('#sounds-table'));
-  }
-  function edit(id) {
-    editing = sounds.find(s => s.id === id);
-    $('#sounds-edit').hidden = false;
-    $('#sounds-edit-fields').innerHTML = Mock.kitHTML('Input', { id: 'sounds-edit-name', label: 'Nom', value: editing.name, wide: true }) +
-      Mock.kitHTML('Input', { id: 'sounds-edit-tags', label: 'Tags', value: editing.tags.join(', '), wide: true, hint: 'Séparés par des virgules' }) +
-      Mock.kitHTML('Slider', { bare: true, fields: [{ id: 'sounds-edit-volume', name: 'volume', label: 'Volume propre', value: editing.volume, min: 0, max: 100, unit: '%' }] }) +
-      Mock.kitHTML('Button', { items: [{ id: 'sounds-edit-save', label: 'Enregistrer', variant: 'primary', 'data-writes': 'soundbox.updateSound' }, { id: 'sounds-edit-delete', label: 'Supprimer', variant: 'danger', 'data-writes': 'soundbox.removeSound' }] });
-    Mock.mount($('#sounds-edit-fields'));
-    $('#sounds-edit').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
-  root.addEventListener('input', e => { if (e.target.id === 'sounds-search-input') { query = e.target.value; table(); } });
-  root.addEventListener('kit:file', e => { file = e.detail; $('#sounds-new-name').value = e.detail.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()); });
-  root.addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.dataset.edit) edit(b.dataset.edit);
-    if (b.dataset.listen) {
-      const s = sounds.find(x => x.id === b.dataset.listen), tr = b.closest('tr');
-      tr.classList.add('is-playing');
-      setTimeout(() => tr.classList.remove('is-playing'), s.duration * 1000);
-    }
-    if (b.id === 'sounds-sample') $('#sounds-upload-fields [data-kit="FileDrop"]').filedrop.simulate({ name: 'volet-qui-claque.ogg', size: 48230 });
-    if (b.id === 'sounds-new-submit') {
-      const name = $('#sounds-new-name').value.trim() || 'Nouveau son';
-      const tags = $('#sounds-new-tags').value.split(',').map(t => t.trim()).filter(Boolean);
-      Mock.command('soundbox.addSound', { name, tags }, { label: 'Ajouter « ' + name + ' » à la soundbox' }).then(() => {
-        sounds.unshift({ id: 'snd-' + Date.now(), name, tags, duration: 1.9, volume: 75, file: file ? file.name : 'volet-qui-claque.ogg' });
-        $('#sounds-new-name').value = ''; $('#sounds-new-tags').value = '';
-        table();
-      });
-    }
-    if (b.id === 'sounds-edit-save' && editing) {
-      const s = editing;
-      Mock.command('soundbox.updateSound', { id: s.id }, { label: 'Enregistrer « ' + $('#sounds-edit-name').value + ' »' }).then(() => {
-        s.name = $('#sounds-edit-name').value.trim() || s.name;
-        s.tags = $('#sounds-edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
-        s.volume = +$('#sounds-edit-volume').value;
-        table();
-      });
-    }
-    if (b.id === 'sounds-edit-delete' && editing) {
-      const s = editing;
-      Mock.command('soundbox.removeSound', { id: s.id }, { label: 'Supprimer « ' + s.name + ' »' }).then(() => { sounds = sounds.filter(x => x !== s); editing = null; $('#sounds-edit').hidden = true; table(); });
-    }
-  });
-
-  Mock.fixture('fixtures/sounds.json').then(d => {
-    sounds = d.sounds;
-    $('#sounds-search').innerHTML = Mock.kitHTML('Input', { id: 'sounds-search-input', label: 'Rechercher', type: 'search', placeholder: 'Nom ou tag : porte, combat, extérieur…' });
-    $('#sounds-upload-fields').innerHTML = Mock.kitHTML('FileDrop', { id: 'sounds-drop', title: 'Déposez un son ou', hint: 'Effet ponctuel, 30 s maximum', types: ['OGG', 'MP3', 'WAV'], wide: true }) +
-      '<button type="button" class="chip" id="sounds-sample">Utiliser l’exemple : volet-qui-claque.ogg</button>' +
-      Mock.kitHTML('Input', { id: 'sounds-new-name', label: 'Nom', placeholder: 'Porte qui grince', wide: true }) +
-      Mock.kitHTML('Input', { id: 'sounds-new-tags', label: 'Tags', placeholder: 'porte, bois, intérieur', wide: true, hint: 'Séparés par des virgules' }) +
-      Mock.kitHTML('Button', { items: [{ id: 'sounds-new-submit', label: 'Ajouter à la soundbox', variant: 'primary', 'data-writes': 'soundbox.addSound' }] });
-    Mock.mount(root);
-    table();
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/SoundLibrary.js';
+  root.appendChild(bundle);
 })();
 </script>
