@@ -31,6 +31,7 @@ ignored = [
     "export-campaign",
     "extract-from-notes",
     "get-battlemap",
+    "get-battlemap-instance",
     "get-campaign",
     "get-entity",
     "get-settings",
@@ -79,6 +80,7 @@ create-entities-from-note = { path = "../../campaign/data-capabilities/create-en
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 get-battlemap = { path = "../../media/capabilities/get-battlemap" }
+get-battlemap-instance = { path = "../../table/capabilities/get-battlemap-instance" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
