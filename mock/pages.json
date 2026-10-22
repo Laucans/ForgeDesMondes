@@ -129,7 +129,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "ab4d038cc1f86f7a"
+      "builtFrom": "60ead0b9227cac9b"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +149,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "4e783f36af5e8b4c"
+      "builtFrom": "031e8557168d2c71"
     },
     {
       "name": "SessionList",
@@ -214,7 +214,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "c8f9a854482cf540"
+      "builtFrom": "c721766c2fbfafd5"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +278,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "aa973ed773986b10"
+      "builtFrom": "82a7bc29cb3463e5"
     },
     {
       "name": "PreviousSummary",
@@ -419,7 +419,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "a170eae88254001d"
+      "builtFrom": "9197a90137849264"
     },
     {
       "name": "SoundLibrary",
@@ -437,7 +437,11 @@
         "soundbox.updateSound",
         "soundbox.removeSound"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
+      },
+      "source": "apps/soundbox/sound-library",
+      "builtFrom": "f364bf0d93009b5e"
     },
     {
       "name": "LiveSessionBar",
