@@ -1,0 +1,21 @@
+{
+  "dataCapability": "table.changeHitPoints",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": ["BattlemapInstance.hpCurrent"],
+  "payload": {
+    "instance": "uuid — the battlemap instance the token stands on, when the command names no target; never written",
+    "token": "uuid — the NPC token whose current HP change, a token of that instance (instance-isolated); never written, the change lands on the token's own row alone, never on another token of the same character (hp-change-one-token)",
+    "delta": "integer — the damage, negative, or the healing, positive; the HP land between 0 and the token's HP max (pj-hp-not-tracked), and at 0 the token is dead, derived from its HP alone (dead-derived). A PC's token tracks no HP: the change is rejected"
+  },
+  "mode": "relative",
+  "invariants": ["instance-isolated", "pj-hp-not-tracked", "hp-change-one-token", "dead-derived", "state-persisted-reset"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
