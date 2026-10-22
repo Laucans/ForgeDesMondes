@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use serde_json::{Value, json};
 use start_combat::{
     DATA_CAPABILITY, DEFAULT_DEX, Dice, Lineup, Participant, Refusal, Request, Row, Started,
-    combat_id, entry_id, follow_ups, partition, prepare, request, seat, seatable,
+    SystemDice, combat_id, entry_id, follow_ups, partition, prepare, request, seat, seatable,
 };
 
 const INSTANCE: &str = "b1000000-0000-4000-8000-000000000001";
@@ -677,4 +677,20 @@ fn a_seat_that_is_not_its_combat_s_entry_is_refused() {
     let mut running = combat.clone();
     running.insert("endedAt".to_owned(), Value::Null);
     assert_eq!(seatable(&entry, &running, &token, &Row::new()), Ok(()));
+}
+
+#[test]
+fn the_server_s_dice_throw_every_face_of_a_d20_and_draws_that_differ() {
+    let mut dice = SystemDice;
+    // 2000 throws miss one face of 20 once in about 10^43 runs.
+    let faces: std::collections::BTreeSet<i64> = (0..2000).map(|_| dice.d20()).collect();
+    assert_eq!(faces, (1..=20).collect(), "{faces:?}");
+    let draws: std::collections::BTreeSet<i64> = (0..64).map(|_| dice.draw()).collect();
+    assert!(draws.len() > 60, "{draws:?}");
+    assert!(
+        draws
+            .iter()
+            .all(|draw| (0..=i64::from(u32::MAX)).contains(draw)),
+        "{draws:?}"
+    );
 }
