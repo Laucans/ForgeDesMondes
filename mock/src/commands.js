@@ -546,4 +546,43 @@ export const COMMANDS = {
     instance.state.combat = { round: 1, current: order[0].id, order };
     return undefined;
   },
+  // table.addParticipant (crates/table/data-capabilities/add-participant,
+  // Initiative@1): the token `payload.token` of the instance `targetId` (or
+  // `payload.instance`) joins its open combat. An NPC rolls a d20 plus its DEX
+  // modifier (DEX 10 when its sheet gives none); a PC rolls nothing and takes
+  // the initiative `payload.initiative` the DM entered — an NPC is given none
+  // (`npc-initiative-bounds`). It goes after the last participant that ranks
+  // before it or ties with it, by initiative then DEX, the others keeping their
+  // order (`initiative-tiebreak`); the turn and the round stay. A token not on
+  // the instance is `not-found`; an instance with no open combat, or a token
+  // already in it, is refused by `initiative-tiebreak`, a token that is no PC
+  // nor NPC, a PC with no figure or an NPC given one by `npc-initiative-bounds`,
+  // as the server refuses them (422). Ids are compared in any case and without
+  // the blanks around them, as the server does.
+  'table.addParticipant': async (server, { payload, targetId }) => {
+    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+    const id = targetId || payload.instance;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const instance = instances.find((i) => same(i.id, id));
+    const token = instance?.state.tokens.find((t) => same(t.id, payload.token));
+    if (!token) return ['not-found'];
+    const combat = instance.state.combat;
+    if (!combat) return ['initiative-tiebreak'];
+    const order = combat.order || [];
+    if (order.some((o) => same(o.id, token.id))) return ['initiative-tiebreak'];
+    if (token.kind !== 'pj' && token.kind !== 'pnj') return ['npc-initiative-bounds'];
+    const pc = token.kind === 'pj';
+    if (pc ? !Number.isInteger(payload.initiative) : payload.initiative != null) return ['npc-initiative-bounds'];
+    const characters = await server.load('campaign.listCharacters');
+    const score = characters.find((c) => same(c.id, token.char))?.stats?.DEX;
+    const dexScore = pc ? score ?? null : score ?? 10;
+    const dex = dexScore === null ? 0 : Math.floor((dexScore - 10) / 2);
+    const init = pc ? payload.initiative : 1 + Math.floor(Math.random() * 20) + dex;
+    // The order keeps the DEX modifier alone: ties read it.
+    const before = order.findLastIndex((o) => o.init > init || (o.init === init && o.dex >= dex));
+    order.splice(before + 1, 0, { id: token.id, init, dex });
+    combat.order = order;
+    return undefined;
+  },
 };

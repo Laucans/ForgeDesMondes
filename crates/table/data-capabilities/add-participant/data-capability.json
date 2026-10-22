@@ -1,0 +1,37 @@
+{
+  "dataCapability": "table.addParticipant",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": [
+    "BattlemapInstance.initiativeEntryId",
+    "BattlemapInstance.initiativeEntryCombatId",
+    "BattlemapInstance.initiativeEntryTokenId",
+    "BattlemapInstance.roll",
+    "BattlemapInstance.initiative",
+    "BattlemapInstance.dexScore",
+    "BattlemapInstance.tiebreak",
+    "BattlemapInstance.rank"
+  ],
+  "payload": {
+    "instance": "uuid — the battlemap instance whose open combat the token joins, when the command names no target; never written",
+    "token": "uuid — the token of the instance that joins its open combat, once: a token already in the combat is refused, and so is an instance with no open combat",
+    "initiative": "integer — a PC's initiative, the figure the DM entered: required for a PC, refused for an NPC, which rolls a d20 and adds its DEX modifier (Initiative@1). The newcomer is ranked by initiative, then DEX, then a random draw, after every participant ranked before it or tied with it",
+    "shift": "uuid — never sent by the DM: the command's own follow-ups, one per participant the newcomer lands ahead of, each moving that entry one rank down, a relative step; refused unless another participant of its combat holds its rank in the queue and the newcomer named under `newcomer` is seated in that combat at or above it",
+    "newcomer": "uuid — never sent by the DM: with `shift`, the newcomer's initiative entry the step makes room for"
+  },
+  "mode": "relative",
+  "invariants": [
+    "instance-isolated",
+    "npc-initiative-bounds",
+    "initiative-tiebreak",
+    "hidden-keeps-rank"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

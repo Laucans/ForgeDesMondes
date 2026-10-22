@@ -3,6 +3,20 @@
 version = 4
 
 [[package]]
+name = "add-participant"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
@@ -443,6 +457,7 @@ dependencies = [
 name = "dataguard-registry"
 version = "0.1.0"
 dependencies = [
+ "add-participant",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
  "aggregate-campaign",
