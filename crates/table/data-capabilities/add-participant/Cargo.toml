@@ -21,6 +21,9 @@ uuid = { version = "1", default-features = false, features = ["v4", "v5"] }
 aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
 # The migrations' applier the server runs: the tables its tests read.
 data = { path = "../../../data" }
+# The DataCapability that takes a participant out, which a test runs
+# before a joining.
+remove-participant = { path = "../remove-participant" }
 # The Concept's fixtures `initiative` and `order` are held to.
 platform-conformance = { path = "../../../platform/conformance" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

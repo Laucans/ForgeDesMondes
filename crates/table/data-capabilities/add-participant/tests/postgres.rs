@@ -5,7 +5,8 @@
 //! combat — Elowen a PC at 18, Vesna (DEX 16) at 14, the Bandit (DEX 12) at
 //! 14 — takes the wolf (DEX 14) rolling 13 second; a PC joins with the DM's
 //! figure; a token in the combat, queued or applied, joins no more; an
-//! instance with no open combat takes no one. Each test works in a scratch
+//! instance with no open combat takes no one; a participant
+//! `table.removeParticipant` took out stays out. Each test works in a scratch
 //! database of its own, migrated as the server migrates it, dropped when it
 //! ends.
 
@@ -85,6 +86,13 @@ fn aggregate() -> Aggregate {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../aggregates/BattlemapInstance/aggregate.json");
     Aggregate::parse(&std::fs::read_to_string(path).expect("aggregate.json")).expect("contract I")
+}
+
+/// `table.removeParticipant`'s manifest, read beside this unit.
+fn remove_participant() -> DataCapability {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../remove-participant/data-capability.json");
+    manifest(&std::fs::read_to_string(path).expect("data-capability.json"))
 }
 
 fn manifest(json: &str) -> DataCapability {
@@ -209,12 +217,16 @@ impl Scratch {
     }
 
     /// The engine as the server plants this unit and its target aggregate
-    /// over this database, its dice `add_participant`'s, with the test-only
-    /// DataCapabilities.
+    /// over this database, its dice `add_participant`'s, with
+    /// `table.removeParticipant` and the test-only DataCapabilities.
     async fn serve(&self, add_participant: Plugin) -> Engine {
-        let plugins: Plugins = [aggregate_battlemap_instance::plugin(), add_participant]
-            .into_iter()
-            .collect();
+        let plugins: Plugins = [
+            aggregate_battlemap_instance::plugin(),
+            add_participant,
+            remove_participant::plugin(),
+        ]
+        .into_iter()
+        .collect();
         let store = PgStore::open(connect(&self.url).await)
             .await
             .expect("the store")
@@ -229,6 +241,7 @@ impl Scratch {
         .with_rows(Arc::new(ReadOnly::new(connect(&self.url).await)))
         .with_aggregate(aggregate())
         .with_data_capability(manifest(include_str!("../data-capability.json")))
+        .with_data_capability(remove_participant())
         .with_data_capability(manifest(OPEN_INSTANCE))
         .with_data_capability(manifest(DROP_TOKEN))
         .with_data_capability(manifest(REMOVE_TOKEN))
@@ -846,5 +859,64 @@ async fn initiative_tiebreak_the_entry_of_a_token_off_the_map_neither_ranks_nor_
     );
     assert_eq!(kind, RefusalKind::Unprocessable);
     assert!(message.starts_with("initiative-tiebreak"), "{message}");
+    scratch.drop().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn initiative_tiebreak_a_participant_removed_stays_out_and_the_joinings_after_it_are_taken() {
+    let scratch = Scratch::new("removed").await;
+    let engine = scratch
+        .serve(add_participant::plugin_with(Scripted::new(
+            &[20, 17],
+            &[42, 7],
+        )))
+        .await;
+    scratch.plant(&engine).await;
+    scratch.fight(&engine).await;
+    // Vesna leaves the combat as the DM takes her out: her entry's partition
+    // is tombstoned, rank 2 left empty.
+    let vesna = partition(&entry_id(COMBAT, T_VESNA));
+    submit(
+        &engine,
+        "table.removeParticipant@1",
+        json!({ "participant": entry_id(COMBAT, T_VESNA) }),
+        Some(INSTANCE),
+    )
+    .await
+    .expect("Vesna removed");
+    applied(&engine).await;
+    assert_eq!(scratch.row(&vesna).await, None);
+
+    // The wolf, 20 + 2, lands ahead of Vesna's old rank, ahead of Elowen:
+    // Elowen alone moves down, into the room Vesna left.
+    let wolf = join(&engine, json!({ "token": T_LOUP }))
+        .await
+        .expect("the wolf");
+    clean(&wolf);
+    assert_eq!(wolf.then.len(), 1, "{:?}", wolf.then);
+    applied(&engine).await;
+    // The shadow, 17 - 1, right after: after Elowen, ahead of the Bandit.
+    let shadow = join(&engine, json!({ "token": T_OMBRE }))
+        .await
+        .expect("the shadow");
+    clean(&shadow);
+    assert_eq!(shadow.then.len(), 1, "{:?}", shadow.then);
+    applied(&engine).await;
+
+    let entries = scratch.entries().await;
+    assert_eq!(order(&entries), [T_LOUP, T_ELOWEN, T_OMBRE, T_BANDIT]);
+    assert_eq!(ranks(&entries), [1, 2, 3, 4]);
+    // No move brought Vesna back.
+    assert_eq!(scratch.row(&vesna).await, None);
+    let tombstoned: bool = scratch
+        .client
+        .query_one(
+            "SELECT tombstoned FROM dataguard_rows WHERE partition = $1",
+            &[&vesna],
+        )
+        .await
+        .expect("Vesna's partition")
+        .get(0);
+    assert!(tombstoned);
     scratch.drop().await;
 }
