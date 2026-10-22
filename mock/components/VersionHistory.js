@@ -1078,6 +1078,36 @@
       order.splice(before + 1, 0, { id: token.id, init, dex });
       combat.order = order;
       return void 0;
+    },
+    // table.reorderInitiative (crates/table/data-capabilities/reorder-initiative):
+    // the open combat of the instance `targetId` (or `payload.instance`)
+    // reordered as `payload.order` gives it, every participant once, named by
+    // its token — the ranks 1 to n in that order, a hidden participant like any
+    // other (`hidden-keeps-rank`); the turn and the round stay. An unknown
+    // instance is `not-found`; one with no open combat, or an order that is no
+    // list, omits a participant, repeats one or names one not in the combat, is
+    // refused by `initiative-tiebreak`, as the server refuses them (422). Ids
+    // are compared in any case and without the blanks around them, as the
+    // server does.
+    "table.reorderInitiative": async (server2, { payload, targetId }) => {
+      const same2 = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+      const id = targetId || payload.instance;
+      const fixture = await server2.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server2.instances ? server2.instances.values() : []];
+      const instance = instances.find((i) => same2(i.id, id));
+      if (!instance) return ["not-found"];
+      const combat = instance.state.combat;
+      const held = combat && combat.order || [];
+      const named = Array.isArray(payload.order) ? payload.order : [];
+      if (!combat || !named.length || named.length !== held.length) return ["initiative-tiebreak"];
+      const order = [];
+      for (const n of named) {
+        const at = held.findIndex((o) => same2(o.id, n) && !order.includes(o));
+        if (at < 0) return ["initiative-tiebreak"];
+        order.push(held[at]);
+      }
+      combat.order = order;
+      return void 0;
     }
   };
 

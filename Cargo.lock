@@ -476,6 +476,7 @@ dependencies = [
  "export-campaign",
  "extract-from-notes",
  "get-battlemap",
+ "get-battlemap-instance",
  "get-campaign",
  "get-entity",
  "get-settings",
@@ -493,6 +494,7 @@ dependencies = [
  "place-tokens",
  "remove-token",
  "rename-token",
+ "reorder-initiative",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -656,6 +658,14 @@ dependencies = [
 
 [[package]]
 name = "get-battlemap"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-battlemap-instance"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
@@ -1534,6 +1544,19 @@ version = "0.1.0"
 dependencies = [
  "aggregate-battlemap-instance",
  "async-trait",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "reorder-initiative"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
  "tokio",

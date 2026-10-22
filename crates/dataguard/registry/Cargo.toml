@@ -32,6 +32,7 @@ ignored = [
     "export-campaign",
     "extract-from-notes",
     "get-battlemap",
+    "get-battlemap-instance",
     "get-campaign",
     "get-entity",
     "get-settings",
@@ -48,6 +49,7 @@ ignored = [
     "place-tokens",
     "remove-token",
     "rename-token",
+    "reorder-initiative",
     "restore-entity-version",
     "save-entity",
     "save-grid-settings",
@@ -81,6 +83,7 @@ create-entities-from-note = { path = "../../campaign/data-capabilities/create-en
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 get-battlemap = { path = "../../media/capabilities/get-battlemap" }
+get-battlemap-instance = { path = "../../table/capabilities/get-battlemap-instance" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
@@ -97,6 +100,7 @@ next-turn = { path = "../../table/data-capabilities/next-turn" }
 place-tokens = { path = "../../table/data-capabilities/place-tokens" }
 remove-token = { path = "../../table/data-capabilities/remove-token" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
+reorder-initiative = { path = "../../table/data-capabilities/reorder-initiative" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
