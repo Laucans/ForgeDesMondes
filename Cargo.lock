@@ -468,6 +468,7 @@ dependencies = [
  "save-settings",
  "set-master-volume",
  "set-media-place",
+ "set-sound-volume",
  "test-connection",
  "update-sound",
  "upload-media",
@@ -1818,6 +1819,18 @@ name = "set-media-place"
 version = "0.1.0"
 dependencies = [
  "aggregate-media",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "set-sound-volume"
+version = "0.1.0"
+dependencies = [
+ "aggregate-sound",
  "async-trait",
  "data",
  "harness-dataguard",
