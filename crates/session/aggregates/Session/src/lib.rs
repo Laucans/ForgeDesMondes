@@ -291,6 +291,40 @@ mod tests {
         );
     }
 
+    /// A row storing `field`, and nothing else.
+    fn storing(field: &str) -> BTreeMap<String, Value> {
+        BTreeMap::from([(field.to_string(), json!("stored"))])
+    }
+
+    #[test]
+    fn the_judge_rejects_a_stored_roster_field_and_only_that() {
+        // The engine refuses a derived field before the judge is asked: the
+        // judge is reached here directly.
+        for field in ROSTER {
+            assert_eq!(
+                Session.violated(&storing(field), &entry("Session", "update")),
+                ["present-only-pj"],
+                "{field}"
+            );
+        }
+        assert!(
+            Session
+                .violated(&BTreeMap::new(), &entry("Session", "update"))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_judge_rejects_a_stored_session_media_field_and_only_that() {
+        for field in SESSION_MEDIA {
+            assert_eq!(
+                Session.violated(&storing(field), &entry("Session", "update")),
+                ["session-media-by-place"],
+                "{field}"
+            );
+        }
+    }
+
     #[test]
     fn the_checks_know_the_fields_and_invariants_the_aggregate_declares() {
         let aggregate: Value =
