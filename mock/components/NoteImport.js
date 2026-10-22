@@ -811,6 +811,31 @@ ${heard}`;
       holder.state.tokens.find((t) => same2(t.id, payload.token)).visible = payload.visible;
       return void 0;
     },
+    // table.setTokenCondition (crates/table/data-capabilities/set-token-condition):
+    // the badge `payload.state` put on the token `payload.token` of the
+    // instance `targetId` (or `payload.instance`) when `payload.on`, after the
+    // others and once, or taken off, the others keeping their order — its
+    // conditions alone; its HP, its death and the other tokens of the same
+    // character stay as they are. A condition that is no name without the
+    // blanks around it, or holds U+0000, or an `on` that is no boolean, is
+    // refused by `state-persisted-reset`; an unknown token is `not-found`; a
+    // token that stands on another instance than the one named — or on none
+    // named — is refused by `instance-isolated`, as the DataGuard judges it.
+    "table.setTokenCondition": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+      const state = typeof payload.state === "string" ? payload.state.trim() : "";
+      if (!state || state.includes("\0") || typeof payload.on !== "boolean") return ["state-persisted-reset"];
+      const id = targetId || payload.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const holder = instances.find((i) => i.state.tokens.some((t) => same2(t.id, payload.token)));
+      if (!holder) return ["not-found"];
+      if (!same2(id, holder.id)) return ["instance-isolated"];
+      const token = holder.state.tokens.find((t) => same2(t.id, payload.token));
+      const held = token.states || [];
+      token.states = payload.on ? held.includes(state) ? held : [...held, state] : held.filter((s) => s !== state);
+      return void 0;
+    },
     // table.changeHitPoints (crates/table/data-capabilities/change-hit-points):
     // the NPC token `payload.token` of the instance `targetId` (or
     // `payload.instance`) wounded or healed by `payload.delta` — its HP alone,
