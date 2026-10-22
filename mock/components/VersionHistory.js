@@ -1070,6 +1070,31 @@
       }
       combat.order = order;
       return void 0;
+    },
+    // table.removeParticipant (crates/table/data-capabilities/remove-participant):
+    // one participant taken out of the open combat, `payload.participant` — named
+    // by its token, as the carousel shows it — on the instance `targetId`, or the
+    // participant itself as the target when `payload.participant` is absent or
+    // null. Its entry is tombstoned and nothing else is written: its token stays
+    // on the map, and the order closes up. The participant holding the turn is
+    // refused by `next-turn`: the Battlemap sends table.nextTurn first. A
+    // participant in no open combat, or in one of another instance than the one
+    // named, is `not-found`. Ids are compared in any case and without the blanks
+    // around them, as the server does.
+    "table.removeParticipant": async (server2, { payload, targetId }) => {
+      const same2 = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+      const named = payload?.participant != null;
+      const participant = named ? payload.participant : targetId;
+      if (typeof participant !== "string") return ["not-found"];
+      const instance = named && targetId && !same2(targetId, participant) ? targetId : null;
+      const fixture = await server2.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server2.instances ? server2.instances.values() : []];
+      const holder = instances.find((i) => (instance == null || same2(i.id, instance)) && (i.state.combat?.order || []).some((o) => same2(o.id, participant)));
+      if (!holder) return ["not-found"];
+      const combat = holder.state.combat;
+      if (same2(combat.current, participant)) return ["next-turn"];
+      combat.order = combat.order.filter((o) => !same2(o.id, participant));
+      return void 0;
     }
   };
 
