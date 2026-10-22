@@ -1,0 +1,29 @@
+[package]
+name = "add-participant"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.addParticipant: one token of a battlemap instance joins its open combat (Initiative@1) — an NPC's d20 + DEX modifier, a PC's initiative the DM's (npc-initiative-bounds), ranked among the others by initiative, then DEX, then a draw (initiative-tiebreak), the participants it lands ahead of moving down one rank each; never twice, never without an open combat."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+# An entry's id, derived from its combat and its token (UUIDv5): a token
+# seated, applied or queued, is found on its partition. The dice draw from
+# fresh random ids (UUIDv4).
+uuid = { version = "1", default-features = false, features = ["v4", "v5"] }
+
+[dev-dependencies]
+# Its target aggregate, which its tests plant beside it.
+aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
+# The migrations' applier the server runs: the tables its tests read.
+data = { path = "../../../data" }
+# The DataCapability that takes a participant out, which a test runs
+# before a joining.
+remove-participant = { path = "../remove-participant" }
+# The Concept's fixtures `initiative` and `order` are held to.
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
