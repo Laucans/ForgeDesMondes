@@ -507,6 +507,10 @@ fn a_joining_claims_its_entry_until_the_claim_runs_out() {
     assert!(!claims.claim("wolf", 1_000), "claimed in the same instant");
     assert!(!claims.claim("wolf", 1_000 + CLAIM_MILLIS - 1));
     assert!(claims.claim("ombre", 1_000), "another entry is free");
+    assert!(
+        !claims.claim("wolf", 1_001),
+        "a claim still held outlives the sweep of another"
+    );
     assert!(claims.claim("wolf", 1_000 + CLAIM_MILLIS), "ran out");
     assert!(!claims.claim("wolf", 1_000 + CLAIM_MILLIS));
 }

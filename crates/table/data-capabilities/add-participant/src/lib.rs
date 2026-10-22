@@ -662,15 +662,13 @@ impl Claims {
     /// Claims `entry` at `now` (milliseconds): `false` when a claim made
     /// less than [`CLAIM_MILLIS`] ago holds it.
     pub fn claim(&self, entry: &str, now: u64) -> bool {
+        let live = |at: &u64| now.saturating_sub(*at) < CLAIM_MILLIS;
         let mut held = self.held();
-        if held
-            .get(entry)
-            .is_some_and(|at| now.saturating_sub(*at) < CLAIM_MILLIS)
-        {
+        if held.get(entry).is_some_and(live) {
             return false;
         }
         // The claims that ran out are of no use any more.
-        held.retain(|_, at| now.saturating_sub(*at) < CLAIM_MILLIS);
+        held.retain(|_, at| live(at));
         held.insert(entry.to_owned(), now);
         true
     }
