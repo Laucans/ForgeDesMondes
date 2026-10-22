@@ -1,0 +1,22 @@
+[package]
+name = "create-campaign"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability campaign.createCampaign: a new campaign or oneshot, its master volume at full, on its own Campaign partition — a oneshot with its single session, at position 1, in prep, the microphone off (oneshot-single-session)."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# The aggregate the creation targets, its judge and its projection: what the
+# engine plants beside the creation (a dev-dependency, as isolation.sh allows).
+aggregate-campaign = { path = "../../aggregates/Campaign" }
+# The migrations' applier the server runs: the projection's tests write the
+# tables as the product migrates them.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

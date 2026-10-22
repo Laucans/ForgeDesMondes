@@ -391,6 +391,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-campaign"
+version = "0.1.0"
+dependencies = [
+ "aggregate-campaign",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "create-entities-from-note"
 version = "0.1.0"
 dependencies = [
@@ -457,6 +469,7 @@ dependencies = [
  "aggregate-sound",
  "aggregate-sound-playback",
  "aggregate-suggestion",
+ "create-campaign",
  "create-entities-from-note",
  "export-campaign",
  "extract-from-notes",
