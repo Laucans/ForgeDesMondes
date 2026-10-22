@@ -51,6 +51,7 @@ ignored = [
     "set-master-volume",
     "set-media-place",
     "set-sound-volume",
+    "stop-all",
     "test-connection",
     "update-sound",
     "upload-media",
@@ -96,6 +97,7 @@ save-settings = { path = "../../ai/data-capabilities/save-settings" }
 set-master-volume = { path = "../../soundbox/data-capabilities/set-master-volume" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
 set-sound-volume = { path = "../../soundbox/data-capabilities/set-sound-volume" }
+stop-all = { path = "../../soundbox/data-capabilities/stop-all" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
 update-sound = { path = "../../soundbox/data-capabilities/update-sound" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }
