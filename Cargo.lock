@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "add-place-to-session"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "add-scene"
 version = "0.1.0"
 dependencies = [
@@ -443,6 +455,7 @@ dependencies = [
 name = "dataguard-registry"
 version = "0.1.0"
 dependencies = [
+ "add-place-to-session",
  "add-scene",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
