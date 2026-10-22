@@ -40,6 +40,7 @@ ignored = [
     "list-media",
     "list-places",
     "list-players",
+    "list-sounds",
     "play-sound",
     "restore-entity-version",
     "save-entity",
@@ -80,6 +81,7 @@ list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes"
 list-media = { path = "../../media/capabilities/list-media" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
+list-sounds = { path = "../../soundbox/capabilities/list-sounds" }
 play-sound = { path = "../../soundbox/data-capabilities/play-sound" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
