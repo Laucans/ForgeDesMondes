@@ -774,6 +774,34 @@
       token.hp = Math.max(0, Math.min(token.hpMax, token.hp + payload.delta));
       token.dead = token.hp === 0;
       return void 0;
+    },
+    // table.removeToken (crates/table/data-capabilities/remove-token): one
+    // token taken off the map, `payload.token` on the instance `targetId` — or
+    // the token itself as the target when `payload.token` is absent or null.
+    // Its partition is tombstoned and the tables follow the aggregate's
+    // relations: its entry leaves the order, whose places close up, and a turn
+    // still on it is no one's — the Battlemap sends table.nextTurn first when
+    // it holds the turn. An unknown token, or one of another instance than the
+    // one named, is `not-found`. Ids are compared in any case and without the
+    // blanks around them, as the server does.
+    "table.removeToken": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+      const named = payload.token != null;
+      const tokenId = named ? payload.token : targetId;
+      if (typeof tokenId !== "string") return ["not-found"];
+      const instance = named && targetId && !same2(targetId, tokenId) ? targetId : null;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const holder = instances.find((i) => (instance == null || same2(i.id, instance)) && i.state.tokens.some((t) => same2(t.id, tokenId)));
+      if (!holder) return ["not-found"];
+      const id = holder.state.tokens.find((t) => same2(t.id, tokenId)).id;
+      holder.state.tokens = holder.state.tokens.filter((t) => t.id !== id);
+      const combat = holder.state.combat;
+      if (combat) {
+        combat.order = (combat.order || []).filter((o) => o.id !== id);
+        if (combat.current === id) combat.current = null;
+      }
+      return void 0;
     }
   };
 
