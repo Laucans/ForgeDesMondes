@@ -803,6 +803,35 @@
       }
       return void 0;
     },
+    // table.nextTurn (crates/table/data-capabilities/next-turn, Initiative@1,
+    // « Suivant »): the open combat of the instance `targetId` — or
+    // `payload.instance` — passes the turn to the next living participant after
+    // the current one in its order, a hidden one like any other
+    // (`hidden-keeps-rank`), a dead one or one off the map skipped
+    // (`dead-derived`); the round goes up when the search wraps past the last
+    // (`next-turn`). With no current turn, the first living one takes it and no
+    // round is added. An instance with no open combat is refused by
+    // `next-turn`, a combat with no one alive by `dead-derived`. Ids are
+    // compared in any case and without the blanks around them, as the server
+    // does.
+    "table.nextTurn": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+      const id = targetId || payload?.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const holder = instances.find((i) => same2(i.id, id));
+      const combat = holder?.state.combat;
+      if (!combat) return ["next-turn"];
+      const order = combat.order || [];
+      const alive = order.map((p) => holder.state.tokens.some((t) => same2(t.id, p.id) && !t.dead));
+      const at = order.findIndex((p) => same2(p.id, combat.current));
+      const after = alive.findIndex((living, i) => living && i > at);
+      const wrapped = at === -1 ? -1 : alive.findIndex((living, i) => living && i <= at);
+      if (after === -1 && wrapped === -1) return ["dead-derived"];
+      combat.current = order[after === -1 ? wrapped : after].id;
+      if (after === -1) combat.round += 1;
+      return void 0;
+    },
     // table.startCombat (crates/table/data-capabilities/start-combat): the combat
     // of the instance `targetId` (or `payload.instance`), every token in it, a
     // hidden one like any other (`hidden-keeps-rank`). An NPC rolls
