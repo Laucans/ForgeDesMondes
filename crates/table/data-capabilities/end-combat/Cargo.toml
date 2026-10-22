@@ -1,0 +1,24 @@
+[package]
+name = "end-combat"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.endCombat: a battlemap instance's open combat closed, on its own BattlemapInstance partition — its end stamped and no turn current, its tokens, HP and conditions left as they are; an instance with no combat open ends none, and a new combat may start once it ended (one-active-combat)."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+uuid = { version = "1", default-features = false }
+
+[dev-dependencies]
+# Its target aggregate, which its tests plant beside it.
+aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
+# The migrations' applier the server runs: the tables its tests read.
+data = { path = "../../../data" }
+# The start the one-active-combat test opens a combat with, before and after
+# the end: a test-only crate, which reaches nothing at run time.
+start-combat = { path = "../start-combat" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
