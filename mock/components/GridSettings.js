@@ -747,7 +747,7 @@
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
-  var soundTags = (tags) => [...new Set(tags.map((t) => [...t.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "")].map((c) => c.toLowerCase()).join("")).filter(Boolean))];
+  var soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => [...String(t).replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "")].map((c) => c.toLowerCase()).join("")).filter(Boolean))];
   var COMMANDS = {
     // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
     // added to the library. One with no name or no file is refused before
@@ -846,6 +846,29 @@
       const now = /* @__PURE__ */ new Date();
       const pad = (n) => String(n).padStart(2, "0");
       campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      return void 0;
+    },
+    // soundbox.updateSound (crates/soundbox/data-capabilities/update-sound): the
+    // name, tags and volume of one sound, tags normalised and volume ranged as
+    // for an addition; a sound that is not there is `not-found`.
+    "soundbox.updateSound": async (server, { payload: payload2, targetId }) => {
+      const sound = (await server.load("soundbox.listSounds")).sounds.find((s) => s.id === targetId);
+      if (!sound) return ["not-found"];
+      if ("volume" in payload2 && !(Number(payload2.volume) >= 0 && Number(payload2.volume) <= 100)) return ["sound-volume-range"];
+      if ("name" in payload2) sound.name = String(payload2.name);
+      if ("tags" in payload2) sound.tags = soundTags(payload2.tags);
+      if ("volume" in payload2) sound.volume = Number(payload2.volume);
+      if ("file" in payload2) sound.file = String(payload2.file);
+      return void 0;
+    },
+    // soundbox.removeSound (crates/soundbox/data-capabilities/remove-sound): the
+    // sound leaves the library's readers (a soft delete, its tombstone is the
+    // server's).
+    "soundbox.removeSound": async (server, { targetId }) => {
+      const library = await server.load("soundbox.listSounds");
+      const at = library.sounds.findIndex((s) => s.id === targetId);
+      if (at < 0) return ["not-found"];
+      library.sounds.splice(at, 1);
       return void 0;
     },
     // soundbox.setMasterVolume (crates/soundbox/data-capabilities/set-master-volume):

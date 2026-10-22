@@ -41,7 +41,7 @@ const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'pro
 // SoundTag@1: each tag trimmed of White_Space and lowercased character by
 // character, an empty one dropped, then a tag seen earlier dropped — the
 // first occurrence stays, the order is kept.
-const soundTags = (tags) => [...new Set(tags.map((t) => [...t.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '')].map((c) => c.toLowerCase()).join('')).filter(Boolean))];
+const soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => [...String(t).replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '')].map((c) => c.toLowerCase()).join('')).filter(Boolean))];
 
 export const COMMANDS = {
   // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
@@ -142,6 +142,29 @@ export const COMMANDS = {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    return undefined;
+  },
+  // soundbox.updateSound (crates/soundbox/data-capabilities/update-sound): the
+  // name, tags and volume of one sound, tags normalised and volume ranged as
+  // for an addition; a sound that is not there is `not-found`.
+  'soundbox.updateSound': async (server, { payload, targetId }) => {
+    const sound = (await server.load('soundbox.listSounds')).sounds.find((s) => s.id === targetId);
+    if (!sound) return ['not-found'];
+    if ('volume' in payload && !(Number(payload.volume) >= 0 && Number(payload.volume) <= 100)) return ['sound-volume-range'];
+    if ('name' in payload) sound.name = String(payload.name);
+    if ('tags' in payload) sound.tags = soundTags(payload.tags);
+    if ('volume' in payload) sound.volume = Number(payload.volume);
+    if ('file' in payload) sound.file = String(payload.file);
+    return undefined;
+  },
+  // soundbox.removeSound (crates/soundbox/data-capabilities/remove-sound): the
+  // sound leaves the library's readers (a soft delete, its tombstone is the
+  // server's).
+  'soundbox.removeSound': async (server, { targetId }) => {
+    const library = await server.load('soundbox.listSounds');
+    const at = library.sounds.findIndex((s) => s.id === targetId);
+    if (at < 0) return ['not-found'];
+    library.sounds.splice(at, 1);
     return undefined;
   },
   // soundbox.setMasterVolume (crates/soundbox/data-capabilities/set-master-volume):
