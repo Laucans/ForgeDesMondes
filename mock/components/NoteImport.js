@@ -453,6 +453,10 @@ ${heard}`;
     const home = settings.providers.opencode.url;
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
+  function soundTags(tags) {
+    const list2 = Array.isArray(tags) ? tags : [];
+    return [...new Set(list2.map((t) => String(t).trim().toLowerCase()).filter(Boolean))];
+  }
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
@@ -535,6 +539,40 @@ ${heard}`;
       const now = /* @__PURE__ */ new Date();
       const pad = (n) => String(n).padStart(2, "0");
       campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      return void 0;
+    },
+    // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
+    // added to the library. Its tags are normalised as SoundTag@1 does (lower
+    // case, no duplicate), its volume is a percentage that stays in [0, 100]
+    // (`sound-volume-range`).
+    "soundbox.addSound": async (server, { payload }) => {
+      const volume = Number(payload.volume);
+      if (!(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
+      const library = await server.load("soundbox.listSounds");
+      library.sounds.unshift({ id: server.uuid(), name: String(payload.name || ""), tags: soundTags(payload.tags), duration: 2, volume, file: String(payload.file || ""), playing: false });
+      return void 0;
+    },
+    // soundbox.updateSound (crates/soundbox/data-capabilities/update-sound): the
+    // name, tags and volume of one sound, tags normalised and volume ranged as
+    // for an addition; a sound that is not there is `not-found`.
+    "soundbox.updateSound": async (server, { payload, targetId }) => {
+      const sound = (await server.load("soundbox.listSounds")).sounds.find((s) => s.id === targetId);
+      if (!sound) return ["not-found"];
+      if ("volume" in payload && !(Number(payload.volume) >= 0 && Number(payload.volume) <= 100)) return ["sound-volume-range"];
+      if ("name" in payload) sound.name = String(payload.name);
+      if ("tags" in payload) sound.tags = soundTags(payload.tags);
+      if ("volume" in payload) sound.volume = Number(payload.volume);
+      if ("file" in payload) sound.file = String(payload.file);
+      return void 0;
+    },
+    // soundbox.removeSound (crates/soundbox/data-capabilities/remove-sound): the
+    // sound leaves the library's readers (a soft delete, its tombstone is the
+    // server's).
+    "soundbox.removeSound": async (server, { targetId }) => {
+      const library = await server.load("soundbox.listSounds");
+      const at = library.sounds.findIndex((s) => s.id === targetId);
+      if (at < 0) return ["not-found"];
+      library.sounds.splice(at, 1);
       return void 0;
     },
     // soundbox.setMasterVolume (crates/soundbox/data-capabilities/set-master-volume):
