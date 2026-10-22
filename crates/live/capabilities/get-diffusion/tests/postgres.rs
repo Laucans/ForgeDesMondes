@@ -10,9 +10,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use get_diffusion::{SQL, answer};
+use harness_dataguard::tokio_postgres::types::Type;
+use harness_dataguard::tokio_postgres::{self, Client, NoTls};
 use serde_json::{Value, json};
-use tokio_postgres::types::Type;
-use tokio_postgres::{Client, NoTls};
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 /// A campaign with no live session.

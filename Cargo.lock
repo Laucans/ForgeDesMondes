@@ -631,9 +631,9 @@ name = "get-diffusion"
 version = "0.1.0"
 dependencies = [
  "data",
+ "harness-dataguard",
  "serde_json",
  "tokio",
- "tokio-postgres",
 ]
 
 [[package]]
