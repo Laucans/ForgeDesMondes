@@ -641,4 +641,22 @@ export const COMMANDS = {
     combat.order = combat.order.filter((o) => !same(o.id, participant));
     return undefined;
   },
+  // table.endCombat (crates/table/data-capabilities/end-combat): the open
+  // combat of the instance `targetId` (or `payload.instance`) ends — no turn
+  // is current and the carousel goes; its tokens, their HP and their
+  // conditions stay as they are, and a new combat may start
+  // (`one-active-combat`). An unknown instance, or one with no open combat,
+  // is refused by `one-active-combat`, as the server refuses it (422). Ids
+  // are compared in any case and without the blanks around them, as the
+  // server does.
+  'table.endCombat': async (server, { payload, targetId }) => {
+    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+    const id = targetId || payload?.instance;
+    const fixture = await server.load('table.getBattlemapInstance');
+    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
+    const instance = instances.find((i) => same(i.id, id));
+    if (!instance?.state.combat) return ['one-active-combat'];
+    instance.state.combat = null;
+    return undefined;
+  },
 };

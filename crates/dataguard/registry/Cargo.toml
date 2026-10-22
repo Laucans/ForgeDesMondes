@@ -29,6 +29,7 @@ ignored = [
     "change-hit-points",
     "create-battlemap-instance",
     "create-entities-from-note",
+    "end-combat",
     "export-campaign",
     "extract-from-notes",
     "get-battlemap",
@@ -81,6 +82,7 @@ aggregate-suggestion = { path = "../../live/aggregates/Suggestion" }
 change-hit-points = { path = "../../table/data-capabilities/change-hit-points" }
 create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
+end-combat = { path = "../../table/data-capabilities/end-combat" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 get-battlemap = { path = "../../media/capabilities/get-battlemap" }
