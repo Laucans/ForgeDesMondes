@@ -1,0 +1,23 @@
+[package]
+name = "stop-all"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.stopAll: « Tout arrêter » — a stop time on every playback still playing in the campaign (or one of its sessions), one command per playback judged by stop-all, projected into sound_playback.stopped_at; nothing starts and no volume moves."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["sync"] }
+
+[dev-dependencies]
+# The aggregate the command targets, its judge: what the engine plants
+# beside it (a dev-dependency, as isolation.sh allows).
+aggregate-sound-playback = { path = "../../aggregates/SoundPlayback" }
+# The migrations' applier the server runs: the tests write the tables as the
+# product migrates them.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
