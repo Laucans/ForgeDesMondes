@@ -13,6 +13,7 @@ build = "build.rs"
 # machete does not read.
 [package.metadata.cargo-machete]
 ignored = [
+    "add-participant",
     "aggregate-ai-settings",
     "aggregate-battlemap-instance",
     "aggregate-campaign",
@@ -28,6 +29,7 @@ ignored = [
     "change-hit-points",
     "create-battlemap-instance",
     "create-entities-from-note",
+    "end-combat",
     "export-campaign",
     "extract-from-notes",
     "get-battlemap",
@@ -65,6 +67,7 @@ ignored = [
 
 [dependencies]
 harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v5", features = ["postgres", "uuid"] }
+add-participant = { path = "../../table/data-capabilities/add-participant" }
 aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
 aggregate-battlemap-instance = { path = "../../table/aggregates/BattlemapInstance" }
 aggregate-campaign = { path = "../../campaign/aggregates/Campaign" }
@@ -80,6 +83,7 @@ aggregate-suggestion = { path = "../../live/aggregates/Suggestion" }
 change-hit-points = { path = "../../table/data-capabilities/change-hit-points" }
 create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
+end-combat = { path = "../../table/data-capabilities/end-combat" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 get-battlemap = { path = "../../media/capabilities/get-battlemap" }

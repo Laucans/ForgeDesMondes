@@ -3,6 +3,21 @@
 version = 4
 
 [[package]]
+name = "add-participant"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "remove-participant",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
@@ -443,6 +458,7 @@ dependencies = [
 name = "dataguard-registry"
 version = "0.1.0"
 dependencies = [
+ "add-participant",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
  "aggregate-campaign",
@@ -458,6 +474,7 @@ dependencies = [
  "change-hit-points",
  "create-battlemap-instance",
  "create-entities-from-note",
+ "end-combat",
  "export-campaign",
  "extract-from-notes",
  "get-battlemap",
@@ -535,6 +552,20 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
+name = "end-combat"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "start-combat",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "errno"
