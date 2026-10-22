@@ -1,0 +1,26 @@
+{
+  "dataCapability": "table.resetBattlemap",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "delete",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": [
+    "BattlemapInstance.resetAt",
+    "BattlemapInstance.tokenId",
+    "BattlemapInstance.combatId",
+    "BattlemapInstance.initiativeEntryId"
+  ],
+  "payload": {
+    "instance": "uuid — the battlemap instance whose map is reset, when the command names no target. Every initiative entry, combat and token of the instance is tombstoned (a soft delete), entries first, then combats, then tokens: the first by the command itself, the others by its follow-ups; the instance, its battlemap and its grid are never written. An instance with nothing on its map is refused",
+    "of": "uuid — never sent by the DM: the command's own follow-ups, each tombstoning one entry, combat or token, by its id as the command's target, of the instance the reset is of; refused when the row is not that instance's, or is gone, or when no reset of the instance carries its resetAt: a deletion is a reset's, never sent alone. A row still queued for insertion is listed too, its deletion landing behind it",
+    "resetAt": "timestamp — never sent by the DM: when the reset was asked, stamped by the command and carried by each of its deletions into the command journal, the instance's last reset; the instance row itself is never written"
+  },
+  "mode": "overwrite",
+  "invariants": ["instance-isolated", "state-persisted-reset"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

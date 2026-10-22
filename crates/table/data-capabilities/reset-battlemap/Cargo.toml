@@ -1,0 +1,21 @@
+[package]
+name = "reset-battlemap"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.resetBattlemap: « Réinitialiser la carte » — every initiative entry, combat and token of one battlemap instance tombstoned (a soft delete), the first by the command, the others by its follow-ups, each carrying when the reset was asked into the command journal (state-persisted-reset); the instance, its battlemap and its grid never written, nor any row of another instance (instance-isolated)."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+uuid = { version = "1", default-features = false }
+
+[dev-dependencies]
+# Its target aggregate, which its tests plant beside it.
+aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
+# The migrations' applier the server runs: the tables its tests read.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

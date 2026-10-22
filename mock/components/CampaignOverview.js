@@ -928,6 +928,28 @@
       if (same2(combat.current, participant)) return ["next-turn"];
       combat.order = combat.order.filter((o) => !same2(o.id, participant));
       return void 0;
+    },
+    // table.resetBattlemap (crates/table/data-capabilities/reset-battlemap,
+    // « Réinitialiser la carte »): the instance `targetId` — or
+    // `payload.instance` — loses every token, its combat and its initiative;
+    // the instance itself, its battlemap and its grid stay, and no other
+    // instance is touched (`instance-isolated`). When it was reset is the
+    // command journal's, which no read shows. An
+    // unknown instance is `not-found`; one with nothing on its map is refused
+    // by `state-persisted-reset`, as the server refuses it (422). Ids are
+    // compared in any case and without the blanks around them, as the server
+    // does.
+    "table.resetBattlemap": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+      const id = targetId || payload?.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const instance = instances.find((i) => same2(i.id, id));
+      if (!instance) return ["not-found"];
+      if (!instance.state.tokens.length && !instance.state.combat) return ["state-persisted-reset"];
+      instance.state.tokens = [];
+      instance.state.combat = null;
+      return void 0;
     }
   };
 
