@@ -43,6 +43,7 @@ ignored = [
     "list-players",
     "list-sounds",
     "play-sound",
+    "remove-sound",
     "restore-entity-version",
     "save-entity",
     "save-grid-settings",
@@ -86,6 +87,7 @@ list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
 list-sounds = { path = "../../soundbox/capabilities/list-sounds" }
 play-sound = { path = "../../soundbox/data-capabilities/play-sound" }
+remove-sound = { path = "../../soundbox/data-capabilities/remove-sound" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
