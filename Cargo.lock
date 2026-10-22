@@ -479,6 +479,7 @@ dependencies = [
  "place-tokens",
  "remove-token",
  "rename-token",
+ "reorder-initiative",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -1528,6 +1529,19 @@ version = "0.1.0"
 dependencies = [
  "aggregate-battlemap-instance",
  "async-trait",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "reorder-initiative"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
  "tokio",
