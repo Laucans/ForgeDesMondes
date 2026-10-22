@@ -50,12 +50,13 @@ const FULL_VOLUME: f64 = 100.0;
 const MIGRATED: &str = "SELECT to_regclass('sound') IS NOT NULL";
 
 /// A sound as its table holds it, under the aggregate's fields, `$1` its id
-/// in whatever case: what the engine judges an edit against when it never
-/// wrote the sound itself — the fixtures' sounds.
+/// in whatever case, a uuid, read by its primary key:
+/// what the engine judges an edit against when it never wrote the sound
+/// itself — the fixtures' sounds.
 const SOUND_ROW: &str = "SELECT jsonb_build_object(
         'id', s.id, 'campaignId', s.campaign_id, 'name', s.name, 'filePath', s.file_path,
         'tags', to_jsonb(s.tags), 'volume', s.volume, 'createdAt', s.created_at)
-    FROM sound s WHERE s.id::text = lower($1)";
+    FROM sound s WHERE s.id = $1::text::uuid";
 
 /// The name, file, tags and volume the engine holds on the sound partition
 /// `$1` names — on every one when it is null — written on its row when they
@@ -63,7 +64,8 @@ const SOUND_ROW: &str = "SELECT jsonb_build_object(
 /// the engine's row leaves out, or holds as something its column could not
 /// take, keeps the row's. After each apply of a sound, and at a start, so an
 /// edit the table lost is written again; a sound removed (a tombstone) is
-/// never written.
+/// never written. One partition's sound, a uuid, is found by its primary
+/// key.
 const EDITS: &str = "UPDATE sound s
     SET name = coalesce(n.name, s.name), file_path = coalesce(n.file_path, s.file_path),
         tags = coalesce(n.tags, s.tags), volume = coalesce(n.volume, s.volume)
@@ -82,7 +84,8 @@ const EDITS: &str = "UPDATE sound s
                 THEN (r.fields ->> 'volume')::numeric(3, 2) END
         END AS volume) AS n
     WHERE r.partition = 'Sound/' || s.id::text AND NOT r.tombstoned
-        AND ($1::text IS NULL OR r.partition = $1::text)
+        AND ($1::text IS NULL OR r.partition = $1::text
+            AND s.id = substr($1::text, length('Sound/') + 1)::uuid)
         AND (s.name, s.file_path, s.tags, s.volume) IS DISTINCT FROM
             (coalesce(n.name, s.name), coalesce(n.file_path, s.file_path),
              coalesce(n.tags, s.tags), coalesce(n.volume, s.volume))";
@@ -308,9 +311,12 @@ fn projection_error(error: tokio_postgres::Error) -> ProjectionError {
 impl ProjectPg for Edits {
     /// The edit of the sound written, on its row; a removal writes nothing
     /// (`EDITS` skips a tombstone), nor does an addition the table does not
-    /// hold yet.
+    /// hold yet, nor a partition whose id the table could never hold.
     async fn project(&self, write: &Write, tx: &Transaction<'_>) -> Result<(), ProjectionError> {
-        write_edits(tx, Some(&write.partition)).await
+        match write.partition.strip_prefix(PARTITION) {
+            Some(id) if uuid(id) => write_edits(tx, Some(&write.partition)).await,
+            _ => Ok(()),
+        }
     }
 
     /// Every edit the table lost, written again: one whose write failed
@@ -319,13 +325,14 @@ impl ProjectPg for Edits {
         write_edits(client, None).await
     }
 
-    /// A sound only the tables hold — a fixture's — as its table holds it.
+    /// A sound only the tables hold — a fixture's — as its table holds it;
+    /// an id that is no uuid names none.
     async fn hydrate(
         &self,
         partition: &str,
         client: &Client,
     ) -> Result<Option<Row>, ProjectionError> {
-        let Some(id) = partition.strip_prefix(PARTITION) else {
+        let Some(id) = partition.strip_prefix(PARTITION).filter(|id| uuid(id)) else {
             return Ok(None);
         };
         if !migrated(client).await? {
@@ -339,4 +346,15 @@ impl ProjectPg for Edits {
             _ => None,
         })
     }
+}
+
+/// Whether `text` is a uuid, in whatever case: what the `sound` table's ids
+/// are. Checked before a statement casts it, which PostgreSQL may fold
+/// ahead of any guard the statement holds.
+fn uuid(text: &str) -> bool {
+    text.len() == 36
+        && text.char_indices().all(|(at, c)| match at {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
 }

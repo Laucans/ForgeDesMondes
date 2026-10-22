@@ -347,6 +347,26 @@ async fn a_sound_the_tables_do_not_hold_is_refused_before_anything_queues() {
 }
 
 #[tokio::test]
+async fn a_sound_named_by_no_uuid_is_not_found_rather_than_an_error() {
+    let scratch = Scratch::new("no_uuid").await;
+    let engine = scratch.plant().await;
+
+    let refused = submit(
+        &engine,
+        "soundbox.updateSound@1",
+        "porte",
+        json!({ "name": "Porte" }),
+    )
+    .await;
+
+    assert!(
+        matches!(refused, Err(Error::Refused(ref r)) if r.kind == RefusalKind::NotFound),
+        "{refused:?}"
+    );
+    scratch.drop().await;
+}
+
+#[tokio::test]
 async fn a_sound_removed_is_never_edited_back() {
     let scratch = Scratch::new("removed").await;
     let engine = scratch.plant().await;
