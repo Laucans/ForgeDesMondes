@@ -571,7 +571,8 @@
     // source, the player view's, is refused (`dm-side-only`). The sound plays
     // as soundbox.listSounds says it: `playing`.
     "soundbox.playSound": async (server, { payload, targetId }) => {
-      const sound = (await server.load("soundbox.listSounds")).sounds.find((candidate) => candidate.id === targetId);
+      const id = targetId || payload?.sound;
+      const sound = (await server.load("soundbox.listSounds")).sounds.find((candidate) => candidate.id === id);
       if (!sound) return ["not-found"];
       const source = payload?.source ?? "soundbox";
       if (!["soundbox", "suggestion"].includes(source)) return ["dm-side-only"];

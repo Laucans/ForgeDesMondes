@@ -421,3 +421,22 @@ async fn a_table_that_fails_fails_the_step_and_rejects_nothing() {
     }
     scratch.drop().await;
 }
+
+#[tokio::test]
+async fn a_stop_of_a_playback_only_the_tables_hold_is_not_refused_by_this_projection() {
+    let scratch = Scratch::new("fixture").await;
+    let engine = scratch.serve().await;
+    // The rain: the fixtures' playback, which no command wrote.
+    submit(
+        &engine,
+        "test.stopPlayback",
+        PLUIE_EN_COURS,
+        json!({ "stoppedAt": "2026-10-17T22:00:00.000Z" }),
+    )
+    .await
+    .expect("queued");
+    let stopped = settled(&engine).await;
+    assert_eq!(stopped.status, State::Applied, "{stopped:?}");
+    assert_eq!(scratch.playbacks().await.len(), 1, "nothing inserted");
+    scratch.drop().await;
+}

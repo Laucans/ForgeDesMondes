@@ -312,3 +312,70 @@ async fn a_trigger_replayed_with_its_idempotency_key_plays_once() {
     assert_eq!(again.partition, first.partition);
     assert!(nothing_queued(&engine).await, "the replay queued nothing");
 }
+
+#[tokio::test]
+async fn the_payload_s_sound_names_it_when_the_command_names_no_target() {
+    let store = valombre();
+    let engine = planted(store.clone()).await;
+    let submitted = engine
+        .submit(
+            serde_json::from_value::<Submission>(json!({
+                "dataCapability": "soundbox.playSound@1",
+                "payload": { "sound": PORTE, "session": SEANCE },
+                "caller": { "by": "dm", "from": "soundbox.LiveSoundbox", "roles": ["role:approver"] },
+            }))
+            .expect("a submission"),
+        )
+        .await
+        .expect("queued");
+    assert_eq!(settled(&engine).await.status, State::Applied);
+    let row = store.row_now(&submitted.partition);
+    assert_eq!(row["soundId"], json!(PORTE), "{row:?}");
+    assert!(!row.contains_key("sound"), "never written as such: {row:?}");
+}
+
+#[tokio::test]
+async fn a_sound_whose_campaign_is_no_uuid_has_none() {
+    let store = Arc::new(
+        MemoryStore::default()
+            .with_row(
+                &format!("Sound/{FOULE}"),
+                BTreeMap::from([("campaignId".to_owned(), json!("camp-1"))]),
+            )
+            .with_row(
+                &format!("Session/{SEANCE}"),
+                BTreeMap::from([("sessionCampaignId".to_owned(), json!("camp-1"))]),
+            ),
+    );
+    let engine = planted(store).await;
+    let error = refused(
+        play(&engine, FOULE, json!({ "session": SEANCE }), "dm", None).await,
+        RefusalKind::NotFound,
+    );
+    assert_eq!(error, "ce son n'existe pas");
+}
+
+#[tokio::test]
+async fn an_engine_whose_ids_are_no_uuids_plays_nothing() {
+    let engine = Engine::new(
+        valombre(),
+        Arc::new(MemoryNotifier::default()),
+        Arc::new(SystemClock),
+    )
+    .with_aggregate(aggregate())
+    .with_data_capability(
+        DataCapability::parse(include_str!("../data-capability.json")).expect("contract F"),
+    )
+    .with_plugins(
+        [aggregate_sound_playback::plugin(), play_sound::plugin()]
+            .into_iter()
+            .collect(),
+    );
+    engine.load().await.expect("the engine loads");
+    let error = refused(
+        play(&engine, FOULE, json!({ "session": SEANCE }), "dm", None).await,
+        RefusalKind::Unprocessable,
+    );
+    assert_eq!(error, "les identifiants du moteur ne sont pas des uuid");
+    assert!(nothing_queued(&engine).await);
+}

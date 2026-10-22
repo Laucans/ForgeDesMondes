@@ -59,6 +59,10 @@ const DM: &str = "dm";
 /// The origin of a trigger whose caller is not the DM: the player side's.
 const PLAYER: &str = "player";
 
+/// Why a trigger is refused when the engine's fresh ids are no uuids: the
+/// table could never hold its playback.
+const NO_UUID: &str = "les identifiants du moteur ne sont pas des uuid";
+
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
 
@@ -150,7 +154,8 @@ impl Prepare for Plays {
     ) -> Result<plugins::Prepared, plugins::Refusal> {
         let request = request(payload, target_id, &context.caller.by).map_err(refused)?;
         let stage = staged(context, &request).await?;
-        let id = context.ids.fresh().to_ascii_lowercase();
+        let id =
+            uuid(&context.ids.fresh()).ok_or_else(|| plugins::Refusal::unprocessable(NO_UUID))?;
         let now = stamp(context.now_millis);
         let row = prepare(&request, &stage, Fresh { id: &id, now: &now }).map_err(refused)?;
         Ok(plugins::Prepared {
@@ -190,7 +195,8 @@ const STAGE: &str = "SELECT c.campaign,
 /// campaign plays in, which only the tables can tell.
 async fn staged(context: &Context<'_>, request: &Request) -> Result<Stage, plugins::Refusal> {
     let sound = context.row(&format!("Sound/{}", request.sound)).await?;
-    let campaign = text(&sound, "campaignId");
+    // A campaign the tables could not hold is none: they are asked instead.
+    let campaign = text(&sound, "campaignId").and_then(|campaign| uuid(&campaign));
     let named = match &request.session {
         Some(id) => text(
             &context.row(&format!("Session/{id}")).await?,
@@ -310,12 +316,13 @@ pub fn prepare(request: &Request, stage: &Stage, fresh: Fresh<'_>) -> Result<Row
 
 /// A playback the engine applied on `$1`'s partition, inserted unless the
 /// table holds it already: a later write of it (a stop) is not this
-/// projection's.
+/// projection's — nor is it read, so a stop of a playback only the tables
+/// hold, whose write says nothing but its stop, writes nothing here.
 const PLAYBACK: &str = "INSERT INTO sound_playback
         (id, session_id, sound_id, origin, started_at, stopped_at)
-    VALUES ($1::text::uuid, $2::text::uuid, $3::text::uuid, $4::text,
-        $5::text::timestamptz, $6::text::timestamptz)
-    ON CONFLICT (id) DO NOTHING";
+    SELECT $1::text::uuid, $2::text::uuid, $3::text::uuid, $4::text,
+        $5::text::timestamptz, $6::text::timestamptz
+    WHERE NOT EXISTS (SELECT FROM sound_playback p WHERE p.id = $1::text::uuid)";
 
 /// The SoundPlayback aggregate's projection of a new playback into
 /// `sound_playback`, in the transaction that applies it.
@@ -420,7 +427,9 @@ mod tests {
 
     #[test]
     fn every_day_from_1970_to_2400_is_the_calendar_s() {
-        let leap = |year: u64| year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        let leap = |year: u64| {
+            year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+        };
         let (mut year, mut month, mut day) = (1970_u64, 1_u64, 1_u64);
         for days in 0..157_000_u64 {
             let at = (days * 86_400 + 3_723) * 1000;
