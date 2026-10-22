@@ -552,6 +552,41 @@ ${heard}`;
       }
       return void 0;
     },
+    // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
+    // playback of the sound starts, whatever else plays (`simultaneous-playback`),
+    // from the soundbox (the default) or a suggestion's pastille; any other
+    // source, the player view's, is refused (`dm-side-only`). The sound plays
+    // as soundbox.listSounds says it: `playing`.
+    "soundbox.playSound": async (server, { payload, targetId }) => {
+      const id = targetId || payload?.sound;
+      const sound = (await server.load("soundbox.listSounds")).sounds.find((candidate) => candidate.id === id);
+      if (!sound) return ["not-found"];
+      const source = payload?.source ?? "soundbox";
+      if (!["soundbox", "suggestion"].includes(source)) return ["dm-side-only"];
+      sound.playing = true;
+      return void 0;
+    },
+    // soundbox.stopAll (crates/soundbox/data-capabilities/stop-all): every
+    // running playback gets its stop (`stop-all`); with none running it still
+    // succeeds and changes nothing.
+    "soundbox.stopAll": async (server) => {
+      for (const sound of (await server.load("soundbox.listSounds")).sounds) sound.playing = false;
+      return void 0;
+    },
+    // soundbox.setSoundVolume (crates/soundbox/data-capabilities/set-sound-volume):
+    // one sound's own volume, in percent, from 0 to 100; out of range it is
+    // refused by `sound-volume-range`, never clamped. Nothing else of the sound
+    // changes; its effective gain follows (EffectiveVolume@1).
+    "soundbox.setSoundVolume": async (server, { payload, targetId }) => {
+      const id = targetId || payload?.sound;
+      const fixtures = (await Promise.all(["soundbox.listSounds", "sounds"].map((name) => server.load(name)))).filter(Boolean);
+      const found = fixtures.map((fixture) => fixture.sounds.find((candidate) => candidate.id === id)).filter(Boolean);
+      if (!found.length) return ["not-found"];
+      const volume = payload?.volume;
+      if (typeof volume !== "number" || !(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
+      for (const sound of found) sound.volume = volume;
+      return void 0;
+    },
     // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
     // provider saved and made active. The API type is derived from the URL,
     // never taken from the payload: the cloud host by itself, the home server
@@ -683,7 +718,7 @@ ${heard}`;
     // soundbox.listSounds (crates/soundbox/capabilities/list-sounds): the
     // campaign's sounds with their effective gain — the own volume times the
     // master volume, both percents (EffectiveVolume@1) — and whether one plays
-    // now (no playback in the mock-up: false). The optional `search` keeps the
+    // now (the fixture's `playing`, which soundbox.playSound and soundbox.stopAll move). The optional `search` keeps the
     // names that hold it and `tag` the sounds that carry it, whatever the case
     // (SoundTag@1); the fixture's `duration` is kept, the store has none yet.
     "soundbox.listSounds": async (server, { search, tag }) => {
@@ -691,7 +726,7 @@ ${heard}`;
       const lower = (text2) => String(text2 ?? "").trim().toLowerCase();
       return {
         masterVolume,
-        sounds: sounds.filter((s) => lower(s.name).includes(lower(search)) && (!lower(tag) || s.tags.some((t) => lower(t) === lower(tag)))).map((s) => ({ ...s, gain: s.volume * masterVolume / 1e4, playing: false }))
+        sounds: sounds.filter((s) => lower(s.name).includes(lower(search)) && (!lower(tag) || s.tags.some((t) => lower(t) === lower(tag)))).map((s) => ({ ...s, gain: s.volume * masterVolume / 1e4, playing: s.playing === true }))
       };
     },
     // media.getBattlemap (crates/media/capabilities/get-battlemap): one
