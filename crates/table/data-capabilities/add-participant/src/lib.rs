@@ -42,14 +42,20 @@
 //!
 //! A move is taken only while it makes room: another participant of its
 //! combat holds its rank in the queue, and the newcomer it names is seated
-//! in that combat at or above it ([`shiftable`]); one sent alone, off a
+//! in that combat at or above it ([`shiftable`]); and only once, carrying the
+//! seal its joining issued for it ([`Seals`]) — one sent alone, off a
 //! joining, is refused. A joining is not atomic with its moves: one refused
 //! — a participant removed in between — stops none of the others, and the
 //! order stays readable, two participants at one rank ordered by id.
+//!
+//! The command is relative, so an entry inserted twice would add its numbers
+//! onto themselves: a token is claimed while its joining is in flight
+//! ([`Claims`]), and a second joining of it prepared before the first is
+//! queued is refused.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use async_trait::async_trait;
 use harness_dataguard::api::Submission;
@@ -67,6 +73,10 @@ pub const DEFAULT_DEX: i64 = 10;
 
 /// The aggregate a token, a combat and an entry are rows of.
 const AGGREGATE: &str = "BattlemapInstance";
+
+/// How long a joining claims its token while it is not yet queued, in
+/// milliseconds: the time between its `Prepare` and its entering the queue.
+pub const CLAIM_MILLIS: u64 = 10_000;
 
 /// The kind of character that is a PC, as `entity.type` writes it.
 const PC: &str = "pj";
@@ -275,6 +285,10 @@ pub enum Refusal {
     NpcRolls,
     /// A move that makes no room for a newcomer of its combat.
     NotAShift,
+    /// A move no joining issued: no seal, another's, or one already taken.
+    Unsealed,
+    /// The token's joining is in flight: prepared, not yet queued.
+    Joining,
 }
 
 impl Refusal {
@@ -304,6 +318,10 @@ impl std::fmt::Display for Refusal {
             Self::NotAShift => f.write_str(
                 "initiative-tiebreak: ce décalage ne fait de place à aucun nouveau participant",
             ),
+            Self::Unsealed => f.write_str(
+                "initiative-tiebreak: ce décalage ne suit l'arrivée d'aucun participant",
+            ),
+            Self::Joining => f.write_str("ce token est en train de rejoindre le combat"),
         }
     }
 }
@@ -323,6 +341,8 @@ pub fn plugin_with(dice: impl Dice + 'static) -> Plugin {
         DATA_CAPABILITY,
         Joins {
             dice: Mutex::new(Box::new(dice)),
+            seals: Seals::default(),
+            claims: Claims::default(),
         },
     )
 }
@@ -510,9 +530,9 @@ pub fn modifier(score: i64) -> i64 {
 }
 
 /// The follow-ups of the joining that seats `newcomer`: one move for each
-/// of `moves`, in rank order.
+/// of `moves`, in rank order, each carrying the joining's `seal`.
 #[must_use]
-pub fn follow_ups(newcomer: &str, moves: &[String]) -> Vec<Submission> {
+pub fn follow_ups(newcomer: &str, moves: &[String], seal: &str) -> Vec<Submission> {
     moves
         .iter()
         .map(|entry| Submission {
@@ -520,6 +540,7 @@ pub fn follow_ups(newcomer: &str, moves: &[String]) -> Vec<Submission> {
             payload: Row::from([
                 ("shift".to_owned(), json!(entry)),
                 ("newcomer".to_owned(), json!(newcomer)),
+                ("seal".to_owned(), json!(seal)),
             ]),
             target_id: Some(entry.clone()),
             ..Submission::default()
@@ -569,6 +590,92 @@ fn uuid(text: &str) -> Option<String> {
     Uuid::parse_str(text.trim()).ok().map(|id| id.to_string())
 }
 
+/// What the joinings issued and their moves have not taken yet: per
+/// newcomer's entry, the seal of its latest joining and the entries whose
+/// move is still to come. Held in the process, so a restart refuses the moves
+/// in flight; a newer joining of the same entry voids the older one's.
+#[derive(Debug, Default)]
+pub struct Seals(Mutex<BTreeMap<String, Sealed>>);
+
+/// The seal of a newcomer's joining, and the entries still to move.
+#[derive(Debug)]
+struct Sealed {
+    seal: String,
+    pending: BTreeSet<String>,
+}
+
+impl Seals {
+    fn held(&self) -> MutexGuard<'_, BTreeMap<String, Sealed>> {
+        // The map holds plain data: a panic elsewhere left it whole.
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Records the joining of `newcomer` sealed by `seal`, whose moves are
+    /// `entries`, and voids the earlier one's.
+    pub fn issue(&self, newcomer: &str, seal: &str, entries: &[String]) {
+        self.held().insert(
+            newcomer.to_owned(),
+            Sealed {
+                seal: seal.to_owned(),
+                pending: entries.iter().cloned().collect(),
+            },
+        );
+    }
+
+    /// Whether `seal` is the one the latest joining of `newcomer` left for
+    /// the move of `entry`.
+    #[must_use]
+    pub fn holds(&self, newcomer: &str, seal: &str, entry: &str) -> bool {
+        self.held()
+            .get(newcomer)
+            .is_some_and(|sealed| sealed.seal == seal && sealed.pending.contains(entry))
+    }
+
+    /// Takes the move of `entry` off the pending ones: `false` when
+    /// [`Seals::holds`] would not have said so, or when it was taken.
+    pub fn take(&self, newcomer: &str, seal: &str, entry: &str) -> bool {
+        let mut held = self.held();
+        let Some(sealed) = held.get_mut(newcomer) else {
+            return false;
+        };
+        let taken = sealed.seal == seal && sealed.pending.remove(entry);
+        if sealed.pending.is_empty() {
+            held.remove(newcomer);
+        }
+        taken
+    }
+}
+
+/// The entries whose joining is in flight: claimed when prepared, so a
+/// second joining of the same token prepared before the first is queued —
+/// both would pass the queue's check — is refused, and released by time, the
+/// queue holding the entry from then on. Held in the process.
+#[derive(Debug, Default)]
+pub struct Claims(Mutex<BTreeMap<String, u64>>);
+
+impl Claims {
+    fn held(&self) -> MutexGuard<'_, BTreeMap<String, u64>> {
+        // The map holds plain data: a panic elsewhere left it whole.
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Claims `entry` at `now` (milliseconds): `false` when a claim made
+    /// less than [`CLAIM_MILLIS`] ago holds it.
+    pub fn claim(&self, entry: &str, now: u64) -> bool {
+        let mut held = self.held();
+        if held
+            .get(entry)
+            .is_some_and(|at| now.saturating_sub(*at) < CLAIM_MILLIS)
+        {
+            return false;
+        }
+        // The claims that ran out are of no use any more.
+        held.retain(|_, at| now.saturating_sub(*at) < CLAIM_MILLIS);
+        held.insert(entry.to_owned(), now);
+        true
+    }
+}
+
 /// A joining made the entry it inserts ([`prepare`]), judged against the
 /// engine's rows and the tables as the queue leaves them; its moves are its
 /// follow-ups ([`follow_ups`]), each judged again ([`shiftable`]). One
@@ -578,6 +685,10 @@ fn uuid(text: &str) -> Option<String> {
 struct Joins {
     /// The dice its joinings throw.
     dice: Mutex<Box<dyn Dice>>,
+    /// The seals its joinings issued for their moves.
+    seals: Seals,
+    /// The tokens whose joining is in flight.
+    claims: Claims,
 }
 
 #[async_trait]
@@ -590,7 +701,7 @@ impl Prepare for Joins {
     ) -> Result<plugins::Prepared, plugins::Refusal> {
         // A `shift` of null names no move, as an absent one.
         if let Some(shift) = payload.get("shift").filter(|shift| !shift.is_null()) {
-            return shift_of(context, shift, payload.get("newcomer")).await;
+            return self.shift_of(context, payload, shift).await;
         }
         let request = request(payload, target_id).map_err(refused)?;
         let token = context.row(&partition(&request.token)).await?;
@@ -627,8 +738,15 @@ impl Prepare for Joins {
             .as_str()
             .unwrap_or_default()
             .to_owned();
+        // No await from here to the return: the claim and the seal are made
+        // together, and a joining the claim refuses leaves no seal.
+        if !self.claims.claim(&id, context.now_millis) {
+            return Err(refused(Refusal::Joining));
+        }
+        let seal = context.ids.fresh();
+        self.seals.issue(&id, &seal, &joined.moves);
         Ok(plugins::Prepared {
-            then: follow_ups(&id, &joined.moves),
+            then: follow_ups(&id, &joined.moves, &seal),
             target_id: Some(id),
             payload: joined.entry,
             ..plugins::Prepared::default()
@@ -636,43 +754,56 @@ impl Prepare for Joins {
     }
 }
 
-/// The move `shift` asks for, making room for `newcomer`: one rank down,
-/// the step the engine adds to the rank as the queue leaves it.
-async fn shift_of(
-    context: &Context<'_>,
-    shift: &Value,
-    newcomer: Option<&Value>,
-) -> Result<plugins::Prepared, plugins::Refusal> {
-    let id = |value: Option<&Value>| {
-        value
+impl Joins {
+    /// The move `shift` asks for, making room for the newcomer the payload
+    /// names: one rank down, the step the engine adds to the rank as the
+    /// queue leaves it, once, under the seal its joining issued.
+    async fn shift_of(
+        &self,
+        context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        shift: &Value,
+    ) -> Result<plugins::Prepared, plugins::Refusal> {
+        let id = |value: Option<&Value>| {
+            value
+                .and_then(Value::as_str)
+                .and_then(uuid)
+                .ok_or_else(|| refused(Refusal::NotAShift))
+        };
+        let (shift, newcomer) = (id(Some(shift))?, id(payload.get("newcomer"))?);
+        let seal = payload
+            .get("seal")
+            .and_then(Value::as_str)
+            .filter(|seal| self.seals.holds(&newcomer, seal, &shift))
+            .ok_or_else(|| refused(Refusal::Unsealed))?;
+        let shifted = context.row(&partition(&shift)).await?;
+        let seated = context.row(&partition(&newcomer)).await?;
+        let combat_id = shifted
+            .get("initiativeEntryCombatId")
             .and_then(Value::as_str)
             .and_then(uuid)
-            .ok_or_else(|| refused(Refusal::NotAShift))
-    };
-    let (shift, newcomer) = (id(Some(shift))?, id(newcomer)?);
-    let shifted = context.row(&partition(&shift)).await?;
-    let seated = context.row(&partition(&newcomer)).await?;
-    let combat_id = shifted
-        .get("initiativeEntryCombatId")
-        .and_then(Value::as_str)
-        .and_then(uuid)
-        .ok_or_else(|| refused(Refusal::NotAShift))?;
-    let combat = context.row(&partition(&combat_id)).await?;
-    let instance = combat
-        .get("combatInstanceId")
-        .and_then(Value::as_str)
-        .and_then(uuid)
-        .ok_or_else(|| refused(Refusal::NotAShift))?;
-    let Some(rows) = context.rows else {
-        return Err(refused(Refusal::NotAShift));
-    };
-    let others = participants(context, rows, &combat_id, &instance).await?;
-    shiftable(&shifted, &seated, &combat, &others).map_err(refused)?;
-    Ok(plugins::Prepared {
-        target_id: Some(shift),
-        payload: Row::from([("rank".to_owned(), json!(1))]),
-        ..plugins::Prepared::default()
-    })
+            .ok_or_else(|| refused(Refusal::NotAShift))?;
+        let combat = context.row(&partition(&combat_id)).await?;
+        let instance = combat
+            .get("combatInstanceId")
+            .and_then(Value::as_str)
+            .and_then(uuid)
+            .ok_or_else(|| refused(Refusal::NotAShift))?;
+        let Some(rows) = context.rows else {
+            return Err(refused(Refusal::NotAShift));
+        };
+        let others = participants(context, rows, &combat_id, &instance).await?;
+        shiftable(&shifted, &seated, &combat, &others).map_err(refused)?;
+        // Taken only now: a move refused above can be sent again.
+        if !self.seals.take(&newcomer, seal, &shift) {
+            return Err(refused(Refusal::Unsealed));
+        }
+        Ok(plugins::Prepared {
+            target_id: Some(shift),
+            payload: Row::from([("rank".to_owned(), json!(1))]),
+            ..plugins::Prepared::default()
+        })
+    }
 }
 
 /// The open combat of `instance`, as the queue leaves it: an end queued

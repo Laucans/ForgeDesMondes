@@ -715,6 +715,82 @@ async fn initiative_tiebreak_a_move_sent_alone_is_refused() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn initiative_tiebreak_a_move_that_would_make_room_is_refused_without_its_joining_s_seal() {
+    let scratch = Scratch::new("unsealed").await;
+    let engine = scratch
+        .serve(add_participant::plugin_with(Scripted::new(&[13], &[42])))
+        .await;
+    scratch.plant(&engine).await;
+    scratch.fight(&engine).await;
+    // Garrick enters at the Bandit's rank by hand: the Bandit holds its rank
+    // in the queue, so a move of it passes every check but the seal.
+    submit(
+        &engine,
+        "test.enter",
+        entry(T_GARRICK, Value::Null, 10, 10, 3, 3),
+        None,
+    )
+    .await
+    .expect("Garrick");
+    applied(&engine).await;
+    let ranks_before = ranks(&scratch.entries().await);
+
+    // Only a joining may move them: a move sent by hand, with no seal, a
+    // made-up one or the entry's id for one, is refused.
+    let newcomer = entry_id(COMBAT, T_ELOWEN);
+    for payload in [
+        json!({ "shift": entry_id(COMBAT, T_BANDIT), "newcomer": newcomer }),
+        json!({ "shift": entry_id(COMBAT, T_BANDIT), "newcomer": newcomer, "seal": "forged" }),
+        json!({ "shift": entry_id(COMBAT, T_BANDIT), "newcomer": newcomer, "seal": null }),
+        json!({ "shift": entry_id(COMBAT, T_BANDIT), "newcomer": newcomer, "seal": entry_id(COMBAT, T_BANDIT) }),
+    ] {
+        let (kind, message) =
+            refusal(submit(&engine, "table.addParticipant@1", payload.clone(), None).await);
+        assert_eq!(kind, RefusalKind::Unprocessable, "{payload}");
+        assert!(message.starts_with("initiative-tiebreak"), "{message}");
+    }
+    applied(&engine).await;
+    assert_eq!(ranks(&scratch.entries().await), ranks_before);
+    scratch.drop().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn two_joinings_of_one_token_prepared_together_enter_once() {
+    let scratch = Scratch::new("together").await;
+    let engine = scratch
+        .serve(add_participant::plugin_with(Scripted::new(
+            &[13, 20],
+            &[42, 7],
+        )))
+        .await;
+    scratch.plant(&engine).await;
+    scratch.fight(&engine).await;
+
+    // Both are prepared before either is queued: the queue shows neither the
+    // wolf's entry, and only the claim tells the second.
+    let (first, second) = tokio::join!(
+        join(&engine, json!({ "token": T_LOUP })),
+        join(&engine, json!({ "token": T_LOUP })),
+    );
+    let (joined, refused) = match (first, second) {
+        (Ok(joined), refused) | (refused, Ok(joined)) => (joined, refusal(refused)),
+        both => panic!("one of the two joins: {both:?}"),
+    };
+    clean(&joined);
+    assert_eq!(refused.0, RefusalKind::Unprocessable);
+    applied(&engine).await;
+
+    let entries = scratch.entries().await;
+    assert_eq!(order(&entries), [T_ELOWEN, T_LOUP, T_VESNA, T_BANDIT]);
+    assert_eq!(ranks(&entries), [1, 2, 3, 4]);
+    let wolf = &entries[1];
+    // A d20 of 13 or 20 plus the wolf's +2: never both added.
+    assert!([15, 22].contains(&wolf["initiative"].as_i64().expect("an initiative")));
+    assert!([13, 20].contains(&wolf["roll"].as_i64().expect("a roll")));
+    scratch.drop().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn initiative_tiebreak_the_entry_of_a_token_off_the_map_neither_ranks_nor_makes_room() {
     let scratch = Scratch::new("off_the_map").await;
     let engine = scratch

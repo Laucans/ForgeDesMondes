@@ -7,9 +7,9 @@
 use std::collections::VecDeque;
 
 use add_participant::{
-    Character, DATA_CAPABILITY, DEFAULT_DEX, Dice, Joined, Refusal, Request, Row, Seated, Seating,
-    Standing, SystemDice, character_of, entry_id, follow_ups, order, partition, placed, prepare,
-    request, shiftable,
+    CLAIM_MILLIS, Character, Claims, DATA_CAPABILITY, DEFAULT_DEX, Dice, Joined, Refusal, Request,
+    Row, Seals, Seated, Seating, Standing, SystemDice, character_of, entry_id, follow_ups, order,
+    partition, placed, prepare, request, shiftable,
 };
 use serde_json::{Value, json};
 
@@ -458,17 +458,57 @@ fn initiative_tiebreak_the_moves_stop_at_a_gap_in_the_ranks() {
 fn follow_ups_move_each_entry_for_the_newcomer_in_rank_order() {
     let newcomer = entry_id(COMBAT, TOKEN);
     let moves = vec!["vesna".to_owned(), "bandit".to_owned()];
-    let submissions = follow_ups(&newcomer, &moves);
+    let submissions = follow_ups(&newcomer, &moves, "seal-1");
     assert_eq!(submissions.len(), 2);
     for (submission, moved) in submissions.iter().zip(&moves) {
         assert_eq!(submission.data_capability, DATA_CAPABILITY);
         assert_eq!(submission.target_id.as_deref(), Some(moved.as_str()));
         assert_eq!(
             submission.payload,
-            row(json!({ "shift": moved, "newcomer": newcomer }))
+            row(json!({ "shift": moved, "newcomer": newcomer, "seal": "seal-1" }))
         );
     }
-    assert!(follow_ups(&newcomer, &[]).is_empty());
+    assert!(follow_ups(&newcomer, &[], "seal-1").is_empty());
+}
+
+#[test]
+fn a_seal_holds_for_the_moves_its_joining_issued_and_each_is_taken_once() {
+    let seals = Seals::default();
+    let moves = vec!["vesna".to_owned(), "bandit".to_owned()];
+    seals.issue("wolf", "seal-1", &moves);
+    assert!(seals.holds("wolf", "seal-1", "vesna"));
+    assert!(!seals.holds("wolf", "seal-2", "vesna"), "another's seal");
+    assert!(!seals.holds("ombre", "seal-1", "vesna"), "another newcomer");
+    assert!(
+        !seals.holds("wolf", "seal-1", "elowen"),
+        "a move not issued"
+    );
+    assert!(!seals.take("wolf", "seal-2", "vesna"));
+    assert!(seals.take("wolf", "seal-1", "vesna"));
+    assert!(!seals.take("wolf", "seal-1", "vesna"), "taken once");
+    assert!(!seals.holds("wolf", "seal-1", "vesna"));
+    assert!(seals.take("wolf", "seal-1", "bandit"));
+    assert!(!seals.holds("wolf", "seal-1", "bandit"));
+}
+
+#[test]
+fn a_newer_joining_of_the_entry_voids_the_older_seal() {
+    let seals = Seals::default();
+    seals.issue("wolf", "seal-1", &["vesna".to_owned()]);
+    seals.issue("wolf", "seal-2", &["vesna".to_owned()]);
+    assert!(!seals.holds("wolf", "seal-1", "vesna"));
+    assert!(seals.holds("wolf", "seal-2", "vesna"));
+}
+
+#[test]
+fn a_joining_claims_its_entry_until_the_claim_runs_out() {
+    let claims = Claims::default();
+    assert!(claims.claim("wolf", 1_000));
+    assert!(!claims.claim("wolf", 1_000), "claimed in the same instant");
+    assert!(!claims.claim("wolf", 1_000 + CLAIM_MILLIS - 1));
+    assert!(claims.claim("ombre", 1_000), "another entry is free");
+    assert!(claims.claim("wolf", 1_000 + CLAIM_MILLIS), "ran out");
+    assert!(!claims.claim("wolf", 1_000 + CLAIM_MILLIS));
 }
 
 /// An entry of `combat` for `id`, at `rank`.
@@ -626,6 +666,8 @@ fn a_refusal_says_why_and_only_an_unknown_token_is_not_found() {
         Refusal::PcInitiative,
         Refusal::NpcRolls,
         Refusal::NotAShift,
+        Refusal::Unsealed,
+        Refusal::Joining,
     ];
     let messages: Vec<String> = all.iter().map(ToString::to_string).collect();
     for (refusal, message) in all.iter().zip(&messages) {
