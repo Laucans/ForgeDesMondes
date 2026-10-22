@@ -436,6 +436,7 @@ dependencies = [
  "extract-from-notes",
  "get-battlemap",
  "get-campaign",
+ "get-diffusion",
  "get-entity",
  "get-settings",
  "harness-dataguard",
@@ -623,6 +624,16 @@ name = "get-campaign"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "get-diffusion"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

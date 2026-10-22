@@ -1,0 +1,18 @@
+[package]
+name = "get-diffusion"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability live.getDiffusion: the live session's diffusion row — base, floating window with its derived height, framing — the one answer both player views read, rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+# Its test drives the SQL over PostgreSQL through the engine's client re-export
+# (the same client the Data layer opens); nothing of it is linked at run time.
+harness-dataguard = { workspace = true }
+# The migrations' applier the server runs: the tables its test reads.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
