@@ -354,7 +354,10 @@ async fn with_nothing_playing_a_stop_all_succeeds_and_writes_nothing() {
     // A second click: everything of Valombre is stopped already.
     let submitted = stopped(&engine, json!({ "campaign": VALOMBRE })).await;
 
-    assert_eq!(submitted.partition, format!("SoundPlayback/{VALOMBRE}"));
+    assert_eq!(
+        submitted.partition,
+        format!("SoundPlayback/stop-all-{VALOMBRE}")
+    );
     assert!(submitted.then.is_empty());
     assert_eq!(scratch.tables().await, before);
     scratch.drop().await;
@@ -375,7 +378,10 @@ async fn a_stop_queued_and_not_yet_applied_is_never_queued_twice() {
         .await
         .expect("queued");
 
-    assert_eq!(second.partition, format!("SoundPlayback/{VALOMBRE}"));
+    assert_eq!(
+        second.partition,
+        format!("SoundPlayback/stop-all-{VALOMBRE}")
+    );
     assert!(second.then.is_empty(), "{:?}", second.then);
     let results = engine.run_once().await.expect("the applier ran");
     assert_eq!(results.len(), 4, "{results:?}");

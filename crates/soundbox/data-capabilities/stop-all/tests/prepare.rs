@@ -204,12 +204,15 @@ async fn over_the_engine_s_memory_nothing_plays_and_a_stop_all_writes_nothing() 
         .expect("queued");
     let results = engine.run_once().await.expect("the applier ran");
 
-    assert_eq!(submitted.partition, format!("SoundPlayback/{VALOMBRE}"));
+    assert_eq!(
+        submitted.partition,
+        format!("SoundPlayback/stop-all-{VALOMBRE}")
+    );
     assert!(submitted.then.is_empty());
     assert_eq!(results.len(), 1, "{results:?}");
     assert_eq!(results[0].status, State::Applied, "{results:?}");
     let written = store
-        .row(&format!("SoundPlayback/{VALOMBRE}"))
+        .row(&format!("SoundPlayback/stop-all-{VALOMBRE}"))
         .await
         .expect("read");
     assert!(written.is_empty(), "{written:?}");

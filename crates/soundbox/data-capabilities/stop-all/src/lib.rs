@@ -14,8 +14,8 @@
 //! - a playback whose row says it stopped, or will once a command queued
 //!   ahead of it is applied, is left out: a second click stops nothing twice;
 //! - with no playback still playing, the one command queued writes nothing,
-//!   on `SoundPlayback/<the campaign>`, which no playback is: the request
-//!   succeeds and changes no row;
+//!   on `SoundPlayback/stop-all-<the campaign>` ([`NOTHING`]), which names
+//!   no playback: the request succeeds and changes no row;
 //! - a request naming no campaign, or a campaign or a session that is no
 //!   uuid, is refused before anything is queued, 422 ([`Refusal`]).
 //!
@@ -78,6 +78,12 @@ pub const PROJECT: &str = "UPDATE sound_playback p
 /// milliseconds: what separates a command's `Prepare` from its queueing,
 /// and then some. Past it, the queue says whether it stops.
 pub const STOPPING_MILLIS: u64 = 5_000;
+
+/// Where a stop-all with nothing playing is queued: `SoundPlayback/` and
+/// this, then its campaign's id. Never a uuid, so that it names no playback,
+/// and no projection of the aggregate's — which project the playbacks by
+/// their uuid — writes a row for it.
+pub const NOTHING: &str = "stop-all-";
 
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
@@ -179,7 +185,7 @@ impl Prepare for Stopping {
         let mut stops = stops(&running, &timestamp(now)).into_iter();
         let Some(first) = stops.next() else {
             return Ok(plugins::Prepared {
-                target_id: Some(scope.campaign),
+                target_id: Some(format!("{NOTHING}{}", scope.campaign)),
                 ..plugins::Prepared::default()
             });
         };
