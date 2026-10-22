@@ -938,6 +938,48 @@
       combat.current = order[after === -1 ? wrapped : after].id;
       if (after === -1) combat.round += 1;
       return void 0;
+    },
+    // table.startCombat (crates/table/data-capabilities/start-combat): the combat
+    // of the instance `targetId` (or `payload.instance`), every token in it, a
+    // hidden one like any other (`hidden-keeps-rank`). An NPC rolls
+    // `payload.rolls[token]` or a d20, plus its DEX modifier (DEX 10 when its
+    // sheet gives none); a PC rolls nothing and takes the initiative
+    // `payload.initiative[character]` the DM entered (`npc-initiative-bounds`).
+    // Ranked by initiative, then DEX score — an unknown one last —, then a random
+    // draw (`initiative-tiebreak`); round 1 on rank 1. An unknown instance is
+    // `not-found`; one whose combat is open starts none (`one-active-combat`);
+    // one with no token, a token that is no PC nor NPC any more, a PC with no
+    // initiative entered, or a roll out of 1 to 20 or of no NPC token is
+    // refused by `npc-initiative-bounds`, as the server refuses them (422). Ids are
+    // compared in any case and without the blanks around them, as the server
+    // does.
+    "table.startCombat": async (server, { payload, targetId }) => {
+      const same2 = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+      const id = targetId || payload.instance;
+      const fixture = await server.load("table.getBattlemapInstance");
+      const instances = [fixture, ...server.instances ? server.instances.values() : []];
+      const instance = instances.find((i) => same2(i.id, id));
+      if (!instance) return ["not-found"];
+      if (instance.state.combat) return ["one-active-combat"];
+      const tokens = instance.state.tokens;
+      if (!tokens.length) return ["npc-initiative-bounds"];
+      const figure = (figures, key) => Object.entries(figures || {}).find(([k]) => same2(k, key))?.[1];
+      if (Object.keys(payload.rolls || {}).some((k) => !tokens.some((t) => same2(t.id, k) && t.kind === "pnj"))) return ["npc-initiative-bounds"];
+      const characters = await server.load("campaign.listCharacters");
+      const seated = [];
+      for (const t of tokens) {
+        if (t.kind !== "pj" && t.kind !== "pnj") return ["npc-initiative-bounds"];
+        const score = characters.find((c) => same2(c.id, t.char))?.stats?.DEX;
+        const pc = t.kind === "pj";
+        const dexScore = pc ? score ?? null : score ?? 10;
+        const roll = pc ? null : figure(payload.rolls, t.id) ?? 1 + Math.floor(Math.random() * 20);
+        const init = pc ? figure(payload.initiative, t.char) : roll + Math.floor((dexScore - 10) / 2);
+        if (!Number.isInteger(init) || roll !== null && (!Number.isInteger(roll) || roll < 1 || roll > 20)) return ["npc-initiative-bounds"];
+        seated.push({ id: t.id, init, roll, dexScore, draw: Math.random() });
+      }
+      const order = seated.sort((a, b) => b.init - a.init || (b.dexScore ?? -Infinity) - (a.dexScore ?? -Infinity) || b.draw - a.draw).map(({ id: token, init, dexScore }) => ({ id: token, init, dex: dexScore === null ? 0 : Math.floor((dexScore - 10) / 2) }));
+      instance.state.combat = { round: 1, current: order[0].id, order };
+      return void 0;
     }
   };
 

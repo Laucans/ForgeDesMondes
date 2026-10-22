@@ -485,6 +485,7 @@ dependencies = [
  "set-media-place",
  "set-token-condition",
  "set-token-visibility",
+ "start-combat",
  "test-connection",
  "upload-media",
 ]
@@ -1967,6 +1968,20 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "start-combat"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "stringprep"
