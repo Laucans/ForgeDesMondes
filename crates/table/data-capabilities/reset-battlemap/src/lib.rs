@@ -54,7 +54,8 @@ const AGGREGATE: &str = "BattlemapInstance";
 /// and the tables' — a row of the tables the engine tombstoned is gone. An
 /// entry is the instance's by its combat or by its token, either one gone
 /// or not. `now` is the moment, in UTC; `under_way`, whether a reset of the
-/// instance stamped `$3` was submitted.
+/// instance stamped `$3` was submitted by `$4` in the last minute (follow-ups
+/// are submitted with the reset) and is neither rejected, cancelled nor expired.
 pub const LISTING: &str = "WITH held AS (
         SELECT partition, fields FROM dataguard_rows
         WHERE partition LIKE 'BattlemapInstance/%' AND NOT tombstoned
@@ -105,8 +106,13 @@ pub const LISTING: &str = "WITH held AS (
             WHERE kind = 'combats') AS combats,
         (SELECT coalesce(jsonb_agg(id ORDER BY id), '[]') FROM standing
             WHERE kind = 'tokens') AS tokens,
-        ($3::text IS NOT NULL AND EXISTS (SELECT 1 FROM dataguard_queue
+        ($3::text IS NOT NULL AND $3::text >= to_char(
+                to_timestamp(($2::int8 - 60000) / 1000.0) AT TIME ZONE 'UTC',
+                'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
+            AND EXISTS (SELECT 1 FROM dataguard_queue
             WHERE data_capability = 'table.resetBattlemap'
+                AND state <> ALL (ARRAY['rejected', 'cancelled', 'expired'])
+                AND entry ->> 'by' = $4::text
                 AND entry -> 'payload' ->> 'of' = $1::text
                 AND entry -> 'payload' ->> 'resetAt' = $3::text)) AS under_way,
         to_char(to_timestamp($2::int8 / 1000.0) AT TIME ZONE 'UTC',
@@ -374,6 +380,7 @@ impl Prepare for Resets {
                     Value::from(instance.as_str()),
                     json!(context.now_millis),
                     stamped,
+                    Value::from(context.caller.by.as_str()),
                 ],
             )
             .await

@@ -406,11 +406,22 @@ async fn submit(
     payload: Value,
     target: Option<&str>,
 ) -> Result<Submitted> {
+    submit_by("dm", engine, data_capability, payload, target).await
+}
+
+/// A command by `by`, on `target`.
+async fn submit_by(
+    by: &str,
+    engine: &Engine,
+    data_capability: &str,
+    payload: Value,
+    target: Option<&str>,
+) -> Result<Submitted> {
     let mut body = json!({
         "dataCapability": data_capability,
         "target": { "aggregate": "BattlemapInstance" },
         "payload": payload,
-        "caller": { "by": "dm", "from": "Battlemap", "roles": ["role:approver"] },
+        "caller": { "by": by, "from": "Battlemap", "roles": ["role:approver"] },
     });
     if let Some(target) = target {
         body["target"]["id"] = json!(target);
@@ -643,6 +654,80 @@ async fn an_unknown_instance_an_empty_map_and_a_deletion_sent_alone_are_refused(
     refused(
         submit(&engine, "table.resetBattlemap@1", stamp, Some(RUNNING)).await,
         RefusalKind::NotFound,
+    );
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_stamp_authorises_only_its_submitter_in_the_minute_its_reset_stands() {
+    let scratch = Scratch::new("stamp").await;
+    let engine = scratch.serve().await;
+    scratch.plant(&engine).await;
+    let lone = "70000000-0000-4000-8000-000000000005";
+    submit(&engine, "test.openInstance", instance(NOWHERE, PONT), None)
+        .await
+        .expect("an empty instance");
+    submit(&engine, "test.dropToken", bandit(lone, NOWHERE, 1), None)
+        .await
+        .expect("a drop queued");
+    engine.run_once().await.expect("ran");
+
+    // The one-row reset of the instance stays queued.
+    let queued = reset(&engine, NOWHERE).await.expect("queued");
+    let payload: String = scratch
+        .client
+        .query_one(
+            "SELECT (entry -> 'payload')::text FROM dataguard_queue WHERE command = $1",
+            &[&queued.command_id],
+        )
+        .await
+        .expect("the reset")
+        .get(0);
+    let stamp: Value = serde_json::from_str(&payload).expect("JSON");
+    let at = stamp["resetAt"].as_str().expect("a reset_at").to_owned();
+    let now = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after the epoch")
+            .as_millis(),
+    )
+    .expect("milliseconds");
+    let under_way = |by: &'static str, at_ms: i64| {
+        let client = &scratch.client;
+        let at = at.clone();
+        async move {
+            client
+                .query_one(reset_battlemap::LISTING, &[&NOWHERE, &at_ms, &at, &by])
+                .await
+                .expect("the listing")
+                .get::<_, bool>("under_way")
+        }
+    };
+    assert!(under_way("dm", now).await);
+    // Someone else, or a minute later, finds no reset of the stamp.
+    assert!(!under_way("intruder", now).await);
+    assert!(!under_way("dm", now + 120_000).await);
+    refused(
+        submit_by(
+            "intruder",
+            &engine,
+            "table.resetBattlemap@1",
+            stamp.clone(),
+            Some(lone),
+        )
+        .await,
+        RefusalKind::Unprocessable,
+    );
+
+    // A withdrawn reset authorises nothing.
+    engine
+        .cancel(&queued.command_id, "dm")
+        .await
+        .expect("withdrawn");
+    assert!(!under_way("dm", now).await);
+    refused(
+        submit(&engine, "table.resetBattlemap@1", stamp, Some(lone)).await,
+        RefusalKind::Unprocessable,
     );
     scratch.drop().await;
 }
