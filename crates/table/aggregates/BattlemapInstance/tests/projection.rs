@@ -723,6 +723,69 @@ async fn a_start_projects_again_what_the_tables_lost() {
 }
 
 #[tokio::test]
+async fn a_start_writes_again_what_the_tables_hold_otherwise() {
+    let s = Scratch::new("stale").await;
+    let engine = s.serve().await;
+    plant_tokens(&engine).await;
+    plant_combat(&engine).await;
+    submit(
+        &engine,
+        "test.update",
+        COMBAT,
+        json!({ "endedAt": "2026-10-21T11:00:00Z", "currentEntryId": null }),
+    )
+    .await;
+    applied(&run(&engine).await);
+    let (tokens, combats, entries) = (s.tokens().await, s.combats().await, s.entries().await);
+    drop(engine);
+    // The tables hold a token elsewhere and hurt, the combat running again
+    // at another round, an entry at another rank.
+    s.client
+        .batch_execute(&format!(
+            "UPDATE token SET q = 9, hp_current = 2 WHERE id = '{T_BANDIT_1}';
+             UPDATE combat SET round = 5, ended_at = NULL, current_entry_id = '{E_ELOWEN}';
+             UPDATE initiative_entry SET rank = 7 WHERE id = '{E_BANDIT_1}';"
+        ))
+        .await
+        .expect("the tables changed");
+    let _warmed = s.serve().await;
+    assert_eq!(s.tokens().await, tokens);
+    assert_eq!(s.combats().await, combats);
+    assert_eq!(s.entries().await, entries);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_row_waiting_on_its_parent_that_the_tables_refuse_leaves_the_parent_written() {
+    let s = Scratch::new("waiting").await;
+    let engine = s.serve().await;
+    // In one run, two tokens land before their instance: one of a character
+    // the tables do not hold.
+    submit(&engine, "test.insert", INSTANCE, instance()).await;
+    submit(
+        &engine,
+        "test.insert",
+        T_BANDIT_1,
+        token(T_BANDIT_1, NOBODY, Some(1), "Inconnu 1", Some(11)),
+    )
+    .await;
+    submit(
+        &engine,
+        "test.insert",
+        T_BANDIT_2,
+        token(T_BANDIT_2, BANDIT, Some(2), "Bandit 2", Some(11)),
+    )
+    .await;
+    applied(&run(&engine).await);
+    assert_eq!(s.instances().await.len(), 1);
+    assert_eq!(
+        s.rows("SELECT id::text FROM token").await,
+        [json!({ "id": T_BANDIT_2 })]
+    );
+    s.drop().await;
+}
+
+#[tokio::test]
 async fn a_start_over_tables_not_migrated_yet_projects_nothing() {
     let s = Scratch::new("bare").await;
     s.client
