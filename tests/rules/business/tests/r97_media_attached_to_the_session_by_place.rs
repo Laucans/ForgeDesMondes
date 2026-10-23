@@ -22,10 +22,6 @@ fn r97_media_attached_to_the_session_by_place() {
             "data-capability:campaign.createCampaign",
             "data-capability:campaign.saveEntity",
             "data-capability:session.createSession",
-            // The sessions a medium is attached to reach `media.listMedia` with
-            // the library that shows them: no manifest names that evolution of
-            // an existing Capability, the rule's component does.
-            "micro-ui:MediaLibrary",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;
@@ -70,14 +66,20 @@ fn r97_media_attached_to_the_session_by_place() {
                 );
             }
             let session = new_session(s, &campaign, &[])?;
+            // A medium is attached to a session when one of the session's scenes
+            // carries it: `session.listScenes` derives that from the places, for
+            // preparation and for the Médias page alike (`media.listMedia` says
+            // nothing of sessions).
             let attached = |s: &Server, key: &str| -> Result<bool, String> {
-                let listed = s.read("media.listMedia", json!({ "campaign": campaign }))?;
-                let mut all = items(&listed, "battlemaps");
-                all.extend(items(&listed, "illustrations"));
-                let medium = by_id(&all, &ids[key]).ok_or("the medium is not listed")?;
-                Ok(medium["sessions"]
-                    .as_array()
-                    .is_some_and(|x| x.iter().any(|v| *v == session)))
+                let scenes = items(
+                    &s.read("session.listScenes", json!({ "session": session }))?,
+                    "scenes",
+                );
+                Ok(scenes.iter().any(|scene| {
+                    scene["media"]
+                        .as_array()
+                        .is_some_and(|m| m.iter().any(|v| *v == ids[key]))
+                }))
             };
             check(
                 !attached(s, "map")? && !attached(s, "art")?,
