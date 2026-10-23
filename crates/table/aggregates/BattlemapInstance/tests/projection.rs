@@ -786,6 +786,41 @@ async fn a_row_waiting_on_its_parent_that_the_tables_refuse_leaves_the_parent_wr
 }
 
 #[tokio::test]
+async fn a_store_that_fails_fails_the_step_and_rejects_nothing() {
+    let s = Scratch::new("failing").await;
+    // A token the store cannot write, for no fault of the row: no value a
+    // column refuses, no key it breaks.
+    s.client
+        .batch_execute(
+            "CREATE FUNCTION failing_token() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN RAISE EXCEPTION 'the store fails' USING ERRCODE = 'P0001'; END $$;
+             CREATE TRIGGER failing_token BEFORE INSERT ON token
+                 FOR EACH ROW WHEN (NEW.name = 'Boum') EXECUTE FUNCTION failing_token();",
+        )
+        .await
+        .expect("a failing store");
+    let engine = s.serve().await;
+    // The token lands first and waits on its instance, which it follows.
+    submit(&engine, "test.insert", INSTANCE, instance()).await;
+    submit(
+        &engine,
+        "test.insert",
+        T_BANDIT_1,
+        token(T_BANDIT_1, BANDIT, Some(1), "Boum", Some(11)),
+    )
+    .await;
+    // The step fails, its command neither applied nor rejected.
+    let ran = engine.run_once().await;
+    assert!(
+        matches!(&ran, Err(harness_dataguard::Error::Store(why)) if why.contains("the store fails")),
+        "{ran:?}"
+    );
+    assert!(!s.engine_holds(INSTANCE).await);
+    assert_eq!(s.instances().await, Vec::<Value>::new());
+    s.drop().await;
+}
+
+#[tokio::test]
 async fn a_start_over_tables_not_migrated_yet_projects_nothing() {
     let s = Scratch::new("bare").await;
     s.client

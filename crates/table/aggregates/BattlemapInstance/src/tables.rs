@@ -191,9 +191,6 @@ const REMOVALS: [&str; 4] = [
 /// at the commit: their refusal is the projection's.
 const JUDGED_NOW: &str = "SET CONSTRAINTS ALL IMMEDIATE";
 
-/// Whether the tables are migrated: the last of them exists.
-const MIGRATED: &str = "SELECT to_regclass('initiative_entry') IS NOT NULL";
-
 /// Every row the four tables hold, by its key, under the aggregate's fields
 /// — the derived ones are the tables' and stay there.
 macro_rules! tabled {
@@ -296,6 +293,20 @@ fn key(partition: &str) -> Option<String> {
     canonical.then_some(id)
 }
 
+/// Logs what was not projected by its SQLSTATE and its constraint alone: a
+/// value may be the DM's.
+macro_rules! logged {
+    ($what:expr, $error:expr) => {{
+        let db = $error.as_db_error();
+        eprintln!(
+            "projection: {}: {} {}",
+            $what,
+            db.map_or("-", |db| db.code().code()),
+            db.and_then(|db| db.constraint()).unwrap_or_default()
+        );
+    }};
+}
+
 /// Writes the live row of `partition` into its table — none when it is no
 /// row of the aggregate, or waits on its parents — and points the combats
 /// it bears on at their current entry.
@@ -358,7 +369,7 @@ async fn follow(db: &impl GenericClient, partition: &str, landed: Landed) -> Res
                 Err(e) if refused(&e) => {
                     db.batch_execute(&format!("ROLLBACK TO SAVEPOINT {WAITING_ROW}"))
                         .await?;
-                    logged(&format!("{child} not projected"), &e);
+                    logged!(format!("{child} not projected"), e);
                 }
                 Err(e) => return Err(e),
             }
@@ -391,17 +402,6 @@ fn judged(error: Error) -> ProjectionError {
     }
 }
 
-/// Logs what was not projected by its SQLSTATE and its constraint alone: a
-/// value may be the DM's.
-fn logged(what: &str, error: &Error) {
-    let db = error.as_db_error();
-    eprintln!(
-        "projection: {what}: {} {}",
-        db.map_or("-", |db| db.code().code()),
-        db.and_then(|db| db.constraint()).unwrap_or_default()
-    );
-}
-
 #[async_trait]
 impl ProjectPg for Tables {
     async fn project(&self, write: &Write, tx: &Transaction<'_>) -> Result<(), ProjectionError> {
@@ -412,20 +412,12 @@ impl ProjectPg for Tables {
 
     /// Writes again, each partition in a transaction of its own, what the
     /// tables lost or hold otherwise: a failure is logged and never keeps
-    /// the server from starting. Tables not migrated yet hold none.
+    /// the server from starting — tables not migrated yet hold none.
     async fn warm(&self, client: &Client) -> Result<(), ProjectionError> {
-        match client.query_one(MIGRATED, &[]).await {
-            Ok(migrated) if migrated.get::<_, bool>(0) => {}
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                logged("tables not read", &e);
-                return Ok(());
-            }
-        }
         let lost = match client.query(UNPROJECTED, &[]).await {
             Ok(lost) => lost,
             Err(e) => {
-                logged("rows not read", &e);
+                logged!("rows not read", e);
                 return Ok(());
             }
         };
@@ -441,9 +433,9 @@ impl ProjectPg for Tables {
                 // A failed COMMIT has rolled back already; anything else has
                 // not.
                 if let Err(rollback) = client.batch_execute("ROLLBACK").await {
-                    logged(&format!("{partition} not rolled back"), &rollback);
+                    logged!(format!("{partition} not rolled back"), rollback);
                 }
-                logged(&format!("{partition} not projected"), &e);
+                logged!(format!("{partition} not projected"), e);
             }
         }
         Ok(())
@@ -485,6 +477,7 @@ mod tests {
             "BattlemapInstance/b10000000000-4000-8000-00000000000a-",
             "BattlemapInstance/b1000000-0000-4000-8000-00000000000g",
             "BattlemapInstance/b1000000-0000-4000-8000-0000-0000000a",
+            "BattlemapInstance/b1000000-0000-4000-8000-00000000000a-ff",
             "Media/b1000000-0000-4000-8000-00000000000a",
         ] {
             assert_eq!(key(partition), None, "{partition}");
