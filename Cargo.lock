@@ -498,6 +498,7 @@ dependencies = [
  "remove-token",
  "rename-token",
  "reorder-initiative",
+ "reset-battlemap",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -1628,6 +1629,19 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "reset-battlemap"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

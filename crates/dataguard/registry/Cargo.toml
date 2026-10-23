@@ -52,6 +52,7 @@ ignored = [
     "remove-token",
     "rename-token",
     "reorder-initiative",
+    "reset-battlemap",
     "restore-entity-version",
     "save-entity",
     "save-grid-settings",
@@ -105,6 +106,7 @@ remove-participant = { path = "../../table/data-capabilities/remove-participant"
 remove-token = { path = "../../table/data-capabilities/remove-token" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
 reorder-initiative = { path = "../../table/data-capabilities/reorder-initiative" }
+reset-battlemap = { path = "../../table/data-capabilities/reset-battlemap" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
