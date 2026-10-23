@@ -55,6 +55,7 @@
     },
     {
       "path": "pages/medias.html",
+      "screen": "medias",
       "title": "Médias et réglage de battlemap",
       "objective": "Le DM téléverse ses battlemaps et illustrations et règle la grille hexagonale de chaque carte avec un aperçu en direct",
       "components": [
