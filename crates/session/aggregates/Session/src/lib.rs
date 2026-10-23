@@ -279,12 +279,15 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 /// a column types. Three lists are a column's values: the ids of the elements
 /// a scene links, one `scene_entity` row each, a session's scene order, its
 /// scenes' ids, one `scene.position` each, and the PCs a session ticks
-/// present, one `session_present_character` row each.
+/// present, one `session_present_character` row each — on its creation
+/// only, the one write [`Sessions`] projects the list of: on any other, it
+/// would be kept by the engine and written in no table.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
         DECLARED.contains(field)
             && match value {
                 Value::Object(_) => false,
+                Value::Array(_) if field == PRESENT && entry.effect != Effect::Insert => false,
                 Value::Array(ids) => {
                     [LINKS, SCENE_POSITION, PRESENT].contains(&field.as_str())
                         && ids.iter().all(|id| id.as_str().is_some_and(uuid))

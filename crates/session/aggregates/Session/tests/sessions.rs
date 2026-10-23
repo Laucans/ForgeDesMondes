@@ -384,12 +384,23 @@ async fn a_session_the_tables_hold_already_is_another_command_s_to_write() {
         json!({
             "sessionId": QUATRE, "sessionTitle": "Le retour", "plannedOn": null,
             "sessionStatus": "live", "microphoneOn": true,
-            "sessionPresentCharacterCharacterId": [GARDE],
         }),
     )
     .await;
     let result = applied(&engine).await;
     assert_eq!(result.status, State::Applied, "{result:?}");
+    assert_eq!(scratch.session(QUATRE).await, created);
+    // A list of PCs present on it: only a creation writes one into the
+    // tables, so this one is rejected, never kept by the engine alone.
+    submit(
+        &engine,
+        "test.updateSession",
+        json!({ "sessionId": QUATRE, "sessionPresentCharacterCharacterId": [GARDE] }),
+    )
+    .await;
+    let result = applied(&engine).await;
+    assert_eq!(result.status, State::Rejected, "{result:?}");
+    assert_eq!(result.violations, ["text-only-no-audio"], "{result:?}");
     assert_eq!(scratch.session(QUATRE).await, created);
     scratch.drop().await;
 }

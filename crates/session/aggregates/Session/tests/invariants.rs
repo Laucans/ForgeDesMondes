@@ -709,26 +709,43 @@ async fn text_only_no_audio_admits_one_list_the_ids_a_scene_links() {
 #[tokio::test]
 async fn text_only_no_audio_admits_one_list_the_ids_of_the_pcs_a_session_ticks_present() {
     let engine = session("prep").await;
+    // A session created with its PCs present: its row, under a fresh id.
+    let created = |id: &str, present: Value| {
+        let mut row = seance();
+        row["sessionId"] = json!(id);
+        row["sessionPresentCharacterCharacterId"] = present;
+        row
+    };
     // A list of anything but ids: a slug, a number.
-    for present in [json!(["elowen"]), json!([42])] {
+    for (id, present) in [
+        ("51000000-0000-4000-8000-000000000002", json!(["elowen"])),
+        ("51000000-0000-4000-8000-000000000003", json!([42])),
+    ] {
         rejected_by(
-            &written(
-                &engine,
-                "test.updateSession",
-                json!({ "sessionId": SEANCE, "sessionPresentCharacterCharacterId": present }),
-            )
-            .await,
+            &written(&engine, "test.createSession", created(id, present)).await,
             &["text-only-no-audio"],
         );
     }
-    // The ids of the PCs it ticks: kept.
+    // The ids of the PCs its creation ticks: kept.
     applied(
+        &written(
+            &engine,
+            "test.createSession",
+            created("51000000-0000-4000-8000-000000000004", json!([ELOWEN])),
+        )
+        .await,
+    );
+    // The same list on a session already created: only a creation writes
+    // it into the tables, so any other write carrying it is rejected rather
+    // than kept by the engine alone.
+    rejected_by(
         &written(
             &engine,
             "test.updateSession",
             json!({ "sessionId": SEANCE, "sessionPresentCharacterCharacterId": [ELOWEN] }),
         )
         .await,
+        &["text-only-no-audio"],
     );
 }
 
