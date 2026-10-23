@@ -367,7 +367,7 @@ async fn present_only_pj_rejects_an_npc_a_pc_of_another_campaign_or_one_with_no_
 }
 
 #[tokio::test]
-async fn a_session_written_again_keeps_its_position_and_takes_its_row() {
+async fn a_session_the_tables_hold_already_is_another_command_s_to_write() {
     let scratch = Scratch::new("again").await;
     let engine = scratch.serve().await;
     submit(
@@ -377,31 +377,25 @@ async fn a_session_written_again_keeps_its_position_and_takes_its_row() {
     )
     .await;
     assert_eq!(applied(&engine).await.status, State::Applied);
+    let created = scratch.session(QUATRE).await;
     submit(
         &engine,
         "test.updateSession",
         json!({
             "sessionId": QUATRE, "sessionTitle": "Le retour", "plannedOn": null,
             "sessionStatus": "live", "microphoneOn": true,
-            "sessionPresentCharacterCharacterId": [KAEL],
+            "sessionPresentCharacterCharacterId": [GARDE],
         }),
     )
     .await;
     let result = applied(&engine).await;
     assert_eq!(result.status, State::Applied, "{result:?}");
-    assert_eq!(
-        scratch.session(QUATRE).await,
-        [json!({
-            "campaign": VALOMBRE, "position": 4, "title": "Le retour",
-            "planned_on": null, "status": "live", "microphone_on": true,
-            "present": [KAEL],
-        })]
-    );
+    assert_eq!(scratch.session(QUATRE).await, created);
     scratch.drop().await;
 }
 
 #[tokio::test]
-async fn a_row_with_no_list_of_pcs_leaves_those_present_as_they_are() {
+async fn a_session_with_no_list_of_pcs_has_none_present() {
     let scratch = Scratch::new("nolist").await;
     let engine = scratch.serve().await;
     let mut row = session(QUATRE, VALOMBRE, &[]);
@@ -410,27 +404,12 @@ async fn a_row_with_no_list_of_pcs_leaves_those_present_as_they_are() {
         .remove("sessionPresentCharacterCharacterId");
     submit(&engine, "test.addSession", row).await;
     assert_eq!(applied(&engine).await.status, State::Applied);
-    scratch
-        .client
-        .batch_execute(&format!(
-            "INSERT INTO session_present_character (session_id, character_id)
-                 VALUES ('{QUATRE}', '{ELOWEN}')"
-        ))
-        .await
-        .expect("Elowen present");
-    submit(
-        &engine,
-        "test.updateSession",
-        json!({ "sessionId": QUATRE, "sessionTitle": "Le retour" }),
-    )
-    .await;
-    assert_eq!(applied(&engine).await.status, State::Applied);
-    assert_eq!(scratch.session(QUATRE).await[0]["present"], json!([ELOWEN]));
+    assert_eq!(scratch.session(QUATRE).await[0]["present"], json!([]));
     scratch.drop().await;
 }
 
 #[tokio::test]
-async fn a_tombstone_or_a_campaign_there_is_not_writes_no_session() {
+async fn a_tombstone_writes_nothing_and_a_campaign_or_pc_there_is_not_writes_no_session() {
     let scratch = Scratch::new("others").await;
     let engine = scratch.serve().await;
     submit(&engine, "test.addSession", session(QUATRE, VALOMBRE, &[])).await;
@@ -444,15 +423,47 @@ async fn a_tombstone_or_a_campaign_there_is_not_writes_no_session() {
     .await;
     assert_eq!(applied(&engine).await.status, State::Applied);
     assert_eq!(scratch.session(QUATRE).await.len(), 1);
-    // A campaign the tables do not hold: rejected, nothing written.
-    submit(&engine, "test.addSession", session(CINQ, NOWHERE, &[])).await;
+    let before = scratch.count().await;
+    // A campaign the tables do not hold, or whose tombstone the engine
+    // keeps: rejected, nothing written.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Campaign/{LUNE}', true)"
+        ))
+        .await
+        .expect("Lune's tombstone");
+    for campaign in [NOWHERE, LUNE] {
+        submit(&engine, "test.addSession", session(CINQ, campaign, &[])).await;
+        let result = applied(&engine).await;
+        assert_eq!(result.status, State::Rejected, "{campaign}: {result:?}");
+        assert!(
+            scratch.reason().contains("sessionCampaignId"),
+            "{}",
+            scratch.reason()
+        );
+    }
+    // A PC whose tombstone the engine keeps is present no more.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Entity/{KAEL}', true)"
+        ))
+        .await
+        .expect("Kael's tombstone");
+    submit(
+        &engine,
+        "test.addSession",
+        session(CINQ, VALOMBRE, &[ELOWEN, KAEL]),
+    )
+    .await;
     let result = applied(&engine).await;
     assert_eq!(result.status, State::Rejected, "{result:?}");
     assert!(
-        scratch.reason().contains("sessionCampaignId"),
+        scratch.reason().contains("present-only-pj"),
         "{}",
         scratch.reason()
     );
-    assert!(scratch.session(CINQ).await.is_empty());
+    assert_eq!(scratch.count().await, before);
     scratch.drop().await;
 }

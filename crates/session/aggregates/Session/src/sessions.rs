@@ -1,7 +1,7 @@
 //! A campaign's sessions in their tables, `session` and
 //! `session_present_character` (`crates/data/migrations/0006_session.sql`),
-//! written by [`Sessions`] inside the transaction that applies a write of a
-//! session.
+//! written by [`Sessions`] inside the transaction that applies the creation
+//! of a session.
 //!
 //! A session is a partition of its own, `Session/<its id>`, whose row holds
 //! `sessionId` and `sessionCampaignId`: its title, the day it is planned
@@ -20,11 +20,12 @@
 //! - The PCs ticked present are PCs — a « pj » with its sheet — of the
 //!   session's campaign (`present-only-pj`): one that is not rejects the
 //!   command, and nothing of it is written. Each is present once.
+//! - A campaign, or a PC, whose tombstone the engine keeps is one the tables
+//!   no longer hold for a new session.
 //!
-//! A session written again keeps its position and takes its row's title,
-//! day, status and microphone; when its row holds the list of the PCs
-//! present, those it no longer names are no longer present. A session's
-//! tombstone writes nothing: the tables keep it.
+//! Only a session's creation is written here: a session the tables hold
+//! already — written again on its partition, or deleted with a tombstone —
+//! is another command's to write, and this writes nothing of it.
 
 use std::collections::BTreeMap;
 
@@ -54,8 +55,12 @@ pub const PRESENT_ONLY_PJ: &str = "present-only-pj";
 /// The kind of campaign that has a single session.
 pub const ONESHOT: &str = "oneshot";
 
-/// The campaign `$1` names, its row locked until the commit: its kind.
-const CAMPAIGN: &str = "SELECT kind FROM campaign WHERE id = $1::text::uuid FOR UPDATE";
+/// The campaign `$1` names, live, its row locked until the commit: its kind.
+const CAMPAIGN: &str = "SELECT c.kind FROM campaign c
+    WHERE c.id = $1::text::uuid
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+            WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)
+    FOR UPDATE OF c";
 
 /// Whether the tables hold the session `$1` already.
 const KNOWN: &str = "SELECT EXISTS (SELECT 1 FROM session WHERE id = $1::text::uuid)";
@@ -63,41 +68,35 @@ const KNOWN: &str = "SELECT EXISTS (SELECT 1 FROM session WHERE id = $1::text::u
 /// How many sessions the campaign `$1` holds.
 const SESSIONS: &str = "SELECT count(*) FROM session WHERE campaign_id = $1::text::uuid";
 
-/// The session, after the campaign's last; written again, its title, its
-/// day, its status and its microphone, its position kept.
+/// The session, after the campaign's last.
 const ADD_SESSION: &str = "INSERT INTO session
         (id, campaign_id, position, title, planned_on, status, microphone_on)
     SELECT $1::text::uuid, $2::text::uuid, coalesce(max(s.position), 0) + 1,
         $3, $4::text::date, $5, $6
-    FROM session s WHERE s.campaign_id = $2::text::uuid
-    ON CONFLICT (id) DO UPDATE SET title = excluded.title,
-        planned_on = excluded.planned_on, status = excluded.status,
-        microphone_on = excluded.microphone_on";
+    FROM session s WHERE s.campaign_id = $2::text::uuid";
 
-/// How many of the ids `$2` lists name no PC — a « pj » with its sheet — of
-/// the campaign `$1`.
+/// How many of the ids `$2` lists name no live PC — a « pj » with its
+/// sheet — of the campaign `$1`.
 const STRANGERS: &str = "SELECT count(*) FROM unnest($2::text[]) AS listed(id)
     WHERE NOT EXISTS (SELECT 1 FROM character c JOIN entity e ON e.id = c.entity_id
-        WHERE e.id::text = lower(listed.id) AND e.type = 'pj'
-            AND e.campaign_id = $1::text::uuid)";
+        WHERE e.id = lower(listed.id)::uuid AND e.type = 'pj'
+            AND e.campaign_id = $1::text::uuid
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned))";
 
-/// The PCs of the session `$1` its list `$2` no longer names.
-const ABSENT: &str = "DELETE FROM session_present_character
-    WHERE session_id = $1::text::uuid AND NOT character_id::text = ANY (
-        SELECT lower(listed.id) FROM unnest($2::text[]) AS listed(id))";
-
-/// The PCs it names, each once.
+/// The PCs it ticks, each once.
 const PRESENT_PCS: &str = "INSERT INTO session_present_character (session_id, character_id)
-    SELECT $1::text::uuid, lower(listed.id)::uuid FROM unnest($2::text[]) AS listed(id)
-    ON CONFLICT (session_id, character_id) DO NOTHING";
+    SELECT DISTINCT $1::text::uuid, lower(listed.id)::uuid FROM unnest($2::text[]) AS listed(id)";
 
-/// The Session aggregate's projection of its sessions into their tables.
+/// The Session aggregate's projection of a session's creation into its
+/// tables.
 pub struct Sessions;
 
 #[async_trait]
 impl ProjectPg for Sessions {
-    /// The session a write leaves, with its PCs present. A row that is no
-    /// session's, or a tombstone, writes nothing.
+    /// The session a creation leaves, with its PCs present. A row that is
+    /// no session's, a tombstone, or a session the tables hold already
+    /// writes nothing.
     async fn project(&self, write: &Write, tx: &Transaction<'_>) -> Result<(), ProjectionError> {
         let text = |field: &str| write.values.get(field).and_then(Value::as_str);
         let (Some(session), Some(campaign)) = (text(SESSION_ID), text(SESSION_CAMPAIGN_ID)) else {
@@ -117,30 +116,29 @@ impl ProjectPg for Sessions {
             .await
             .map_err(judged)?
             .try_get(0)?;
-        if !known && kind == ONESHOT {
-            let sessions: i64 = tx
-                .query_one(SESSIONS, &[&campaign])
-                .await
-                .map_err(judged)?
-                .try_get(0)?;
-            if sessions > 0 {
-                return Err(ProjectionError::Refused(format!(
-                    "{ONESHOT_SINGLE_SESSION} : un oneshot n'a qu'une séance"
-                )));
-            }
+        if known {
+            return Ok(());
+        }
+        let sessions: i64 = tx
+            .query_one(SESSIONS, &[&campaign])
+            .await
+            .map_err(judged)?
+            .try_get(0)?;
+        if kind == ONESHOT && sessions > 0 {
+            return Err(ProjectionError::Refused(format!(
+                "{ONESHOT_SINGLE_SESSION} : un oneshot n'a qu'une séance"
+            )));
         }
         let present = present(&write.values);
-        if let Some(present) = &present {
-            let strangers: i64 = tx
-                .query_one(STRANGERS, &[&campaign, present])
-                .await
-                .map_err(judged)?
-                .try_get(0)?;
-            if strangers > 0 {
-                return Err(ProjectionError::Refused(format!(
-                    "{PRESENT_ONLY_PJ} : seuls des PJ de la campagne sont présents"
-                )));
-            }
+        let strangers: i64 = tx
+            .query_one(STRANGERS, &[&campaign, &present])
+            .await
+            .map_err(judged)?
+            .try_get(0)?;
+        if strangers > 0 {
+            return Err(ProjectionError::Refused(format!(
+                "{PRESENT_ONLY_PJ} : seuls des PJ de la campagne sont présents"
+            )));
         }
         let microphone = write.values.get(MICROPHONE_ON).and_then(Value::as_bool);
         tx.execute(
@@ -156,26 +154,25 @@ impl ProjectPg for Sessions {
         )
         .await
         .map_err(judged)?;
-        if let Some(present) = &present {
-            for sql in [ABSENT, PRESENT_PCS] {
-                tx.execute(sql, &[&session, present])
-                    .await
-                    .map_err(judged)?;
-            }
-        }
+        tx.execute(PRESENT_PCS, &[&session, &present])
+            .await
+            .map_err(judged)?;
         Ok(())
     }
 }
 
-/// The ids of the PCs a session's row ticks present, in order: `None` when
+/// The ids of the PCs a session's row ticks present, in order: none when
 /// it holds no list.
-fn present(row: &BTreeMap<String, Value>) -> Option<Vec<String>> {
-    row.get(PRESENT).and_then(Value::as_array).map(|ids| {
-        ids.iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect()
-    })
+fn present(row: &BTreeMap<String, Value>) -> Vec<String> {
+    row.get(PRESENT)
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -185,14 +182,10 @@ mod tests {
     use super::{PRESENT, present};
 
     #[test]
-    fn a_session_ticks_the_ids_of_its_list_and_holds_none_without_one() {
+    fn a_session_ticks_the_ids_of_its_list_and_none_without_one() {
         let row = |value| [(PRESENT.to_owned(), value)].into_iter().collect();
-        assert_eq!(
-            present(&row(json!(["b", "a", 3]))),
-            Some(vec!["b".into(), "a".into()])
-        );
-        assert_eq!(present(&row(json!([]))), Some(Vec::new()));
-        assert_eq!(present(&row(json!("a"))), None);
-        assert_eq!(present(&std::collections::BTreeMap::new()), None);
+        assert_eq!(present(&row(json!(["b", "a", 3]))), ["b", "a"]);
+        assert!(present(&row(json!("a"))).is_empty());
+        assert!(present(&std::collections::BTreeMap::new()).is_empty());
     }
 }

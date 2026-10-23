@@ -105,6 +105,50 @@ fn a_malformed_request_is_refused_naming_what_is_wrong() {
 }
 
 #[test]
+fn a_day_is_one_of_the_calendar() {
+    let on = |day: &str| {
+        asked(&wire(
+            json!({ "campaign": VALOMBRE, "title": "La suite", "plannedOn": day }),
+        ))
+        .map(|asked| asked.planned_on)
+    };
+    for day in [
+        "2026-01-31",
+        "2026-03-31",
+        "2026-05-31",
+        "2026-07-31",
+        "2026-08-31",
+        "2026-10-31",
+        "2026-12-31",
+        "2026-04-30",
+        "2026-06-30",
+        "2026-09-30",
+        "2026-11-30",
+        "2026-02-28",
+        "2024-02-29",
+        "2000-02-29",
+        "2026-11-01",
+    ] {
+        assert_eq!(on(day), Ok(Some(day.to_owned())), "{day}");
+    }
+    for day in [
+        "2026-01-32",
+        "2026-04-31",
+        "2026-06-31",
+        "2026-09-31",
+        "2026-11-31",
+        "2026-02-29",
+        "1900-02-29",
+        "2024-02-30",
+        "2026-13-01",
+        "2026-00-10",
+        "2026-11-00",
+    ] {
+        assert_eq!(on(day), Err(Refusal::InvalidDate), "{day}");
+    }
+}
+
+#[test]
 fn status_lifecycle_a_session_starts_in_prep_its_microphone_off_ticking_its_pcs() {
     let request = asked(&wire(json!({
         "campaign": VALOMBRE,

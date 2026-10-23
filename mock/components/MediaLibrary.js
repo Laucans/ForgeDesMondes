@@ -629,8 +629,8 @@
       const present = Array.isArray(payload.present) ? payload.present : [];
       const pcs = new Set(characters.filter((c) => c.kind === "pj").map((c) => c.id));
       if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
-      if (campaign2 && campaign2.type === "oneshot" && campaign2.sessions > 0) return ["oneshot-single-session"];
-      if (campaign2) campaign2.sessions += 1;
+      if (campaign2 && campaign2.type === "oneshot" && (campaign2.sessions ?? 0) > 0) return ["oneshot-single-session"];
+      if (campaign2) campaign2.sessions = (campaign2.sessions ?? 0) + 1;
       sessions.push({
         id: server.uuid(),
         order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,

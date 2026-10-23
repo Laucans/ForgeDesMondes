@@ -8,9 +8,9 @@
 //!
 //! - [`asked`] reads the request: the campaign is an id — any text, the
 //!   tables say whether they hold it; the title a text with more than
-//!   blanks; the day a `YYYY-MM-DD` or nothing; the PCs present a list of
-//!   ids, each kept once, in order, lowercase as the tables write them. Any
-//!   other field is refused ([`Refusal::Unknown`]).
+//!   blanks; the day a `YYYY-MM-DD` of the calendar or nothing; the PCs
+//!   present a list of ids, each kept once, in order, lowercase as the
+//!   tables write them. Any other field is refused ([`Refusal::Unknown`]).
 //! - [`prepare`] judges it against the campaign and the PCs the tables hold:
 //!   a campaign they do not hold, or whose tombstone the engine keeps, is
 //!   refused ([`Refusal::UnknownCampaign`]); a oneshot that has its session
@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 
 use aggregate_session::{
     MICROPHONE_ON, ONESHOT, ONESHOT_SINGLE_SESSION, PLANNED_ON, PRESENT, PRESENT_ONLY_PJ,
-    SESSION_CAMPAIGN_ID, SESSION_ID, SESSION_STATUS, SESSION_TITLE,
+    SESSION_CAMPAIGN_ID, SESSION_ID, SESSION_STATUS, SESSION_TITLE, uuid,
 };
 use async_trait::async_trait;
 use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
@@ -55,7 +55,7 @@ const FIELDS: [&str; 4] = [CAMPAIGN, TITLE, PLANNED_ON, PRESENT_PCS];
 const CAMPAIGN_ROW: &str = "SELECT c.kind AS kind,
         (SELECT count(*) FROM session s WHERE s.campaign_id = c.id)::integer AS sessions
     FROM campaign c
-    WHERE c.id::text = $1
+    WHERE c.id = $1::text::uuid
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Campaign/' || c.id::text AND r.tombstoned)";
 
@@ -63,8 +63,8 @@ const CAMPAIGN_ROW: &str = "SELECT c.kind AS kind,
 /// tables hold them live: a « pj » with its sheet.
 const PC_ROWS: &str = "SELECT e.id::text AS id
     FROM entity e JOIN character c ON c.entity_id = e.id
-    WHERE e.type = 'pj' AND e.campaign_id::text = $1
-        AND e.id::text IN (SELECT jsonb_array_elements_text($2::jsonb))
+    WHERE e.type = 'pj' AND e.campaign_id = $1::text::uuid
+        AND e.id IN (SELECT listed::uuid FROM jsonb_array_elements_text($2::jsonb) AS listed)
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned)";
 
@@ -208,8 +208,11 @@ async fn read(
 
 /// The campaign `id` names, as the tables hold it live — the fixtures'
 /// among them: `None` when they hold none, or the engine keeps its
-/// tombstone.
+/// tombstone. An id that is no uuid names none.
 async fn campaign(context: &Context<'_>, id: &str) -> Result<Option<Campaign>, plugins::Refusal> {
+    if !uuid(id) {
+        return Ok(None);
+    }
     let row = read(context, CAMPAIGN_ROW, &[Value::from(id)])
         .await?
         .into_iter()
@@ -225,18 +228,21 @@ async fn campaign(context: &Context<'_>, id: &str) -> Result<Option<Campaign>, p
 }
 
 /// The PCs of the campaign among those `asked` ticks present, as the tables
-/// hold them live.
+/// hold them live. An id that is no uuid names none.
 async fn pcs(context: &Context<'_>, asked: &Asked) -> Result<Vec<String>, plugins::Refusal> {
-    if asked.present.is_empty() {
+    let listed: Vec<String> = asked
+        .present
+        .iter()
+        .filter(|pc| uuid(pc))
+        .cloned()
+        .collect();
+    if listed.is_empty() || !uuid(&asked.campaign) {
         return Ok(Vec::new());
     }
     let rows = read(
         context,
         PC_ROWS,
-        &[
-            Value::from(asked.campaign.clone()),
-            Value::from(asked.present.clone()),
-        ],
+        &[Value::from(asked.campaign.clone()), Value::from(listed)],
     )
     .await?;
     Ok(rows
@@ -254,13 +260,28 @@ fn id(value: &Value) -> Option<String> {
         .map(str::to_ascii_lowercase)
 }
 
-/// A day written `YYYY-MM-DD`: four digits, a dash, two, a dash, two.
+/// A day of the calendar written `YYYY-MM-DD`: four digits, a dash, two,
+/// a dash, two — a month of the year, a day of that month.
 fn day(text: &str) -> bool {
-    text.len() == 10
+    let shaped = text.len() == 10
         && text.char_indices().all(|(at, c)| match at {
             4 | 7 => c == '-',
             _ => c.is_ascii_digit(),
-        })
+        });
+    let number = |range: std::ops::Range<usize>| text[range].parse::<u32>().unwrap_or(0);
+    shaped && (1..=days_in(number(0..4), number(5..7))).contains(&number(8..10))
+}
+
+/// How many days `month` of `year` has: none for a month there is not.
+fn days_in(year: u32, month: u32) -> u32 {
+    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => 0,
+    }
 }
 
 /// What `wire` asks.
