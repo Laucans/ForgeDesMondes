@@ -14,7 +14,11 @@
 //!   its token: the engine applies the partitions of a run in the order of
 //!   their names, not of their commands, so a child may land before its
 //!   parent. When a parent first enters its table, the children waiting on
-//!   it follow, each alone ([`follow`]): one the tables refuse is left
+//!   it follow, each alone ([`follow`]). A row that waits is judged when it
+//!   arrives ([`alone`]): the tables' own checks on it but for its parents —
+//!   a value no column takes, a value they require, a character they do not
+//!   hold — reject its command then, so no command is applied for a row its
+//!   parent's arrival would refuse. What still refuses at that day is left
 //!   aside, and never refuses its parent's write.
 //! - A combat's current entry is an entry's key: it is pointed at the entry
 //!   the engine names once the table holds that entry, and none until then.
@@ -70,17 +74,34 @@ const UPSERT_INSTANCE: &str = "INSERT INTO battlemap_instance
             EXCLUDED.scene_id, EXCLUDED.reset_at)
     RETURNING xmax = 0";
 
+/// A token's columns as the engine's row gives them, its instance as
+/// `$instance` reads it.
+macro_rules! token_values {
+    ($instance:literal) => {
+        concat!(
+            "(v ->> 'tokenId')::uuid AS id, ",
+            $instance,
+            " AS instance_id, (v ->> 'characterId')::uuid AS character_id,
+            (v ->> 'number')::numeric::smallint AS number, v ->> 'name' AS name,
+            (v ->> 'q')::numeric::integer AS q, (v ->> 'r')::numeric::integer AS r,
+            (v ->> 'visible')::boolean AS visible,
+            (v ->> 'hpCurrent')::numeric::smallint AS hp_current,
+            (v ->> 'hpMax')::numeric::smallint AS hp_max,
+            ARRAY(SELECT jsonb_array_elements_text(
+                coalesce(nullif(v -> 'conditions', 'null'), '[]'))) AS conditions"
+        )
+    };
+}
+
 /// The token the engine holds on partition `$1`, upserted by its id once the
 /// table holds its instance; and whether it entered the table.
-const UPSERT_TOKEN: &str = "INSERT INTO token
+const UPSERT_TOKEN: &str = concat!(
+    "INSERT INTO token
         (id, instance_id, character_id, number, name, q, r, visible, hp_current, hp_max,
          conditions)
-    SELECT (v ->> 'tokenId')::uuid, i.id, (v ->> 'characterId')::uuid,
-        (v ->> 'number')::numeric::smallint, v ->> 'name',
-        (v ->> 'q')::numeric::integer, (v ->> 'r')::numeric::integer,
-        (v ->> 'visible')::boolean,
-        (v ->> 'hpCurrent')::numeric::smallint, (v ->> 'hpMax')::numeric::smallint,
-        ARRAY(SELECT jsonb_array_elements_text(coalesce(nullif(v -> 'conditions', 'null'), '[]')))
+    SELECT ",
+    token_values!("i.id"),
+    "
     FROM dataguard_rows r
     CROSS JOIN LATERAL (SELECT r.fields::jsonb AS v) held
     JOIN battlemap_instance i ON i.id = (v ->> 'tokenInstanceId')::uuid
@@ -102,14 +123,30 @@ const UPSERT_TOKEN: &str = "INSERT INTO token
         IS DISTINCT FROM (EXCLUDED.instance_id, EXCLUDED.character_id, EXCLUDED.number,
             EXCLUDED.name, EXCLUDED.q, EXCLUDED.r, EXCLUDED.visible, EXCLUDED.hp_current,
             EXCLUDED.hp_max, EXCLUDED.conditions)
-    RETURNING xmax = 0";
+    RETURNING xmax = 0"
+);
+
+/// A combat's columns as the engine's row gives them, its instance as
+/// `$instance` reads it. Its current entry is [`POINT_CURRENT`]'s.
+macro_rules! combat_values {
+    ($instance:literal) => {
+        concat!(
+            "(v ->> 'combatId')::uuid AS id, ",
+            $instance,
+            " AS instance_id, (v ->> 'round')::numeric::integer AS round,
+            (v ->> 'startedAt')::timestamptz AS started_at,
+            (v ->> 'endedAt')::timestamptz AS ended_at"
+        )
+    };
+}
 
 /// The combat the engine holds on partition `$1`, upserted by its id once
-/// the table holds its instance; and whether it entered the table. Its
-/// current entry is [`POINT_CURRENT`]'s.
-const UPSERT_COMBAT: &str = "INSERT INTO combat (id, instance_id, round, started_at, ended_at)
-    SELECT (v ->> 'combatId')::uuid, i.id, (v ->> 'round')::numeric::integer,
-        (v ->> 'startedAt')::timestamptz, (v ->> 'endedAt')::timestamptz
+/// the table holds its instance; and whether it entered the table.
+const UPSERT_COMBAT: &str = concat!(
+    "INSERT INTO combat (id, instance_id, round, started_at, ended_at)
+    SELECT ",
+    combat_values!("i.id"),
+    "
     FROM dataguard_rows r
     CROSS JOIN LATERAL (SELECT r.fields::jsonb AS v) held
     JOIN battlemap_instance i ON i.id = (v ->> 'combatInstanceId')::uuid
@@ -123,17 +160,36 @@ const UPSERT_COMBAT: &str = "INSERT INTO combat (id, instance_id, round, started
     WHERE (combat.instance_id, combat.round, combat.started_at, combat.ended_at)
         IS DISTINCT FROM (EXCLUDED.instance_id, EXCLUDED.round, EXCLUDED.started_at,
             EXCLUDED.ended_at)
-    RETURNING xmax = 0";
+    RETURNING xmax = 0"
+);
+
+/// An entry's columns as the engine's row gives them, its combat and its
+/// token as `$combat` and `$token` read them.
+macro_rules! entry_values {
+    ($combat:literal, $token:literal) => {
+        concat!(
+            "(v ->> 'initiativeEntryId')::uuid AS id, ",
+            $combat,
+            " AS combat_id, ",
+            $token,
+            " AS token_id, (v ->> 'roll')::numeric::smallint AS roll,
+            (v ->> 'initiative')::numeric::smallint AS initiative,
+            (v ->> 'dexScore')::numeric::smallint AS dex_score,
+            (v ->> 'tiebreak')::double precision AS tiebreak,
+            (v ->> 'rank')::numeric::integer AS rank"
+        )
+    };
+}
 
 /// The entry the engine holds on partition `$1`, upserted by its id once the
 /// table holds its combat and its token — a token taken off the map is none
 /// it holds; and whether it entered the table, and its combat.
-const UPSERT_ENTRY: &str = "INSERT INTO initiative_entry
+const UPSERT_ENTRY: &str = concat!(
+    "INSERT INTO initiative_entry
         (id, combat_id, token_id, roll, initiative, dex_score, tiebreak, rank)
-    SELECT (v ->> 'initiativeEntryId')::uuid, c.id, t.id,
-        (v ->> 'roll')::numeric::smallint, (v ->> 'initiative')::numeric::smallint,
-        (v ->> 'dexScore')::numeric::smallint, (v ->> 'tiebreak')::double precision,
-        (v ->> 'rank')::numeric::integer
+    SELECT ",
+    entry_values!("c.id", "t.id"),
+    "
     FROM dataguard_rows r
     CROSS JOIN LATERAL (SELECT r.fields::jsonb AS v) held
     JOIN combat c ON c.id = (v ->> 'initiativeEntryCombatId')::uuid
@@ -153,7 +209,71 @@ const UPSERT_ENTRY: &str = "INSERT INTO initiative_entry
             initiative_entry.rank)
         IS DISTINCT FROM (EXCLUDED.combat_id, EXCLUDED.token_id, EXCLUDED.roll,
             EXCLUDED.initiative, EXCLUDED.dex_score, EXCLUDED.tiebreak, EXCLUDED.rank)
-    RETURNING xmax = 0, combat_id::text";
+    RETURNING xmax = 0, combat_id::text"
+);
+
+/// The row on partition `$1` when it is live, of the kind `$key` names, and
+/// `$parents` finds a parent the tables do not hold: whether it could enter
+/// its table but for that parent. Its columns are cast as the upsert casts
+/// them, `$required` must all be set, and `$references` must hold; the foreign
+/// keys to its parents are left to the day they arrive.
+macro_rules! judge {
+    ($values:expr, $key:literal, $parents:literal, $required:literal, $references:literal) => {
+        concat!(
+            "SELECT jsonb_strip_nulls(to_jsonb(p)) ?& ARRAY[",
+            $required,
+            "] AND ",
+            $references,
+            " FROM (SELECT ",
+            $values,
+            " FROM dataguard_rows r
+                CROSS JOIN LATERAL (SELECT r.fields::jsonb AS v) held
+                WHERE r.partition = $1::text AND NOT r.tombstoned
+                    AND r.partition = 'BattlemapInstance/' || lower(v ->> '",
+            $key,
+            "')
+                    AND (",
+            $parents,
+            ")) p"
+        )
+    };
+}
+
+/// A token whose instance the tables do not hold: judged on its columns and
+/// its character.
+const JUDGE_TOKEN: &str = judge!(
+    token_values!("(v ->> 'tokenInstanceId')::uuid"),
+    "tokenId",
+    "NOT EXISTS (SELECT 1 FROM battlemap_instance i
+                        WHERE i.id = (v ->> 'tokenInstanceId')::uuid)",
+    "'id', 'instance_id', 'character_id', 'name', 'q', 'r', 'visible', 'conditions'",
+    "EXISTS (SELECT 1 FROM character c WHERE c.entity_id = p.character_id)"
+);
+
+/// A combat whose instance the tables do not hold: judged on its columns.
+const JUDGE_COMBAT: &str = judge!(
+    combat_values!("(v ->> 'combatInstanceId')::uuid"),
+    "combatId",
+    "NOT EXISTS (SELECT 1 FROM battlemap_instance i
+                        WHERE i.id = (v ->> 'combatInstanceId')::uuid)",
+    "'id', 'instance_id', 'round', 'started_at'",
+    "true"
+);
+
+/// An entry whose combat or token the tables do not hold: judged on its
+/// columns.
+const JUDGE_ENTRY: &str = judge!(
+    entry_values!(
+        "(v ->> 'initiativeEntryCombatId')::uuid",
+        "(v ->> 'initiativeEntryTokenId')::uuid"
+    ),
+    "initiativeEntryId",
+    "NOT EXISTS (SELECT 1 FROM combat c WHERE c.id = (v ->> 'initiativeEntryCombatId')::uuid)
+                    OR NOT EXISTS (SELECT 1 FROM token t
+                        WHERE t.id = (v ->> 'initiativeEntryTokenId')::uuid)",
+    "'id', 'combat_id', 'token_id', 'initiative', 'tiebreak', 'rank'",
+    "true"
+);
 
 /// The current entry the engine holds of the combat `$1`, pointed at that
 /// entry once the table holds it; none until then, and when the engine
@@ -329,6 +449,21 @@ async fn written(db: &impl GenericClient, partition: &str) -> Result<Landed, Err
     Ok(landed)
 }
 
+/// Whether the tables could take the row of `partition` but for a parent
+/// they do not hold yet. A row of a table, or one whose parents are there,
+/// is judged by its write alone: this one is judged now, so a command is
+/// never applied for a row its parent's arrival would then refuse.
+async fn alone(db: &impl GenericClient, partition: &str) -> Result<bool, Error> {
+    for sql in [JUDGE_TOKEN, JUDGE_COMBAT, JUDGE_ENTRY] {
+        if let Some(row) = db.query_opt(sql, &[&partition]).await?
+            && !row.get::<_, bool>(0)
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Writes the row of `partition` as the engine holds it — out of its table
 /// when it is `tombstoned` — and has the tables judge it at once; then what
 /// waited on it.
@@ -405,6 +540,12 @@ fn judged(error: Error) -> ProjectionError {
 #[async_trait]
 impl ProjectPg for Tables {
     async fn project(&self, write: &Write, tx: &Transaction<'_>) -> Result<(), ProjectionError> {
+        if !write.tombstone && !alone(tx, &write.partition).await.map_err(judged)? {
+            return Err(ProjectionError::Refused(
+                "the tables refuse it: a value they require is missing, or a character they do not hold"
+                    .to_owned(),
+            ));
+        }
         sync(tx, &write.partition, write.tombstone)
             .await
             .map_err(judged)

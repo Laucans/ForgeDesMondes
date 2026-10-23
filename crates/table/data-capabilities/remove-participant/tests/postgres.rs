@@ -135,7 +135,9 @@ fn entry(number: u8) -> Value {
 }
 
 /// A database of its own, migrated, holding Valombre, its battlemap with
-/// its grid, the session and its scene.
+/// its grid, the session and its scene, and the Bandit, whom the tokens
+/// stand for: what the tables' foreign keys ask of the rows the aggregate's
+/// projection writes.
 struct Scratch {
     name: String,
     url: String,
@@ -169,7 +171,12 @@ impl Scratch {
                  INSERT INTO session (id, campaign_id, position, title, status, microphone_on) VALUES
                      ('{SEANCE}', '{VALOMBRE}', 1, 'Le Gué', 'live', true);
                  INSERT INTO scene (id, session_id, position, title) VALUES
-                     ('{ARRIVEE}', '{SEANCE}', 1, 'Arrivée');"
+                     ('{ARRIVEE}', '{SEANCE}', 1, 'Arrivée');
+                 INSERT INTO entity (id, campaign_id, type, name) VALUES
+                     ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit');
+                 INSERT INTO character (entity_id, token_color) VALUES ('{BANDIT}', '#888');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
+                     VALUES ('{BANDIT}', 1, 'dm', '{{}}', '[]');"
             ))
             .await
             .expect("Valombre");
@@ -393,7 +400,16 @@ async fn a_participant_named_by_its_token_is_its_entry_tombstoned_still_out_once
         .await
         .expect("the combat");
     assert_eq!(combat["currentEntryId"], json!(entry_id(1)));
-    assert_eq!(scratch.tables().await, before);
+    // The tables follow the soft delete: its entry's row is out of
+    // `initiative_entry`, the token and every other row stay.
+    let entry_row = format!("\"id\": \"{}\"", entry_id(2));
+    let kept: Vec<String> = before
+        .iter()
+        .filter(|row| !row.contains(&entry_row))
+        .cloned()
+        .collect();
+    assert_eq!(kept.len() + 1, before.len(), "{before:?}");
+    assert_eq!(scratch.tables().await, kept);
 
     // Reopened: neither its entry nor its token is a participant to take
     // out again, and nothing is queued.
@@ -485,11 +501,7 @@ async fn an_entry_at_rank_2_of_4_gone_from_the_tables_leaves_its_token_and_the_o
     scratch
         .client
         .batch_execute(&format!(
-            "INSERT INTO entity (id, campaign_id, type, name) VALUES ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit');
-             INSERT INTO character (entity_id, token_color) VALUES ('{BANDIT}', '#888');
-             INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
-                 VALUES ('{BANDIT}', 1, 'dm', '{{}}', '[]');
-             INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
+            "INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
                  ('{INSTANCE}', '{GUE}', '{SEANCE}', '{ARRIVEE}');
              INSERT INTO token (id, instance_id, character_id, number, name, q, r, visible, hp_current, hp_max, conditions)
                  VALUES {};

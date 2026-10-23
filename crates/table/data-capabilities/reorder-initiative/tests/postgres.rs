@@ -128,7 +128,9 @@ fn entry(id: &str, token: &str, roll: Option<i64>, initiative: i64, rank: i64) -
 }
 
 /// A database of its own, migrated, holding Valombre, its battlemap, the
-/// grid, the session and its two scenes, the ambush's instance in the tables alone.
+/// grid, the session and its two scenes, the four characters the tokens stand
+/// for — what the tables' foreign keys ask of the rows the aggregate's
+/// projection writes — and the ambush's instance in the tables alone.
 struct Scratch {
     name: String,
     url: String,
@@ -164,6 +166,16 @@ impl Scratch {
                  INSERT INTO scene (id, session_id, position, title) VALUES
                      ('{ARRIVEE}', '{SEANCE}', 1, 'Arrivée'),
                      ('{EMBUSCADE}', '{SEANCE}', 2, 'Embuscade');
+                 INSERT INTO entity (id, campaign_id, type, name) VALUES
+                     ('{ELOWEN}', '{VALOMBRE}', 'pj', 'Elowen'),
+                     ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit'),
+                     ('{VESNA}', '{VALOMBRE}', 'pnj', 'Vesna'),
+                     ('{LOUP}', '{VALOMBRE}', 'pnj', 'Loup');
+                 INSERT INTO character (entity_id, token_color) VALUES
+                     ('{ELOWEN}', '#888'), ('{BANDIT}', '#888'), ('{VESNA}', '#888'),
+                     ('{LOUP}', '#888');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
+                     SELECT id, 1, 'dm', '{{}}', '[]' FROM entity;
                  INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
                      ('{TABLES_ONLY}', '{GUE}', '{SEANCE}', '{EMBUSCADE}');"
             ))

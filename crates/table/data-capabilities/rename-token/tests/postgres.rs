@@ -21,6 +21,7 @@ use rename_token::partition;
 use serde_json::{Value, json};
 
 const INSTANCE: &str = "b1000000-0000-4000-8000-000000000001";
+const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BANDIT: &str = "e1000000-0000-4000-8000-0000000000b1";
 /// Bandit 1, on the instance; Bandit 2, removed from it.
 const BANDIT_1: &str = "70000000-0000-4000-8000-000000000001";
@@ -78,7 +79,9 @@ fn plugins() -> Plugins {
 }
 
 /// A database of its own, migrated as the server migrates it, with the
-/// engine's tables, holding Bandit 1 and the tombstone of Bandit 2.
+/// engine's tables, holding Valombre and the Bandit — whom the tokens stand
+/// for, as the tables' foreign keys ask — and Bandit 1 and the tombstone of
+/// Bandit 2.
 struct Scratch {
     name: String,
     url: String,
@@ -101,6 +104,18 @@ impl Scratch {
         data::migrate(&mut client, &migrations)
             .await
             .expect("migrated");
+        client
+            .batch_execute(&format!(
+                "INSERT INTO campaign (id, name, kind) VALUES
+                     ('{VALOMBRE}', 'Les Cendres de Valombre', 'campagne');
+                 INSERT INTO entity (id, campaign_id, type, name) VALUES
+                     ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit');
+                 INSERT INTO character (entity_id, token_color) VALUES ('{BANDIT}', '#888');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
+                     SELECT id, 1, 'dm', '{{}}', '[]' FROM entity;"
+            ))
+            .await
+            .expect("Valombre");
         // The engine's own tables, which its store makes when it opens.
         PgStore::open(connect(&url).await)
             .await

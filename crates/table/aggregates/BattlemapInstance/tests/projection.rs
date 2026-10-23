@@ -45,6 +45,9 @@ const BANDIT: &str = "e1000000-0000-4000-8000-000000000003";
 /// A character the tables do not hold.
 const NOBODY: &str = "e1000000-0000-4000-8000-0000000000ff";
 const INSTANCE: &str = "b1000000-0000-4000-8000-000000000001";
+/// An instance whose partition sorts after the combat's, so a run applies
+/// the combat first.
+const LATE: &str = "f1000000-0000-4000-8000-000000000001";
 /// An instance only the engine holds, on a scene the tables do not.
 const ELSEWHERE: &str = "b1000000-0000-4000-8000-000000000002";
 /// An instance only the tables hold.
@@ -756,11 +759,11 @@ async fn a_start_writes_again_what_the_tables_hold_otherwise() {
 }
 
 #[tokio::test]
-async fn a_row_waiting_on_its_parent_that_the_tables_refuse_leaves_the_parent_written() {
+async fn a_row_arriving_before_its_parent_is_judged_by_the_tables_all_the_same() {
     let s = Scratch::new("waiting").await;
     let engine = s.serve().await;
     // In one run, two tokens land before their instance: one of a character
-    // the tables do not hold.
+    // the tables do not hold. Its command is rejected, the others applied.
     submit(&engine, "test.insert", INSTANCE, instance()).await;
     submit(
         &engine,
@@ -776,12 +779,53 @@ async fn a_row_waiting_on_its_parent_that_the_tables_refuse_leaves_the_parent_wr
         token(T_BANDIT_2, BANDIT, Some(2), "Bandit 2", Some(11)),
     )
     .await;
-    applied(&run(&engine).await);
+    let results = run(&engine).await;
+    assert_eq!(
+        results
+            .iter()
+            .map(|result| result.status)
+            .collect::<Vec<_>>(),
+        [State::Rejected, State::Applied, State::Applied],
+        "{results:?}"
+    );
+    assert!(!s.engine_holds(T_BANDIT_1).await);
+    assert!(s.engine_holds(T_BANDIT_2).await);
     assert_eq!(s.instances().await.len(), 1);
     assert_eq!(
         s.rows("SELECT id::text FROM token").await,
         [json!({ "id": T_BANDIT_2 })]
     );
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_combat_arriving_before_its_instance_is_judged_all_the_same() {
+    let s = Scratch::new("waiting_combat").await;
+    let engine = s.serve().await;
+    // In one run, a combat lands before its instance, started at a time no
+    // column takes (class 22). Its command is rejected, the instance's applied.
+    let mut late = instance();
+    late["battlemapInstanceId"] = json!(LATE);
+    submit(&engine, "test.insert", LATE, late).await;
+    let mut untimed = combat(E_BANDIT_1);
+    untimed["combatInstanceId"] = json!(LATE);
+    untimed["startedAt"] = json!("mardi soir");
+    submit(&engine, "test.insert", COMBAT, untimed).await;
+    let results = run(&engine).await;
+    assert_eq!(
+        results
+            .iter()
+            .map(|result| result.status)
+            .collect::<Vec<_>>(),
+        [State::Rejected, State::Applied],
+        "{results:?}"
+    );
+    // The tables rejected it, not the judge.
+    assert_eq!(results[0].violations, Vec::<String>::new(), "{results:?}");
+    assert!(!s.engine_holds(COMBAT).await);
+    assert!(s.engine_holds(LATE).await);
+    assert_eq!(s.combats().await, Vec::<Value>::new());
+    assert_eq!(s.instances().await.len(), 1);
     s.drop().await;
 }
 
