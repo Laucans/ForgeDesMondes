@@ -142,7 +142,7 @@ fn linked(row: &std::collections::BTreeMap<String, Value>) -> Vec<String> {
 /// What the tables refuse — a value no column takes (class 22: an id that
 /// is no uuid), a NOT NULL, a foreign key, a CHECK (class 23) — rejects the
 /// command; any other error fails the step.
-fn judged(error: Error) -> ProjectionError {
+pub(crate) fn judged(error: Error) -> ProjectionError {
     match error.as_db_error() {
         Some(db)
             if ["22", "23"]

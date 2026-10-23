@@ -707,6 +707,32 @@ async fn text_only_no_audio_admits_one_list_the_ids_a_scene_links() {
 }
 
 #[tokio::test]
+async fn text_only_no_audio_admits_one_list_the_ids_of_the_pcs_a_session_ticks_present() {
+    let engine = session("prep").await;
+    // A list of anything but ids: a slug, a number.
+    for present in [json!(["elowen"]), json!([42])] {
+        rejected_by(
+            &written(
+                &engine,
+                "test.updateSession",
+                json!({ "sessionId": SEANCE, "sessionPresentCharacterCharacterId": present }),
+            )
+            .await,
+            &["text-only-no-audio"],
+        );
+    }
+    // The ids of the PCs it ticks: kept.
+    applied(
+        &written(
+            &engine,
+            "test.updateSession",
+            json!({ "sessionId": SEANCE, "sessionPresentCharacterCharacterId": [ELOWEN] }),
+        )
+        .await,
+    );
+}
+
+#[tokio::test]
 async fn the_session_invariants_leave_a_session_s_removal_to_the_tombstone() {
     let engine = session("closed").await;
     // Even a removal that writes what a session may not hold: nothing of the

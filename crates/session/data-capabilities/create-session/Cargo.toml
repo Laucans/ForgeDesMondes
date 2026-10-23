@@ -1,0 +1,20 @@
+[package]
+name = "create-session"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.createSession: the next session of a campaign, at its last position + 1, in prep, the microphone off, with the PCs the DM ticked present, on a Session partition of its own — none for a oneshot that has its session."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target aggregate: a session's fields, and its tables written when it is applied.
+aggregate-session = { path = "../../aggregates/Session" }
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
