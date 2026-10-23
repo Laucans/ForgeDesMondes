@@ -830,6 +830,68 @@ async fn a_combat_arriving_before_its_instance_is_judged_all_the_same() {
 }
 
 #[tokio::test]
+async fn a_waiting_row_the_tables_refuse_when_its_parent_lands_rejects_the_parent_whole() {
+    let s = Scratch::new("waiting_refused").await;
+    let engine = s.serve().await;
+    // A token lands alone and waits on its instance; its character then
+    // leaves the tables.
+    submit(
+        &engine,
+        "test.insert",
+        T_BANDIT_1,
+        token(T_BANDIT_1, BANDIT, Some(1), "Bandit 1", Some(11)),
+    )
+    .await;
+    applied(&run(&engine).await);
+    s.client
+        .batch_execute(&format!(
+            "BEGIN;
+             SELECT set_config(entity_versioned_setting('{BANDIT}'), 'on', true);
+             DELETE FROM character WHERE entity_id = '{BANDIT}';
+             COMMIT;"
+        ))
+        .await
+        .expect("the Bandit gone");
+    let engine_rows = "SELECT partition, fields, tombstoned FROM dataguard_rows ORDER BY partition";
+    let held = s.rows(engine_rows).await;
+    // The instance lands: the token follows and breaks its character's key.
+    submit(&engine, "test.insert", INSTANCE, instance()).await;
+    rejected(&run(&engine).await);
+    assert!(!s.engine_holds(INSTANCE).await);
+    assert_eq!(s.rows(engine_rows).await, held);
+    assert_eq!(s.instances().await, Vec::<Value>::new());
+    assert_eq!(s.tokens().await, Vec::<Value>::new());
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn an_instance_s_last_reset_the_tables_hold_is_never_written_over() {
+    let s = Scratch::new("reset_at").await;
+    let engine = s.serve().await;
+    submit(&engine, "test.insert", INSTANCE, instance()).await;
+    applied(&run(&engine).await);
+    s.client
+        .batch_execute("UPDATE battlemap_instance SET reset_at = '2026-10-21T11:00:00Z'")
+        .await
+        .expect("a reset");
+    let reset = "SELECT reset_at = '2026-10-21T11:00:00Z' AS reset FROM battlemap_instance";
+    // A command on the instance, then a start.
+    submit(
+        &engine,
+        "test.update",
+        INSTANCE,
+        json!({ "sceneId": SCENE }),
+    )
+    .await;
+    applied(&run(&engine).await);
+    assert_eq!(s.rows(reset).await, [json!({ "reset": true })]);
+    drop(engine);
+    let _warmed = s.serve().await;
+    assert_eq!(s.rows(reset).await, [json!({ "reset": true })]);
+    s.drop().await;
+}
+
+#[tokio::test]
 async fn a_store_that_fails_fails_the_step_and_rejects_nothing() {
     let s = Scratch::new("failing").await;
     // A token the store cannot write, for no fault of the row: no value a

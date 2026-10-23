@@ -14,12 +14,11 @@
 //!   its token: the engine applies the partitions of a run in the order of
 //!   their names, not of their commands, so a child may land before its
 //!   parent. When a parent first enters its table, the children waiting on
-//!   it follow, each alone ([`follow`]). A row that waits is judged when it
-//!   arrives ([`alone`]): the tables' own checks on it but for its parents —
-//!   a value no column takes, a value they require, a character they do not
-//!   hold — reject its command then, so no command is applied for a row its
-//!   parent's arrival would refuse. What still refuses at that day is left
-//!   aside, and never refuses its parent's write.
+//!   it follow ([`follow`]). A row that waits is judged when it arrives
+//!   ([`alone`]): the tables' own checks on it but for its parents — a value
+//!   no column takes, a value they require, a character they do not hold —
+//!   reject its command then. One the tables still refuse when its parent
+//!   arrives rejects the parent's command whole.
 //! - A combat's current entry is an entry's key: it is pointed at the entry
 //!   the engine names once the table holds that entry, and none until then.
 //! - A tombstone (a token removed, a participant taken out, a reset) takes
@@ -53,7 +52,8 @@ const PARTITION: &str = "BattlemapInstance/";
 
 /// The instance the engine holds on partition `$1`, upserted by its id; and
 /// whether it entered the table. Its creation is never written again
-/// (`state-persisted-reset`).
+/// (`state-persisted-reset`), nor its last reset, which the engine's row does
+/// not carry.
 const UPSERT_INSTANCE: &str = "INSERT INTO battlemap_instance
         (id, battlemap_media_id, session_id, scene_id, created_at, reset_at)
     SELECT (v ->> 'battlemapInstanceId')::uuid, (v ->> 'battlemapMediaId')::uuid,
@@ -66,12 +66,11 @@ const UPSERT_INSTANCE: &str = "INSERT INTO battlemap_instance
     ON CONFLICT (id) DO UPDATE SET
         battlemap_media_id = EXCLUDED.battlemap_media_id,
         session_id = EXCLUDED.session_id,
-        scene_id = EXCLUDED.scene_id,
-        reset_at = EXCLUDED.reset_at
+        scene_id = EXCLUDED.scene_id
     WHERE (battlemap_instance.battlemap_media_id, battlemap_instance.session_id,
-            battlemap_instance.scene_id, battlemap_instance.reset_at)
+            battlemap_instance.scene_id)
         IS DISTINCT FROM (EXCLUDED.battlemap_media_id, EXCLUDED.session_id,
-            EXCLUDED.scene_id, EXCLUDED.reset_at)
+            EXCLUDED.scene_id)
     RETURNING xmax = 0";
 
 /// A token's columns as the engine's row gives them, its instance as
@@ -348,9 +347,10 @@ const ROW: &str = concat!(
 
 /// The partitions whose rows the tables lost or hold otherwise: a live row
 /// of the aggregate no table holds, or holds with other values — its fields
-/// read as the table's, a time as a time —, a tombstoned one a table still
-/// holds. Tombstones first, then instances, tokens, combats and entries: a
-/// parent before its children.
+/// read as the table's, a time as a time, but for an instance's creation and
+/// last reset, never written again —, a tombstoned one a table still holds.
+/// Tombstones first, then instances, tokens, combats and entries: a parent
+/// before its children.
 const UNPROJECTED: &str = concat!(
     "WITH held AS (
         SELECT r.partition, r.tombstoned, r.fields::jsonb AS v,
@@ -371,21 +371,17 @@ const UNPROJECTED: &str = concat!(
         END AS kind) of
     WHERE CASE WHEN h.tombstoned THEN t.id IS NOT NULL
         ELSE of.kind IS NOT NULL AND (t.id IS NULL
-            OR jsonb_strip_nulls(t.v) IS DISTINCT FROM jsonb_strip_nulls((
+            OR jsonb_strip_nulls(t.v - 'createdAt' - 'resetAt') IS DISTINCT FROM jsonb_strip_nulls((
                 SELECT jsonb_object_agg(k.key, CASE
-                    WHEN k.key NOT IN ('createdAt', 'resetAt', 'startedAt', 'endedAt')
+                    WHEN k.key NOT IN ('startedAt', 'endedAt')
                         THEN coalesce(h.v -> k.key, 'null')
                     WHEN pg_input_is_valid(h.v ->> k.key, 'timestamptz')
                         THEN to_jsonb((h.v ->> k.key)::timestamptz)
                     ELSE coalesce(h.v -> k.key, 'null') END)
-                FROM jsonb_object_keys(t.v) k (key))))
+                FROM jsonb_object_keys(t.v - 'createdAt' - 'resetAt') k (key))))
         END
     ORDER BY h.tombstoned DESC, of.kind, h.partition"
 );
-
-/// The savepoint a waiting row is written under: one the tables refuse is
-/// rolled back alone.
-const WAITING_ROW: &str = "waiting_row";
 
 /// The BattlemapInstance aggregate's projection into its tables.
 pub struct Tables;
@@ -482,9 +478,9 @@ async fn sync(db: &impl GenericClient, partition: &str, tombstoned: bool) -> Res
 }
 
 /// The rows waiting on the row of `partition`, once it `landed` in its
-/// table, written each under a savepoint of its own — and the rows waiting
-/// on them in turn: one the tables refuse is rolled back alone and logged,
-/// its parent's write standing.
+/// table, written each in turn — and the rows waiting on them: one the
+/// tables refuse fails the write of `partition`, whose command is then
+/// rejected whole.
 async fn follow(db: &impl GenericClient, partition: &str, landed: Landed) -> Result<(), Error> {
     let mut parents: Vec<(String, Landed)> = vec![(partition.to_owned(), landed)];
     while let Some((parent, landed)) = parents.pop() {
@@ -493,21 +489,8 @@ async fn follow(db: &impl GenericClient, partition: &str, landed: Landed) -> Res
         };
         for child in db.query(WAITING, &[&id]).await? {
             let child: String = child.get(0);
-            db.batch_execute(&format!("SAVEPOINT {WAITING_ROW}"))
-                .await?;
-            match written(db, &child).await {
-                Ok(landed) => {
-                    db.batch_execute(&format!("RELEASE SAVEPOINT {WAITING_ROW}"))
-                        .await?;
-                    parents.push((child, landed));
-                }
-                Err(e) if refused(&e) => {
-                    db.batch_execute(&format!("ROLLBACK TO SAVEPOINT {WAITING_ROW}"))
-                        .await?;
-                    logged!(format!("{child} not projected"), e);
-                }
-                Err(e) => return Err(e),
-            }
+            let landed = written(db, &child).await?;
+            parents.push((child, landed));
         }
     }
     Ok(())

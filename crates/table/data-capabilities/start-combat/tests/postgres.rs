@@ -625,23 +625,30 @@ async fn one_active_combat_two_starts_at_the_same_moment_the_second_waits_for_it
     assert_eq!((&first.partition, &second.partition), (&combat, &combat));
     assert_eq!(first.result.status, State::Queued);
     // Never rejected for concurrency: the second waits for its author to
-    // confirm or cancel, and its seats are the first one's already — refused
-    // as seated when the first one's are queued before they are prepared,
-    // else waiting for their author as it does.
+    // confirm or cancel.
     assert_eq!(second.result.status, State::AwaitingConfirmation);
-    assert!(
-        matches!(&second.then[..], [FollowUp::Refused { error, .. }] if error.contains("déjà placée"))
-            || !second.then.is_empty()
-                && second.then.iter().all(|seat| matches!(
-                    seat,
-                    FollowUp::Submitted(seat) if seat.result.status == State::AwaitingConfirmation
-                )),
-        "{:?}",
-        second.then
-    );
     applied(&engine).await;
+    // The first applied, the second still waits for its author, and none of
+    // its seats landed: the tables hold the first's combat and entries alone.
+    assert_eq!(
+        engine
+            .status(&second.command_id)
+            .await
+            .expect("the second")
+            .status,
+        State::AwaitingConfirmation
+    );
     let entries = scratch.entries(&combat_id(INSTANCE, 0)).await;
     assert_eq!(order(&entries), [T_ELOWEN, T_VESNA, T_BANDIT]);
+    assert_eq!(
+        scratch
+            .client
+            .query_one("SELECT count(*) FROM combat", &[])
+            .await
+            .expect("the combats")
+            .get::<_, i64>(0),
+        1
+    );
     scratch.drop().await;
 }
 
