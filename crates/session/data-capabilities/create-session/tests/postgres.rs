@@ -360,20 +360,23 @@ async fn a_campaign_there_is_not_or_tombstoned_is_not_found_and_a_malformed_requ
     let scratch = Scratch::new("unknown").await;
     let engine = scratch.serve().await;
     let before = scratch.sessions().await;
+    // With no PC ticked or with one: the campaign is what is not found.
     for campaign in [
         "cendres-valombre",
         "c1000000-0000-4000-8000-0000000000ff",
         OUBLIEE,
     ] {
-        let (kind, message) = refused(
-            create(
-                &engine,
-                json!({ "campaign": campaign, "title": "La suite" }),
-                None,
-            )
-            .await,
-        );
-        assert_eq!(kind, RefusalKind::NotFound, "{campaign}: {message}");
+        for present in [json!([]), json!([ELOWEN])] {
+            let (kind, message) = refused(
+                create(
+                    &engine,
+                    json!({ "campaign": campaign, "title": "La suite", "present": present }),
+                    None,
+                )
+                .await,
+            );
+            assert_eq!(kind, RefusalKind::NotFound, "{campaign}: {message}");
+        }
     }
     for payload in [
         json!({ "campaign": VALOMBRE, "title": "  " }),
