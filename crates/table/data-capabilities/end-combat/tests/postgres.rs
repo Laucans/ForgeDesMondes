@@ -237,14 +237,13 @@ impl Scratch {
     }
 
     /// Every row the engine holds but the combats', and every row of the
-    /// product's tables an end could reach, as JSON text.
+    /// product's tables an end could reach but the combats', as JSON text.
     async fn untouched(&self) -> Vec<String> {
         self.texts(
             "SELECT partition || ' ' || fields::text || ' ' || tombstoned::text FROM dataguard_rows
                  WHERE fields ->> 'combatId' IS NULL
              UNION ALL SELECT to_jsonb(i)::text FROM battlemap_instance i
              UNION ALL SELECT to_jsonb(t)::text FROM token t
-             UNION ALL SELECT to_jsonb(c)::text FROM combat c
              UNION ALL SELECT to_jsonb(e)::text FROM initiative_entry e
              ORDER BY 1",
         )
@@ -388,8 +387,18 @@ async fn an_open_combat_ends_now_with_no_turn_its_tokens_hp_conditions_and_entri
         assert_eq!(row[field], started[field], "{field}");
     }
     // The tokens, their HP and their conditions, the entries and the tables
-    // read the same: the end writes the combat's row alone.
+    // read the same: the end writes the combat's row alone, which the
+    // aggregate's projection carries into `combat`.
     assert_eq!(scratch.untouched().await, before);
+    assert_eq!(
+        scratch
+            .texts(&format!(
+                "SELECT (ended_at IS NOT NULL AND current_entry_id IS NULL)::text FROM combat
+                 WHERE id = '{combat}'"
+            ))
+            .await,
+        ["true"]
+    );
     let bandit = scratch.row(&partition(T_BANDIT)).await.expect("the Bandit");
     assert_eq!(bandit["hpCurrent"], 4);
     let vesna = scratch.row(&partition(T_VESNA)).await.expect("Vesna");

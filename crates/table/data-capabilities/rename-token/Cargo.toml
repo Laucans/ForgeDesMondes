@@ -16,4 +16,7 @@ uuid = { version = "1", default-features = false }
 [dev-dependencies]
 # Its target aggregate, which its tests plant beside it.
 aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
+# The migrations' applier the server runs: the tables the aggregate's
+# projection writes.
+data = { path = "../../../data" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

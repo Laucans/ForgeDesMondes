@@ -168,7 +168,8 @@ fn entry(id: &str, of: &str, token: &str, rank: u8) -> Value {
 }
 
 /// A database of its own, migrated, holding Valombre, its battlemap with
-/// its grid, the session and its three scenes.
+/// its grid, the session and its three scenes, and the Bandit its tokens
+/// stand for.
 struct Scratch {
     name: String,
     url: String,
@@ -204,7 +205,11 @@ impl Scratch {
                  INSERT INTO scene (id, session_id, position, title) VALUES
                      ('{TAVERNE}', '{SEANCE}', 1, 'La taverne'),
                      ('{CAMP}', '{SEANCE}', 2, 'Le camp'),
-                     ('{PONT}', '{SEANCE}', 3, 'Le pont');"
+                     ('{PONT}', '{SEANCE}', 3, 'Le pont');
+                 INSERT INTO entity (id, campaign_id, type, name) VALUES ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit');
+                 INSERT INTO character (entity_id, token_color) VALUES ('{BANDIT}', '#888');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
+                     VALUES ('{BANDIT}', 1, 'dm', '{{}}', '[]');"
             ))
             .await
             .expect("Valombre");
@@ -291,16 +296,12 @@ impl Scratch {
         );
     }
 
-    /// The bridge's instance, a Bandit on it, its combat and its entry, as
+    /// The bridge's instance, the Bandit on it, its combat and its entry, as
     /// the tables alone hold them: fixtures the engine never wrote.
     async fn fixtures(&self) {
         self.client
             .batch_execute(&format!(
-                "INSERT INTO entity (id, campaign_id, type, name) VALUES ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit');
-                 INSERT INTO character (entity_id, token_color) VALUES ('{BANDIT}', '#888');
-                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
-                     VALUES ('{BANDIT}', 1, 'dm', '{{}}', '[]');
-                 INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
+                "INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
                      ('{PONT_INSTANCE}', '{GUE}', '{SEANCE}', '{PONT}');
                  INSERT INTO token (id, instance_id, character_id, number, name, q, r, visible, hp_current, hp_max, conditions)
                      VALUES ('{token}', '{PONT_INSTANCE}', '{BANDIT}', 1, 'Bandit 1', 0, 0, true, 11, 11, '{{}}');
@@ -522,8 +523,23 @@ async fn state_persisted_reset_tombstones_every_entry_combat_and_token_of_the_in
         journal.iter().all(|(_, payload)| payload == stamp),
         "{journal:?}"
     );
-    // The battlemap, its grid and the tables are left alone.
-    assert_eq!(scratch.tables().await, before);
+    // The tavern's entries, combats and tokens leave the tables, which the
+    // aggregate's projection writes; the battlemap, its grid, the instance
+    // and the camp's rows are left alone.
+    let kept: Vec<String> = before
+        .iter()
+        .filter(|row| {
+            !tavern.iter().any(|partition| {
+                row.contains(&format!(
+                    "\"id\": \"{}\"",
+                    partition.trim_start_matches("BattlemapInstance/")
+                ))
+            })
+        })
+        .cloned()
+        .collect();
+    assert_eq!(before.len() - kept.len(), tavern.len());
+    assert_eq!(scratch.tables().await, kept);
 
     // Reopened: the map has nothing left to reset.
     let engine = scratch.serve().await;

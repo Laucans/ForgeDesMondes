@@ -2,10 +2,10 @@
 //! it beside its target aggregate: a removed token is a tombstone — its row
 //! kept, archived, a soft delete — still removed once the engine is opened
 //! again, and none to remove twice; the battlemap, its grid and the
-//! instance read the same (`instance-isolated`) — the command writes no
-//! table. What the removal leaves to the tables is held as a fixture: once a
-//! token's row leaves `token` (what its tombstone is to the read side, which
-//! the aggregate's projection — none yet — writes), they follow the
+//! instance read the same (`instance-isolated`). What the removal leaves to
+//! the tables is held as a fixture: once a token's row leaves `token` (what
+//! its tombstone is to the read side, which the aggregate's projection
+//! writes), they follow the
 //! aggregate's relations: its entry goes (cascade), a turn still on it is no
 //! one's (nullify), and the order the carousel shows closes up — 1, 2, 3 in
 //! the previous order — with no rank written. Each test works in a scratch
@@ -114,7 +114,7 @@ fn bandit(number: u8) -> Value {
 }
 
 /// A database of its own, migrated, holding Valombre, its battlemap with
-/// its grid, the session and its scene.
+/// its grid, the session and its scene, and the Bandit.
 struct Scratch {
     name: String,
     url: String,
@@ -148,7 +148,11 @@ impl Scratch {
                  INSERT INTO session (id, campaign_id, position, title, status, microphone_on) VALUES
                      ('{SEANCE}', '{VALOMBRE}', 1, 'Le Gué', 'live', true);
                  INSERT INTO scene (id, session_id, position, title) VALUES
-                     ('{ARRIVEE}', '{SEANCE}', 1, 'Arrivée');"
+                     ('{ARRIVEE}', '{SEANCE}', 1, 'Arrivée');
+                 INSERT INTO entity (id, campaign_id, type, name) VALUES ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit');
+                 INSERT INTO character (entity_id, token_color) VALUES ('{BANDIT}', '#888');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
+                     VALUES ('{BANDIT}', 1, 'dm', '{{}}', '[]');"
             ))
             .await
             .expect("Valombre");
@@ -346,11 +350,7 @@ async fn a_token_at_rank_2_of_4_gone_from_the_tables_leaves_the_order_1_2_3_and_
     scratch
         .client
         .batch_execute(&format!(
-            "INSERT INTO entity (id, campaign_id, type, name) VALUES ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit');
-             INSERT INTO character (entity_id, token_color) VALUES ('{BANDIT}', '#888');
-             INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
-                 VALUES ('{BANDIT}', 1, 'dm', '{{}}', '[]');
-             INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
+            "INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
                  ('{INSTANCE}', '{GUE}', '{SEANCE}', '{ARRIVEE}');
              INSERT INTO token (id, instance_id, character_id, number, name, q, r, visible, hp_current, hp_max, conditions)
                  VALUES {};
