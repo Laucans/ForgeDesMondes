@@ -101,7 +101,9 @@ fn token(id: &str, number: i64, hex: (i64, i64)) -> Value {
 }
 
 /// A database of its own, migrated, holding Valombre and its battlemap with
-/// its grid.
+/// its grid, the session and scene its instance is of, and Morlox, whom
+/// its tokens stand for: what the tables' foreign keys ask of the rows the
+/// aggregate's projection writes.
 struct Scratch {
     name: String,
     url: String,
@@ -131,7 +133,17 @@ impl Scratch {
                  INSERT INTO media (id, campaign_id, kind, title, file_path, width_px, height_px) VALUES
                      ('{GUE}', '{VALOMBRE}', 'battlemap', 'Le Gué des Corbeaux', 'media/gue.png', 960, 640);
                  INSERT INTO battlemap_grid (media_id, hex_size_px, offset_x, offset_y, orientation, color, opacity) VALUES
-                     ('{GUE}', 30, 12, 8, 'pointe', 'text', 0.4);"
+                     ('{GUE}', 30, 12, 8, 'pointe', 'text', 0.4);
+                 INSERT INTO session (id, campaign_id, position, title, status, microphone_on) VALUES
+                     ('{SEANCE}', '{VALOMBRE}', 1, 'Le Gué', 'live', true);
+                 INSERT INTO scene (id, session_id, position, title) VALUES
+                     ('{ARRIVEE}', '{SEANCE}', 1, 'Arrivée');
+                 INSERT INTO entity (id, campaign_id, type, name) VALUES
+                     ('{MORLOX}', '{VALOMBRE}', 'pnj', 'Morlox');
+                 INSERT INTO character (entity_id, token_color) VALUES
+                     ('{MORLOX}', 'danger');
+                 INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff)
+                     SELECT id, 1, 'dm', '{{}}', '[]' FROM entity;"
             ))
             .await
             .expect("Valombre");

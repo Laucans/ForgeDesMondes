@@ -21,6 +21,12 @@
 //! that writes such a field back to null is refused whatever it saw; a
 //! round, which moves, is judged by the command's own step and against the
 //! row as it is.
+//!
+//! What the engine applies reaches the four tables in the transaction that
+//! applies it ([`tables`]), whose foreign keys and types judge it there
+//! again.
+
+mod tables;
 
 use std::collections::BTreeMap;
 
@@ -159,10 +165,13 @@ impl Judge for BattlemapInstance {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge.
+/// What the aggregate plugs into the engine: its judge, and its tables
+/// written in the transaction that applies a write.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Plugin::new().judge(AGGREGATE, BattlemapInstance)
+    Plugin::new()
+        .judge(AGGREGATE, BattlemapInstance)
+        .project_pg(AGGREGATE, tables::Tables)
 }
 
 /// `field`'s value in `row`, an absent field and a null being the same.

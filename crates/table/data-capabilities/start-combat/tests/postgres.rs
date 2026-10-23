@@ -510,13 +510,11 @@ async fn one_active_combat_an_open_combat_the_tables_hold_starts_none() {
     let scratch = Scratch::new("table_combat").await;
     let engine = scratch.serve(start_combat::plugin()).await;
     scratch.plant(&engine).await;
-    // An instance and a combat of it the tables hold, the engine not.
+    // A combat of the instance the tables hold, the engine not.
     scratch
         .client
         .batch_execute(&format!(
-            "INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id) VALUES
-                 ('{INSTANCE}', '{GUE}', '{SEANCE}', '{ARRIVEE}');
-             INSERT INTO combat (id, instance_id, round, started_at) VALUES
+            "INSERT INTO combat (id, instance_id, round, started_at) VALUES
                  ('c0000000-0000-4000-8000-000000000001', '{INSTANCE}', 2, now());"
         ))
         .await
@@ -627,16 +625,30 @@ async fn one_active_combat_two_starts_at_the_same_moment_the_second_waits_for_it
     assert_eq!((&first.partition, &second.partition), (&combat, &combat));
     assert_eq!(first.result.status, State::Queued);
     // Never rejected for concurrency: the second waits for its author to
-    // confirm or cancel, and its seats are the first one's already.
+    // confirm or cancel.
     assert_eq!(second.result.status, State::AwaitingConfirmation);
-    assert!(
-        matches!(&second.then[..], [FollowUp::Refused { error, .. }] if error.contains("déjà placée")),
-        "{:?}",
-        second.then
-    );
     applied(&engine).await;
+    // The first applied, the second still waits for its author, and none of
+    // its seats landed: the tables hold the first's combat and entries alone.
+    assert_eq!(
+        engine
+            .status(&second.command_id)
+            .await
+            .expect("the second")
+            .status,
+        State::AwaitingConfirmation
+    );
     let entries = scratch.entries(&combat_id(INSTANCE, 0)).await;
     assert_eq!(order(&entries), [T_ELOWEN, T_VESNA, T_BANDIT]);
+    assert_eq!(
+        scratch
+            .client
+            .query_one("SELECT count(*) FROM combat", &[])
+            .await
+            .expect("the combats")
+            .get::<_, i64>(0),
+        1
+    );
     scratch.drop().await;
 }
 
