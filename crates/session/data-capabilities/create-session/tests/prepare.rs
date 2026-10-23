@@ -128,6 +128,7 @@ fn a_day_is_one_of_the_calendar() {
         "2024-02-29",
         "2000-02-29",
         "2026-11-01",
+        "0001-01-01",
     ] {
         assert_eq!(on(day), Ok(Some(day.to_owned())), "{day}");
     }
@@ -143,6 +144,8 @@ fn a_day_is_one_of_the_calendar() {
         "2026-13-01",
         "2026-00-10",
         "2026-11-00",
+        "0000-01-01",
+        "0000-02-29",
     ] {
         assert_eq!(on(day), Err(Refusal::InvalidDate), "{day}");
     }

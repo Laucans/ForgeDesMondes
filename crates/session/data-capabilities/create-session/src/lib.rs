@@ -261,7 +261,7 @@ fn id(value: &Value) -> Option<String> {
 }
 
 /// A day of the calendar written `YYYY-MM-DD`: four digits, a dash, two,
-/// a dash, two — a month of the year, a day of that month.
+/// a dash, two — a year from 1, a month of it, a day of that month.
 fn day(text: &str) -> bool {
     let shaped = text.len() == 10
         && text.char_indices().all(|(at, c)| match at {
@@ -269,7 +269,7 @@ fn day(text: &str) -> bool {
             _ => c.is_ascii_digit(),
         });
     let number = |range: std::ops::Range<usize>| text[range].parse::<u32>().unwrap_or(0);
-    shaped && (1..=days_in(number(0..4), number(5..7))).contains(&number(8..10))
+    shaped && number(0..4) > 0 && (1..=days_in(number(0..4), number(5..7))).contains(&number(8..10))
 }
 
 /// How many days `month` of `year` has: none for a month there is not.

@@ -105,12 +105,8 @@ impl ProjectPg for Sessions {
         if write.tombstone {
             return Ok(());
         }
-        let Some(kind) = tx.query_opt(CAMPAIGN, &[&campaign]).await.map_err(judged)? else {
-            return Err(ProjectionError::Refused(format!(
-                "{SESSION_CAMPAIGN_ID} : la campagne {campaign} n'existe pas"
-            )));
-        };
-        let kind: String = kind.try_get(0)?;
+        // A session the tables hold already is not created: its campaign is
+        // neither locked nor judged.
         let known: bool = tx
             .query_one(KNOWN, &[&session])
             .await
@@ -119,6 +115,12 @@ impl ProjectPg for Sessions {
         if known {
             return Ok(());
         }
+        let Some(kind) = tx.query_opt(CAMPAIGN, &[&campaign]).await.map_err(judged)? else {
+            return Err(ProjectionError::Refused(format!(
+                "{SESSION_CAMPAIGN_ID} : la campagne {campaign} n'existe pas"
+            )));
+        };
+        let kind: String = kind.try_get(0)?;
         let sessions: i64 = tx
             .query_one(SESSIONS, &[&campaign])
             .await

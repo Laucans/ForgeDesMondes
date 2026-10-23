@@ -395,6 +395,32 @@ async fn a_session_the_tables_hold_already_is_another_command_s_to_write() {
 }
 
 #[tokio::test]
+async fn a_write_to_a_session_the_tables_hold_is_not_refused_for_its_campaign_s_tombstone() {
+    let scratch = Scratch::new("buried").await;
+    let engine = scratch.serve().await;
+    submit(&engine, "test.addSession", session(QUATRE, VALOMBRE, &[])).await;
+    assert_eq!(applied(&engine).await.status, State::Applied);
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Campaign/{VALOMBRE}', true)"
+        ))
+        .await
+        .expect("Valombre's tombstone");
+    // Its microphone, on: another command's to write, not this projection's
+    // to judge against its campaign.
+    submit(
+        &engine,
+        "test.updateSession",
+        json!({ "sessionId": QUATRE, "microphoneOn": true }),
+    )
+    .await;
+    let result = applied(&engine).await;
+    assert_eq!(result.status, State::Applied, "{result:?}");
+    scratch.drop().await;
+}
+
+#[tokio::test]
 async fn a_session_with_no_list_of_pcs_has_none_present() {
     let scratch = Scratch::new("nolist").await;
     let engine = scratch.serve().await;
