@@ -21,6 +21,12 @@
 //! session's last, and the elements it links are judged there against the
 //! session's campaign.
 //!
+//! A session is a row of its own, written into its tables in the
+//! transaction that applies it ([`Sessions`]): its position is settled
+//! there, after its campaign's last; a oneshot that has its session takes no
+//! other (`oneshot-single-session`); the PCs it ticks present are judged
+//! there against its campaign (`present-only-pj`).
+//!
 //! A session's scene order is a row of its own, its scenes' ids under
 //! `scenePosition`, rewritten into their ranks in the transaction that
 //! applies it ([`SceneOrder`]): every rank at once, 1 to n.
@@ -35,10 +41,15 @@ use serde_json::Value;
 
 mod order;
 mod scenes;
+mod sessions;
 
 pub use order::{SceneOrder, order_id, session_of};
 pub use scenes::{
     LINKS, NOTES, PARTITION, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, Scenes,
+};
+pub use sessions::{
+    MICROPHONE_ON, ONESHOT, ONESHOT_SINGLE_SESSION, PLANNED_ON, PRESENT, PRESENT_ONLY_PJ,
+    SESSION_CAMPAIGN_ID, SESSION_ID, SESSION_STATUS, SESSION_TITLE, Sessions,
 };
 
 const AGGREGATE: &str = "Session";
@@ -47,7 +58,7 @@ const AGGREGATE: &str = "Session";
 pub const DOCUMENT: &str = include_str!("../aggregate.json");
 
 /// A session's status, in the order it passes through them.
-const STATUS: &str = "sessionStatus";
+const STATUS: &str = SESSION_STATUS;
 const CLOSED: &str = "closed";
 const LIFECYCLE: [&str; 3] = ["prep", "live", CLOSED];
 
@@ -62,7 +73,7 @@ const JOURNAL: [&str; 5] = [
 
 /// What the close of a session records: the microphone, off; when; the
 /// summary, with the model that wrote it.
-const MICROPHONE: &str = "microphoneOn";
+const MICROPHONE: &str = MICROPHONE_ON;
 const CLOSED_AT: &str = "closedAt";
 const SUMMARY: &str = "summary";
 const SUMMARY_MODEL: &str = "summaryModel";
@@ -142,12 +153,13 @@ impl Judge for Session {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge, and its scenes and
-/// scene orders written in the transaction that applies them.
+/// What the aggregate plugs into the engine: its judge, and its sessions,
+/// scenes and scene orders written in the transaction that applies them.
 #[must_use]
 pub fn plugin() -> Plugin {
     Plugin::new()
         .judge(AGGREGATE, Session)
+        .project_pg(AGGREGATE, Sessions)
         .project_pg(AGGREGATE, Scenes)
         .project_pg(AGGREGATE, SceneOrder)
 }
@@ -264,16 +276,20 @@ fn close_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
 
 /// A command writes only fields the aggregate declares, each a text, a
 /// number, a boolean or a null: no field holds audio, nor anything but what
-/// a column types. Two lists are a column's values: the ids of the elements a
-/// scene links, one `scene_entity` row each, and a session's scene order, its
-/// scenes' ids, one `scene.position` each.
+/// a column types. Three lists are a column's values: the ids of the elements
+/// a scene links, one `scene_entity` row each, a session's scene order, its
+/// scenes' ids, one `scene.position` each, and the PCs a session ticks
+/// present, one `session_present_character` row each — on its creation
+/// only, the one write [`Sessions`] projects the list of: on any other, it
+/// would be kept by the engine and written in no table.
 fn text_only_no_audio(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
     entry.payload.iter().all(|(field, value)| {
         DECLARED.contains(field)
             && match value {
                 Value::Object(_) => false,
+                Value::Array(_) if field == PRESENT && entry.effect != Effect::Insert => false,
                 Value::Array(ids) => {
-                    (field == LINKS || field == SCENE_POSITION)
+                    [LINKS, SCENE_POSITION, PRESENT].contains(&field.as_str())
                         && ids.iter().all(|id| id.as_str().is_some_and(uuid))
                 }
                 _ => true,
