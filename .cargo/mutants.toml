@@ -22,6 +22,14 @@ exclude_globs = [
   "crates/dataguard/registry/**",
 ]
 
+# Equivalent mutants: no observable difference, so no test can catch them.
+# list-media `ratio`: `h > 0.0` -> `h >= 0.0` only changes h == 0, where
+# w / h is inf or NaN and `json!` writes a non-finite float as null, which
+# is what the guard returns anyway.
+exclude_re = [
+  "crates/media/capabilities/list-media/src/lib\\.rs:\\d+:\\d+: replace > with >= in ratio",
+]
+
 # Every mutant runs the mutated crate's own tests, under the flags the CI
 # tests with. Set for the build and the test alike (`all_features`, not
 # `additional_cargo_test_args`, which reaches the test phase only: the build

@@ -3,7 +3,7 @@
     ".cargo/mutants.toml": "d871b19df11c581e",
     ".github/workflows/ci.yml": "40e10e1fb044a780",
     ".github/workflows/gates.yml": "4da1b679be3fb441",
-    ".gitignore": "600d6171799bdb07",
+    ".gitignore": "89cd05ecd426a94a",
     ".sops.yaml": "561c8b897521edab",
     "contracts/README.md": "5f31f9c862da553c",
     "contracts/a-concept.schema.json": "286aba1a4cbd10cd",

@@ -22,6 +22,10 @@ fn r97_media_attached_to_the_session_by_place() {
             "data-capability:campaign.createCampaign",
             "data-capability:campaign.saveEntity",
             "data-capability:session.createSession",
+            // The sessions a medium is attached to reach `media.listMedia` with
+            // the library that shows them: no manifest names that evolution of
+            // an existing Capability, the rule's component does.
+            "micro-ui:MediaLibrary",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;
