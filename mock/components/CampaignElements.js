@@ -425,6 +425,11 @@
     let current = props2;
     const modeOf = (p) => p.mode === "rail" ? "rail" : "tabs";
     const campaignOf = (p) => (p.campaign ?? "").trim() || (new URLSearchParams(win?.location.search ?? "").get("campaign") ?? "").trim();
+    const publish = (p) => {
+      const campaign = campaignOf(p);
+      if (campaign !== "") shell2.context?.set("campaign", campaign);
+    };
+    publish(current);
     let players = [];
     let characters = [];
     let places = [];
@@ -635,6 +640,7 @@
       update(next) {
         const before = current;
         current = next;
+        publish(next);
         const another = campaignOf(before) !== campaignOf(next);
         const otherMode = modeOf(before) !== modeOf(next);
         if (another) [players, characters, places, events, media, sounds] = [[], [], [], [], [], []];

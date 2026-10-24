@@ -32,6 +32,7 @@
     },
     {
       "path": "pages/fiche-entite.html",
+      "screen": "fiche-entite",
       "title": "Fiche d’entité",
       "objective": "Le DM renseigne un personnage, un lieu ou un événement, dicte le prompt initial pour obtenir background et statblock, importe un PJ de D&D Beyond et annule un changement de l’IA",
       "components": [
@@ -204,7 +205,7 @@
         "campaign": "string — id de la campagne, remplacé par ?campaign= dans l’adresse"
       },
       "source": "apps/campaign/campaign-elements",
-      "builtFrom": "ba218100be3bd2d6"
+      "builtFrom": "caa432f0b6abbaea"
     },
     {
       "name": "NoteImport",
@@ -270,7 +271,7 @@
         "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse ; « new:pj », « new:pnj », « new:lieu » ou « new:evenement » ouvre une fiche à créer"
       },
       "source": "apps/campaign/entity-editor",
-      "builtFrom": "c899b9b5dba5cac3"
+      "builtFrom": "875392bedb9b3f3c"
     },
     {
       "name": "VersionHistory",
