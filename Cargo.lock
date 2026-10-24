@@ -2175,6 +2175,7 @@ dependencies = [
  "dataguard-registry",
  "dataguard-server",
  "list-provider-requests",
+ "ports-character-sheets",
  "ports-llm",
  "ports-speech-to-text",
  "serde_json",
