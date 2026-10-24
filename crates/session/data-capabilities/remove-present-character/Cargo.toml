@@ -1,0 +1,20 @@
+[package]
+name = "remove-present-character"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.removePresentCharacter: a PC unticked at a session — the tombstone of its presence, `Session/<session>.<pc>`, which takes their one link row out of session_present_character; the character itself is untouched."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target aggregate: a presence's partition, and its link row taken out when it is applied.
+aggregate-session = { path = "../../aggregates/Session" }
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

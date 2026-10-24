@@ -229,6 +229,11 @@
       "rule": "Seuls des PJ de la même campagne peuvent être cochés présents. Les PJ proposés en DM view et sur les battlemaps sont exactement les présents, y compris ceux ajoutés plus tard."
     },
     {
+      "id": "oneshot-single-session",
+      "onViolation": "reject",
+      "rule": "Un oneshot a exactement une séance : on ne peut pas lui en ajouter une autre. Une nouvelle séance d'une campagne prend la position qui suit la dernière."
+    },
+    {
       "id": "scene-order-contiguous",
       "onViolation": "reject",
       "rule": "Les rangs des scènes d'une séance vont de 1 à n, sans trou ni doublon. Un réordonnancement réécrit tous les rangs d'un coup."

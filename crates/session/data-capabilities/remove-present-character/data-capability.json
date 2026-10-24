@@ -1,0 +1,25 @@
+{
+  "dataCapability": "session.removePresentCharacter",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "delete",
+  "target": {
+    "aggregate": "Session",
+    "id": "$session"
+  },
+  "touches": [
+    "Session.sessionPresentCharacterSessionId",
+    "Session.sessionPresentCharacterCharacterId"
+  ],
+  "payload": {
+    "session": "uuid — the session the PC no longer attends, live in the tables; sent as `target.id` or here",
+    "character": "uuid — the PC unticked: the one link row of the session and the PC goes (a tombstone on their presence's own row, `<session>.<character>`), the character and its sheet stay; a PC who is not present changes nothing"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "present-only-pj"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

@@ -248,6 +248,65 @@
       ]
     },
     {
+      "query": "GetSession",
+      "capability": "session.getSession",
+      "file": "crates/session/queries/get-session.graphql",
+      "sha256": "fbb708e4c030a20c0db21d24a76fa9cc6c56930cd7f95c85f976fbe39bc5e69c",
+      "fields": [
+        "session.id",
+        "session.position",
+        "session.title",
+        "session.plannedOn",
+        "session.status",
+        "sessionPresentCharacter.sessionId",
+        "sessionPresentCharacter.characterId",
+        "sessionPresentCharacter.addedAt"
+      ]
+    },
+    {
+      "query": "ListScenes",
+      "capability": "session.listScenes",
+      "file": "crates/session/queries/list-scenes.graphql",
+      "sha256": "1585c6134b8ad2b55067ada4a78363fd55eb36750ae0c008d911ac3bbcc965b1",
+      "fields": [
+        "scene.id",
+        "scene.sessionId",
+        "scene.position",
+        "scene.title",
+        "scene.notes",
+        "sceneEntity.sceneId",
+        "sceneEntity.entityId",
+        "sceneEntity.position",
+        "entity.id",
+        "entity.type",
+        "sceneMedia.sceneId",
+        "sceneMedia.mediaId",
+        "media.id",
+        "media.placeId",
+        "media.uploadedAt",
+        "entityToCreate.id",
+        "entityToCreate.sceneId",
+        "entityToCreate.status",
+        "entityToCreate.createdAt"
+      ]
+    },
+    {
+      "query": "ListSessions",
+      "capability": "session.listSessions",
+      "file": "crates/session/queries/list-sessions.graphql",
+      "sha256": "b49e0dbe6fc798341406c28b2df5efeb8a95801278fe6e9aa2f0eb034443edd7",
+      "fields": [
+        "session.id",
+        "session.campaignId",
+        "session.position",
+        "session.title",
+        "session.plannedOn",
+        "session.status",
+        "session.summary",
+        "sessionPresentCharacter.characterId"
+      ]
+    },
+    {
       "query": "GetBattlemapInstance",
       "capability": "table.getBattlemapInstance",
       "file": "crates/table/queries/get-battlemap-instance.graphql",

@@ -584,7 +584,7 @@
     "MediaLibrary": {
       "kind": "micro-ui",
       "producer": 19,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "NoteImport": {
@@ -632,7 +632,7 @@
     "Session": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "SessionLifecycle@1": {
@@ -644,7 +644,7 @@
     "SessionList": {
       "kind": "micro-ui",
       "producer": 20,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "Sound": {
@@ -758,7 +758,7 @@
     "campaign.createCampaign": {
       "kind": "data-capability",
       "producer": 20,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "campaign.createEntitiesFromNote": {
@@ -950,19 +950,19 @@
     "session.addPlaceToSession": {
       "kind": "data-capability",
       "producer": 20,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "session.addPresentCharacter": {
       "kind": "data-capability",
       "producer": 20,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "session.addScene": {
       "kind": "data-capability",
       "producer": 20,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "session.closeSession": {
@@ -974,7 +974,7 @@
     "session.createSession": {
       "kind": "data-capability",
       "producer": 20,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "session.getLastBrief": {
@@ -998,7 +998,7 @@
     "session.getSession": {
       "kind": "capability",
       "producer": 20,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "session.getSessionJournal": {
@@ -1010,25 +1010,25 @@
     "session.listScenes": {
       "kind": "capability",
       "producer": 20,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "session.listSessions": {
       "kind": "capability",
       "producer": 20,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "session.removePresentCharacter": {
       "kind": "data-capability",
       "producer": 20,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "session.reorderScenes": {
       "kind": "data-capability",
       "producer": 20,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "soundbox.addSound": {
