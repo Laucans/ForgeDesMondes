@@ -337,7 +337,7 @@ async fn an_answer_that_is_no_proposal_fills_nothing_and_is_refused_naming_every
     assert_eq!(refused, Err(Refusal::Incomplete(every.clone())));
     for answer in ["", "} {", "[1, 2]", "{pas du json}"] {
         assert_eq!(
-            proposed(answer),
+            proposed(answer, "pnj"),
             Err(Refusal::Incomplete(every.clone())),
             "{answer}"
         );
@@ -383,7 +383,7 @@ fn an_incomplete_statblock_is_refused_naming_its_unsound_fields_in_order() {
     ];
     for (answer, unsound) in cases {
         assert_eq!(
-            proposed(&answer),
+            proposed(&answer, "pnj"),
             Err(Refusal::Incomplete(unsound)),
             "{answer}"
         );
@@ -393,8 +393,8 @@ fn an_incomplete_statblock_is_refused_naming_its_unsound_fields_in_order() {
 #[test]
 fn an_answer_is_read_through_prose_and_whatever_names_its_provider_gives() {
     let fenced = format!("Voici la fiche :\n```json\n{}\n```", sergente());
-    let expected = proposed(&sergente().to_string()).expect("a proposal");
-    assert_eq!(proposed(&fenced), Ok(expected.clone()));
+    let expected = proposed(&sergente().to_string(), "pnj").expect("a proposal");
+    assert_eq!(proposed(&fenced, "pnj"), Ok(expected.clone()));
     // The SRD's abbreviations, the aggregate's names, `actions` with a
     // `description`: the same sheet.
     let srd = json!({
@@ -409,7 +409,7 @@ fn an_answer_is_read_through_prose_and_whatever_names_its_provider_gives() {
             { "name": "Parade", "description": "Réaction : +2 à la CA." }
         ]
     });
-    assert_eq!(proposed(&srd.to_string()), Ok(expected));
+    assert_eq!(proposed(&srd.to_string(), "pnj"), Ok(expected));
 }
 
 #[test]
@@ -417,7 +417,7 @@ fn a_dex_modifier_or_spells_answered_are_never_taken() {
     let mut answer = sergente();
     answer["dexterityModifier"] = json!(3);
     answer["spells"] = json!([{ "name": "Bouclier", "description": "+5 à la CA." }]);
-    let proposal = proposed(&answer.to_string()).expect("a proposal");
+    let proposal = proposed(&answer.to_string(), "pnj").expect("a proposal");
     assert!(!proposal.statblock.contains_key("dexterityModifier"));
     assert!(!proposal.statblock.contains_key("spells"));
 }
@@ -425,21 +425,21 @@ fn a_dex_modifier_or_spells_answered_are_never_taken() {
 #[test]
 fn a_value_the_tables_cannot_hold_is_refused() {
     assert_eq!(
-        proposed(&with("pvMax", json!(32_768))),
+        proposed(&with("pvMax", json!(32_768)), "pnj"),
         Err(Refusal::Unwritable("hpMax"))
     );
     assert_eq!(
-        proposed(&with("ca", json!(40_000))),
+        proposed(&with("ca", json!(40_000)), "pnj"),
         Err(Refusal::Unwritable("armorClass"))
     );
-    assert!(proposed(&with("pvMax", json!(32_767))).is_ok());
+    assert!(proposed(&with("pvMax", json!(32_767)), "pnj").is_ok());
     for (field, value) in [
         ("background", json!("feu\0")),
         ("behavior", json!("\0")),
         ("features", json!([{ "name": "Parade", "text": "a\0" }])),
     ] {
         assert_eq!(
-            proposed(&with(field, value)),
+            proposed(&with(field, value), "pnj"),
             Err(Refusal::Unwritable("background, behavior ou actions")),
             "{field}"
         );
@@ -458,8 +458,20 @@ fn the_request_is_a_prompt_naming_the_character_the_shape_and_the_prompt() {
     assert!(npc.text.ends_with(&format!("Prompt initial : {PROMPT}")));
     assert!(npc.text.contains("\"stats\":{\"FOR\":10"), "{}", npc.text);
     let pc = request("pj", "Elowen", "une rôdeuse");
+    assert_eq!(pc.kind, TextKind::Prompt);
     assert!(
         pc.text.starts_with("Propose pour le PJ « Elowen »"),
+        "{}",
+        pc.text
+    );
+    assert!(
+        pc.text
+            .contains("{\"background\":\"…\",\"behavior\":\"…\"}"),
+        "{}",
+        pc.text
+    );
+    assert!(
+        pc.text.ends_with("Prompt initial : une rôdeuse"),
         "{}",
         pc.text
     );
@@ -467,7 +479,7 @@ fn the_request_is_a_prompt_naming_the_character_the_shape_and_the_prompt() {
 
 #[test]
 fn the_command_writes_the_prompt_the_proposal_and_the_next_version_from_the_ia() {
-    let proposal = proposed(&sergente().to_string()).expect("a proposal");
+    let proposal = proposed(&sergente().to_string(), "pnj").expect("a proposal");
     let fresh = Fresh {
         version: "a1000000-0000-4000-8000-000000000002",
         now: "2026-10-24T12:00:00Z",
@@ -541,7 +553,7 @@ fn the_command_writes_the_prompt_the_proposal_and_the_next_version_from_the_ia()
 
 #[test]
 fn an_element_with_no_version_yet_takes_the_first() {
-    let proposal = proposed(&sergente().to_string()).expect("a proposal");
+    let proposal = proposed(&sergente().to_string(), "pnj").expect("a proposal");
     let mut base: BTreeMap<String, Value> = npc();
     for field in ["versionNumber", "snapshot"] {
         base.remove(field);
@@ -561,14 +573,14 @@ fn an_element_with_no_version_yet_takes_the_first() {
 
 #[test]
 fn braces_in_the_prose_around_the_answer_are_skipped() {
-    let expected = proposed(&sergente().to_string()).expect("a proposal");
+    let expected = proposed(&sergente().to_string(), "pnj").expect("a proposal");
     let after = format!(
         "Voici la fiche : {}\nRemplace {{nom}} si besoin.",
         sergente()
     );
-    assert_eq!(proposed(&after), Ok(expected.clone()));
+    assert_eq!(proposed(&after, "pnj"), Ok(expected.clone()));
     let before = format!("Pour {{nom}} : {} et voilà.", sergente());
-    assert_eq!(proposed(&before), Ok(expected));
+    assert_eq!(proposed(&before, "pnj"), Ok(expected));
 }
 
 #[test]
@@ -577,7 +589,7 @@ fn an_integer_written_with_a_fraction_of_zero_is_taken_as_that_integer() {
     answer["ca"] = json!(15.0);
     answer["pvMax"] = json!(65.0);
     answer["stats"]["FOR"] = json!(14.0);
-    let proposal = proposed(&answer.to_string()).expect("a proposal");
+    let proposal = proposed(&answer.to_string(), "pnj").expect("a proposal");
     assert_eq!(proposal.statblock["armorClass"], json!(15));
     assert!(proposal.statblock["armorClass"].is_i64());
     assert!(proposal.statblock["hpMax"].is_i64());
@@ -585,17 +597,17 @@ fn an_integer_written_with_a_fraction_of_zero_is_taken_as_that_integer() {
     let mut huge = answer.clone();
     huge["pvMax"] = json!(1e300);
     assert_eq!(
-        proposed(&huge.to_string()),
+        proposed(&huge.to_string(), "pnj"),
         Err(Refusal::Unwritable("hpMax"))
     );
     huge["stats"]["CON"] = json!(1e15);
     assert_eq!(
-        proposed(&huge.to_string()),
+        proposed(&huge.to_string(), "pnj"),
         Err(Refusal::Incomplete(vec!["constitution"]))
     );
     answer["stats"]["DEX"] = json!(16.5);
     assert_eq!(
-        proposed(&answer.to_string()),
+        proposed(&answer.to_string(), "pnj"),
         Err(Refusal::Incomplete(vec!["dexterity"]))
     );
 }
@@ -624,7 +636,7 @@ async fn the_prompt_is_kept_without_the_white_space_around_it() {
 
 #[test]
 fn a_row_numbering_its_version_without_its_snapshot_still_takes_the_next_number() {
-    let proposal = proposed(&sergente().to_string()).expect("a proposal");
+    let proposal = proposed(&sergente().to_string(), "pnj").expect("a proposal");
     let mut base = npc();
     base.remove("snapshot");
     let fresh = Fresh {
@@ -633,4 +645,71 @@ fn a_row_numbering_its_version_without_its_snapshot_still_takes_the_next_number(
     };
     let payload = prepare(&base, PROMPT, &proposal, fresh);
     assert_eq!(payload["versionNumber"], json!(2));
+}
+
+#[tokio::test]
+async fn a_pcs_proposal_gives_its_background_and_behaviour_and_leaves_its_statblock() {
+    let mut pc = npc();
+    pc.insert("type".into(), json!("pj"));
+    let llm = answering(sergente());
+    let (_, proposal) = propose(
+        &llm,
+        &cloud(),
+        &deaf(),
+        &row(json!({ "prompt": PROMPT })),
+        &pc,
+    )
+    .await
+    .expect("a proposal");
+    assert_eq!(
+        proposal,
+        Proposal {
+            background: "Renvoyée de la garde pour avoir refusé de brûler un village.".into(),
+            behavior: "Parle peu, d’une voix basse.".into(),
+            statblock: Row::new(),
+        }
+    );
+    // Its statblock is not asked for, nor judged.
+    let sent = &llm.journal().list()[0].text;
+    assert!(sent.starts_with("Propose pour le PJ « Morlox »"), "{sent}");
+    assert!(!sent.contains("stats"), "{sent}");
+    let story = json!({ "background": "Une rôdeuse.", "behavior": "Taciturne." }).to_string();
+    assert!(proposed(&story, "pj").is_ok());
+    assert_eq!(
+        proposed(&story, "pnj").map(|_| ()),
+        Err(Refusal::Incomplete(vec![
+            "strength",
+            "dexterity",
+            "constitution",
+            "intelligence",
+            "wisdom",
+            "charisma",
+            "armorClass",
+            "hpMax",
+            "actions",
+        ]))
+    );
+    assert_eq!(
+        proposed(&json!({ "background": "Une rôdeuse." }).to_string(), "pj"),
+        Err(Refusal::Incomplete(vec!["behavior"]))
+    );
+    assert_eq!(
+        proposed(
+            &json!({ "background": "a\0", "behavior": "b" }).to_string(),
+            "pj"
+        ),
+        Err(Refusal::Unwritable("background, behavior ou actions"))
+    );
+    let payload = prepare(
+        &pc,
+        PROMPT,
+        &proposal,
+        Fresh {
+            version: "v",
+            now: "2026-10-24T12:00:00Z",
+        },
+    );
+    for field in ["strength", "armorClass", "hpMax", "actions"] {
+        assert!(!payload.contains_key(field), "{field}");
+    }
 }

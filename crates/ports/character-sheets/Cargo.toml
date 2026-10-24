@@ -1,0 +1,15 @@
+[package]
+name = "ports-character-sheets"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The `character-sheets` port (ports.json): the trait the product calls to fetch a player character from D&D Beyond by its URL or its id, the StatBlock@1-shaped sheet it answers, its typed errors, the fake fed from the mock-up's fixtures, and the contract suite every adapter passes."
+publish = false
+
+[dependencies]
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+serde_json = "1"
+
+[dev-dependencies]
+platform-conformance = { path = "../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

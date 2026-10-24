@@ -38,6 +38,25 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 // modifier least of all, computed from the score (AbilityModifier@1).
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
+// The element `id` among the lists a save writes.
+const elementOf = async (server, id) => {
+  for (const name of new Set(Object.values(LISTS))) {
+    const element = ((await server.load(name)) || []).find((e) => e.id === id);
+    if (element) return { element };
+  }
+  return {};
+};
+
+// A change by the AI or D&D Beyond: the fields set on the element, and a version of the history
+// (EntityVersion@1) the DM has not seen.
+const changedBy = async (server, element, patch, origin, source, changes) => {
+  Object.assign(element, patch);
+  const history = (await server.load('campaign.listEntityVersions')) || {};
+  const entry = history[element.id] || (history[element.id] = { name: element.name, versions: [] });
+  const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+  entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin, source, restoredFrom: null, seen: false, changes });
+};
+
 // SoundTag@1: each tag trimmed of White_Space and lowercased character by
 // character, an empty one dropped, then a tag seen earlier dropped — the
 // first occurrence stays, the order is kept.
@@ -485,41 +504,6 @@ export const COMMANDS = {
     server.noteProposals = proposals.map((p) => ({ id: p.id, type: p.type, name: p.name, excerpt: p.excerpt, existing: p.existing, checked: !p.existing }));
     return undefined;
   },
-  // ai.proposeCharacter (crates/ai/data-capabilities/propose-character): the
-  // AI's background, behaviour and statblock written at once on the sheet of
-  // a PC or an NPC, as a version of origin `ia` whose changes are the fields
-  // that moved. The mock's AI proposes what the fixture EntityEditor gives for
-  // the dictation the prompt holds, else its default proposal; one that does
-  // not fill the sheet (StatBlock@1) is refused by
-  // `proposal-fills-sheet-fields`. An element that is no PC or NPC is
-  // `not-found`.
-  'ai.proposeCharacter': async (server, { payload, targetId }) => {
-    const id = targetId || payload.entityId;
-    const list = (await server.load('campaign.listCharacters')) || [];
-    const at = list.findIndex((element) => element.id === id);
-    if (at < 0) return ['not-found'];
-    const before = list[at];
-    const prompt = String(payload.prompt || '').trim() || before.prompt || '';
-    const { dictations, proposals } = await server.load('EntityEditor');
-    const key = Object.keys(proposals).find((name) => dictations[name] && prompt.includes(dictations[name])) || 'default';
-    const proposal = proposals[key];
-    const score = (n) => Number.isInteger(n) && n >= 1 && n <= 30;
-    const filled = proposal && String(proposal.background || '').trim() && String(proposal.behavior || '').trim()
-      && ['FOR', 'DEX', 'CON', 'INT', 'SAG', 'CHA'].every((s) => score(proposal.stats?.[s]))
-      && Number.isInteger(proposal.ca) && proposal.ca > 0 && Number.isInteger(proposal.pvMax) && proposal.pvMax > 0
-      && Array.isArray(proposal.features) && proposal.features.length > 0;
-    if (!filled) return ['proposal-fills-sheet-fields'];
-    const after = { ...before, prompt, background: proposal.background, behavior: proposal.behavior, stats: { ...proposal.stats }, ca: proposal.ca, pvMax: proposal.pvMax, features: proposal.features };
-    list[at] = after;
-    const history = (await server.load('campaign.listEntityVersions')) || {};
-    const entry = history[id] || (history[id] = { name: after.name, versions: [] });
-    const changes = ['prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'features']
-      .filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null))
-      .map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
-    const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: 'ia', source: 'Proposition IA', seen: false, changes });
-    return undefined;
-  },
   // campaign.createEntitiesFromNote (crates/campaign/data-capabilities/create-entities-from-note):
   // one element per accepted proposal, the raw note kept as an import listed
   // newest first, the proposals no longer awaiting.
@@ -579,6 +563,41 @@ export const COMMANDS = {
       .map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
     const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
     entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: 'dm', source: 'Fiche enregistrée par le DM', seen: true, changes });
+    return undefined;
+  },
+  // ai.proposeCharacter (crates/ai/data-capabilities/propose-character): the
+  // initial prompt told or typed gives the character's background and behaviour and, for an NPC,
+  // a statblock — the proposals of fixtures/EntityEditor.json, the fake llm's answers. It applies
+  // at once and is a version like any other (source ia), unseen until the DM looks. A prompt with
+  // no text, or an element the lists do not hold, is refused.
+  'ai.proposeCharacter': async (server, { payload, targetId }) => {
+    const { element } = await elementOf(server, targetId);
+    if (!element || !String(payload.prompt ?? '').trim()) return ['not-found'];
+    const { proposals } = await server.load('EntityEditor');
+    const proposal = proposals[element.id] || proposals.default;
+    const patch = { prompt: payload.prompt, background: proposal.background, behavior: proposal.behavior };
+    if (element.kind === 'pnj') Object.assign(patch, { stats: { ...proposal.stats }, ca: proposal.ca, pvMax: proposal.pvMax, features: proposal.features.map((f) => ({ ...f })) });
+    await changedBy(server, element, patch, 'ia', 'Prompt initial', element.kind === 'pnj' ? proposal.changes : proposal.changes.slice(0, 1));
+    return undefined;
+  },
+  // dndbeyond.resyncCharacter (crates/dndbeyond/data-capabilities/resync-character, planned): the
+  // stats and hit points of a PC linked to D&D Beyond are read again — the patch of
+  // fixtures/EntityEditor.json, whose changes the history keeps — and the aliases, the notes and the token are left as they are
+  // (`dndbeyond-resync-scope`). A sheet with no link is refused.
+  'dndbeyond.resyncCharacter': async (server, { targetId }) => {
+    const { element } = await elementOf(server, targetId);
+    if (!element || !element.ddb || !element.ddb.url) return ['not-found'];
+    const { ddbResync } = await server.load('EntityEditor');
+    const resync = ddbResync[element.id] || ddbResync.default;
+    const { stats, pvMax } = resync.patch;
+    await changedBy(server, element, { ...(stats ? { stats: { ...element.stats, ...stats } } : {}), ...(pvMax ? { pvMax } : {}), ddb: { ...element.ddb, syncedAt: new Date().toISOString().slice(0, 19) } }, 'dndbeyond', 'Resynchronisation D&D Beyond', resync.changes.filter((c) => c.field === 'PV max' || (stats && c.field in stats)));
+    return undefined;
+  },
+  // dndbeyond.importCharacter (crates/dndbeyond/data-capabilities/import-character, planned): a
+  // PC of the campaign linked to that D&D Beyond URL is updated (upsert); a URL that is not
+  // D&D Beyond's is refused, and a URL no sheet is linked to creates nothing on the mock-up.
+  'dndbeyond.importCharacter': async (server, { payload }) => {
+    if (!/^https:\/\/(www\.)?dndbeyond\.com\/characters\/\d+/.test(String(payload.url ?? ''))) return ['not-found'];
     return undefined;
   },
   // table.moveToken (crates/table/data-capabilities/move-token): the token

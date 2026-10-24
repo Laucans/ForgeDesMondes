@@ -1,8 +1,9 @@
 //! DataCapability `ai.proposeCharacter` (`data-capability.json`): from the
 //! initial prompt of a PC or an NPC, the active provider proposes its
-//! background, its behaviour and its statblock, which fill the sheet at once
-//! and are kept as a version of source `ia` — the DM sees the diff and undoes
-//! it as any other version.
+//! background, its behaviour and, for an NPC, its statblock, which fill the
+//! sheet at once and are kept as a version of source `ia` — the DM sees the
+//! diff and undoes it as any other version. A PC's statblock is its own — its
+//! player's, or D&D Beyond's — and a proposal leaves it as it is.
 //!
 //! The prompt is typed (`prompt`), or dictated (`audio`, the sound in
 //! base64): a dictation is transcribed locally through the `speech-to-text`
@@ -23,9 +24,9 @@
 //! names; `armorClass` for `ca`, `hpMax` for `pvMax`, `features` for
 //! `actions`, an action's `text` for its `description`. A proposal is written
 //! only when it fills every field the sheet takes from it
-//! (`proposal-fills-sheet-fields`): a background, a behaviour and a statblock
-//! StatBlock@1 holds complete ([`statblock`]) — its spells excepted, which
-//! are the sheet's and which a proposal never changes. Any other answer is
+//! (`proposal-fills-sheet-fields`): a background, a behaviour and, for an
+//! NPC, a statblock StatBlock@1 holds complete ([`statblock`]) — its spells
+//! excepted, which are the sheet's and which a proposal never changes. Any other answer is
 //! refused before anything is queued, and nothing is written. A DEX modifier
 //! answered is never read (`dex-modifier-derived`).
 //!
@@ -105,8 +106,9 @@ pub struct Proposal {
     pub background: String,
     /// How to play it.
     pub behavior: String,
-    /// Its statblock: the six scores, `armorClass`, `hpMax` and `actions`
-    /// (each `{name, description}`), under the aggregate's names.
+    /// An NPC's statblock: the six scores, `armorClass`, `hpMax` and
+    /// `actions` (each `{name, description}`), under the aggregate's names;
+    /// empty for a PC.
     pub statblock: Row,
 }
 
@@ -267,7 +269,7 @@ pub async fn propose<L: Llm, S: SpeechToText>(
         .generate(provider, &request(kind, name, &prompt))
         .await
         .map_err(|e| Refusal::Unanswered(e.to_string()))?;
-    Ok((prompt, proposed(&answer.text)?))
+    Ok((prompt, proposed(&answer.text, kind)?))
 }
 
 /// The prompt: the one typed, else the dictation's transcript, else the
@@ -317,11 +319,21 @@ pub fn vocabulary(base: &Row) -> Vocabulary {
 /// alone.
 #[must_use]
 pub fn request(kind: &str, name: &str, prompt: &str) -> GenerateRequest {
-    let character = if kind == "pj" { "le PJ" } else { "le PNJ" };
+    if kind == "pj" {
+        return GenerateRequest::new(
+            TextKind::Prompt,
+            format!(
+                "Propose pour le PJ « {name} » (D&D 2024, SRD 5.2) un background qui suit son \
+                 prompt initial et un comportement pour le jouer. Réponds par un seul objet \
+                 JSON, sans texte autour : {{\"background\":\"…\",\"behavior\":\"…\"}}\
+                 \n\nPrompt initial : {prompt}"
+            ),
+        );
+    }
     GenerateRequest::new(
         TextKind::Prompt,
         format!(
-            "Propose pour {character} « {name} » (D&D 2024, SRD 5.2) un background qui suit \
+            "Propose pour le PNJ « {name} » (D&D 2024, SRD 5.2) un background qui suit \
              son prompt initial, un comportement pour le jouer et un statblock jouable tel quel. \
              Réponds par un seul objet JSON, sans texte autour : \
              {{\"background\":\"…\",\"behavior\":\"…\",\
@@ -333,15 +345,17 @@ pub fn request(kind: &str, name: &str, prompt: &str) -> GenerateRequest {
     )
 }
 
-/// The proposal a provider's answer holds: one JSON object, prose or a code
-/// fence around it skipped.
+/// The proposal a provider's answer holds for a PC (`pj`) or an NPC of
+/// `kind`: one JSON object, prose or a code fence around it skipped. A PC's
+/// takes its background and its behaviour alone.
 ///
 /// # Errors
 ///
 /// [`Refusal::Incomplete`] naming every field of the sheet the answer leaves
 /// unfilled or unsound — all of them when it holds no object —
 /// [`Refusal::Unwritable`] for a value the tables could never hold.
-pub fn proposed(answer: &str) -> Result<Proposal, Refusal> {
+pub fn proposed(answer: &str, kind: &str) -> Result<Proposal, Refusal> {
+    let npc = kind != "pj";
     let found = object(answer);
     let empty = Map::new();
     let answer = found.as_ref().unwrap_or(&empty);
@@ -355,7 +369,11 @@ pub fn proposed(answer: &str) -> Result<Proposal, Refusal> {
     };
     let background = prose("background");
     let behavior = prose("behavior");
-    let statblock = statblock_of(answer);
+    let statblock = if npc {
+        statblock_of(answer)
+    } else {
+        Row::new()
+    };
     let mut incomplete: Vec<&'static str> = Vec::new();
     if background.is_none() {
         incomplete.push("background");
@@ -363,20 +381,25 @@ pub fn proposed(answer: &str) -> Result<Proposal, Refusal> {
     if behavior.is_none() {
         incomplete.push("behavior");
     }
-    let fields: Map<String, Value> = statblock
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    incomplete.extend(
-        self::statblock(&fields)
-            .into_iter()
-            .filter(|field| *field != SPELLS),
-    );
+    if npc {
+        let fields: Map<String, Value> = statblock
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        incomplete.extend(
+            self::statblock(&fields)
+                .into_iter()
+                .filter(|field| *field != SPELLS),
+        );
+    }
     if !incomplete.is_empty() {
         return Err(Refusal::Incomplete(incomplete));
     }
     for field in ["armorClass", "hpMax"] {
-        if statblock[field].as_i64().is_none_or(|n| n > SMALLINT) {
+        if statblock
+            .get(field)
+            .is_some_and(|n| n.as_i64().is_none_or(|n| n > SMALLINT))
+        {
             return Err(Refusal::Unwritable(field));
         }
     }
@@ -386,7 +409,8 @@ pub fn proposed(answer: &str) -> Result<Proposal, Refusal> {
         statblock,
     };
     let texts = [&proposal.background, &proposal.behavior];
-    if texts.iter().any(|text| text.contains('\0')) || nul(&proposal.statblock["actions"]) {
+    let actions = proposal.statblock.get("actions").unwrap_or(&Value::Null);
+    if texts.iter().any(|text| text.contains('\0')) || nul(actions) {
         return Err(Refusal::Unwritable("background, behavior ou actions"));
     }
     Ok(proposal)

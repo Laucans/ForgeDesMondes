@@ -436,3 +436,34 @@ async fn a_proposal_queued_behind_a_save_is_never_refused_and_applies_after_it()
     assert_eq!(row["source"], json!("ia"));
     assert_eq!(row["versionNumber"], json!(3));
 }
+
+#[tokio::test]
+async fn a_pcs_proposal_writes_its_story_and_leaves_its_statblock_as_it_is() {
+    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let pc = s
+        .saved(json!({
+            "kind": "pj", "name": "Elowen", "stats": { "DEX": 18 }, "ca": 16, "pvMax": 44
+        }))
+        .await;
+    s.applied(
+        "ai.proposeCharacter@1",
+        json!({ "prompt": "Une rôdeuse elfe." }),
+        Some(&pc),
+    )
+    .await;
+    let row = s.row(&pc).await;
+    assert_eq!(row["source"], json!("ia"));
+    assert_eq!(row["initialPrompt"], json!("Une rôdeuse elfe."));
+    assert_eq!(row["behavior"], json!("Parle peu, d’une voix basse."));
+    assert_eq!(row["dexterity"], json!(18));
+    assert_eq!(row["armorClass"], json!(16));
+    assert_eq!(row["hpMax"], json!(44));
+    assert_eq!(row["actions"], json!([]));
+    let changed: Vec<&str> = row["diff"]
+        .as_array()
+        .expect("a diff")
+        .iter()
+        .filter_map(|change| change["field"].as_str())
+        .collect();
+    assert_eq!(changed, ["background", "behavior", "initialPrompt"]);
+}
