@@ -24,6 +24,8 @@ rule('R94', ['screen:fiche-entite', 'micro-ui:CampaignElements', 'micro-ui:Entit
   await page.setViewportSize({ width: 800, height: 900 });
   const editor = component(page, 'EntityEditor');
   await expect(rail).toBeHidden();
+  // The sheet paints after its reads: sample its box only once it has.
+  await expect(editor.getByLabel('Nom')).toHaveValue('Morlox');
   const sheetBefore = await editor.boundingBox();
   await page.getByRole('button', { name: /^☰/ }).click();
   await expect(rail).toBeVisible();

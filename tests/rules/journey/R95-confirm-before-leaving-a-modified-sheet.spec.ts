@@ -12,6 +12,7 @@ rule('R95', ['screen:fiche-entite', 'micro-ui:EntityEditor', 'micro-ui:CampaignE
   const editor = component(page, 'EntityEditor');
   const rail = page.getByRole('navigation', { name: 'Éléments de la campagne' });
   const description = editor.getByLabel('Description', { exact: true });
+  // Anchored: the event « Le marché noir de Morlox » also sits in the rail.
   const bar = (name: string) => editor.getByRole('button', { name });
 
   // « Rester »: the sheet and its change stay as they are.
@@ -25,7 +26,7 @@ rule('R95', ['screen:fiche-entite', 'micro-ui:EntityEditor', 'micro-ui:CampaignE
   await rail.getByRole('link', { name: /Gaspard/ }).click();
   await bar('Abandonner').click();
   await expect(editor.getByLabel('Nom')).toHaveValue(/Gaspard/);
-  await rail.getByRole('link', { name: /Morlox/ }).click();
+  await rail.getByRole('link', { name: /^Morlox/ }).click();
   await expect(description).toHaveValue(original);
 
   // A new change, « Enregistrer et continuer »: saved, then the chosen element opens.
@@ -33,6 +34,6 @@ rule('R95', ['screen:fiche-entite', 'micro-ui:EntityEditor', 'micro-ui:CampaignE
   await rail.getByRole('link', { name: /Gaspard/ }).click();
   await bar('Enregistrer et continuer').click();
   await expect(editor.getByLabel('Nom')).toHaveValue(/Gaspard/);
-  await rail.getByRole('link', { name: /Morlox/ }).click();
+  await rail.getByRole('link', { name: /^Morlox/ }).click();
   await expect(description).toHaveValue('Seconde modification');
 });
