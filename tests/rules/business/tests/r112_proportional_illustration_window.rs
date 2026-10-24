@@ -19,9 +19,17 @@ fn r112_proportional_illustration_window() {
             "capability:campaign.listCampaigns",
             "capability:media.listMedia",
             "data-capability:campaign.createCampaign",
+            "data-capability:session.createSession",
+            "capability:session.listSessions",
+            "data-capability:live.setMicrophone",
+            "data-capability:live.showCover",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;
+            // A window floats over a base: it needs a live session whose diffusion is committed.
+            new_session(s, &campaign, &[])?;
+            apply(s, "live.setMicrophone", json!({ "on": true }), None)?;
+            apply(s, "live.showCover", json!({ "campaign": campaign }), None)?;
             let title = unique("Illustration 800 x 1200");
             apply(
                 s,
@@ -61,16 +69,17 @@ fn r112_proportional_illustration_window() {
             check(!before.is_null(), "no floating window was opened")?;
 
             // The DM drags the corner to a square: the window keeps the image's proportions.
+            // Position and size are fractions of the screen's width (0 to 1), not pixels.
             apply(
                 s,
                 "live.moveWindow",
-                json!({ "campaign": campaign, "x": 120, "y": 80 }),
+                json!({ "campaign": campaign, "x": 0.2, "y": 0.1 }),
                 None,
             )?;
             apply(
                 s,
                 "live.resizeWindow",
-                json!({ "campaign": campaign, "w": 600, "h": 600 }),
+                json!({ "campaign": campaign, "w": 0.6, "h": 0.6 }),
                 None,
             )?;
             let dm = window(s, "dm")?;
