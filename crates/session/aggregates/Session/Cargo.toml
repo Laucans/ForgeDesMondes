@@ -17,3 +17,4 @@ serde_json = "1"
 # The migrations' applier the server runs: the tables the projections write.
 data = { path = "../../../data" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
+platform-scratch-db = { path = "../../../platform/scratch-db" }

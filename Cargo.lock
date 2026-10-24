@@ -171,6 +171,7 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "platform-scratch-db",
  "serde_json",
  "tokio",
 ]
