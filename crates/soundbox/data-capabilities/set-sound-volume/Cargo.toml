@@ -1,0 +1,22 @@
+[package]
+name = "set-sound-volume"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.setSoundVolume: one sound's live slider, in percent, written as its own volume from 0 to 1 (EffectiveVolume@1) — the one field the command writes on its Sound partition, refused out of range by sound-volume-range — and projected onto its sound row's volume alone."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+# Its PostgreSQL client is the engine's re-export, never a driver of this crate.
+harness-dataguard = { workspace = true }
+# The engine's `Prepare` and `ProjectPg` are async traits.
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# Its target aggregate's judge, which the engine runs beside it.
+aggregate-sound = { path = "../../aggregates/Sound" }
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

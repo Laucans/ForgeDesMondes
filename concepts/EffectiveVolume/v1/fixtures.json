@@ -1,0 +1,298 @@
+{
+  "concept": "EffectiveVolume",
+  "version": 1,
+  "cases": [
+    {
+      "name": "R111: 55 % under a master of 80 % plays at 0.44",
+      "input": {
+        "volume": 55,
+        "masterVolume": 80
+      },
+      "output": {
+        "gain": 0.44,
+        "volumeFraction": 0.55,
+        "masterFraction": 0.8,
+        "valid": true,
+        "message": null
+      }
+    },
+    {
+      "name": "R111: 80 % under a master of 80 % plays at 0.64",
+      "input": {
+        "volume": 80,
+        "masterVolume": 80
+      },
+      "output": {
+        "gain": 0.64,
+        "volumeFraction": 0.8,
+        "masterFraction": 0.8,
+        "valid": true,
+        "message": null
+      }
+    },
+    {
+      "name": "R111: the master down to 40 % brings 55 % to 0.22",
+      "input": {
+        "volume": 55,
+        "masterVolume": 40
+      },
+      "output": {
+        "gain": 0.22,
+        "volumeFraction": 0.55,
+        "masterFraction": 0.4,
+        "valid": true,
+        "message": null
+      }
+    },
+    {
+      "name": "R111: the master down to 40 % brings 80 % to 0.32",
+      "input": {
+        "volume": 80,
+        "masterVolume": 40
+      },
+      "output": {
+        "gain": 0.32,
+        "volumeFraction": 0.8,
+        "masterFraction": 0.4,
+        "valid": true,
+        "message": null
+      }
+    },
+    {
+      "name": "full volume under a full master is 1",
+      "input": {
+        "volume": 100,
+        "masterVolume": 100
+      },
+      "output": {
+        "gain": 1.0,
+        "volumeFraction": 1.0,
+        "masterFraction": 1.0,
+        "valid": true,
+        "message": null
+      }
+    },
+    {
+      "name": "a muted sound stays silent under any master",
+      "input": {
+        "volume": 0,
+        "masterVolume": 100
+      },
+      "output": {
+        "gain": 0.0,
+        "volumeFraction": 0.0,
+        "masterFraction": 1.0,
+        "valid": true,
+        "message": null
+      }
+    },
+    {
+      "name": "a muted master silences every sound",
+      "input": {
+        "volume": 100,
+        "masterVolume": 0
+      },
+      "output": {
+        "gain": 0.0,
+        "volumeFraction": 1.0,
+        "masterFraction": 0.0,
+        "valid": true,
+        "message": null
+      }
+    },
+    {
+      "name": "a fractional percent is accepted",
+      "input": {
+        "volume": 12.5,
+        "masterVolume": 50
+      },
+      "output": {
+        "gain": 0.0625,
+        "volumeFraction": 0.125,
+        "masterFraction": 0.5,
+        "valid": true,
+        "message": null
+      }
+    },
+    {
+      "name": "a volume above 100 is rejected, not clamped",
+      "input": {
+        "volume": 101,
+        "masterVolume": 80
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume propre hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "a negative volume is rejected, not clamped",
+      "input": {
+        "volume": -1,
+        "masterVolume": 80
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume propre hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "a master above 100 is rejected, not clamped",
+      "input": {
+        "volume": 55,
+        "masterVolume": 150
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume global hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "a negative master is rejected, not clamped",
+      "input": {
+        "volume": 55,
+        "masterVolume": -0.5
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume global hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "both out of range: the own volume is named first",
+      "input": {
+        "volume": 200,
+        "masterVolume": 200
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume propre hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "a volume that is not a number is rejected",
+      "input": {
+        "volume": "55",
+        "masterVolume": 80
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume propre hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "an absent master is rejected",
+      "input": {
+        "volume": 55
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume global hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "a null master is rejected",
+      "input": {
+        "volume": 55,
+        "masterVolume": null
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume global hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "an absent volume is rejected, not read as 0",
+      "input": {
+        "masterVolume": 80
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume propre hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "a null volume is rejected, not read as 0",
+      "input": {
+        "volume": null,
+        "masterVolume": 80
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume propre hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "a master that is not a number is rejected",
+      "input": {
+        "volume": 55,
+        "masterVolume": "80"
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume global hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "a volume just above 100 is rejected next to a full master",
+      "input": {
+        "volume": 100.01,
+        "masterVolume": 100
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume propre hors de 0 à 100 %"
+      }
+    },
+    {
+      "name": "neither input is a number: the own volume is named first",
+      "input": {
+        "volume": "a",
+        "masterVolume": "b"
+      },
+      "output": {
+        "gain": null,
+        "volumeFraction": null,
+        "masterFraction": null,
+        "valid": false,
+        "message": "volume propre hors de 0 à 100 %"
+      }
+    }
+  ]
+}
