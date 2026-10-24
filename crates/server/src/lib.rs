@@ -238,7 +238,11 @@ pub fn character_sheets(ports: Ports, fixtures: Option<&Path>) -> FakeCharacterS
             json("entities.json")
                 .zip(json("EntityEditor.json"))
                 .and_then(|(entities, editor)| {
-                    FakeCharacterSheets::from_fixtures(&entities, &editor).ok()
+                    FakeCharacterSheets::from_fixtures(&entities, &editor)
+                        .inspect_err(|e| {
+                            eprintln!("server: the character-sheets fake knows no character: {e}");
+                        })
+                        .ok()
                 })
                 .unwrap_or_default()
         }
