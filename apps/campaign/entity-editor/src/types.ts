@@ -8,7 +8,7 @@ export interface Shell {
   command(body: unknown): Promise<unknown>;
   commandResult(commandId: string): Promise<unknown>;
   /** The screen's context: the sheet on show is `entity`, the campaign a new sheet joins is `campaign`. */
-  context?: { get(name: string): unknown; set(name: string, value: unknown): void };
+  context?: { get(name: string): unknown; set(name: string, value: unknown): void; on?(listener: (name: string) => void): () => void };
 }
 
 /** How a command is followed until it settles: the server applies it on its own clock. */

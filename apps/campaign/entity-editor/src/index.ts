@@ -322,6 +322,18 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
 
   // ---------- opening ----------
 
+  /** The lists beside the sheet, of the campaign the screen shows: a campaign without players or media is not a sheet that cannot open. */
+  let listsFor: string | null = null;
+  async function readLists(): Promise<void> {
+    const known = campaign();
+    const variables = campaignVariables(known);
+    [players, illustrations] = await Promise.all([
+      shell.capability(LIST_PLAYERS, undefined, variables).then((answer) => parsePlayers(answer.data), () => []),
+      shell.capability(LIST_MEDIA, undefined, variables).then((answer) => parseIllustrations(answer.data), () => []),
+    ]);
+    listsFor = known;
+  }
+
   /** The sheet changes in place: the element is read, the lists beside it too. Answers whether it opened. */
   async function open(wanted: Target): Promise<boolean> {
     const mine = (opening += 1);
@@ -330,12 +342,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       if ('fresh' in wanted) entity = freshEntity(wanted.fresh);
       else entity = await read(wanted.id);
       if (mine !== opening) return false;
-      const variables = campaignVariables(campaign());
-      // The lists beside the sheet: a campaign without players or media is not a sheet that cannot open.
-      [players, illustrations] = await Promise.all([
-        shell.capability(LIST_PLAYERS, undefined, variables).then((answer) => parsePlayers(answer.data), () => []),
-        shell.capability(LIST_MEDIA, undefined, variables).then((answer) => parseIllustrations(answer.data), () => []),
-      ]);
+      await readLists();
     } catch {
       if (mine === opening) say({ kind: 'error', text: 'Impossible de lire la fiche.' });
       return false;
@@ -442,6 +449,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       paintAll();
       shell.context?.set(ENTITY_CONTEXT, id);
       if (creating) announce({ id, name: stored.name, kind: stored.kind });
+      else if (opened !== null) opened = { ...opened, name: stored.name };
       say({ kind: 'ok', text: 'Fiche enregistrée.' });
       return true;
     } catch {
@@ -683,6 +691,18 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       if (opened !== null) doc.dispatchEvent(new view.CustomEvent(BUS_OPENED, { detail: opened }));
     });
   }
+
+  // The Micro-UIs of a screen mount in no set order: a campaign the rail publishes once this sheet is open still reaches the lists beside it.
+  const stopFollowing = shell.context?.on?.(() => {
+    if (!host.isConnected) return stopFollowing?.();
+    if (draft === null || campaign() === listsFor) return;
+    void readLists().then(() => {
+      // A command running holds the sheet still; its end paints it again.
+      if (busy) return;
+      collect();
+      paintAll();
+    });
+  });
 
   // The first sheet: the screen's prop, else the address's (`?id=`, or `?new=` for a sheet to create).
   const query = new URLSearchParams(view?.location.search ?? '');

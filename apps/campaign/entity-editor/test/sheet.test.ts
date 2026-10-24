@@ -92,6 +92,7 @@ function fakeShell(options: Options = {}) {
       }
     });
   const context = new Map<string, unknown>(Object.entries(options.context ?? { campaign: 'cendres-valombre' }));
+  const listeners = new Set<(name: string) => void>();
   const shell: Shell = {
     async capability(id, _sha256, variables) {
       reads.push({ id, variables });
@@ -118,6 +119,11 @@ function fakeShell(options: Options = {}) {
       set: (name, value) => {
         contextSets.push([name, value]);
         context.set(name, value);
+        for (const listener of [...listeners]) listener(name);
+      },
+      on: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
       },
     },
   };
@@ -695,4 +701,55 @@ test('a sheet that left the page stops answering the bus', async () => {
   await bus.ask('fdm:entity-query');
   assert.deepEqual(bus.opened, []);
   assert.equal(s.host.querySelector<HTMLInputElement>('#entity-name')?.value, 'Morlox');
+});
+
+test('a campaign published after the sheet opened reaches its lists: the players and the media are read again for it', async () => {
+  const s = await sheet('new:pnj', { context: {} });
+  const listed = () => s.reads.filter((r) => r.id === 'campaign.listPlayers' || r.id === 'media.listMedia');
+  assert.deepEqual(listed().map((r) => r.variables), [{}, {}]);
+  // Typed, the change not yet told to the sheet: the lists' repaint keeps it all the same.
+  s.$<HTMLInputElement>('#entity-name').value = 'Zorbak';
+  s.shell.context?.set('campaign', 'cendres-valombre');
+  await settle();
+  assert.deepEqual(listed().map((r) => r.variables), [{}, {}, { campaign: 'cendres-valombre' }, { campaign: 'cendres-valombre' }]);
+  // What the DM typed meanwhile stays.
+  assert.equal(s.value('#entity-name'), 'Zorbak');
+  // Another name of the context, or the same campaign again, reads nothing.
+  s.shell.context?.set('entity', 'x');
+  s.shell.context?.set('campaign', 'cendres-valombre');
+  await settle();
+  assert.equal(listed().length, 4);
+});
+
+test('a sheet that left the page stops following the context', async () => {
+  const s = await sheet('new:pnj', { context: {} });
+  s.host.remove();
+  s.shell.context?.set('campaign', 'cendres-valombre');
+  await settle();
+  assert.equal(s.reads.filter((r) => r.id === 'campaign.listPlayers').length, 1);
+});
+
+test('a campaign published while a command runs is read all the same; the sheet stays locked until the command ends', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const s = await sheet('new:pnj', { context: {}, gate });
+  await s.type('#entity-name', 'Zorbak');
+  s.shell.context?.set('campaign', 'cendres-valombre');
+  await s.click('#entity-save');
+  s.shell.context?.set('campaign', 'autre');
+  await settle();
+  assert.equal(s.$<HTMLInputElement>('#entity-name').disabled, true);
+  assert.deepEqual(s.reads.filter((r) => r.id === 'campaign.listPlayers').map((r) => r.variables), [{}, { campaign: 'cendres-valombre' }, { campaign: 'autre' }]);
+  release();
+  await settle();
+  assert.equal(s.$<HTMLInputElement>('#entity-name').disabled, false);
+});
+
+test('a sheet renamed and saved is announced under its new name when the rail asks', async () => {
+  const s = await sheet('morlox');
+  const bus = busOf(s);
+  await s.type('#entity-name', 'Morlox l’Ancien');
+  await s.click('#entity-save');
+  await bus.ask('fdm:entity-query');
+  assert.deepEqual(bus.opened.map((o) => o.name), ['Morlox l’Ancien']);
 });
