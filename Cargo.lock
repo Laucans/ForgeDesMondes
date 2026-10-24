@@ -516,6 +516,7 @@ dependencies = [
  "get-battlemap",
  "get-campaign",
  "get-entity",
+ "get-previous-session-summary",
  "get-session",
  "get-session-journal",
  "get-settings",
@@ -707,6 +708,14 @@ dependencies = [
 
 [[package]]
 name = "get-entity"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-previous-session-summary"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",

@@ -248,6 +248,22 @@
       ]
     },
     {
+      "query": "GetPreviousSessionSummary",
+      "capability": "session.getPreviousSessionSummary",
+      "file": "crates/session/queries/getPreviousSessionSummary.graphql",
+      "sha256": "40130bd45d9bd532dd0fd026562a15e3636e8e77db28e3e074b24e75d1cf151a",
+      "fields": [
+        "session.id",
+        "session.position",
+        "session.title",
+        "session.plannedOn",
+        "session.status",
+        "session.summary",
+        "session.summaryModel",
+        "session.summaryEditedAt"
+      ]
+    },
+    {
       "query": "GetSession",
       "capability": "session.getSession",
       "file": "crates/session/queries/get-session.graphql",
