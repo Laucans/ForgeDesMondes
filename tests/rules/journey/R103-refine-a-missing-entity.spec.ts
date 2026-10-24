@@ -29,7 +29,7 @@ rule('R103', ['screen:campagne', 'micro-ui:ToCreateList'], "Affiner une entité 
   expect(words(proposal).some((w) => fromBrief.includes(w)), 'nothing of the brief excerpt').toBe(true);
   expect(words(proposal).some((w) => added.includes(w)), 'nothing of the added sentences').toBe(true);
   await expect(item.getByText('Background')).toBeVisible();
-  await expect(item.getByText('CA')).toBeVisible();
+  await expect(item.getByText('CA', { exact: true })).toBeVisible();
 
   // Created, the entity leaves the list of those to create.
   await expect(item.getByText('Créé')).toBeVisible();
