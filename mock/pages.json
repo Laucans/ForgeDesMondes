@@ -65,10 +65,12 @@
     },
     {
       "path": "pages/soundbox.html",
+      "screen": "soundbox",
       "title": "Soundbox",
-      "objective": "Le DM téléverse ses effets sonores, les nomme et leur donne des tags",
+      "objective": "Le DM téléverse ses effets sonores, les nomme et leur donne des tags, puis les joue à plusieurs à la fois, règle le volume global et coupe tout d’un clic",
       "components": [
-        "SoundLibrary"
+        "SoundLibrary",
+        "LiveSoundbox"
       ]
     },
     {
@@ -131,7 +133,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "f2e87b9b125bff39"
+      "builtFrom": "b61cf36b5a00d486"
     },
     {
       "name": "CampaignOverview",
@@ -151,7 +153,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "02dcad12babda4d7"
+      "builtFrom": "ee1346995f0012f4"
     },
     {
       "name": "SessionList",
@@ -173,7 +175,7 @@
         "campaign": "string — id de la campagne dont on liste les séances"
       },
       "source": "apps/session/session-list",
-      "builtFrom": "9ad1f3afddf36ce2"
+      "builtFrom": "3fad9c93bef2bdd9"
     },
     {
       "name": "CampaignElements",
@@ -220,7 +222,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "5945bc1902469893"
+      "builtFrom": "6a646a48020a4670"
     },
     {
       "name": "ToCreateList",
@@ -284,7 +286,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "914c622306802b03"
+      "builtFrom": "73ed4fb89a207d80"
     },
     {
       "name": "PreviousSummary",
@@ -386,7 +388,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "fa8c310d97f1e64c"
+      "builtFrom": "aaa8162a27f3de1b"
     },
     {
       "name": "MediaLibrary",
@@ -414,7 +416,7 @@
         "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
       },
       "source": "apps/media/media-library",
-      "builtFrom": "1d2f5c2f5aa753b1"
+      "builtFrom": "3e6cff80d0a6cdfe"
     },
     {
       "name": "GridSettings",
@@ -434,7 +436,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "af8bfbd31dd7eb60"
+      "builtFrom": "1df1ca322556cf8f"
     },
     {
       "name": "SoundLibrary",
@@ -452,7 +454,11 @@
         "soundbox.updateSound",
         "soundbox.removeSound"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
+      },
+      "source": "apps/soundbox/sound-library",
+      "builtFrom": "a3990573d070fb29"
     },
     {
       "name": "LiveSessionBar",
@@ -538,7 +544,9 @@
         "soundbox.setSoundVolume",
         "soundbox.setMasterVolume"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/soundbox/live-soundbox",
+      "builtFrom": "98fcb863c4413068"
     },
     {
       "name": "SuggestionPill",
@@ -581,7 +589,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "4c6e6d0e85b3b43d"
+      "builtFrom": "0a821ea9a91b028a"
     }
   ]
 }

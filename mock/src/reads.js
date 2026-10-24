@@ -139,6 +139,22 @@ export const READS = {
     // Newest first, as the Capability answers.
     return { imports: [...imports].sort((x, y) => String(y.date).localeCompare(String(x.date))), proposals: server.noteProposals || [] };
   },
+  // soundbox.listSounds (crates/soundbox/capabilities/list-sounds): the
+  // campaign's sounds with their effective gain — the own volume times the
+  // master volume, both percents (EffectiveVolume@1) — and whether one plays
+  // now (the fixture's `playing`, which soundbox.playSound and soundbox.stopAll move). The optional `search` keeps the
+  // names that hold it and `tag` the sounds that carry it, whatever the case
+  // (SoundTag@1); the fixture's `duration` is kept, the store has none yet.
+  'soundbox.listSounds': async (server, { search, tag }) => {
+    const { masterVolume, sounds } = await server.load('soundbox.listSounds');
+    const lower = (text) => String(text ?? '').trim().toLowerCase();
+    return {
+      masterVolume,
+      sounds: sounds
+        .filter((s) => lower(s.name).includes(lower(search)) && (!lower(tag) || s.tags.some((t) => lower(t) === lower(tag))))
+        .map((s) => ({ ...s, gain: (s.volume * masterVolume) / 10000, playing: s.playing === true })),
+    };
+  },
   // media.getBattlemap (crates/media/capabilities/get-battlemap): one
   // battlemap of the media library, by its id, its grid as HexGrid@1 states
   // it — the opacity a fraction of 1 where the mock-up's fixtures write a

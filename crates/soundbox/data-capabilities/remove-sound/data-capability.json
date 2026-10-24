@@ -1,0 +1,17 @@
+{
+  "dataCapability": "soundbox.removeSound",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "delete",
+  "target": {
+    "aggregate": "Sound",
+    "id": "$id"
+  },
+  "touches": ["Sound.id"],
+  "payload": {},
+  "mode": "confirm_on_stale",
+  "invariants": [],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

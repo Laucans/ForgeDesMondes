@@ -118,6 +118,12 @@ async function onCombat(server, id, change) {
   return undefined;
 }
 
+// SoundTag@1: each tag trimmed of White_Space and lowercased character by
+// character, an empty one dropped, then a tag seen earlier dropped — the
+// first occurrence stays, the order is kept.
+const soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => [...String(t).replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '')].map((c) => c.toLowerCase()).join('')).filter(Boolean))];
+
+
 export const COMMANDS = {
   // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
   // one position both views read.
@@ -330,6 +336,25 @@ export const COMMANDS = {
     }
     return undefined;
   },
+  // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
+  // added to the library. One with no name or no file is refused before
+  // anything is queued, as the server refuses it. Its tags, a list of texts,
+  // are normalised (`tags-normalized`); its own volume is a percentage from
+  // 0 to 100 — a number or the text of one — full when none is given
+  // (`sound-volume-range`).
+  'soundbox.addSound': async (server, { payload }) => {
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+    const file = typeof payload.file === 'string' ? payload.file.trim() : '';
+    if (!name || !file) return ['unprocessable'];
+    const tags = payload.tags ?? [];
+    if (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string')) return ['tags-normalized'];
+    const given = payload.volume ?? 100;
+    const volume = typeof given === 'number' || (typeof given === 'string' && given.trim() !== '') ? Number(given) : NaN;
+    if (!(volume >= 0 && volume <= 100)) return ['sound-volume-range'];
+    const library = await server.load('soundbox.listSounds');
+    library.sounds.unshift({ id: server.uuid(), name, tags: soundTags(tags), duration: 0, volume: Math.round(volume), file });
+    return undefined;
+  },
   // session.createSession (crates/session/data-capabilities/create-session):
   // the next session of the campaign, at the position after the last, in
   // preparation, with the PCs ticked present. `present-only-pj` refuses a
@@ -535,6 +560,65 @@ export const COMMANDS = {
     campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     return undefined;
   },
+  // soundbox.updateSound (crates/soundbox/data-capabilities/update-sound): the
+  // name, tags and volume of one sound, tags normalised and volume ranged as
+  // for an addition; a sound that is not there is `not-found`.
+  'soundbox.updateSound': async (server, { payload, targetId }) => {
+    const sound = (await server.load('soundbox.listSounds')).sounds.find((s) => s.id === targetId);
+    if (!sound) return ['not-found'];
+    if ('volume' in payload && !(Number(payload.volume) >= 0 && Number(payload.volume) <= 100)) return ['sound-volume-range'];
+    if ('name' in payload) sound.name = String(payload.name);
+    if ('tags' in payload) sound.tags = soundTags(payload.tags);
+    if ('volume' in payload) sound.volume = Number(payload.volume);
+    if ('file' in payload) sound.file = String(payload.file);
+    return undefined;
+  },
+  // soundbox.removeSound (crates/soundbox/data-capabilities/remove-sound): the
+  // sound leaves the library's readers (a soft delete, its tombstone is the
+  // server's).
+  'soundbox.removeSound': async (server, { targetId }) => {
+    const library = await server.load('soundbox.listSounds');
+    const at = library.sounds.findIndex((s) => s.id === targetId);
+    if (at < 0) return ['not-found'];
+    library.sounds.splice(at, 1);
+    return undefined;
+  },
+  // soundbox.setMasterVolume (crates/soundbox/data-capabilities/set-master-volume):
+  // the master slider, in percent, kept to the whole percent; every sound
+  // follows it, keeping their ratio (EffectiveVolume@1). A volume outside
+  // 0..100, or no number, is refused by `master-volume-range`, never clamped;
+  // a request naming no campaign is `not-found`.
+  'soundbox.setMasterVolume': async (server, { payload, targetId }) => {
+    if (!String(targetId || payload.campaign || '').trim()) return ['not-found'];
+    const { volume } = payload;
+    if (typeof volume !== 'number' || !(volume >= 0 && volume <= 100)) return ['master-volume-range'];
+    for (const name of ['soundbox.listSounds', 'sounds']) {
+      const fixture = await server.load(name);
+      if (fixture) fixture.masterVolume = Math.round(volume);
+    }
+    return undefined;
+  },
+  // soundbox.stopAll (crates/soundbox/data-capabilities/stop-all): every
+  // running playback gets its stop (`stop-all`); with none running it still
+  // succeeds and changes nothing.
+  'soundbox.stopAll': async (server) => {
+    for (const sound of (await server.load('soundbox.listSounds')).sounds) sound.playing = false;
+    return undefined;
+  },
+  // soundbox.setSoundVolume (crates/soundbox/data-capabilities/set-sound-volume):
+  // one sound's own volume, in percent, from 0 to 100; out of range it is
+  // refused by `sound-volume-range`, never clamped. Nothing else of the sound
+  // changes; its effective gain follows (EffectiveVolume@1).
+  'soundbox.setSoundVolume': async (server, { payload, targetId }) => {
+    const id = targetId || payload?.sound;
+    const fixtures = (await Promise.all(['soundbox.listSounds', 'sounds'].map((name) => server.load(name)))).filter(Boolean);
+    const found = fixtures.map((fixture) => fixture.sounds.find((candidate) => candidate.id === id)).filter(Boolean);
+    if (!found.length) return ['not-found'];
+    const volume = payload?.volume;
+    if (typeof volume !== 'number' || !(volume >= 0 && volume <= 100)) return ['sound-volume-range'];
+    for (const sound of found) sound.volume = volume;
+    return undefined;
+  },
   // campaign.createCampaign (crates/campaign/data-capabilities/create-campaign):
   // a new campaign at the top of the home page, its master volume at full
   // (`master-volume-range`); a oneshot comes with its single session, in
@@ -681,6 +765,20 @@ export const COMMANDS = {
       .map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
     const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
     entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: 'dm', source: 'Fiche enregistrée par le DM', seen: true, changes });
+    return undefined;
+  },
+  // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
+  // playback of the sound starts, whatever else plays (`simultaneous-playback`),
+  // from the soundbox (the default) or a suggestion's pastille; any other
+  // source, the player view's, is refused (`dm-side-only`). The sound plays
+  // as soundbox.listSounds says it: `playing`.
+  'soundbox.playSound': async (server, { payload, targetId }) => {
+    const id = targetId || payload?.sound;
+    const sound = (await server.load('soundbox.listSounds')).sounds.find((candidate) => candidate.id === id);
+    if (!sound) return ['not-found'];
+    const source = payload?.source ?? 'soundbox';
+    if (!['soundbox', 'suggestion'].includes(source)) return ['dm-side-only'];
+    sound.playing = true;
     return undefined;
   },
 };

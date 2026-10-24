@@ -1,0 +1,24 @@
+[package]
+name = "add-sound"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.addSound: a sound added to a campaign's library on its own Sound partition — the wire payload mapped, its tags normalised (SoundTag@1), its volume given in percent and stored as a fraction of 1, its row projected into `sound`."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+# Its PostgreSQL client is the engine's re-export, never a driver of this crate.
+harness-dataguard = { workspace = true }
+# The engine's `Prepare` and `ProjectPg` are async traits.
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# Its target aggregate's judge, which the engine runs beside it.
+aggregate-sound = { path = "../../aggregates/Sound" }
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+# The Concept the tags are held to (SoundTag@1).
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

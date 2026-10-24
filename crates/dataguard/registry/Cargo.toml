@@ -16,6 +16,7 @@ ignored = [
     "add-place-to-session",
     "add-present-character",
     "add-scene",
+    "add-sound",
     "aggregate-ai-settings",
     "aggregate-battlemap-instance",
     "aggregate-campaign",
@@ -50,19 +51,26 @@ ignored = [
     "list-players",
     "list-scenes",
     "list-sessions",
+    "list-sounds",
     "move-window",
+    "play-sound",
     "remove-present-character",
+    "remove-sound",
     "reorder-scenes",
     "resize-window",
     "restore-entity-version",
     "save-entity",
     "save-grid-settings",
     "save-settings",
+    "set-master-volume",
     "set-media-place",
+    "set-sound-volume",
     "show-cover",
     "show-on-player-view",
     "show-window-on-player-view",
+    "stop-all",
     "test-connection",
+    "update-sound",
     "upload-media",
 ]
 
@@ -71,6 +79,7 @@ harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "
 add-place-to-session = { path = "../../session/data-capabilities/add-place-to-session" }
 add-present-character = { path = "../../session/data-capabilities/add-present-character" }
 add-scene = { path = "../../session/data-capabilities/add-scene" }
+add-sound = { path = "../../soundbox/data-capabilities/add-sound" }
 aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
 aggregate-battlemap-instance = { path = "../../table/aggregates/BattlemapInstance" }
 aggregate-campaign = { path = "../../campaign/aggregates/Campaign" }
@@ -105,17 +114,24 @@ list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
 list-scenes = { path = "../../session/capabilities/list-scenes" }
 list-sessions = { path = "../../session/capabilities/list-sessions" }
+list-sounds = { path = "../../soundbox/capabilities/list-sounds" }
 move-window = { path = "../../live/data-capabilities/move-window" }
+play-sound = { path = "../../soundbox/data-capabilities/play-sound" }
 remove-present-character = { path = "../../session/data-capabilities/remove-present-character" }
+remove-sound = { path = "../../soundbox/data-capabilities/remove-sound" }
 reorder-scenes = { path = "../../session/data-capabilities/reorder-scenes" }
 resize-window = { path = "../../live/data-capabilities/resize-window" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
+set-master-volume = { path = "../../soundbox/data-capabilities/set-master-volume" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
+set-sound-volume = { path = "../../soundbox/data-capabilities/set-sound-volume" }
 show-cover = { path = "../../live/data-capabilities/show-cover" }
 show-on-player-view = { path = "../../live/data-capabilities/show-on-player-view" }
 show-window-on-player-view = { path = "../../live/data-capabilities/show-window-on-player-view" }
+stop-all = { path = "../../soundbox/data-capabilities/stop-all" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
+update-sound = { path = "../../soundbox/data-capabilities/update-sound" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }
