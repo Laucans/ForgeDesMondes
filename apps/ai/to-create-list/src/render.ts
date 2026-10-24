@@ -64,7 +64,7 @@ function statblock(name: string, sheet: NonNullable<Proposal['sheet']>): string 
   const abilities = sheet.abilities
     .map(
       (a) =>
-        `<li class="kit-statblock__ability"><span class="kit-statblock__abbr">${a.key}</span><span class="kit-statblock__score">${a.score ?? 10}</span>` +
+        `<li class="kit-statblock__ability"><span class="kit-statblock__abbr">${a.key}</span><span class="kit-statblock__score">${a.score ?? '—'}</span>` +
         `${a.modifier === null ? '' : `<span class="kit-statblock__mod">${signed(a.modifier)}</span>`}</li>`,
     )
     .join('');

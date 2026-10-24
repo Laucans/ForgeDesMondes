@@ -9,11 +9,11 @@ import { mount } from '../../apps/ai/to-create-list/src/index.ts';
 import { compose, mountPoint } from './screen.js';
 import { mockServer, shellOnce } from './server.js';
 
-/** What the microphone "hears" on the mock-up, where no speech-to-text port listens: the fixture's dictation of the entry opened. */
 const { host, props } = mountPoint();
 // The shell's client calls its own origin by path; the mock server wants an absolute URL.
 const shell = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
 mockServer().load('ToCreateList').then((fixture) => {
+  /** What the microphone "hears" on the mock-up, where no speech-to-text port listens: the fixture's dictation of the entry opened. */
   const heard = () => {
     // The transcript is asked as the pause happens: the entry whose microphone still records.
     const id = host.querySelector('.kit-micbutton[data-state="recording"]')?.closest('[data-id]')?.dataset.id;

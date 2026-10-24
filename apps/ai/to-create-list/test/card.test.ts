@@ -251,3 +251,24 @@ test('while a creation runs the screen holds still: one command at a time', asyn
   release();
   await new Promise((resolve) => setImmediate(resolve));
 });
+
+test('what a command of the last campaign answers is not the new campaign\'s', async () => {
+  let release = (): void => undefined;
+  const s = await screen({ hold: new Promise<void>((resolve) => (release = resolve)) });
+  await s.click(s.button(ODRIC, 'Créer depuis le brief'));
+  s.mounted.update({ campaign: 'autre-campagne' });
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(s.reads.some((r) => r.id === 'campaign.getEntity'), false);
+  assert.equal(s.item(ODRIC).querySelector('dl'), null);
+  assert.equal(s.item(ODRIC).querySelector('button[data-action="from-brief"]')?.hasAttribute('disabled'), false);
+});
+
+test('a dictation left running when the proposal is sent starts from idle again', async () => {
+  const s = await screen({ apply: () => ({ status: 'rejected', violations: ['x'] }) });
+  await s.click(s.button(ODRIC, 'Affiner'));
+  await s.click(s.item(ODRIC).querySelector<HTMLElement>('.kit-micbutton__btn') as HTMLElement);
+  s.write(ODRIC, 'Il boite.');
+  await s.click(s.button(ODRIC, 'Proposer'));
+  assert.equal(s.item(ODRIC).querySelector('.kit-micbutton')?.getAttribute('data-state'), 'idle');
+});

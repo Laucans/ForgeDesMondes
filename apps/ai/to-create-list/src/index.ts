@@ -42,6 +42,8 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   let views = new Map<string, View>();
   let busy = false;
   let loading = 0;
+  /** Moves with the campaign: what a command of the last one answers is no longer the screen's. */
+  let generation = 0;
   const timers = new Map<string, ReturnType<typeof setInterval>>();
 
   const viewOf = (id: string): View => {
@@ -117,11 +119,15 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     if (campaign === '') return fail('Aucune campagne choisie.');
     const view = viewOf(item.id);
     busy = true;
+    const mine = generation;
     stopMic(item.id);
+    view.mic = 'idle';
+    view.seconds = 0;
     view.outcome = { kind: 'busy', text: refinement === null ? 'Création depuis le brief…' : 'Proposition en cours…' };
     paint();
     try {
       const state = await send(item, refinement);
+      if (mine !== generation) return;
       if (state.status === 'rejected') {
         view.outcome = { kind: 'error', text: `Création refusée : ${reasons(state.violations)}.` };
       } else if (state.status !== 'applied') {
@@ -130,12 +136,15 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
         view.outcome = null;
         view.refining = false;
         view.typed = '';
-        if (!(await refresh())) view.outcome = { kind: 'error', text: 'L’élément a été créé, mais la liste n’a pas pu être relue.' };
+        const read = await refresh();
+        if (mine !== generation) return;
+        if (!read) view.outcome = { kind: 'error', text: 'L’élément a été créé, mais la liste n’a pas pu être relue.' };
         const made = all.find((candidate) => candidate.id === item.id);
         if (made?.entity) {
           // The proposal is what the created element holds; an element that cannot be read is still created.
           try {
-            view.proposal = parseProposal((await shell.capability(GET_ENTITY, undefined, { id: made.entity })).data);
+            const proposed = parseProposal((await shell.capability(GET_ENTITY, undefined, { id: made.entity })).data);
+            if (mine === generation) view.proposal = proposed;
           } catch {
             view.proposal = null;
           }
@@ -215,9 +224,11 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
 
   paint();
   load();
-  shell.onDataVersion?.(() => {
+  const unsubscribe = shell.onDataVersion?.(() => {
+    // A screen that left the page stops following the data.
+    if (!host.isConnected) return unsubscribe?.();
     // What a brief's analysis added shows without a reload; a creation under way refreshes itself.
-    if (!busy && host.isConnected) load();
+    if (!busy) load();
   });
 
   return {
@@ -227,6 +238,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       if (chosen !== campaign) {
         // Another campaign: nothing of the last one stays.
         campaign = chosen;
+        generation += 1;
         all = [];
         views = new Map();
         for (const id of [...timers.keys()]) stopMic(id);

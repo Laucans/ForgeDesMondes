@@ -1495,6 +1495,7 @@
       const entities = await server.load("entities");
       const list2 = { pnj: entities.characters, lieu: entities.places, evenement: entities.events }[kind];
       const id = `${entry.id.replace(/^tc-/, "")}-${server.uuid().slice(0, 8)}`;
+      const figure = (value) => Number.isNaN(parseInt(value, 10)) ? null : parseInt(value, 10);
       const vital = (label) => statblock?.vitals?.find((v) => v.label === label)?.value;
       list2.push({
         id,
@@ -1503,7 +1504,7 @@
         kind,
         notes: "",
         ...text2,
-        ...statblock ? { type: statblock.type, stats: statblock.abilities, ca: parseInt(vital("CA"), 10) || null, pvMax: parseInt(vital("PV"), 10) || null, speed: vital("Vitesse"), features: statblock.features } : {}
+        ...statblock ? { type: statblock.type, stats: statblock.abilities, ca: figure(vital("CA")), pvMax: figure(vital("PV")), speed: vital("Vitesse"), features: statblock.features } : {}
       });
       entry.status = "created";
       entry.entity = id;

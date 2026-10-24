@@ -190,7 +190,7 @@
       sheet.pvMax === null ? "" : `<li class="kit-statblock__vital"><strong>PV</strong> <span>${sheet.pvMax}</span></li>`
     ].join("");
     const abilities = sheet.abilities.map(
-      (a) => `<li class="kit-statblock__ability"><span class="kit-statblock__abbr">${a.key}</span><span class="kit-statblock__score">${a.score ?? 10}</span>${a.modifier === null ? "" : `<span class="kit-statblock__mod">${signed(a.modifier)}</span>`}</li>`
+      (a) => `<li class="kit-statblock__ability"><span class="kit-statblock__abbr">${a.key}</span><span class="kit-statblock__score">${a.score ?? "\u2014"}</span>${a.modifier === null ? "" : `<span class="kit-statblock__mod">${signed(a.modifier)}</span>`}</li>`
     ).join("");
     const features = sheet.features.map((f) => `<li class="kit-statblock__feature"><strong>${esc(f.name)}.</strong> ${esc(f.text)}</li>`).join("");
     return `<div class="kit-statblock"><div class="kit-statblock__rule"></div><div class="kit-statblock__body"><h3 class="kit-statblock__name">${esc(name)}</h3><ul class="kit-statblock__vitals">${vitals}</ul><ul class="kit-statblock__abilities">${abilities}</ul><ul class="kit-statblock__features">${features}</ul></div></div>`;
@@ -300,6 +300,7 @@
     let views = /* @__PURE__ */ new Map();
     let busy = false;
     let loading = 0;
+    let generation = 0;
     const timers = /* @__PURE__ */ new Map();
     const viewOf = (id) => {
       let view = views.get(id);
@@ -364,11 +365,15 @@
       if (campaign === "") return fail("Aucune campagne choisie.");
       const view = viewOf(item.id);
       busy = true;
+      const mine = generation;
       stopMic(item.id);
+      view.mic = "idle";
+      view.seconds = 0;
       view.outcome = { kind: "busy", text: refinement === null ? "Cr\xE9ation depuis le brief\u2026" : "Proposition en cours\u2026" };
       paint();
       try {
         const state = await send(item, refinement);
+        if (mine !== generation) return;
         if (state.status === "rejected") {
           view.outcome = { kind: "error", text: `Cr\xE9ation refus\xE9e : ${reasons(state.violations)}.` };
         } else if (state.status !== "applied") {
@@ -377,11 +382,14 @@
           view.outcome = null;
           view.refining = false;
           view.typed = "";
-          if (!await refresh()) view.outcome = { kind: "error", text: "L\u2019\xE9l\xE9ment a \xE9t\xE9 cr\xE9\xE9, mais la liste n\u2019a pas pu \xEAtre relue." };
+          const read2 = await refresh();
+          if (mine !== generation) return;
+          if (!read2) view.outcome = { kind: "error", text: "L\u2019\xE9l\xE9ment a \xE9t\xE9 cr\xE9\xE9, mais la liste n\u2019a pas pu \xEAtre relue." };
           const made = all.find((candidate) => candidate.id === item.id);
           if (made?.entity) {
             try {
-              view.proposal = parseProposal((await shell2.capability(GET_ENTITY, void 0, { id: made.entity })).data);
+              const proposed = parseProposal((await shell2.capability(GET_ENTITY, void 0, { id: made.entity })).data);
+              if (mine === generation) view.proposal = proposed;
             } catch {
               view.proposal = null;
             }
@@ -454,8 +462,9 @@ ${heard}`;
     });
     paint();
     load();
-    shell2.onDataVersion?.(() => {
-      if (!busy && host2.isConnected) load();
+    const unsubscribe = shell2.onDataVersion?.(() => {
+      if (!host2.isConnected) return unsubscribe?.();
+      if (!busy) load();
     });
     return {
       update(next) {
@@ -463,6 +472,7 @@ ${heard}`;
         session = textOf(next, "session");
         if (chosen !== campaign) {
           campaign = chosen;
+          generation += 1;
           all = [];
           views = /* @__PURE__ */ new Map();
           for (const id of [...timers.keys()]) stopMic(id);
@@ -1404,6 +1414,7 @@ ${heard}`;
       const entities = await server.load("entities");
       const list = { pnj: entities.characters, lieu: entities.places, evenement: entities.events }[kind];
       const id = `${entry.id.replace(/^tc-/, "")}-${server.uuid().slice(0, 8)}`;
+      const figure2 = (value) => Number.isNaN(parseInt(value, 10)) ? null : parseInt(value, 10);
       const vital = (label) => statblock2?.vitals?.find((v) => v.label === label)?.value;
       list.push({
         id,
@@ -1412,7 +1423,7 @@ ${heard}`;
         kind,
         notes: "",
         ...text2,
-        ...statblock2 ? { type: statblock2.type, stats: statblock2.abilities, ca: parseInt(vital("CA"), 10) || null, pvMax: parseInt(vital("PV"), 10) || null, speed: vital("Vitesse"), features: statblock2.features } : {}
+        ...statblock2 ? { type: statblock2.type, stats: statblock2.abilities, ca: figure2(vital("CA")), pvMax: figure2(vital("PV")), speed: vital("Vitesse"), features: statblock2.features } : {}
       });
       entry.status = "created";
       entry.entity = id;
