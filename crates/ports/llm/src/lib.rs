@@ -21,6 +21,13 @@
 //!   the notes that justify the proposal. `ai.extractFromNotes` parses it; the
 //!   fake answers it ([`fake`] says how) and an adapter's prompt asks the model
 //!   for the same shape.
+//! - **The answer to a [`TextKind::Brief`] request** is one JSON object, no
+//!   prose around it: `{"scenes":[{"title":"…","notes":"…","elements":[{"type":"pnj","name":"…","excerpt":"…"}]}]}`,
+//!   the scenes in the order they play, `notes` the words of the brief the
+//!   scene holds, each element named as the brief names it, `type` being
+//!   `pj`, `pnj`, `lieu` or `evenement`, `excerpt` the words of the brief
+//!   that say something of it. `ai.analyzeBrief` parses it; the fake answers
+//!   it ([`fake`] says how).
 //! - **[`contract`]** is the suite every adapter passes, run against itself
 //!   from its own tests.
 //!
