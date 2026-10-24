@@ -66,12 +66,13 @@ fn r101_default_token_image() {
                 }
             }
 
-            // A portrait is added and cropped: the tokens show that crop.
+            // A portrait (an illustration of the campaign) is added and cropped: the tokens show that crop.
+            let portrait = new_illustration(s, &campaign)?;
             let crop = json!({ "zoom": 150, "x": 40, "y": 30 });
             apply(
                 s,
                 "campaign.saveEntity",
-                json!({ "campaign": campaign, "entity": { "id": id, "portrait": true, "crop": crop } }),
+                json!({ "campaign": campaign, "entity": { "id": id, "portrait": portrait, "crop": crop } }),
                 None,
             )?;
             for view in ["dm", "player"] {
