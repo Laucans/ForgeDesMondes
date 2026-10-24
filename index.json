@@ -14,6 +14,7 @@
     "milestone/24-oral-brief-scenes-updated-npcs-and-the-to-create-list": "f607906109377f915fe94e59b1846657022fe40e",
     "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "24240292f1833fdc6ead6cb28403549f49622845",
     "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "80786b6a06a4ebc6e121302ad81eee96bb283822",
+    "milestone/27-live-microphone-and-suggestions": "a3823e4efc322799a3192fddd788dbaa1bbd0443",
     "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "7e2a839b33ddc25925f9c287251e81f610d2c996",
     "milestone/29-dm-view-elements-panel-and-table-sheet": "6dd5fc970cd3dcde8493057d24ff1296df50a1b2",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
@@ -329,6 +330,14 @@
       "sha": "bbd5e1574b1e85846801688242d4275059ed7909",
       "at": "2026-10-24T16:18:30Z",
       "dir": "milestone/24-oral-brief-scenes-updated-npcs-and-the-to-create-list/20261024T161830Z-bbd5e15",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/27-live-microphone-and-suggestions",
+      "sha": "a3823e4efc322799a3192fddd788dbaa1bbd0443",
+      "at": "2026-10-24T20:11:37Z",
+      "dir": "milestone/27-live-microphone-and-suggestions/20261024T201137Z-a3823e4",
       "schema": true,
       "model": true
     }
