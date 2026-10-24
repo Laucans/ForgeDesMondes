@@ -24,7 +24,8 @@
 //!   an element stays in its campaign, an id is a uuid, a score, the AC and
 //!   the HP max are integers a `smallint` holds, and no value holds the
 //!   character U+0000 — every cast of the projection then succeeds;
-//! - the version is the next one (EntityVersion@1, source `dm`): its number,
+//! - the version is the next one (EntityVersion@1): its source — `dm`
+//!   unless the save names `brief` or `ia`, any other refused — its number,
 //!   the complete snapshot of the element as the save leaves it, and the diff
 //!   from the previous snapshot. [`versioned`] computes it from the row before
 //!   and the row after, here against the row the queue will have left; the
@@ -47,8 +48,14 @@ pub const DATA_CAPABILITY: &str = "campaign.saveEntity";
 /// This DataCapability's manifest (contract F), as the engine parses it.
 pub const MANIFEST: &str = include_str!("../data-capability.json");
 
-/// Where a save by the DM comes from (EntityVersion@1).
+/// Where a save by the DM comes from (EntityVersion@1): the source of a
+/// save that names none.
 pub const SOURCE: &str = "dm";
+
+/// The sources a save may name (EntityVersion@1): the DM's edit, the brief's
+/// analysis, the AI's. A restoration or a D&D Beyond resync is another
+/// DataCapability's.
+const SOURCES: [&str; 3] = [SOURCE, "brief", "ia"];
 
 /// The colour a new PC's or NPC's token falls back on when the DM gave none
 /// (`default-token`: a sheet has one).
@@ -222,6 +229,8 @@ pub enum Refusal {
     Nul(String),
     /// The aliases given are not a list: `null` would erase them all.
     NotAliases,
+    /// The source named is none a save may name: `dm`, `brief` or `ia`.
+    NotASource,
 }
 
 impl std::fmt::Display for Refusal {
@@ -237,6 +246,7 @@ impl std::fmt::Display for Refusal {
             }
             Self::Nul(field) => write!(f, "{field} contient un caractère nul"),
             Self::NotAliases => f.write_str("les alias sont une liste"),
+            Self::NotASource => f.write_str("la source est dm, brief ou ia"),
         }
     }
 }
@@ -314,6 +324,15 @@ impl engine::Prepare for Save {
     }
 }
 
+/// The source a save names, [`SOURCE`] when it names none.
+fn source_of(wire: &Row) -> Result<&str, Refusal> {
+    match wire.get("source") {
+        None | Some(Value::Null) => Ok(SOURCE),
+        Some(Value::String(source)) if SOURCES.contains(&source.as_str()) => Ok(source),
+        Some(_) => Err(Refusal::NotASource),
+    }
+}
+
 /// The fields the editor sends: under `entity`, or the payload itself.
 fn entity_of(wire: &Row) -> Map<String, Value> {
     match wire.get("entity") {
@@ -379,6 +398,7 @@ fn kind_of(entity: &Map<String, Value>) -> Result<Option<&Value>, Refusal> {
 ///
 /// [`Refusal`] for a save the tables could never hold.
 pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Result<Prepared, Refusal> {
+    let source = source_of(wire)?;
     let entity = entity_of(wire);
     let id = fresh.entity.to_owned();
     let mut payload = Row::new();
@@ -480,7 +500,7 @@ pub fn prepare(wire: &Row, base: &Row, fresh: Fresh<'_>) -> Result<Prepared, Ref
         ("entityVersionEntityId", id.clone().into()),
         ("entityVersionId", fresh.version.into()),
         ("entityVersionCreatedAt", fresh.now.into()),
-        ("source", SOURCE.into()),
+        ("source", source.into()),
         // A save restores nothing, whatever the last version did.
         ("restoredFromVersionId", Value::Null),
     ] {
