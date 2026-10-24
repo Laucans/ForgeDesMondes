@@ -5,10 +5,11 @@
     <div class="pv-window__art" id="player-window-art" data-reads="media.listMedia"></div>
     <span class="pv-window__resize" id="player-window-resize" data-writes="live.resizeWindow" aria-hidden="true"></span>
   </figure>
-  <p class="pv-pilot" id="player-pilot-badge" hidden>Vue pilotée par le MJ · déplacez les tokens et la fenêtre, zoomez la carte</p>
+  <p class="pv-pilot" id="player-pilot-badge">Vue pilotée par le MJ · déplacez les tokens et la fenêtre, zoomez la carte</p>
+  <p class="pv-status" id="player-status" role="status" hidden></p>
 </div>
 <style>
-  .pv { position: relative; width: 100%; height: 100%; min-height: calc(var(--space-5) * 12); overflow: hidden; background: var(--color-surface); }
+  .pv { box-sizing: border-box; position: relative; width: 100%; height: 100%; min-height: calc(var(--space-5) * 12); overflow: hidden; background: var(--color-surface); }
   .pv-base, .pv-map { position: absolute; inset: 0; }
   .pv-cover { position: absolute; inset: 0; }
   .pv-cover .art__glyph { font-size: calc(var(--font-size-heading) * 4); opacity: 0.35; }
@@ -18,99 +19,21 @@
   .pv-scene { position: absolute; inset: var(--space-4); display: grid; place-items: center; }
   .pv-scene__art { height: 100%; max-width: 100%; border-radius: var(--radius-large); overflow: hidden; box-shadow: var(--shadow-high); }
   .pv-scene__art .art__glyph { font-size: calc(var(--font-size-heading) * 3); }
-  .pv-window { position: absolute; z-index: 20; margin: 0; display: grid; background: var(--color-surface-2); border: calc(var(--border-width) * 2) solid var(--color-accent); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); overflow: hidden; }
-  .pv-window__bar { padding: var(--space-1) var(--space-3); font-size: var(--font-size-small); font-family: var(--font-family-heading); text-transform: uppercase; color: var(--color-accent); background: var(--color-surface); }
-  .pv-window__art { width: 100%; }
-  .pv-window__resize { display: none; position: absolute; right: 0; bottom: 0; width: var(--space-4); height: var(--space-4); background: linear-gradient(135deg, transparent 50%, var(--color-accent) 50%); cursor: nwse-resize; }
-  .pv--pilot .pv-window__bar { cursor: move; }
-  .pv--pilot .pv-window__resize { display: block; }
+  .pv-window { position: absolute; z-index: 20; margin: 0; display: block; background: var(--color-surface-2); border: calc(var(--border-width) * 2) solid var(--color-accent); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); overflow: hidden; touch-action: none; }
+  .pv-window__bar { position: absolute; top: 0; left: 0; right: 0; z-index: 1; padding: var(--space-1) var(--space-3); font-size: var(--font-size-small); font-family: var(--font-family-heading); text-transform: uppercase; color: var(--color-accent); background: color-mix(in srgb, var(--color-surface) 85%, transparent); cursor: move; user-select: none; }
+  .pv-window__art { position: absolute; inset: 0; }
+  .pv-window__resize { position: absolute; z-index: 1; right: 0; bottom: 0; width: var(--space-4); height: var(--space-4); background: linear-gradient(135deg, transparent 50%, var(--color-accent) 50%); cursor: nwse-resize; }
   .pv-pilot { position: absolute; left: var(--space-3); bottom: var(--space-3); z-index: 30; padding: var(--space-1) var(--space-3); background: var(--color-primary); color: var(--color-primary-contrast); border-radius: var(--radius-pill); font-size: var(--font-size-small); font-weight: var(--font-weight-heading); }
+  .pv-status { position: absolute; left: var(--space-3); bottom: calc(var(--space-3) + var(--space-5)); z-index: 30; padding: var(--space-1) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-danger); color: var(--color-danger); border-radius: var(--radius-medium); font-size: var(--font-size-small); }
+  .pv-status[hidden], .pv-window[hidden] { display: none; }
   .pv-map .bm-carousel { position: absolute; top: var(--space-3); left: 50%; transform: translateX(-50%); z-index: 10; max-width: calc(100% - var(--space-5)); }
 </style>
 <script>
+// The Micro-UI's real code (apps/live/player-stage), bundled by mock/build.sh: it fills the stage on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const props = Mock.props(root);
-  const PILOT = !!props.pilot || Mock.param('pilote') === '1';
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  let data, media, DEFAULT, baseKey = null, dragging = false;
-
-  const illus = id => media.illustrations.find(i => i.id === id);
-  function renderBase(b) {
-    const key = b.kind + ':' + (b.id || '');
-    if (key === baseKey) return;
-    baseKey = key;
-    const box = $('#player-base');
-    if (b.kind === 'battlemap') {
-      box.innerHTML = `<div class="pv-map" id="player-map" data-component="Battlemap" data-props="${esc(JSON.stringify({ instance: b.id, view: 'player', pilot: PILOT, fill: true }))}"></div>`;
-    } else if (b.kind === 'illustration' && illus(b.id)) {
-      const i = illus(b.id);
-      box.innerHTML = `<div class="pv-scene" id="player-scene"><div class="pv-scene__art" style="aspect-ratio: ${i.ratio}">${Mock.art({ art: i.art, glyph: i.glyph, title: i.title })}</div></div>`;
-    } else {
-      const c = illus(data.campaign.cover) || { art: 'ember', glyph: '' };
-      box.innerHTML = `<div class="pv-cover" id="player-cover" data-reads="campaign.getCampaign">${Mock.art({ art: c.art, glyph: c.glyph, title: 'Couverture de la campagne' })}<div class="pv-cover__title"><h1 id="player-cover-title">${esc(data.campaign.name)}</h1><p>Séance ${data.session.order} — ${esc(data.session.title)}</p></div></div>`;
-    }
-    Mock.mount(box);
-  }
-  function renderWindow(w) {
-    const win = $('#player-window');
-    if (dragging) return;
-    if (!w || !illus(w.id)) { win.hidden = true; return; }
-    const i = illus(w.id), W = root.clientWidth, H = root.clientHeight;
-    win.hidden = false;
-    win.style.left = (w.x * W) + 'px';
-    win.style.top = (w.y * H) + 'px';
-    win.style.width = (w.w * W) + 'px';
-    $('#player-window-bar').textContent = i.title;
-    $('#player-window-art').style.aspectRatio = i.ratio;
-    $('#player-window-art').innerHTML = Mock.art({ art: i.art, glyph: i.glyph, title: i.title });
-  }
-  function render(d) {
-    d = d || Mock.clone(DEFAULT);
-    renderBase(d.base || DEFAULT.base);
-    renderWindow(d.window);
-  }
-
-  if (PILOT) {
-    root.querySelector('.pv').classList.add('pv--pilot');
-    $('#player-pilot-badge').hidden = false;
-    const win = $('#player-window');
-    let start = null;
-    win.addEventListener('pointerdown', e => {
-      const mode = e.target.closest('#player-window-resize') ? 'resize' : e.target.closest('#player-window-bar') ? 'move' : null;
-      if (!mode) return;
-      e.preventDefault();
-      dragging = true;
-      start = { mode, x: e.clientX, y: e.clientY, left: win.offsetLeft, top: win.offsetTop, width: win.offsetWidth };
-      win.setPointerCapture(e.pointerId);
-    });
-    win.addEventListener('pointermove', e => {
-      if (!start) return;
-      const dx = e.clientX - start.x, dy = e.clientY - start.y;
-      if (start.mode === 'move') { win.style.left = (start.left + dx) + 'px'; win.style.top = (start.top + dy) + 'px'; }
-      else win.style.width = Math.max(root.clientWidth * 0.12, start.width + Math.max(dx, dy)) + 'px';
-    });
-    win.addEventListener('pointerup', () => {
-      if (!start) return;
-      const mode = start.mode;
-      start = null;
-      dragging = false;
-      const d = Mock.store.get('diffusion', DEFAULT);
-      if (!d.window) return;
-      const W = root.clientWidth, H = root.clientHeight;
-      d.window.x = win.offsetLeft / W; d.window.y = win.offsetTop / H; d.window.w = win.offsetWidth / W;
-      Mock.store.set('diffusion', d);
-      Mock.command(mode === 'move' ? 'live.moveWindow' : 'live.resizeWindow', d.window, { label: mode === 'move' ? 'Déplacer la fenêtre d’illustration' : 'Redimensionner la fenêtre (proportions gardées)' });
-    });
-  }
-
-  Mock.store.on('diffusion', d => { if (data) render(d); });
-  window.addEventListener('resize', () => { if (data) renderWindow((Mock.store.get('diffusion', DEFAULT) || {}).window); });
-
-  Mock.fixture(['fixtures/PlayerStage.json', 'fixtures/media.json']).then(([d, m]) => {
-    data = d; media = m; DEFAULT = d.diffusion;
-    render(Mock.store.get('diffusion', DEFAULT));
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/PlayerStage.js';
+  root.appendChild(bundle);
 })();
 </script>

@@ -88,6 +88,7 @@
     },
     {
       "path": "pages/player-view.html",
+      "screen": "player-view",
       "title": "Player view",
       "objective": "Les joueurs voient la couverture, la battlemap ou l’illustration envoyée par le DM ; dans l’onglet piloté, le DM y déplace tokens et fenêtre et cadre la carte",
       "components": [
@@ -132,7 +133,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "45472efedc301545"
+      "builtFrom": "bbeb482205558bb3"
     },
     {
       "name": "CampaignOverview",
@@ -152,7 +153,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "92989d1d29f4f017"
+      "builtFrom": "d34c4e1cfd1a1151"
     },
     {
       "name": "SessionList",
@@ -174,7 +175,7 @@
         "campaign": "string — id de la campagne dont on liste les séances"
       },
       "source": "apps/session/session-list",
-      "builtFrom": "e47f153c3bebcf84"
+      "builtFrom": "80cbbb6ec1299b4a"
     },
     {
       "name": "CampaignElements",
@@ -221,7 +222,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "536748078e4d298b"
+      "builtFrom": "c7e19a6c02b927f5"
     },
     {
       "name": "ToCreateList",
@@ -285,7 +286,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "4fca7445814fd49b"
+      "builtFrom": "b4c20560ae8cb365"
     },
     {
       "name": "PreviousSummary",
@@ -303,7 +304,7 @@
       "actions": [],
       "props": {},
       "source": "apps/session/previous-summary",
-      "builtFrom": "da20d66c788a3545"
+      "builtFrom": "d1073d6a7cbdabb3"
     },
     {
       "name": "OralBrief",
@@ -349,12 +350,12 @@
       ],
       "props": {},
       "source": "apps/session/scene-board",
-      "builtFrom": "63628ae913e5a07c"
+      "builtFrom": "d970e85df37e3632"
     },
     {
       "name": "Battlemap",
       "system": "table",
-      "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », instances × N, fiche d’instance, combat et carrousel d’initiative",
+      "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », personnages déposés × N, fiche du token (renommer, cacher, état, PV, retirer), combat avec son carrousel d’initiative (Suivant, réordonner, ajouter, retirer, terminer), réinitialisation de la carte et envoi aux joueurs ; en player view, seulement ce que les joueurs peuvent voir",
       "fragment": "components/Battlemap.html",
       "fixtures": [
         "fixtures/table.getBattlemapInstance.json",
@@ -373,6 +374,7 @@
         "table.renameToken",
         "table.setTokenVisibility",
         "table.setTokenCondition",
+        "live.showOnPlayerView",
         "table.changeHitPoints",
         "table.startCombat",
         "table.nextTurn",
@@ -380,15 +382,17 @@
         "table.addParticipant",
         "table.removeParticipant",
         "table.endCombat",
-        "table.resetBattlemap",
-        "live.showOnPlayerView"
+        "table.resetBattlemap"
       ],
       "props": {
         "instance": "string — id de l’instance de battlemap",
         "view": "\"dm\" | \"prep\" | \"player\"",
         "pilot": "boolean — onglet player view piloté par le DM",
-        "fill": "boolean — occupe tout l’écran"
-      }
+        "fill": "boolean — occupe tout l’écran",
+        "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
+      },
+      "source": "apps/table/battlemap",
+      "builtFrom": "b1939cde9bc4e4af"
     },
     {
       "name": "MediaLibrary",
@@ -416,7 +420,7 @@
         "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
       },
       "source": "apps/media/media-library",
-      "builtFrom": "ac369115a9b8cbbd"
+      "builtFrom": "9d4fb783e3dcc49b"
     },
     {
       "name": "GridSettings",
@@ -436,7 +440,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "22c8a600ba578f6e"
+      "builtFrom": "2f0a8ef4c9759ec8"
     },
     {
       "name": "SoundLibrary",
@@ -458,7 +462,7 @@
         "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
       },
       "source": "apps/soundbox/sound-library",
-      "builtFrom": "e81cfbb9ce10c714"
+      "builtFrom": "056a9179a90fcb7a"
     },
     {
       "name": "LiveSessionBar",
@@ -486,7 +490,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "08e15e25fc5c1ea0"
+      "builtFrom": "b18a6a409ad37076"
     },
     {
       "name": "ElementsPanel",
@@ -554,7 +558,7 @@
       ],
       "props": {},
       "source": "apps/soundbox/live-soundbox",
-      "builtFrom": "ec7b9ec5fe7b3c03"
+      "builtFrom": "245958bc08fe069d"
     },
     {
       "name": "SuggestionPill",
@@ -593,8 +597,11 @@
         "live.resizeWindow"
       ],
       "props": {
-        "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse"
-      }
+        "pilot": "boolean — onglet piloté par le DM, aussi ?pilote=1 dans l’adresse",
+        "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
+      },
+      "source": "apps/live/player-stage",
+      "builtFrom": "3ea71015e73bbb6f"
     }
   ]
 }
