@@ -222,26 +222,102 @@ pub fn new_instance(
         .ok_or_else(|| format!("the scene {scene} has no battlemap instance"))
 }
 
-/// Uploads a battlemap into a campaign and answers its id: an instance takes
-/// a battlemap of its session's campaign only.
-pub fn new_battlemap(s: &Server, campaign: &str) -> Result<String, String> {
-    let title = unique("Battlemap de test");
+/// Uploads a media of a kind (`battlemap` or `illustration`) into a campaign
+/// and answers its id.
+fn upload(s: &Server, campaign: &str, kind: &str) -> Result<String, String> {
+    let title = unique(&format!("Média {kind} de test"));
     apply(
         s,
         "media.uploadMedia",
-        json!({ "campaign": campaign, "kind": "battlemap", "title": title, "width": 900, "height": 600 }),
+        json!({ "campaign": campaign, "kind": kind, "title": title, "width": 900, "height": 600 }),
         None,
     )?;
     let data = s.read("media.listMedia", json!({ "campaign": campaign }))?;
-    by_name_or_title(&items(&data, "battlemaps"), &title)
-        .ok_or_else(|| format!("the battlemap {title} is not listed"))
+    let key = if kind == "battlemap" {
+        "battlemaps"
+    } else {
+        "illustrations"
+    };
+    by_name_or_title(&items(&data, key), &title)
+        .ok_or_else(|| format!("the {kind} {title} is not listed"))
 }
 
-/// A battlemap instance of its own, on the fixtures' battlemap, in a new session.
-pub fn fresh_instance(s: &Server, present: &[&str]) -> Result<String, String> {
-    let session = new_session(s, CAMPAIGN, present)?;
+/// Uploads a battlemap into a campaign and answers its id: an instance takes
+/// a battlemap of its session's campaign only.
+pub fn new_battlemap(s: &Server, campaign: &str) -> Result<String, String> {
+    upload(s, campaign, "battlemap")
+}
+
+/// Uploads an illustration into a campaign and answers its id: the media a
+/// portrait is.
+pub fn new_illustration(s: &Server, campaign: &str) -> Result<String, String> {
+    upload(s, campaign, "illustration")
+}
+
+/// The characters a test made of its own, by the slug of the fixture each
+/// copies: a command takes stored ids, never the fixtures' slugs (D8 renames
+/// reads only).
+pub struct Cast(Vec<(String, String)>);
+
+impl Cast {
+    /// The id of the character copied from the fixture `slug`.
+    pub fn id(&self, slug: &str) -> &str {
+        self.0
+            .iter()
+            .find(|(s, _)| s == slug)
+            .map_or("", |(_, id)| id.as_str())
+    }
+}
+
+/// Copies the fixtures' characters `slugs` into a campaign: same kind, name,
+/// scores, armour class, hit points and colour.
+pub fn new_cast(s: &Server, campaign: &str, slugs: &[&str]) -> Result<Cast, String> {
+    let fixtures = items(&fixture("entities"), "characters");
+    let mut cast = Vec::new();
+    for slug in slugs {
+        let source = by_id(&fixtures, slug).ok_or_else(|| format!("no fixture named {slug}"))?;
+        let fields = json!({
+            "name": source["name"],
+            "stats": source["stats"],
+            "ca": source["ca"],
+            "pvMax": source["pvMax"],
+            "color": source["color"],
+        });
+        let id = new_character(s, campaign, text(source, "kind"), fields)?;
+        cast.push(((*slug).to_string(), id));
+    }
+    Ok(Cast(cast))
+}
+
+/// A battlemap instance of its own, in a new session and scene of a
+/// campaign, on one of its battlemaps, with `present` at the session.
+pub fn instance_in(
+    s: &Server,
+    campaign: &str,
+    battlemap: &str,
+    present: &[&str],
+) -> Result<String, String> {
+    let session = new_session(s, campaign, present)?;
     let scene = new_scene(s, &session, json!({}))?;
-    new_instance(s, &session, &scene, "bm-gue")
+    new_instance(s, &session, &scene, battlemap)
+}
+
+/// A battlemap instance of its own, in a campaign and a battlemap of its
+/// own, with the fixtures' characters `slugs` copied in; the PJ among them
+/// are present at the session.
+pub fn fresh_instance(s: &Server, slugs: &[&str]) -> Result<(String, Cast), String> {
+    let campaign = new_campaign(s, "campagne")?;
+    let cast = new_cast(s, &campaign, slugs)?;
+    let fixtures = items(&fixture("entities"), "characters");
+    let present: Vec<&str> = slugs
+        .iter()
+        .copied()
+        .filter(|slug| by_id(&fixtures, slug).is_some_and(|c| text(c, "kind") == "pj"))
+        .map(|slug| cast.id(slug))
+        .collect();
+    let battlemap = new_battlemap(s, &campaign)?;
+    let map = instance_in(s, &campaign, &battlemap, &present)?;
+    Ok((map, cast))
 }
 
 /// Places `count` tokens of a character on an instance.
