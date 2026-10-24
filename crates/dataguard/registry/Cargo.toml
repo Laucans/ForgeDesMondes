@@ -74,6 +74,7 @@ ignored = [
     "reset-battlemap",
     "resize-window",
     "restore-entity-version",
+    "resync-character",
     "save-entity",
     "save-grid-settings",
     "save-settings",
@@ -155,6 +156,7 @@ reorder-scenes = { path = "../../session/data-capabilities/reorder-scenes" }
 reset-battlemap = { path = "../../table/data-capabilities/reset-battlemap" }
 resize-window = { path = "../../live/data-capabilities/resize-window" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
+resync-character = { path = "../../dndbeyond/data-capabilities/resync-character" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 save-settings = { path = "../../ai/data-capabilities/save-settings" }

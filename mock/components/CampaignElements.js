@@ -1632,17 +1632,24 @@
       await changedBy(server, element, patch, "ia", "Prompt initial", element.kind === "pnj" ? proposal.changes : proposal.changes.slice(0, 1));
       return void 0;
     },
-    // dndbeyond.resyncCharacter (crates/dndbeyond/data-capabilities/resync-character, planned): the
-    // stats and hit points of a PC linked to D&D Beyond are read again — the patch of
-    // fixtures/EntityEditor.json, whose changes the history keeps — and the aliases, the notes and the token are left as they are
-    // (`dndbeyond-resync-scope`). A sheet with no link is refused.
+    // dndbeyond.resyncCharacter (crates/dndbeyond/data-capabilities/resync-character): the stats,
+    // hit points and spells of a PC linked to D&D Beyond are read again — the patch of
+    // fixtures/EntityEditor.json, and the spells its « Sorts et capacités » line adds, as the
+    // character-sheets fake plays the level-up — whose changes the history keeps; the aliases, the
+    // notes and the token are left as they are (`dndbeyond-resync-scope`). A sheet with no link is
+    // refused.
     "dndbeyond.resyncCharacter": async (server, { targetId }) => {
       const { element } = await elementOf(server, targetId);
       if (!element || !element.ddb || !element.ddb.url) return ["not-found"];
       const { ddbResync } = await server.load("EntityEditor");
       const resync = ddbResync[element.id] || ddbResync.default;
       const { stats, pvMax } = resync.patch;
-      await changedBy(server, element, { ...stats ? { stats: { ...element.stats, ...stats } } : {}, ...pvMax ? { pvMax } : {}, ddb: { ...element.ddb, syncedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) } }, "dndbeyond", "Resynchronisation D&D Beyond", resync.changes.filter((c) => c.field === "PV max" || stats && c.field in stats));
+      const spells = resync.changes.find((c) => c.field === "Sorts et capacit\xE9s");
+      const names = (line) => line.split(",").map((name) => name.trim()).filter(Boolean);
+      const known = (element.features || []).map((f) => f.name);
+      const gained = spells ? names(spells.new).filter((name) => !names(spells.old).includes(name) && !known.includes(name)) : [];
+      const features = gained.length ? { features: [...element.features || [], ...gained.map((name) => ({ name, text: "Ajout\xE9 \xE0 la fiche D&D Beyond lors de la mont\xE9e de niveau." }))] } : {};
+      await changedBy(server, element, { ...stats ? { stats: { ...element.stats, ...stats } } : {}, ...pvMax ? { pvMax } : {}, ...features, ddb: { ...element.ddb, syncedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) } }, "dndbeyond", "Resynchronisation D&D Beyond", resync.changes.filter((c) => c.field === "PV max" || c.field === "Sorts et capacit\xE9s" && gained.length || stats && c.field in stats));
       return void 0;
     },
     // dndbeyond.importCharacter (crates/dndbeyond/data-capabilities/import-character): a D&D
