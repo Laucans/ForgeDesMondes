@@ -848,8 +848,8 @@
     "campaign.saveEntity": {
       "kind": "data-capability",
       "producer": 18,
-      "state": "built",
-      "version": 1
+      "state": "evolving",
+      "version": 2
     },
     "dndbeyond.importCharacter": {
       "kind": "data-capability",
