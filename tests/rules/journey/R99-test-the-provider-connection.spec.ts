@@ -25,5 +25,10 @@ rule('R99', ['screen:parametres-ia', 'micro-ui:AiSettings'], "Tester la connexio
   await expect(ai.getByText(/reconnu|échou|refus|invalide|injoignable/i).first()).toBeVisible();
   await expect(ai.getByText(/Connexion réussie/)).toBeHidden();
   await page.reload();
-  await expect(component(page, 'AiSettings').getByLabel('URL de l’API')).not.toHaveValue(/inconnu\.example\.org/);
+  // The page shows what is saved, whichever provider that is (another journey may have saved a binary):
+  // the settings are loaded once the form is unlocked, then the « API » form is looked at, whatever was saved.
+  const reloaded = component(page, 'AiSettings');
+  await expect(reloaded.getByRole('radio', { name: /^API/ })).toBeEnabled();
+  await reloaded.getByRole('radio', { name: /^API/ }).check();
+  await expect(reloaded.getByLabel('URL de l’API')).not.toHaveValue(/inconnu\.example\.org/);
 });
