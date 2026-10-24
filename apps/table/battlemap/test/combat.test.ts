@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { mount, type Timing } from '../src/index.ts';
 import type { Shell } from '../src/types.ts';
+import { assertDeclared } from './manifests.ts';
 
 const fixtureOf = (name: string): unknown => JSON.parse(readFileSync(new URL(`../../../../mock/fixtures/${name}.json`, import.meta.url), 'utf8'));
 
@@ -86,6 +87,7 @@ function fakeShell(options: { combat?: Combat | null; tokens?: (all: Raw[]) => R
     async command(body) {
       const command = body as Sent;
       sent.push(command);
+      assertDeclared(command);
       const { payload } = command;
       const combat = table.state.combat;
       switch (command.dataCapability.replace(/@\d+$/, '')) {
@@ -110,20 +112,23 @@ function fakeShell(options: { combat?: Combat | null; tokens?: (all: Raw[]) => R
           break;
         case 'table.reorderInitiative': {
           if (!combat) break;
-          const [moved] = combat.order.splice(
-            combat.order.findIndex((o) => o.id === payload.token),
-            1,
-          );
-          combat.order.splice(Number(payload.position), 0, moved as Order);
+          combat.order = (payload.order as string[]).map((id) => combat.order.find((o) => o.id === id) as Order);
           break;
         }
         case 'table.addParticipant':
-          combat?.order.push({ id: String(payload.token), init: Number(payload.initiative ?? payload.roll), dex: 0 });
+          combat?.order.push({ id: String(payload.token), init: Number(payload.initiative ?? 10), dex: 0 });
           break;
         case 'table.removeParticipant':
           if (!combat) break;
-          if (combat.current === payload.token) advance(combat);
-          combat.order = combat.order.filter((o) => o.id !== payload.token);
+          // The table refuses the participant that holds the turn: the caller passes it on first.
+          if (combat.current === payload.participant) return { commandId: `c${sent.length}`, result: { status: 'rejected', violations: ['next-turn'] } };
+          combat.order = combat.order.filter((o) => o.id !== payload.participant);
+          break;
+        case 'table.removeToken':
+          // The turn is nobody's once its token is gone: the table asks the caller to pass it on first.
+          if (combat?.current === payload.token) return { commandId: `c${sent.length}`, result: { status: 'rejected', violations: ['next-turn'] } };
+          table.state.tokens = table.state.tokens.filter((t) => t.id !== payload.token);
+          if (combat) combat.order = combat.order.filter((o) => o.id !== payload.token);
           break;
         case 'table.endCombat':
           table.state.combat = null;
@@ -306,7 +311,7 @@ test('a participant dragged onto another takes its rank: table.reorderInitiative
   assert.equal(drop.defaultPrevented, true);
   await flush();
   assert.equal(fake.sent[0]?.dataCapability, 'table.reorderInitiative@1');
-  assert.deepEqual(fake.sent[0]?.payload, { token: 't-bandit-3', position: 1 });
+  assert.deepEqual(fake.sent[0]?.payload, { order: ['t-elowen', 't-bandit-3', 't-vesna-1', 't-bandit-1', 't-bandit-2'] });
   assert.deepEqual(carousel(), ['t-elowen', 't-bandit-3', 't-vesna-1', 't-bandit-1', 't-bandit-2']);
 });
 
@@ -324,9 +329,9 @@ test('the sheet’s « Avancer » and « Reculer » move the chosen participant 
   assert.equal($<HTMLButtonElement>('#combat-earlier').disabled, true, 'nobody chosen');
   await open('t-bandit-1');
   await click('#combat-earlier');
-  assert.deepEqual(fake.sent[0]?.payload, { token: 't-bandit-1', position: 1 });
+  assert.deepEqual(fake.sent[0]?.payload, { order: ['t-elowen', 't-bandit-1', 't-vesna-1', 't-bandit-2', 't-bandit-3'] });
   await click('#combat-later');
-  assert.deepEqual(fake.sent[1]?.payload, { token: 't-bandit-1', position: 2 });
+  assert.deepEqual(fake.sent[1]?.payload, { order: ['t-elowen', 't-vesna-1', 't-bandit-1', 't-bandit-2', 't-bandit-3'] });
   assert.deepEqual(carousel(), ['t-elowen', 't-vesna-1', 't-bandit-1', 't-bandit-2', 't-bandit-3']);
   await open('t-elowen');
   await click('#combat-earlier');
@@ -346,7 +351,7 @@ test('removing a participant, adding one back and ending the combat each submit 
   const { $, click, open, fake, carousel, document } = await battlemap({ view: 'dm' }, { combat: underWay() });
   await open('t-bandit-2');
   await click('#combat-drop');
-  assert.deepEqual([fake.sent[0]?.dataCapability, fake.sent[0]?.payload], ['table.removeParticipant@1', { token: 't-bandit-2' }]);
+  assert.deepEqual([fake.sent[0]?.dataCapability, fake.sent[0]?.payload], ['table.removeParticipant@1', { participant: 't-bandit-2' }]);
   assert.deepEqual(carousel(), ['t-elowen', 't-vesna-1', 't-bandit-1', 't-bandit-3']);
 
   const choices = Array.from(document.querySelectorAll('#combat-add-select option')).map((o) => (o as HTMLOptionElement).value);
@@ -355,7 +360,7 @@ test('removing a participant, adding one back and ending the combat each submit 
   $<HTMLSelectElement>('#combat-add-select').value = 't-bandit-2';
   await click('#combat-add');
   assert.equal(fake.sent[1]?.dataCapability, 'table.addParticipant@1');
-  assert.deepEqual(fake.sent[1]?.payload, { token: 't-bandit-2', roll: 10 }, 'an NPC rolls its d20');
+  assert.deepEqual(fake.sent[1]?.payload, { token: 't-bandit-2' }, 'an NPC is given no figure: the table rolls its d20');
   assert.ok(carousel().includes('t-bandit-2'));
 
   await click('#bm-end-combat');
@@ -371,11 +376,29 @@ test('a PC added to the combat carries the initiative the DM enters', async () =
   assert.deepEqual(fake.sent[0]?.payload, { token: 't-elowen', initiative: 16 });
 });
 
-test('the current participant removed hands the turn on', async () => {
-  const { $, click, open, fake } = await battlemap({ view: 'dm' }, { combat: underWay() });
+test('the current participant removed hands the turn on first: table.nextTurn, then table.removeParticipant', async () => {
+  const { $, click, open, fake, carousel } = await battlemap({ view: 'dm' }, { combat: underWay() });
   await open('t-elowen');
   await click('#combat-drop');
-  assert.equal(fake.sent[0]?.dataCapability, 'table.removeParticipant@1');
+  assert.deepEqual(fake.sent.map((c) => c.dataCapability), ['table.nextTurn@1', 'table.removeParticipant@1']);
+  assert.deepEqual(fake.sent[1]?.payload, { participant: 't-elowen' });
+  assert.ok($('#carousel-t-vesna-1').classList.contains('kit-token__item--current'));
+  assert.ok(!carousel().includes('t-elowen'));
+});
+
+test('a participant that does not hold the turn is removed with no table.nextTurn before it', async () => {
+  const { click, open, fake } = await battlemap({ view: 'dm' }, { combat: underWay() });
+  await open('t-bandit-1');
+  await click('#combat-drop');
+  assert.deepEqual(fake.sent.map((c) => c.dataCapability), ['table.removeParticipant@1']);
+});
+
+test('a token that holds the turn is taken off the map after table.nextTurn', async () => {
+  const { $, click, open, fake } = await battlemap({ view: 'dm' }, { combat: underWay() });
+  await open('t-elowen');
+  await click('[data-writes="table.removeToken"]');
+  assert.deepEqual(fake.sent.map((c) => c.dataCapability), ['table.nextTurn@1', 'table.removeToken@1']);
+  assert.deepEqual(fake.sent[1]?.payload, { token: 't-elowen' });
   assert.ok($('#carousel-t-vesna-1').classList.contains('kit-token__item--current'));
 });
 

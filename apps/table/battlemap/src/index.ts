@@ -408,16 +408,23 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   const reorder = (id: string, position: number): Promise<void> => {
     const combat = instance?.combat;
     if (!combat || position < 0 || position >= combat.order.length || combat.order[position]?.id === id) return Promise.resolve();
-    return act('Le réordonnancement', REORDER_INITIATIVE, { token: id, position }, () => {
-      combat.order = reordered(combat.order, id, position);
+    const order = reordered(combat.order, id, position);
+    return act('Le réordonnancement', REORDER_INITIATIVE, { order: order.map((p) => p.id) }, () => {
+      combat.order = order;
     });
   };
 
-  const removeParticipant = (id: string): Promise<void> => {
+  /** The turn is not taken from the one who holds it: it passes on first (table.nextTurn), then the participant or its token goes. */
+  const yieldTurn = async (id: string): Promise<void> => {
+    if (instance?.combat?.current === id) await nextTurn();
+  };
+
+  const removeParticipant = async (id: string): Promise<void> => {
+    await yieldTurn(id);
     const current = instance;
     const combat = current?.combat;
-    if (!current || !combat) return Promise.resolve();
-    return act('Le retrait du combat', REMOVE_PARTICIPANT, { token: id }, () => {
+    if (!current || !combat) return;
+    await act('Le retrait du combat', REMOVE_PARTICIPANT, { participant: id }, () => {
       current.combat = without(combat, current.tokens, id);
     });
   };
@@ -428,9 +435,10 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     const added = instance?.tokens.find((t) => t.id === id);
     if (!combat || !added) return Promise.resolve();
     const dexMod = characters[added.char]?.dexMod ?? 0;
+    // The server rolls an NPC's d20 itself and refuses a figure sent for one: the roll shown here stands in until the map is read again.
     const roll = (timing.roll ?? (() => 10))();
     const init = added.kind === 'pnj' ? initiativeOf(roll, dexMod) : entered;
-    return act('L’ajout au combat', ADD_PARTICIPANT, added.kind === 'pnj' ? { token: id, roll } : { token: id, initiative: entered }, () => {
+    return act('L’ajout au combat', ADD_PARTICIPANT, added.kind === 'pnj' ? { token: id } : { token: id, initiative: entered }, () => {
       combat.order = inserted(combat.order, { id, init, dex: dexMod });
     });
   }
@@ -760,7 +768,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     } else if (button.dataset.writes === SHOW_ON_PLAYER_VIEW) void showOnPlayerView();
     else if (t && button.dataset.state) {
       const state = button.dataset.state;
-      void act('Le changement d’état', SET_TOKEN_CONDITION, { token: t.id, conditions: withCondition(t.states, state) }, () => {
+      void act('Le changement d’état', SET_TOKEN_CONDITION, { token: t.id, state, on: !t.states.includes(state) }, () => {
         t.states = withCondition(t.states, state);
       });
     } else if (t && button.id === 'inspector-visible') {
@@ -768,10 +776,12 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
         t.visible = !t.visible;
       });
     } else if (t && button.dataset.writes === REMOVE_TOKEN) {
-      void act('Le retrait', REMOVE_TOKEN, { token: t.id }, () => {
-        if (instance) instance.tokens = instance.tokens.filter((x) => x.id !== t.id);
-        selected = null;
-      });
+      void yieldTurn(t.id).then(() =>
+        act('Le retrait', REMOVE_TOKEN, { token: t.id }, () => {
+          if (instance) instance.tokens = instance.tokens.filter((x) => x.id !== t.id);
+          selected = null;
+        }),
+      );
     }
   });
 

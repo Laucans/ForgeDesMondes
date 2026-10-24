@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 import { center } from '../src/hexgrid.ts';
 import { mount, type Timing } from '../src/index.ts';
 import type { Shell } from '../src/types.ts';
+import { assertDeclared } from './manifests.ts';
 
 const fixtureOf = (name: string): unknown => JSON.parse(readFileSync(new URL(`../../../../mock/fixtures/${name}.json`, import.meta.url), 'utf8'));
 
@@ -48,6 +49,7 @@ function fakeShell(options: { tokens?: (all: Array<Record<string, unknown>>) => 
     async command(body) {
       const command = body as Sent;
       sent.push(command);
+      assertDeclared(command);
       if (options.reject) return { commandId: `c${sent.length}`, result: { status: 'rejected', violations: [options.reject] } };
       const { payload } = command;
       switch (command.dataCapability) {
@@ -61,7 +63,11 @@ function fakeShell(options: { tokens?: (all: Array<Record<string, unknown>>) => 
           find(payload.token).visible = payload.visible;
           break;
         case 'table.setTokenCondition@1':
-          find(payload.token).states = payload.conditions;
+          {
+            const token = find(payload.token);
+            const held = token.states as string[];
+            token.states = payload.on ? [...held.filter((s) => s !== payload.state), String(payload.state)] : held.filter((s) => s !== payload.state);
+          }
           break;
         case 'table.removeToken@1':
           instance.state.tokens = instance.state.tokens.filter((t) => t.id !== payload.token);
@@ -241,12 +247,12 @@ test('the token menu hides, renames, marks and removes — each its own command,
 
   await click('[data-state="À terre"]');
   assert.equal(fake.sent.at(-1)?.dataCapability, 'table.setTokenCondition@1');
-  assert.deepEqual(fake.sent.at(-1)?.payload, { token: 't-bandit-2', conditions: ['À terre'] });
+  assert.deepEqual(fake.sent.at(-1)?.payload, { token: 't-bandit-2', state: 'À terre', on: true });
   assert.equal(token('t-bandit-2').querySelectorAll('.kit-token__badge').length, 1);
   await click('[data-state="Effrayé"]');
-  assert.deepEqual(fake.sent.at(-1)?.payload, { token: 't-bandit-2', conditions: ['À terre', 'Effrayé'] });
+  assert.deepEqual(fake.sent.at(-1)?.payload, { token: 't-bandit-2', state: 'Effrayé', on: true });
   await click('[data-state="À terre"]');
-  assert.deepEqual(fake.sent.at(-1)?.payload, { token: 't-bandit-2', conditions: ['Effrayé'] });
+  assert.deepEqual(fake.sent.at(-1)?.payload, { token: 't-bandit-2', state: 'À terre', on: false });
 
   const name = document.querySelector<HTMLInputElement>('#inspector-name') as HTMLInputElement;
   name.value = '  Bandit blessé ';
