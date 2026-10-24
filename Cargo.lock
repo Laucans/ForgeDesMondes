@@ -583,6 +583,7 @@ dependencies = [
  "get-session",
  "get-settings",
  "harness-dataguard",
+ "import-character",
  "list-campaigns",
  "list-characters",
  "list-entity-versions",
@@ -1114,6 +1115,21 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "import-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "ports-character-sheets",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
