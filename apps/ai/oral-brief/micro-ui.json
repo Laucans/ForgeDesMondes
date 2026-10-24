@@ -1,0 +1,10 @@
+{
+  "microUi": "OralBrief",
+  "system": "ai",
+  "description": "Le brief raconté au micro ou tapé, transcrit en local, puis découpé en scènes avec les entités reconnues, mises à jour ou manquantes ; le dernier brief reste visible",
+  "needs": ["session.getLastBrief"],
+  "actions": ["ai.analyzeBrief"],
+  "props": {
+    "session": "string — id de la séance dont on raconte le brief"
+  }
+}
