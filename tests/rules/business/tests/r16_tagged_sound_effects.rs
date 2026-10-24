@@ -85,9 +85,10 @@ fn r16_tagged_sound_effects() {
             for (id, own) in [(&ids[0], 30.0), (&ids[1], 60.0)] {
                 let sound = by_id(&playing, id).ok_or("a sound vanished")?;
                 check(sound["playing"] == true, "a played sound is not playing")?;
+                // The gain is a fraction of 1 (EffectiveVolume@1); the volumes are percents.
                 let gain = sound["gain"].as_f64().ok_or("no effective volume")?;
                 check(
-                    (gain - own * 50.0 / 100.0).abs() < 0.5,
+                    (gain - own * 50.0 / 10_000.0).abs() < 0.005,
                     "the volume is not the sound's times the master's",
                 )?;
             }
