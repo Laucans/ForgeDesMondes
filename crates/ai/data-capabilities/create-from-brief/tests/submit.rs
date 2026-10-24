@@ -18,14 +18,15 @@ use create_from_brief::{CREEE, element_id};
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::api::{FollowUp, Submission, Submitted};
-use harness_dataguard::command::{CommandResult, State};
+use harness_dataguard::command::{CommandResult, Entry, State};
 use harness_dataguard::engine::Engine;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::plugins::{RefusalKind, Shared};
 use harness_dataguard::postgres::SystemClock;
+use harness_dataguard::queue::Hold;
 use harness_dataguard::reads::Rows;
-use harness_dataguard::store::{RandomIds, Store, Write};
+use harness_dataguard::store::{Collision, RandomIds, Store, Write};
 use ports_llm::{
     ConnectionReport, GenerateAnswer, GenerateRequest, Llm, LlmError, ProviderConfig,
     RequestJournal, SharedLlm,
@@ -33,6 +34,7 @@ use ports_llm::{
 use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Value, json};
+use tokio::sync::Notify;
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BRUMES: &str = "c1000000-0000-4000-8000-000000000002";
@@ -109,6 +111,7 @@ struct Scripted {
     answer: fn(&str) -> Option<String>,
     asked: Arc<Mutex<Vec<String>>>,
     journal: RequestJournal,
+    gate: Option<Arc<Gate>>,
 }
 
 impl Scripted {
@@ -117,6 +120,7 @@ impl Scripted {
             answer,
             asked: Arc::default(),
             journal: RequestJournal::new(),
+            gate: None,
         }
     }
 
@@ -144,6 +148,9 @@ impl Llm for Scripted {
             .lock()
             .expect("the prompts")
             .push(request.text.clone());
+        if let Some(gate) = &self.gate {
+            gate.arm();
+        }
         match (self.answer)(&request.text) {
             Some(text) => Ok(GenerateAnswer {
                 text,
@@ -155,6 +162,113 @@ impl Llm for Scripted {
 
     fn journal(&self) -> &RequestJournal {
         &self.journal
+    }
+}
+
+/// A gate on one partition of the store: armed by the provider's first
+/// answer, it holds the next read of that partition until it is opened —
+/// the moment between a `Prepare` returning and the engine queueing.
+struct Gate {
+    partition: String,
+    state: Mutex<(bool, bool)>,
+    open: Notify,
+}
+
+impl Gate {
+    fn on(partition: &str) -> Self {
+        Self {
+            partition: partition.to_owned(),
+            state: Mutex::default(),
+            open: Notify::new(),
+        }
+    }
+
+    /// Armed once, by the first answer.
+    fn arm(&self) {
+        let mut state = self.state.lock().expect("the gate");
+        if !state.0 {
+            *state = (true, false);
+        }
+    }
+
+    fn open(&self) {
+        self.open.notify_one();
+    }
+
+    fn was_closed(&self) -> bool {
+        self.state.lock().expect("the gate").1
+    }
+
+    /// Whether this read of `partition` is the one held.
+    fn closes(&self, partition: &str) -> bool {
+        let mut state = self.state.lock().expect("the gate");
+        let closes = state.0 && !state.1 && partition == self.partition;
+        state.1 |= closes;
+        closes
+    }
+}
+
+/// The in-memory store, its reads behind a [`Gate`].
+struct Gated {
+    store: Arc<MemoryStore>,
+    gate: Arc<Gate>,
+}
+
+#[async_trait]
+impl Store for Gated {
+    async fn pending(&self) -> harness_dataguard::Result<Vec<Entry>> {
+        self.store.pending().await
+    }
+
+    async fn holds(&self) -> harness_dataguard::Result<Vec<Hold>> {
+        self.store.holds().await
+    }
+
+    async fn save(&self, entry: &Entry) -> harness_dataguard::Result<()> {
+        self.store.save(entry).await
+    }
+
+    async fn save_hold(&self, hold: &Hold, alive: bool) -> harness_dataguard::Result<()> {
+        self.store.save_hold(hold, alive).await
+    }
+
+    async fn data_version(&self) -> harness_dataguard::Result<u64> {
+        self.store.data_version().await
+    }
+
+    async fn row(&self, partition: &str) -> harness_dataguard::Result<Fields> {
+        if self.gate.closes(partition) {
+            self.gate.open.notified().await;
+        }
+        self.store.row(partition).await
+    }
+
+    async fn collision(&self, entry: &Entry) -> harness_dataguard::Result<Collision> {
+        self.store.collision(entry).await
+    }
+
+    async fn incoming(&self, partition: &str) -> harness_dataguard::Result<Vec<(String, u64)>> {
+        self.store.incoming(partition).await
+    }
+
+    async fn apply(&self, write: &Write, result: &CommandResult) -> harness_dataguard::Result<u64> {
+        self.store.apply(write, result).await
+    }
+
+    async fn journal(&self, result: &CommandResult) -> harness_dataguard::Result<()> {
+        Store::journal(self.store.as_ref(), result).await
+    }
+
+    async fn result(&self, command: &str) -> harness_dataguard::Result<Option<CommandResult>> {
+        self.store.result(command).await
+    }
+
+    async fn by_idempotency_key(
+        &self,
+        data_capability: &str,
+        key: &str,
+    ) -> harness_dataguard::Result<Option<String>> {
+        self.store.by_idempotency_key(data_capability, key).await
     }
 }
 
@@ -232,6 +346,20 @@ impl Served {
 
     /// [`Served::new`], the Prepare reading `tables` when there are some.
     async fn reading(answer: fn(&str) -> Option<String>, tables: Option<Tables>) -> Served {
+        Self::built(answer, tables, None).await
+    }
+
+    /// [`Served::new`], its store's reads behind `gate`, which the
+    /// provider's first answer arms.
+    async fn gated(answer: fn(&str) -> Option<String>, gate: Arc<Gate>) -> Served {
+        Self::built(answer, None, Some(gate)).await
+    }
+
+    async fn built(
+        answer: fn(&str) -> Option<String>,
+        tables: Option<Tables>,
+        gate: Option<Arc<Gate>>,
+    ) -> Served {
         let store = Arc::new(MemoryStore::default());
         for (partition, row) in [
             (
@@ -265,14 +393,22 @@ impl Served {
         ] {
             written(&store, &partition, row).await;
         }
-        let llm = Scripted::new(answer);
+        let mut llm = Scripted::new(answer);
+        llm.gate.clone_from(&gate);
+        let held: Arc<dyn Store> = match gate {
+            Some(gate) => Arc::new(Gated {
+                store: store.clone(),
+                gate,
+            }),
+            None => store.clone(),
+        };
         let mut shared = Shared::default();
         shared.insert(Arc::new(SharedLlm::new(llm.clone())));
         shared.insert(Arc::new(SharedSpeechToText::new(FakeSpeechToText::new(
             REFINED,
         ))));
         let mut engine = Engine::new(
-            store.clone(),
+            held,
             Arc::new(MemoryNotifier::default()),
             Arc::new(SystemClock),
         )
@@ -813,14 +949,159 @@ async fn a_link_of_an_entry_not_created_or_of_another_scene_is_refused() {
     served.applied().await;
     let (kind, _) = refused(link(&served, ODRIC, SESSION).await);
     assert_eq!(kind, RefusalKind::Unprocessable);
-    // Its own scene, linked again: the one link stays.
-    link(&served, ODRIC, &SCENE.to_ascii_uppercase())
-        .await
-        .expect("queued");
-    served.applied().await;
+    let (kind, message) = refused(link(&served, ODRIC, BRUMES).await);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("ni sa scène"), "{message}");
+    // Its own scene, linked again: refused, the one link stays.
+    let (kind, message) = refused(link(&served, ODRIC, &SCENE.to_ascii_uppercase()).await);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("une fois"), "{message}");
+    assert_eq!(served.applied().await, 0);
     let scene = served.row(&format!("Session/{SCENE}")).await;
     assert_eq!(scene["entityId"], json!([GASPARD, element_id(ODRIC)]));
     assert!(served.llm.asked().len() == 1, "a link asks no provider");
+}
+
+#[tokio::test]
+async fn an_element_the_dm_removed_from_its_scene_is_never_linked_again() {
+    let served = Served::new(echoed).await;
+    served
+        .create(json!({ "entry": ODRIC }))
+        .await
+        .expect("queued");
+    served.applied().await;
+    // The DM takes the element out of the scene.
+    let mut scene = served.row(&format!("Session/{SCENE}")).await;
+    scene.insert("entityId".to_owned(), json!([GASPARD]));
+    written(&served.store, &format!("Session/{SCENE}"), json!(scene)).await;
+    let (kind, message) = refused(link(&served, ODRIC, SCENE).await);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("une fois"), "{message}");
+    assert_eq!(served.applied().await, 0);
+    let scene = served.row(&format!("Session/{SCENE}")).await;
+    assert_eq!(scene["entityId"], json!([GASPARD]));
+}
+
+#[tokio::test]
+async fn a_link_of_an_entry_created_elsewhere_is_refused() {
+    // « creee » with its element, by no creation of this engine: no link
+    // is owed.
+    let served = Served::new(echoed).await;
+    let mut created = entry("pnj", "Frère Odric", EXCERPT);
+    created["entityToCreateStatus"] = json!(CREEE);
+    created["createdEntityId"] = json!(element_id(ODRIC));
+    written(&served.store, &format!("Session/{ODRIC}"), created).await;
+    let (kind, message) = refused(link(&served, ODRIC, SCENE).await);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("une fois"), "{message}");
+}
+
+/// The command the ToCreateList sends (`commandBody`): the entry in the
+/// payload, the entry's session as the target, the DM with no role.
+async fn from_the_list(
+    served: &Served,
+    entry: &str,
+    refinement: Option<&str>,
+) -> Result<Submitted, Error> {
+    let mut payload = json!({ "entry": entry });
+    if let Some(refinement) = refinement {
+        payload["refinement"] = json!(refinement);
+    }
+    let submission: Submission = serde_json::from_value(json!({
+        "dataCapability": "ai.createFromBrief@1",
+        "payload": payload,
+        "target": { "aggregate": "Session", "id": SESSION },
+        "caller": { "by": "dm", "from": "ToCreateList", "roles": [] },
+    }))
+    .expect("a submission");
+    served.engine.submit(submission).await
+}
+
+/// Every review `answer` and its follow-ups wait on, approved by an
+/// approver who is not the DM: the entry's status and the element's type
+/// are critical fields, and the list's DM holds no role.
+async fn approved(served: &Served, answer: &Submitted) {
+    let followed = answer.then.iter().filter_map(|follow_up| match follow_up {
+        FollowUp::Submitted(submitted) => Some(submitted.as_ref()),
+        FollowUp::Refused { .. } => None,
+    });
+    for submitted in std::iter::once(answer).chain(followed) {
+        assert_eq!(submitted.result.status, State::AwaitingReview);
+        let review = submitted.result.review_id.as_deref().expect("a review");
+        served
+            .engine
+            .decide(review, "approbateur", &["role:approver".to_owned()], true)
+            .await
+            .expect("approved");
+    }
+}
+
+#[tokio::test]
+async fn the_list_s_command_targeting_the_entry_s_session_creates_and_links() {
+    let served = Served::new(echoed).await;
+    let answer = from_the_list(&served, ODRIC, Some("Il boite."))
+        .await
+        .expect("queued");
+    let element = element_id(ODRIC);
+    assert_eq!(answer.partition, format!("Session/{ODRIC}"));
+    assert_eq!(
+        follow_ups(&answer),
+        [format!("Entity/{element}"), format!("Session/{SCENE}")]
+    );
+    approved(&served, &answer).await;
+    assert_eq!(served.applied().await, 3);
+    let made = served.element(ODRIC).await;
+    assert_eq!(made["name"], "Frère Odric");
+    assert_eq!(made["versionNumber"], 1);
+    let entry = served.row(&format!("Session/{ODRIC}")).await;
+    assert_eq!(entry["entityToCreateStatus"], CREEE);
+    assert_eq!(entry["createdEntityId"], element.as_str());
+    assert_eq!(entry["refinementText"], "Il boite.");
+    let scene = served.row(&format!("Session/{SCENE}")).await;
+    assert_eq!(scene["entityId"], json!([GASPARD, element]));
+    // The session itself is untouched.
+    let session = served.row(&format!("Session/{SESSION}")).await;
+    assert!(!session.contains_key("entityToCreateStatus"), "{session:?}");
+}
+
+#[tokio::test]
+async fn a_command_targeting_a_session_not_the_entry_s_is_refused() {
+    let served = Served::new(echoed).await;
+    let submission: Submission = serde_json::from_value(json!({
+        "dataCapability": "ai.createFromBrief@1",
+        "payload": { "entry": ODRIC },
+        "target": { "aggregate": "Session", "id": "5e000000-0000-4000-8000-0000000000bb" },
+        "caller": caller(),
+    }))
+    .expect("a submission");
+    let (kind, message) = refused(served.engine.submit(submission).await);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("ni sa scène"), "{message}");
+    assert!(served.llm.asked().is_empty());
+    assert!(served.element(ODRIC).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_double_click_makes_one_element_and_asks_the_provider_once() {
+    // The first submission is held right after its Prepare returned, before
+    // the engine queues its stamp; the second comes then.
+    let gate = Arc::new(Gate::on(&format!("Session/{ODRIC}")));
+    let served = Served::gated(echoed, gate.clone()).await;
+    let (first, second) = tokio::join!(from_the_list(&served, ODRIC, None), async {
+        let second = from_the_list(&served, ODRIC, None).await;
+        gate.open();
+        second
+    });
+    let first = first.expect("queued");
+    let (kind, message) = refused(second);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("en cours de création"), "{message}");
+    assert!(gate.was_closed(), "the first was held when the second came");
+    approved(&served, &first).await;
+    assert_eq!(served.applied().await, 3);
+    assert_eq!(served.llm.asked().len(), 1, "the provider asked once");
+    let scene = served.row(&format!("Session/{SCENE}")).await;
+    assert_eq!(scene["entityId"], json!([GASPARD, element_id(ODRIC)]));
 }
 
 #[tokio::test]

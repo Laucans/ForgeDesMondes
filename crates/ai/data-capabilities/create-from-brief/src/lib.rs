@@ -34,18 +34,27 @@
 //! submission of this DataCapability naming the entry and targeting the
 //! scene: its `Prepare` links the element of an entry « creee » to the
 //! entry's own scene, the scene read as the queue leaves it then — the
-//! element after whatever was linked meanwhile. An entry « creee » whose
-//! element exists, or was deleted, is refused: no element is made twice.
-//! The element's id is derived from the entry's ([`element_id`]): a
-//! creation whose save was rejected is made again under the same id. One
-//! entry is created once at a time ([`Creating`]).
+//! element after whatever was linked meanwhile. Only the creation's own
+//! follow-up links, once: a link of an element the scene holds, or of an
+//! entry no creation just handed over, is refused, so an element the DM
+//! removed from the scene is never put back. Which path a submission takes
+//! is read from the entry it names: targeting the entry's scene, it is the
+//! link; targeting the entry, its session — as the ToCreateList sends it —
+//! or nothing, it is the creation; any other target is refused.
+//!
+//! An entry « creee » whose element exists, or was deleted, is refused: no
+//! element is made twice. The element's id is derived from the entry's
+//! ([`element_id`]): a creation whose save was rejected is made again under
+//! the same id. One entry is created once at a time, and stays held for a
+//! while once handed over to the engine, until its stamp is queued
+//! ([`Creating`]).
 //!
 //! The rows are read under the Session aggregate's fields — an entry's
 //! `type`, `name`, `excerpt`, `entityToCreate*`, a scene's `scene*`,
 //! `notes` and `entityId`, a session's `sessionCampaignId` — the tables'
 //! first, the engine's laid over them.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -128,6 +137,11 @@ pub enum Refusal {
     InCreation,
     /// A link names an entry not « creee », or another scene than its own.
     NotLinkable,
+    /// A link that is not the creation's own follow-up, or whose scene
+    /// already holds the element.
+    NotFirstLink,
+    /// The target is neither the entry, nor its session, nor its scene.
+    ForeignTarget,
     /// The scene to link is gone.
     NoScene,
     /// The entry's session, or its scene's, is of another campaign.
@@ -160,6 +174,12 @@ impl fmt::Display for Refusal {
             Self::InCreation => f.write_str("l'entrée est déjà en cours de création"),
             Self::NotLinkable => {
                 f.write_str("seul l'élément d'une entrée créée rejoint la scène de l'entrée")
+            }
+            Self::NotFirstLink => {
+                f.write_str("seule la création de l'entrée lie son élément à la scène, une fois")
+            }
+            Self::ForeignTarget => {
+                f.write_str("la cible n'est ni l'entrée, ni sa séance, ni sa scène")
             }
             Self::NoScene => f.write_str("scène introuvable"),
             Self::OtherCampaign => f.write_str(
@@ -264,48 +284,115 @@ pub fn plugin() -> Plugin {
         .needs::<SharedSpeechToText>()
 }
 
+/// How long an entry stays held once its creation is handed over to the
+/// engine, in milliseconds: the engine queues the stamp right after the
+/// `Prepare` returns, well within it; past it, a creation whose save was
+/// rejected may be made again.
+const HOLD_MILLIS: u64 = 60_000;
+
 /// The entries being created, each by one submission at a time: a second
 /// submission of the same entry while the first is prepared — a double
-/// click, while the provider answers — is refused, never prepared twice.
+/// click, while the provider answers — or just after it was handed over,
+/// before the engine queued its stamp, is refused, never prepared twice.
 #[derive(Debug, Default)]
-pub struct Creating(Mutex<BTreeSet<String>>);
+pub struct Creating(Mutex<BTreeMap<String, Mark>>);
 
-/// One entry being created, until it is dropped.
+/// What `Creating` knows of one entry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Mark {
+    /// A submission is preparing it.
+    preparing: bool,
+    /// When its creation was last handed over, in milliseconds.
+    handed: Option<u64>,
+    /// The scene's link its last creation owes.
+    link_owed: bool,
+}
+
+/// Whether a creation handed over at `handed` still holds at `now`.
+fn holds(handed: Option<u64>, now: u64) -> bool {
+    handed.is_some_and(|at| now < at.saturating_add(HOLD_MILLIS))
+}
+
+/// One entry being prepared, until it is dropped.
 #[derive(Debug)]
 pub struct Flight<'a> {
     creating: &'a Creating,
     entry: String,
+    handed: Option<u64>,
 }
 
 impl Creating {
-    /// The creation of `entry` begun: `None` while another one is.
-    pub fn start(&self, entry: &str) -> Option<Flight<'_>> {
+    fn marks(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Mark>> {
         self.0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(entry.to_owned())
-            .then(|| Flight {
-                creating: self,
-                entry: entry.to_owned(),
-            })
+    }
+
+    /// The preparation of `entry` begun at `now`: `None` while another one
+    /// is. The marks no longer held are forgotten.
+    pub fn start(&self, entry: &str, now: u64) -> Option<Flight<'_>> {
+        let mut marks = self.marks();
+        marks.retain(|_, mark| mark.preparing || holds(mark.handed, now));
+        let mark = marks.entry(entry.to_owned()).or_default();
+        if mark.preparing {
+            return None;
+        }
+        mark.preparing = true;
+        Some(Flight {
+            creating: self,
+            entry: entry.to_owned(),
+            handed: mark.handed,
+        })
+    }
+
+    /// Whether `entry`'s scene link is owed at `now` by its creation just
+    /// handed over: true once, for the follow-up that makes it.
+    pub fn link(&self, entry: &str, now: u64) -> bool {
+        let mut marks = self.marks();
+        let Some(mark) = marks.get_mut(entry) else {
+            return false;
+        };
+        let owed = mark.link_owed && holds(mark.handed, now);
+        mark.link_owed = false;
+        owed
+    }
+}
+
+impl Flight<'_> {
+    /// Whether a creation of this entry was handed over less than
+    /// [`HOLD_MILLIS`] before `now`.
+    #[must_use]
+    pub fn held(&self, now: u64) -> bool {
+        holds(self.handed, now)
+    }
+
+    /// The creation handed over to the engine at `now`, owing the scene's
+    /// link when `link`: the entry stays held a while.
+    pub fn hand_over(self, now: u64, link: bool) {
+        if let Some(mark) = self.creating.marks().get_mut(&self.entry) {
+            mark.handed = Some(now);
+            mark.link_owed = link;
+        }
     }
 }
 
 impl Drop for Flight<'_> {
     fn drop(&mut self) {
-        self.creating
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&self.entry);
+        let mut marks = self.creating.marks();
+        if let Some(mark) = marks.get_mut(&self.entry) {
+            mark.preparing = false;
+            if mark.handed.is_none() {
+                marks.remove(&self.entry);
+            }
+        }
     }
 }
 
 /// A creation made what it writes, before anything is queued: on the entry
 /// the command targets — else the one `entry` names — as the tables and the
 /// queue leave it, the provider the AI settings make active and the
-/// element's derived id. A submission that names an entry and targets
-/// another row is the scene's link ([`link`]). An entry the engine and the
+/// element's derived id. A submission that names an entry and targets its
+/// scene is the scene's link ([`link`]). An entry the engine and the
 /// tables do not hold is refused as not found, any other refusal as
 /// unprocessable.
 struct Create {
@@ -333,19 +420,28 @@ fn uuid_of(id: Option<&str>) -> Option<String> {
 /// The scene's link of the entry `entry`: the scene `scene` — the entry's
 /// own — as the tables and the queue leave it, written again with the
 /// entry's element after its last link. Its follow-up is submitted once the
-/// entry « creee » is queued, so the entry reads « creee » here.
+/// entry « creee » is queued, so the entry reads « creee » here; any other
+/// link — the scene already holding the element, or no creation owing it —
+/// is refused.
 async fn link(
     context: &Context<'_>,
-    entry_id: &str,
+    creating: &Creating,
+    entry: &Entry,
     scene: &str,
 ) -> Result<plugins::Prepared, plugins::Refusal> {
-    let entry = entry(entry_id, &held(context, ENTRY_ROW, entry_id).await?).map_err(refused)?;
     let element = entry
         .element
+        .clone()
         .filter(|_| entry.created && entry.scene.as_deref() == Some(scene))
         .ok_or_else(|| refused(Refusal::NotLinkable))?;
-    let (scene, row) = linked(&held(context, SCENE_ROW, scene).await?, &element)
-        .ok_or_else(|| refused(Refusal::NoScene))?;
+    let row = held(context, SCENE_ROW, scene).await?;
+    if id_of(&row, SCENE_ID).is_none() {
+        return Err(refused(Refusal::NoScene));
+    }
+    if links(&row).contains(&element) || !creating.link(&entry.id, context.now_millis) {
+        return Err(refused(Refusal::NotFirstLink));
+    }
+    let (scene, row) = linked(&row, &element).ok_or_else(|| refused(Refusal::NoScene))?;
     Ok(plugins::Prepared {
         payload: row,
         target_id: Some(scene),
@@ -361,20 +457,27 @@ impl Prepare for Create {
         payload: &Row,
         target_id: Option<&str>,
     ) -> Result<plugins::Prepared, plugins::Refusal> {
-        let named = uuid_of(text(payload, ENTRY));
-        if let (Some(target), Some(entry)) = (target_id, &named)
-            && !target.eq_ignore_ascii_case(entry)
-        {
-            return link(context, entry, &target.to_ascii_lowercase()).await;
-        }
-        let id = uuid_of(target_id)
-            .or(named)
-            .ok_or_else(|| refused(Refusal::InvalidEntry))?;
-        let _flight = self
+        let target = target_id.map(|target| uuid_of(Some(target)));
+        let id = match (uuid_of(text(payload, ENTRY)), &target) {
+            (Some(named), _) => named,
+            (None, Some(Some(target))) => target.clone(),
+            _ => return Err(refused(Refusal::InvalidEntry)),
+        };
+        let now = context.now_millis;
+        let flight = self
             .creating
-            .start(&id)
+            .start(&id, now)
             .ok_or_else(|| refused(Refusal::InCreation))?;
         let entry = entry(&id, &held(context, ENTRY_ROW, &id).await?).map_err(refused)?;
+        match target {
+            None => {}
+            Some(Some(target)) if target == id || entry.session.as_ref() == Some(&target) => {}
+            Some(Some(target)) if entry.scene.as_ref() == Some(&target) => {
+                drop(flight);
+                return link(context, &self.creating, &entry, &target).await;
+            }
+            Some(_) => return Err(refused(Refusal::ForeignTarget)),
+        }
         // An element whose save was rejected never existed: made again.
         if entry.created {
             let made = match &entry.element {
@@ -384,6 +487,10 @@ impl Prepare for Create {
             if made {
                 return Err(refused(Refusal::AlreadyCreated));
             }
+        }
+        // Handed over, its stamp not yet queued: the same creation.
+        if flight.held(now) {
+            return Err(refused(Refusal::InCreation));
         }
         let scene = match &entry.scene {
             Some(scene) => held(context, SCENE_ROW, scene).await?,
@@ -427,6 +534,8 @@ impl Prepare for Create {
         }];
         let mut warnings = Vec::new();
         match (&entry.scene, id_of(&scene, SCENE_ID)) {
+            // A creation made again whose element the scene already holds.
+            (_, Some(_)) if links(&scene).contains(&element) => {}
             (_, Some(scene)) => then.push(Submission {
                 data_capability: DATA_CAPABILITY.to_owned(),
                 target_id: Some(scene),
@@ -438,6 +547,7 @@ impl Prepare for Create {
             )),
             (None, None) => {}
         }
+        flight.hand_over(now, then.len() > 1);
         Ok(plugins::Prepared {
             payload: stamp(&element, refinement.as_deref()),
             target_id: Some(id),
@@ -829,20 +939,25 @@ pub fn stamp(element: &str, refinement: Option<&str>) -> Row {
     row
 }
 
-/// The scene `scene` holds — its id and its row — written again with
-/// `element` after its last link, its title and notes kept: `None` when the
-/// row is no scene's.
-#[must_use]
-pub fn linked(scene: &Row, element: &str) -> Option<(String, Row)> {
-    let id = id_of(scene, SCENE_ID)?;
-    let mut links: Vec<String> = scene
+/// The elements the scene `scene` links, in their order, in lowercase.
+fn links(scene: &Row) -> Vec<String> {
+    scene
         .get(LINKS)
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .map(str::to_ascii_lowercase)
-        .collect();
+        .collect()
+}
+
+/// The scene `scene` holds — its id and its row — written again with
+/// `element` after its last link, its title and notes kept: `None` when the
+/// row is no scene's.
+#[must_use]
+pub fn linked(scene: &Row, element: &str) -> Option<(String, Row)> {
+    let id = id_of(scene, SCENE_ID)?;
+    let mut links = links(scene);
     if !links.iter().any(|link| link == element) {
         links.push(element.to_owned());
     }
@@ -1118,12 +1233,43 @@ mod tests {
     #[test]
     fn an_entry_is_created_by_one_submission_at_a_time() {
         let creating = Creating::default();
-        let first = creating.start("e1").expect("begun");
-        assert!(creating.start("e1").is_none(), "e1 is being created");
-        let other = creating.start("e2").expect("another entry begins");
+        let first = creating.start("e1", 0).expect("begun");
+        assert!(!first.held(0));
+        assert!(creating.start("e1", 0).is_none(), "e1 is being created");
+        let other = creating.start("e2", 0).expect("another entry begins");
         drop(first);
-        assert!(creating.start("e1").is_some(), "e1 may begin again");
-        drop(other);
+        let again = creating.start("e1", 0).expect("e1 may begin again");
+        assert!(!again.held(0), "a creation refused holds nothing");
+        drop((again, other));
+        assert!(
+            creating.marks().is_empty(),
+            "nothing kept: {:?}",
+            creating.marks()
+        );
+    }
+
+    #[test]
+    fn a_creation_handed_over_holds_its_entry_for_a_while_and_owes_one_link() {
+        let creating = Creating::default();
+        creating
+            .start("e1", 1_000)
+            .expect("begun")
+            .hand_over(1_000, true);
+        let next = creating.start("e1", 1_500).expect("prepared again");
+        assert!(next.held(1_500), "handed over, the stamp not yet queued");
+        assert!(next.held(1_000 + HOLD_MILLIS - 1));
+        assert!(!next.held(1_000 + HOLD_MILLIS), "the hold is over");
+        drop(next);
+        assert!(creating.link("e1", 1_500), "the creation's own link");
+        assert!(!creating.link("e1", 1_500), "once");
+        assert!(!creating.link("e2", 1_500), "no creation of e2");
+        creating.start("e2", 0).expect("begun").hand_over(0, true);
+        assert!(!creating.link("e2", HOLD_MILLIS), "owed no longer");
+        creating.start("e3", 0).expect("begun").hand_over(0, false);
+        assert!(!creating.link("e3", 0), "no scene, no link owed");
+        // A hold over is forgotten at the next start.
+        drop(creating.start("e4", 1_000 + HOLD_MILLIS));
+        assert!(creating.marks().is_empty(), "{:?}", creating.marks());
     }
 
     #[tokio::test]
