@@ -19,11 +19,17 @@ fn r114_tabs_in_sync_under_a_second() {
             "data-capability:session.addScene",
             "data-capability:session.createSession",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
-            let map = fresh_instance(s, &["elowen"])?;
-            place(s, &map, "elowen", (1, 1), 1)?;
-            let token = of_character(&tokens(s, &map, "dm")?, "elowen")[0].clone();
+            let (map, cast) = fresh_instance(s, &["elowen"])?;
+            place(s, &map, cast.id("elowen"), (1, 1), 1)?;
+            let token = of_character(&tokens(s, &map, "dm")?, cast.id("elowen"))[0].clone();
 
             // The DM drops the token on a hex; the player view must show it there within a second.
             let started = std::time::Instant::now();
