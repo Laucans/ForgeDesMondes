@@ -458,7 +458,7 @@
     "Battlemap": {
       "kind": "micro-ui",
       "producer": 26,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "BattlemapInstance": {
@@ -608,7 +608,7 @@
     "PlayerStage": {
       "kind": "micro-ui",
       "producer": 26,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "PreviousSummary": {
@@ -866,13 +866,13 @@
     "live.closeWindow": {
       "kind": "data-capability",
       "producer": 26,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "live.getDiffusion": {
       "kind": "capability",
       "producer": 26,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "live.listSuggestions": {
@@ -884,13 +884,13 @@
     "live.moveWindow": {
       "kind": "data-capability",
       "producer": 26,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "live.resizeWindow": {
       "kind": "data-capability",
       "producer": 26,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "live.setMicrophone": {
@@ -902,19 +902,19 @@
     "live.showCover": {
       "kind": "data-capability",
       "producer": 26,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "live.showOnPlayerView": {
       "kind": "data-capability",
       "producer": 26,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "live.showWindowOnPlayerView": {
       "kind": "data-capability",
       "producer": 26,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "media.getBattlemap": {

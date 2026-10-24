@@ -8,7 +8,8 @@
 //! the background's instance is the session's own, read rows of the Media
 //! and BattlemapInstance aggregates the engine does not hold beside the
 //! diffusion. The `diffusion` table (`crates/data/migrations/0012_diffusion.sql`)
-//! holds one row per session and stores no window height.
+//! holds one row per session and stores no window height: [`Tables`] writes
+//! it in the transaction that applies a diffusion.
 
 use std::collections::BTreeMap;
 
@@ -16,7 +17,14 @@ use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
+mod tables;
+
+pub use tables::{PARTITION, Row, Tables};
+
 const AGGREGATE: &str = "Diffusion";
+
+/// The aggregate's manifest (contract I), as the engine registers it.
+pub const DOCUMENT: &str = include_str!("../aggregate.json");
 
 /// The background's media and instance.
 const BASE_MEDIA: &str = "baseMediaId";
@@ -61,10 +69,40 @@ impl Judge for Diffusion {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge.
+/// What the aggregate plugs into the engine: its judge, and its table
+/// written in the transaction that applies a diffusion.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Plugin::new().judge(AGGREGATE, Diffusion)
+    Plugin::new()
+        .judge(AGGREGATE, Diffusion)
+        .project_pg(AGGREGATE, Tables)
+}
+
+/// `unix_millis` as RFC 3339 in UTC, to the millisecond
+/// (`2026-10-21T10:00:00.123Z`): how a diffusion is stamped (`updatedAt`),
+/// which `diffusion.updated_at` reads as its `timestamptz`.
+#[must_use]
+pub fn timestamp(unix_millis: u64) -> String {
+    let seconds = unix_millis / 1000;
+    // Howard Hinnant's civil_from_days: the days since the epoch, a u64
+    // divided by 86 400, always fit an i64.
+    let days = (seconds / 86_400).cast_signed() + 719_468;
+    let era = days.div_euclid(146_097);
+    let doe = days.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let time = seconds % 86_400;
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        time / 3600,
+        time % 3600 / 60,
+        time % 60,
+        unix_millis % 1000
+    )
 }
 
 /// Whether the row holds a value for `field`: a `null` is none.
@@ -122,7 +160,21 @@ fn single_diffusion_source(state: &BTreeMap<String, Value>, entry: &Entry) -> bo
 
 #[cfg(test)]
 mod tests {
-    use super::{BASE_INSTANCE, BASE_MEDIA, CHECKS, WINDOW, WINDOW_HEIGHT, WINDOW_MEDIA};
+    use super::{
+        BASE_INSTANCE, BASE_MEDIA, CHECKS, WINDOW, WINDOW_HEIGHT, WINDOW_MEDIA, timestamp,
+    };
+
+    #[test]
+    fn timestamp_is_rfc_3339_in_utc_to_the_millisecond() {
+        assert_eq!(timestamp(0), "1970-01-01T00:00:00.000Z");
+        // The first day of a year counted from March, exactly 370 of them
+        // since the era began.
+        assert_eq!(timestamp(5_097_600_000), "1970-03-01T00:00:00.000Z");
+        // 2026-10-21T10:00:00.123Z, and the last millisecond of a leap year.
+        assert_eq!(timestamp(1_792_576_800_123), "2026-10-21T10:00:00.123Z");
+        assert_eq!(timestamp(951_868_799_999), "2000-02-29T23:59:59.999Z");
+        assert_eq!(timestamp(978_307_199_999), "2000-12-31T23:59:59.999Z");
+    }
 
     fn aggregate() -> serde_json::Value {
         serde_json::from_str(include_str!("../aggregate.json")).expect("contract I")

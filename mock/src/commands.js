@@ -14,6 +14,8 @@
 //     (await server.load('campagnes')).push({ id: server.uuid(), name: payload.name });
 //   },
 
+import { diffusionRow, instanceOf, ratioOfIllustration, shareInstance } from './reads.js';
+
 // ProviderApiType@1 as the fixtures know it: the cloud host by itself, the
 // home server at the URL whose model list the fixtures know; null otherwise.
 function apiType(settings, url) {
@@ -57,12 +59,319 @@ const changedBy = async (server, element, patch, origin, source, changes) => {
   entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin, source, restoredFrom: null, seen: false, changes });
 };
 
+// A position on the screen, in fractions of it: from 0 to 1 — `kept` when
+// what is asked is no number, which the server refuses.
+const onScreen = (fraction, kept) => (typeof fraction === 'number' && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept);
+
+// The floating window of the diffusion, changed by `change`; the other tabs are told.
+async function onWindow(server, change) {
+  const row = await diffusionRow(server);
+  // window-fields-together: x, y and the width are all set while the window is open, none otherwise.
+  if (!row.window) return ['window-fields-together'];
+  const violations = await change(row.window);
+  if (violations) return violations;
+  if (window.Mock) window.Mock.store.set('diffusion', row);
+  return undefined;
+}
+
+const AROUND = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+
+// The hexes a drop of `count` tokens fills: the dropped hex, then the free ones around it.
+function freeHexes(start, taken, count) {
+  const busy = new Set(taken.map((t) => `${t.q},${t.r}`));
+  const seen = new Set([`${start.q},${start.r}`]);
+  const queue = [start];
+  const out = [];
+  for (let i = 0; i < queue.length && out.length < count; i += 1) {
+    const hex = queue[i];
+    if (!busy.has(`${hex.q},${hex.r}`)) out.push(hex);
+    for (const [dq, dr] of AROUND) {
+      const next = { q: hex.q + dq, r: hex.r + dr };
+      if (!seen.has(`${next.q},${next.r}`)) { seen.add(`${next.q},${next.r}`); queue.push(next); }
+    }
+  }
+  return out;
+}
+
+// One token of the instance a command targets, changed by `change`; the other tabs are told.
+async function onToken(server, target, token, change) {
+  const data = await instanceOf(server, target && target.id);
+  const found = data && data.state.tokens.find((t) => t.id === token);
+  // instance-isolated: a token of another instance is refused.
+  if (!found) return ['instance-isolated'];
+  const violations = change(found, data.state);
+  if (violations) return violations;
+  shareInstance(data);
+  return undefined;
+}
+
+// The DEX modifier of a character's sheet, floor((score - 10) / 2).
+function dexModifier(characters, id) {
+  const sheet = characters.find((c) => c.id === id);
+  return Math.floor(((sheet && sheet.stats ? sheet.stats.DEX : 10) - 10) / 2);
+}
+
+// next-turn: the turn passes to the next living participant by rank; the round counts up when the order comes back to its first.
+function advance(combat, state) {
+  const { order } = combat;
+  const from = Math.max(0, order.findIndex((o) => o.id === combat.current));
+  for (let step = 1; step <= order.length; step += 1) {
+    const at = (from + step) % order.length;
+    const token = state.tokens.find((t) => t.id === order[at].id);
+    if (token && !token.dead) {
+      if (at <= from) combat.round += 1;
+      combat.current = order[at].id;
+      return;
+    }
+  }
+}
+
+// The combat of the instance a command targets, changed by `change`; refused when none is under way.
+async function onCombat(server, id, change) {
+  const data = await instanceOf(server, id);
+  if (!data) return ['instance-isolated'];
+  if (!data.state.combat) return ['one-active-combat'];
+  const violations = await change(data.state.combat, data.state);
+  if (violations) return violations;
+  shareInstance(data);
+  return undefined;
+}
+
 // SoundTag@1: each tag trimmed of White_Space and lowercased character by
 // character, an empty one dropped, then a tag seen earlier dropped — the
 // first occurrence stays, the order is kept.
 const soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => [...String(t).replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '')].map((c) => c.toLowerCase()).join('')).filter(Boolean))];
 
+
 export const COMMANDS = {
+  // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
+  // one position both views read.
+  'table.moveToken': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => { t.q = payload.q; t.r = payload.r; }),
+  // table.renameToken: only that token's name; an empty name is refused.
+  'table.renameToken': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+    if (!String(payload.name || '').trim()) return ['name-required'];
+    t.name = String(payload.name).trim();
+    return undefined;
+  }),
+  // table.setTokenVisibility: hidden tokens keep their place; the players do not read them.
+  'table.setTokenVisibility': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => { t.visible = payload.visible === true; }),
+  // table.setTokenCondition (crates/table/data-capabilities/set-token-condition): the badge
+  // `payload.state` put on that token when `payload.on`, after the others and once, or taken off,
+  // the others keeping their order — its conditions alone. A state that is no name without the
+  // blanks around it, or holds U+0000, or an `on` that is no boolean, is `state-persisted-reset`.
+  'table.setTokenCondition': (server, { payload, targetId }) => onToken(server, { id: targetId || payload.instance }, payload.token, (t) => {
+    const state = typeof payload.state === 'string' ? payload.state.trim() : '';
+    if (!state || state.includes('\0') || typeof payload.on !== 'boolean') return ['state-persisted-reset'];
+    const held = t.states || [];
+    t.states = payload.on ? (held.includes(state) ? held : [...held, state]) : held.filter((s) => s !== state);
+    return undefined;
+  }),
+  // table.removeToken: the token leaves the map.
+  'table.removeToken': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t, state) => { state.tokens = state.tokens.filter((x) => x !== t); }),
+  // table.changeHitPoints (crates/table/data-capabilities/change-hit-points):
+  // hp-change-one-token — the targeted token only; pj-hp-not-tracked — a PC has
+  // no hit points; the current ones stay within 0 and the maximum, and an NPC
+  // is dead iff they are 0 (dead-derived).
+  'table.changeHitPoints': (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
+    if (t.kind !== 'pnj' || typeof t.hp !== 'number') return ['pj-hp-not-tracked'];
+    t.hp = Math.max(0, Math.min(t.hpMax, t.hp + Math.trunc(Number(payload.delta) || 0)));
+    t.dead = t.hp === 0;
+    return undefined;
+  }),
+  // table.startCombat: the NPC roll a d20 plus the DEX modifier of their sheet,
+  // the DM enters the PCs' initiative; the order is the initiative, then the DEX,
+  // then at random (initiative-tiebreak). A hidden token is in the order and keeps its rank.
+  'table.startCombat': async (server, { payload, targetId }) => {
+    const data = await instanceOf(server, targetId);
+    if (!data) return ['instance-isolated'];
+    if (data.state.combat) return ['one-active-combat'];
+    const characters = (await server.load('campaign.listCharacters')) || [];
+    const rolls = payload.rolls || {};
+    const entered = payload.initiative || {};
+    const order = [];
+    for (const t of data.state.tokens.filter((x) => !x.dead)) {
+      const dex = dexModifier(characters, t.char);
+      if (t.kind === 'pnj') {
+        const roll = Number(rolls[t.id]);
+        // npc-initiative-bounds: a d20 between 1 and 20.
+        if (!(roll >= 1 && roll <= 20)) return ['npc-initiative-bounds'];
+        order.push({ id: t.id, init: roll + dex, dex, tie: Math.random() });
+      } else {
+        const init = Number(entered[t.char]);
+        if (!(init >= 1)) return ['npc-initiative-bounds'];
+        order.push({ id: t.id, init, dex, tie: Math.random() });
+      }
+    }
+    if (!order.length) return ['one-active-combat'];
+    order.sort((a, b) => b.init - a.init || b.dex - a.dex || b.tie - a.tie);
+    data.pjInitiative = { ...data.pjInitiative, ...entered };
+    data.state.combat = { round: 1, current: order[0].id, order: order.map(({ id, init, dex }) => ({ id, init, dex })) };
+    shareInstance(data);
+    return undefined;
+  },
+  // table.nextTurn: next-turn — the next living participant by rank, the round counting up when it comes back to the first.
+  'table.nextTurn': (server, { targetId }) => onCombat(server, targetId, (combat, state) => { advance(combat, state); return undefined; }),
+  // table.reorderInitiative (crates/table/data-capabilities/reorder-initiative): the open combat
+  // reordered as `payload.order` gives it, every participant once, named by its token — the ranks
+  // 1 to n in that order; the turn and the round stay. An order that is no list, omits a
+  // participant, repeats one or names one not in the combat is `initiative-tiebreak`.
+  'table.reorderInitiative': (server, { payload, targetId }) => onCombat(server, targetId || payload.instance, (combat) => {
+    const named = Array.isArray(payload.order) ? payload.order : [];
+    if (named.length !== combat.order.length) return ['initiative-tiebreak'];
+    const order = [];
+    for (const id of named) {
+      const found = combat.order.find((o) => o.id === id && !order.includes(o));
+      if (!found) return ['initiative-tiebreak'];
+      order.push(found);
+    }
+    combat.order = order;
+    return undefined;
+  }),
+  // table.addParticipant (crates/table/data-capabilities/add-participant): a token joins the running
+  // order at the place its initiative earns. An NPC rolls a d20 plus its DEX modifier and is given no
+  // figure; a PC takes the `payload.initiative` the DM entered (`npc-initiative-bounds`). A token not
+  // on the instance is `not-found`; one already in the order is `initiative-tiebreak`.
+  'table.addParticipant': (server, { payload, targetId }) => onCombat(server, targetId || payload.instance, async (combat, state) => {
+    const token = state.tokens.find((t) => t.id === payload.token);
+    if (!token) return ['not-found'];
+    if (combat.order.some((o) => o.id === token.id)) return ['initiative-tiebreak'];
+    const pc = token.kind === 'pj';
+    if (pc ? !Number.isInteger(payload.initiative) : payload.initiative != null) return ['npc-initiative-bounds'];
+    const dex = dexModifier((await server.load('campaign.listCharacters')) || [], token.char);
+    const init = pc ? payload.initiative : 1 + Math.floor(Math.random() * 20) + dex;
+    const at = combat.order.findIndex((o) => o.init < init || (o.init === init && o.dex < dex));
+    combat.order.splice(at < 0 ? combat.order.length : at, 0, { id: token.id, init, dex });
+    return undefined;
+  }),
+  // table.removeParticipant (crates/table/data-capabilities/remove-participant): the participant
+  // `payload.participant` — named by its token, as the carousel shows it — taken out of the open combat;
+  // its token stays on the map and the order closes up. The participant that holds the turn is refused
+  // by `next-turn`: the Battlemap sends table.nextTurn first. One not in the combat is `not-found`.
+  'table.removeParticipant': (server, { payload, targetId }) => onCombat(server, targetId, (combat) => {
+    if (!combat.order.some((o) => o.id === payload.participant)) return ['not-found'];
+    if (combat.current === payload.participant) return ['next-turn'];
+    combat.order = combat.order.filter((o) => o.id !== payload.participant);
+    return undefined;
+  }),
+  // table.endCombat: the combat ends; the tokens stay as they are.
+  'table.endCombat': (server, { targetId }) => onCombat(server, targetId, (combat, state) => { state.combat = null; return undefined; }),
+  // table.resetBattlemap: state-persisted-reset — the instance's tokens, combat and initiative are removed: an empty map.
+  'table.resetBattlemap': async (server, { targetId }) => {
+    const data = await instanceOf(server, targetId);
+    if (!data) return ['instance-isolated'];
+    data.state = { tokens: [], combat: null };
+    data.pjInitiative = {};
+    shareInstance(data);
+    return undefined;
+  },
+  // table.placeTokens: one character dropped, once or « × n »; the new tokens
+  // are numbered after those already taken for it (multi-drop-numbering), a
+  // monster takes its hit points from its sheet, a PC has one token.
+  'table.placeTokens': async (server, { payload, targetId }) => {
+    const data = await instanceOf(server, targetId);
+    const character = ((await server.load('campaign.listCharacters')) || []).find((c) => c.id === payload.character);
+    if (!data || !character) return ['instance-isolated'];
+    const { tokens } = data.state;
+    const mine = tokens.filter((t) => t.char === character.id);
+    const pnj = character.kind === 'pnj';
+    // token-roster: a PC is placed when the scene's roster has it, and once.
+    if (!pnj && (mine.length || !(data.roster || []).includes(character.id))) return ['token-roster'];
+    const count = pnj ? Math.max(1, Math.min(12, Number(payload.count) || 1)) : 1;
+    const base = character.tokenName || String(character.name).split(' ')[0];
+    let num = Math.max(0, ...mine.map((t) => t.num || 0));
+    const numbered = pnj && (count > 1 || mine.length > 0);
+    for (const hex of freeHexes({ q: payload.q, r: payload.r }, tokens, count)) {
+      num += 1;
+      tokens.push({ id: `t-${character.id}${pnj ? `-${num}` : ''}`, char: character.id, kind: character.kind, name: numbered ? `${base} ${num}` : base, num: pnj ? num : null,
+        q: hex.q, r: hex.r, visible: true, hp: pnj ? character.pvMax : null, hpMax: pnj ? character.pvMax : null, states: [], dead: false });
+    }
+    shareInstance(data);
+    return undefined;
+  },
+  // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone,
+  // brought back onto the screen (0 to 1); the size and the content stay.
+  'live.moveWindow': (server, { payload }) => onWindow(server, (w) => { w.x = onScreen(payload.x, w.x); w.y = onScreen(payload.y, w.y); }),
+  // live.closeWindow (crates/live/data-capabilities/close-window): the window's
+  // media, position and width are emptied together (window-fields-together);
+  // the base and the framing stay. A window already closed is closed again.
+  'live.closeWindow': async (server) => {
+    const row = await diffusionRow(server);
+    row.window = null;
+    if (window.Mock) window.Mock.store.set('diffusion', row);
+    return undefined;
+  },
+  // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
+  // is stored, the largest that fits the box asked for at the image's ratio — w
+  // alone with no h — from 0.1 to the screen's width, to 4 decimals
+  // (window-proportional); the position stays. A w that is no number, which the
+  // server refuses, keeps the width.
+  'live.resizeWindow': (server, { payload }) => onWindow(server, async (w) => {
+    if (typeof payload.w !== 'number' || !Number.isFinite(payload.w)) return undefined;
+    const ratio = await ratioOfIllustration(server, w.id || w.media);
+    const fit = typeof payload.h === 'number' && Number.isFinite(payload.h) ? Math.min(payload.w, payload.h * ratio) : payload.w;
+    w.w = Math.round(Math.max(0.1, Math.min(1, fit)) * 10000) / 10000;
+    return undefined;
+  }),
+  // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
+  // a battlemap instance of the session, or an illustration of the campaign,
+  // becomes the player view's base, framed as the DM framed it (1 and 0, 0
+  // when no framing is sent); the floating window stays as it is. Any other
+  // base would leave it incoherent (`base-coherent`).
+  'live.showOnPlayerView': async (server, { payload }) => {
+    let base;
+    if (payload.kind === 'battlemap') {
+      const data = await instanceOf(server, payload.instance);
+      if (!data) return ['base-coherent'];
+      base = { kind: 'battlemap', id: data.id };
+    } else if (payload.kind === 'illustration') {
+      // An illustration listed, or one uploaded since (`media.uploadMedia`).
+      const listed = [await server.load('media'), await server.load('media.listMedia')];
+      if (!listed.some((media) => media && media.illustrations.some((i) => i.id === payload.media))) return ['base-coherent'];
+      base = { kind: 'illustration', id: payload.media };
+    } else return ['base-coherent'];
+    const store = window.Mock && window.Mock.store;
+    if (store) {
+      const diffusion = store.get('diffusion', { base: { kind: 'cover' }, window: null, view: null });
+      diffusion.base = base;
+      diffusion.view = { z: payload.zoom ?? 1, px: payload.panX ?? 0, py: payload.panY ?? 0 };
+      store.set('diffusion', diffusion);
+    }
+    return undefined;
+  },
+  // live.showCover (crates/live/data-capabilities/show-cover): the player
+  // view goes back to the campaign's cover, with neither a media nor an
+  // instance as its base (`base-coherent`); the floating window and the
+  // framing stay as they are.
+  'live.showCover': async () => {
+    const store = window.Mock && window.Mock.store;
+    if (store) {
+      const diffusion = store.get('diffusion', { base: { kind: 'cover' }, window: null, view: null });
+      diffusion.base = { kind: 'cover' };
+      store.set('diffusion', diffusion);
+    }
+    return undefined;
+  },
+  // live.showWindowOnPlayerView (crates/live/data-capabilities/show-window-on-player-view):
+  // an illustration of the campaign opens in the floating window at its
+  // default position and width, the three set together
+  // (`window-fields-together`); its height follows the image's ratio and is
+  // never stored (`window-proportional`). Another illustration replaces the
+  // window's; the base and the framing stay as they are.
+  'live.showWindowOnPlayerView': async (server, { payload }) => {
+    const id = payload.media ?? payload.id;
+    // A mock-up page that opened the window itself names the kind alone.
+    if (!id) return payload.kind && payload.kind !== 'illustration' ? ['window-proportional'] : undefined;
+    // An illustration listed, or one uploaded since (`media.uploadMedia`).
+    const listed = [await server.load('media'), await server.load('media.listMedia')];
+    if (!listed.some((media) => media && media.illustrations.some((i) => i.id === id))) return ['window-proportional'];
+    const store = window.Mock && window.Mock.store;
+    if (store) {
+      const diffusion = store.get('diffusion', { base: { kind: 'cover' }, window: null, view: null });
+      diffusion.window = { id, x: 0.6, y: 0.12, w: 0.3 };
+      store.set('diffusion', diffusion);
+    }
+    return undefined;
+  },
   // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
   // added to the library. One with no name or no file is refused before
   // anything is queued, as the server refuses it. Its tags, a list of texts,
@@ -271,60 +580,6 @@ export const COMMANDS = {
     server.instances = server.instances || new Map();
     server.instances.set(id, { id, battlemap: map.id, session: payload.session, scene: scene.id, label: scene.title, roster: [], pjInitiative: {}, state: { tokens: [], combat: null } });
     scene.battlemap = id;
-    return undefined;
-  },
-  // table.placeTokens (crates/table/data-capabilities/place-tokens): a
-  // character dropped on the instance `targetId` (or `payload.instance`) at a
-  // hex, `count` times (1 to 12, 1 by default). An NPC's tokens are numbered
-  // after the highest its tokens hold (`multi-drop-numbering`), named « Bandit
-  // 4 », and copy the sheet's HP max as their HP; a PC is dropped once, only
-  // when present at the session, with no number and no HP (`token-roster`,
-  // `pj-hp-not-tracked`). Every token stands on the hex, visible, with no
-  // condition. An unknown instance or character is `not-found`; a hex that is
-  // no pair of whole numbers is refused by `single-position-source`.
-  'table.placeTokens': async (server, { payload, targetId }) => {
-    const count = payload.count ?? 1;
-    if (!Number.isInteger(payload.q) || !Number.isInteger(payload.r)) return ['single-position-source'];
-    if (!Number.isInteger(count) || count < 1 || count > 12) return ['multi-drop-numbering'];
-    const id = targetId || payload.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instance = id === fixture.id ? fixture : server.instances && server.instances.get(id);
-    const character = (await server.load('campaign.listCharacters')).find((c) => c.id === payload.character);
-    if (!instance || !character || !['pj', 'pnj'].includes(character.kind)) return ['not-found'];
-    const tokens = instance.state.tokens;
-    const placed = tokens.filter((t) => t.char === character.id);
-    const pnj = character.kind === 'pnj';
-    if (!pnj) {
-      const session = await server.load('session.getSession');
-      if (count !== 1 || placed.length || !session.present.includes(character.id)) return ['token-roster'];
-    }
-    let number = Math.max(0, ...placed.map((t) => t.num || 0));
-    for (let i = 0; i < count; i++) {
-      const num = pnj ? ++number : null;
-      tokens.push({
-        id: server.uuid(), char: character.id, kind: character.kind, name: pnj ? `${character.name.trim()} ${num}` : character.name.trim(), num,
-        q: payload.q, r: payload.r, visible: true, hp: pnj ? character.pvMax ?? null : null, hpMax: pnj ? character.pvMax ?? null : null, states: [], dead: false,
-      });
-    }
-    if (!instance.roster.includes(character.id)) instance.roster.push(character.id);
-    return undefined;
-  },
-  // table.renameToken (crates/table/data-capabilities/rename-token): one token
-  // renamed, `payload.token` on the instance `targetId` — or the token itself
-  // as the target. Its number and the other tokens of its character are
-  // untouched (`multi-drop-numbering`); a name of blanks alone is refused. Ids
-  // are compared in any case, as the server does.
-  'table.renameToken': async (server, { payload, targetId }) => {
-    const same = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
-    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
-    if (!name) return ['multi-drop-numbering'];
-    const tokenId = payload.token ?? targetId;
-    const instance = payload.token != null && targetId && !same(targetId, tokenId) ? targetId : null;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const inst = instances.find((i) => (instance == null || same(i.id, instance)) && i.state.tokens.some((t) => same(t.id, tokenId)));
-    if (!inst) return ['not-found'];
-    inst.state.tokens.find((t) => same(t.id, tokenId)).name = name;
     return undefined;
   },
   'campaign.restoreEntityVersion': async (server, { payload, targetId }) => {
@@ -598,336 +853,6 @@ export const COMMANDS = {
   // D&D Beyond's is refused, and a URL no sheet is linked to creates nothing on the mock-up.
   'dndbeyond.importCharacter': async (server, { payload }) => {
     if (!/^https:\/\/(www\.)?dndbeyond\.com\/characters\/\d+/.test(String(payload.url ?? ''))) return ['not-found'];
-    return undefined;
-  },
-  // table.moveToken (crates/table/data-capabilities/move-token): the token
-  // `payload.token` of the instance `targetId` (or `payload.instance`) dropped
-  // on the hex (q, r) — its position alone, the one both views read
-  // (`single-position-source`); no other token, nor the battlemap and its
-  // grid, moves. A hex that is no pair of whole numbers an `integer` holds is
-  // refused by `single-position-source`; an unknown token is `not-found`; a
-  // token that stands on another instance than the one named — or on none
-  // named — is refused by `instance-isolated`, as the DataGuard judges it.
-  'table.moveToken': async (server, { payload, targetId }) => {
-    const axis = (n) => Number.isInteger(n) && n >= -(2 ** 31) && n < 2 ** 31;
-    if (!axis(payload.q) || !axis(payload.r)) return ['single-position-source'];
-    const id = targetId || payload.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const holder = instances.find((i) => i.state.tokens.some((t) => t.id === payload.token));
-    if (!holder) return ['not-found'];
-    if (holder.id !== id) return ['instance-isolated'];
-    const token = holder.state.tokens.find((t) => t.id === payload.token);
-    token.q = payload.q;
-    token.r = payload.r;
-    return undefined;
-  },
-  // table.setTokenVisibility (crates/table/data-capabilities/set-token-visibility):
-  // the token `payload.token` of the instance `targetId` (or
-  // `payload.instance`) hidden from the players or revealed — its `visible`
-  // alone; its initiative rank and every other stay as they are
-  // (`hidden-keeps-rank`). A visibility that is no boolean is refused by
-  // `players-see-band-only`; an unknown token is `not-found`; a token that
-  // stands on another instance than the one named — or on none named — is
-  // refused by `instance-isolated`, as the DataGuard judges it. Ids are
-  // compared in any case and without the blanks around them, as the server
-  // does.
-  'table.setTokenVisibility': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    if (typeof payload.visible !== 'boolean') return ['players-see-band-only'];
-    const id = targetId || payload.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const holder = instances.find((i) => i.state.tokens.some((t) => same(t.id, payload.token)));
-    if (!holder) return ['not-found'];
-    if (!same(id, holder.id)) return ['instance-isolated'];
-    holder.state.tokens.find((t) => same(t.id, payload.token)).visible = payload.visible;
-    return undefined;
-  },
-  // table.setTokenCondition (crates/table/data-capabilities/set-token-condition):
-  // the badge `payload.state` put on the token `payload.token` of the
-  // instance `targetId` (or `payload.instance`) when `payload.on`, after the
-  // others and once, or taken off, the others keeping their order — its
-  // conditions alone; its HP, its death and the other tokens of the same
-  // character stay as they are. A condition that is no name without the
-  // blanks around it, or holds U+0000, or an `on` that is no boolean, is
-  // refused by `state-persisted-reset`; an unknown token is `not-found`; a
-  // token that stands on another instance than the one named — or on none
-  // named — is refused by `instance-isolated`, as the DataGuard judges it.
-  'table.setTokenCondition': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const state = typeof payload.state === 'string' ? payload.state.trim() : '';
-    if (!state || state.includes('\0') || typeof payload.on !== 'boolean') return ['state-persisted-reset'];
-    const id = targetId || payload.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const holder = instances.find((i) => i.state.tokens.some((t) => same(t.id, payload.token)));
-    if (!holder) return ['not-found'];
-    if (!same(id, holder.id)) return ['instance-isolated'];
-    const token = holder.state.tokens.find((t) => same(t.id, payload.token));
-    const held = token.states || [];
-    token.states = payload.on ? (held.includes(state) ? held : [...held, state]) : held.filter((s) => s !== state);
-    return undefined;
-  },
-  // table.changeHitPoints (crates/table/data-capabilities/change-hit-points):
-  // the NPC token `payload.token` of the instance `targetId` (or
-  // `payload.instance`) wounded or healed by `payload.delta` — its HP alone,
-  // landing between 0 and its HP max (`pj-hp-not-tracked`); the other tokens
-  // of its character are untouched (`hp-change-one-token`). At 0 it is dead,
-  // derived from its HP alone (`dead-derived`). A change that is no whole
-  // number, or one on a PC's token, which tracks no HP, is refused by
-  // `pj-hp-not-tracked`; an unknown token is `not-found`; a token that stands
-  // on another instance than the one named — or on none named — is refused
-  // by `instance-isolated`, as the DataGuard judges it. Ids are compared in
-  // any case and without the blanks around them, as the server does.
-  'table.changeHitPoints': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    if (!Number.isInteger(payload.delta)) return ['pj-hp-not-tracked'];
-    const id = targetId || payload.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const holder = instances.find((i) => i.state.tokens.some((t) => same(t.id, payload.token)));
-    if (!holder) return ['not-found'];
-    if (!same(id, holder.id)) return ['instance-isolated'];
-    const token = holder.state.tokens.find((t) => same(t.id, payload.token));
-    if (!Number.isInteger(token.hp) || !Number.isInteger(token.hpMax)) return ['pj-hp-not-tracked'];
-    token.hp = Math.max(0, Math.min(token.hpMax, token.hp + payload.delta));
-    token.dead = token.hp === 0;
-    return undefined;
-  },
-  // table.removeToken (crates/table/data-capabilities/remove-token): one
-  // token taken off the map, `payload.token` on the instance `targetId` — or
-  // the token itself as the target when `payload.token` is absent or null.
-  // Its partition is tombstoned and the tables follow the aggregate's
-  // relations: its entry leaves the order, whose places close up, and a turn
-  // still on it is no one's — the Battlemap sends table.nextTurn first when
-  // it holds the turn. An unknown token, or one of another instance than the
-  // one named, is `not-found`. Ids are compared in any case and without the
-  // blanks around them, as the server does.
-  'table.removeToken': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const named = payload.token != null;
-    const tokenId = named ? payload.token : targetId;
-    if (typeof tokenId !== 'string') return ['not-found'];
-    const instance = named && targetId && !same(targetId, tokenId) ? targetId : null;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const holder = instances.find((i) => (instance == null || same(i.id, instance)) && i.state.tokens.some((t) => same(t.id, tokenId)));
-    if (!holder) return ['not-found'];
-    const id = holder.state.tokens.find((t) => same(t.id, tokenId)).id;
-    holder.state.tokens = holder.state.tokens.filter((t) => t.id !== id);
-    const combat = holder.state.combat;
-    if (combat) {
-      combat.order = (combat.order || []).filter((o) => o.id !== id);
-      if (combat.current === id) combat.current = null;
-    }
-    return undefined;
-  },
-  // table.nextTurn (crates/table/data-capabilities/next-turn, Initiative@1,
-  // « Suivant »): the open combat of the instance `targetId` — or
-  // `payload.instance` — passes the turn to the next living participant after
-  // the current one in its order, a hidden one like any other
-  // (`hidden-keeps-rank`), a dead one or one off the map skipped
-  // (`dead-derived`); the round goes up when the search wraps past the last
-  // (`next-turn`). With no current turn, the first living one takes it and no
-  // round is added. An instance with no open combat is refused by
-  // `next-turn`, a combat with no one alive by `dead-derived`. Ids are
-  // compared in any case and without the blanks around them, as the server
-  // does.
-  'table.nextTurn': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const id = targetId || payload?.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const holder = instances.find((i) => same(i.id, id));
-    const combat = holder?.state.combat;
-    if (!combat) return ['next-turn'];
-    const order = combat.order || [];
-    const alive = order.map((p) => holder.state.tokens.some((t) => same(t.id, p.id) && !t.dead));
-    const at = order.findIndex((p) => same(p.id, combat.current));
-    const after = alive.findIndex((living, i) => living && i > at);
-    const wrapped = at === -1 ? -1 : alive.findIndex((living, i) => living && i <= at);
-    if (after === -1 && wrapped === -1) return ['dead-derived'];
-    combat.current = order[after === -1 ? wrapped : after].id;
-    if (after === -1) combat.round += 1;
-    return undefined;
-  },
-  // table.startCombat (crates/table/data-capabilities/start-combat): the combat
-  // of the instance `targetId` (or `payload.instance`), every token in it, a
-  // hidden one like any other (`hidden-keeps-rank`). An NPC rolls
-  // `payload.rolls[token]` or a d20, plus its DEX modifier (DEX 10 when its
-  // sheet gives none); a PC rolls nothing and takes the initiative
-  // `payload.initiative[character]` the DM entered (`npc-initiative-bounds`).
-  // Ranked by initiative, then DEX score — an unknown one last —, then a random
-  // draw (`initiative-tiebreak`); round 1 on rank 1. An unknown instance is
-  // `not-found`; one whose combat is open starts none (`one-active-combat`);
-  // one with no token, a token that is no PC nor NPC any more, a PC with no
-  // initiative entered, or a roll out of 1 to 20 or of no NPC token is
-  // refused by `npc-initiative-bounds`, as the server refuses them (422). Ids are
-  // compared in any case and without the blanks around them, as the server
-  // does.
-  'table.startCombat': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const id = targetId || payload.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const instance = instances.find((i) => same(i.id, id));
-    if (!instance) return ['not-found'];
-    if (instance.state.combat) return ['one-active-combat'];
-    const tokens = instance.state.tokens;
-    if (!tokens.length) return ['npc-initiative-bounds'];
-    const figure = (figures, key) => Object.entries(figures || {}).find(([k]) => same(k, key))?.[1];
-    if (Object.keys(payload.rolls || {}).some((k) => !tokens.some((t) => same(t.id, k) && t.kind === 'pnj'))) return ['npc-initiative-bounds'];
-    const characters = await server.load('campaign.listCharacters');
-    const seated = [];
-    for (const t of tokens) {
-      if (t.kind !== 'pj' && t.kind !== 'pnj') return ['npc-initiative-bounds'];
-      const score = characters.find((c) => same(c.id, t.char))?.stats?.DEX;
-      const pc = t.kind === 'pj';
-      const dexScore = pc ? score ?? null : score ?? 10;
-      const roll = pc ? null : figure(payload.rolls, t.id) ?? 1 + Math.floor(Math.random() * 20);
-      const init = pc ? figure(payload.initiative, t.char) : roll + Math.floor((dexScore - 10) / 2);
-      if (!Number.isInteger(init) || (roll !== null && (!Number.isInteger(roll) || roll < 1 || roll > 20))) return ['npc-initiative-bounds'];
-      seated.push({ id: t.id, init, roll, dexScore, draw: Math.random() });
-    }
-    // A stable sort: an unknown DEX after every known one, a full tie in the order given.
-    const order = seated.sort((a, b) => (b.init - a.init) || ((b.dexScore ?? -Infinity) - (a.dexScore ?? -Infinity)) || (b.draw - a.draw))
-      .map(({ id: token, init, dexScore }) => ({ id: token, init, dex: dexScore === null ? 0 : Math.floor((dexScore - 10) / 2) }));
-    instance.state.combat = { round: 1, current: order[0].id, order };
-    return undefined;
-  },
-  // table.addParticipant (crates/table/data-capabilities/add-participant,
-  // Initiative@1): the token `payload.token` of the instance `targetId` (or
-  // `payload.instance`) joins its open combat. An NPC rolls a d20 plus its DEX
-  // modifier (DEX 10 when its sheet gives none); a PC rolls nothing and takes
-  // the initiative `payload.initiative` the DM entered — an NPC is given none
-  // (`npc-initiative-bounds`). It goes after the last participant that ranks
-  // before it or ties with it, by initiative then DEX, the others keeping their
-  // order (`initiative-tiebreak`); the turn and the round stay. A token not on
-  // the instance is `not-found`; an instance with no open combat, or a token
-  // already in it, is refused by `initiative-tiebreak`, a token that is no PC
-  // nor NPC, a PC with no figure or an NPC given one by `npc-initiative-bounds`,
-  // as the server refuses them (422). Ids are compared in any case and without
-  // the blanks around them, as the server does.
-  'table.addParticipant': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const id = targetId || payload.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const instance = instances.find((i) => same(i.id, id));
-    const token = instance?.state.tokens.find((t) => same(t.id, payload.token));
-    if (!token) return ['not-found'];
-    const combat = instance.state.combat;
-    if (!combat) return ['initiative-tiebreak'];
-    const order = combat.order || [];
-    if (order.some((o) => same(o.id, token.id))) return ['initiative-tiebreak'];
-    if (token.kind !== 'pj' && token.kind !== 'pnj') return ['npc-initiative-bounds'];
-    const pc = token.kind === 'pj';
-    if (pc ? !Number.isInteger(payload.initiative) : payload.initiative != null) return ['npc-initiative-bounds'];
-    const characters = await server.load('campaign.listCharacters');
-    const score = characters.find((c) => same(c.id, token.char))?.stats?.DEX;
-    const dexScore = pc ? score ?? null : score ?? 10;
-    const dex = dexScore === null ? 0 : Math.floor((dexScore - 10) / 2);
-    const init = pc ? payload.initiative : 1 + Math.floor(Math.random() * 20) + dex;
-    // The order keeps the DEX modifier alone: ties read it, an unknown DEX
-    // after every known one.
-    const before = order.findLastIndex((o) => o.init > init || (o.init === init && (dexScore === null || o.dex >= dex)));
-    order.splice(before + 1, 0, { id: token.id, init, dex });
-    combat.order = order;
-    return undefined;
-  },
-  // table.reorderInitiative (crates/table/data-capabilities/reorder-initiative):
-  // the open combat of the instance `targetId` (or `payload.instance`)
-  // reordered as `payload.order` gives it, every participant once, named by
-  // its token — the ranks 1 to n in that order, a hidden participant like any
-  // other (`hidden-keeps-rank`); the turn and the round stay. An unknown
-  // instance is `not-found`; one with no open combat, or an order that is no
-  // list, omits a participant, repeats one or names one not in the combat, is
-  // refused by `initiative-tiebreak`, as the server refuses them (422). Ids
-  // are compared in any case and without the blanks around them, as the
-  // server does.
-  'table.reorderInitiative': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const id = targetId || payload.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const instance = instances.find((i) => same(i.id, id));
-    if (!instance) return ['not-found'];
-    const combat = instance.state.combat;
-    const held = (combat && combat.order) || [];
-    const named = Array.isArray(payload.order) ? payload.order : [];
-    if (!combat || !named.length || named.length !== held.length) return ['initiative-tiebreak'];
-    const order = [];
-    for (const n of named) {
-      const at = held.findIndex((o) => same(o.id, n) && !order.includes(o));
-      if (at < 0) return ['initiative-tiebreak'];
-      order.push(held[at]);
-    }
-    combat.order = order;
-    return undefined;
-  },
-  // table.removeParticipant (crates/table/data-capabilities/remove-participant):
-  // one participant taken out of the open combat, `payload.participant` — named
-  // by its token, as the carousel shows it — on the instance `targetId`, or the
-  // participant itself as the target when `payload.participant` is absent or
-  // null. Its entry is tombstoned and nothing else is written: its token stays
-  // on the map, and the order closes up. The participant holding the turn is
-  // refused by `next-turn`: the Battlemap sends table.nextTurn first. A
-  // participant in no open combat, or in one of another instance than the one
-  // named, is `not-found`. Ids are compared in any case and without the blanks
-  // around them, as the server does.
-  'table.removeParticipant': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const named = payload?.participant != null;
-    const participant = named ? payload.participant : targetId;
-    if (typeof participant !== 'string') return ['not-found'];
-    const instance = named && targetId && !same(targetId, participant) ? targetId : null;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const holder = instances.find((i) => (instance == null || same(i.id, instance)) && (i.state.combat?.order || []).some((o) => same(o.id, participant)));
-    if (!holder) return ['not-found'];
-    const combat = holder.state.combat;
-    if (same(combat.current, participant)) return ['next-turn'];
-    combat.order = combat.order.filter((o) => !same(o.id, participant));
-    return undefined;
-  },
-  // table.endCombat (crates/table/data-capabilities/end-combat): the open
-  // combat of the instance `targetId` (or `payload.instance`) ends — no turn
-  // is current and the carousel goes; its tokens, their HP and their
-  // conditions stay as they are, and a new combat may start
-  // (`one-active-combat`). An unknown instance, or one with no open combat,
-  // is refused by `one-active-combat`, as the server refuses it (422). Ids
-  // are compared in any case and without the blanks around them, as the
-  // server does.
-  'table.endCombat': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const id = targetId || payload?.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const instance = instances.find((i) => same(i.id, id));
-    if (!instance?.state.combat) return ['one-active-combat'];
-    instance.state.combat = null;
-    return undefined;
-  },
-  // table.resetBattlemap (crates/table/data-capabilities/reset-battlemap,
-  // « Réinitialiser la carte »): the instance `targetId` — or
-  // `payload.instance` — loses every token, its combat and its initiative;
-  // the instance itself, its battlemap and its grid stay, and no other
-  // instance is touched (`instance-isolated`). When it was reset is the
-  // command journal's, which no read shows. An unknown instance is
-  // `not-found`; one with nothing on its map is refused by
-  // `state-persisted-reset`, as the server refuses it (422). Ids are compared
-  // in any case and without the blanks around them, as the server does.
-  'table.resetBattlemap': async (server, { payload, targetId }) => {
-    const same = (a, b) => a != null && String(a).trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
-    const id = targetId || payload?.instance;
-    const fixture = await server.load('table.getBattlemapInstance');
-    const instances = [fixture, ...(server.instances ? server.instances.values() : [])];
-    const instance = instances.find((i) => same(i.id, id));
-    if (!instance) return ['not-found'];
-    if (!instance.state.tokens.length && !instance.state.combat) return ['state-persisted-reset'];
-    instance.state.tokens = [];
-    instance.state.combat = null;
     return undefined;
   },
   // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a

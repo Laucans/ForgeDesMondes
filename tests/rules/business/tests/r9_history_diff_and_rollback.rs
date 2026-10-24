@@ -26,7 +26,7 @@ fn r9_history_diff_and_rollback() {
             let id = new_character(s, &campaign, "pnj", json!({ "prompt": prompt }))?;
             let versions = |s: &Server| -> Result<Vec<Value>, String> {
                 Ok(items(
-                    &s.read("campaign.listEntityVersions", json!({ "id": id }))?,
+                    &s.read("campaign.listEntityVersions", json!({ "entity": id }))?,
                     "versions",
                 ))
             };
