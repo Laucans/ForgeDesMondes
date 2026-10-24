@@ -211,6 +211,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "analyze-brief"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "aggregate-session",
+ "ai-provider",
+ "async-trait",
+ "base64 0.22.1",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "ports-llm",
+ "ports-speech-to-text",
+ "save-entity",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -566,6 +586,7 @@ dependencies = [
  "aggregate-sound",
  "aggregate-sound-playback",
  "aggregate-suggestion",
+ "analyze-brief",
  "change-hit-points",
  "close-window",
  "create-battlemap-instance",

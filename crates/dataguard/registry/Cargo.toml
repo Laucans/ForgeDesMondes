@@ -30,6 +30,7 @@ ignored = [
     "aggregate-sound",
     "aggregate-sound-playback",
     "aggregate-suggestion",
+    "analyze-brief",
     "change-hit-points",
     "close-window",
     "create-battlemap-instance",
@@ -111,6 +112,7 @@ aggregate-session = { path = "../../session/aggregates/Session" }
 aggregate-sound = { path = "../../soundbox/aggregates/Sound" }
 aggregate-sound-playback = { path = "../../soundbox/aggregates/SoundPlayback" }
 aggregate-suggestion = { path = "../../live/aggregates/Suggestion" }
+analyze-brief = { path = "../../ai/data-capabilities/analyze-brief" }
 change-hit-points = { path = "../../table/data-capabilities/change-hit-points" }
 close-window = { path = "../../live/data-capabilities/close-window" }
 create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }

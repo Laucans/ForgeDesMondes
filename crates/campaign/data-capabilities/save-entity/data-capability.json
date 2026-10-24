@@ -1,7 +1,7 @@
 {
   "dataCapability": "campaign.saveEntity",
   "owner": "dataguard",
-  "version": 1,
+  "version": 2,
   "effect": "upsert",
   "target": {
     "aggregate": "Entity",
@@ -69,7 +69,8 @@
     "entity.portrait": "uuid | null — the portrait's media",
     "entity.token": "uuid | null — the token's media",
     "entity.crop": "object | null — the portrait's crop the token shows",
-    "entity.color": "string — the token's colour; a new PC or NPC without one takes 'accent'"
+    "entity.color": "string — the token's colour; a new PC or NPC without one takes 'accent'",
+    "source": "'dm' | 'brief' | 'ia' — where the save comes from, written as its version's source (EntityVersion@1): 'dm' when absent, the DM's own save; 'brief' for an element the analysis of a brief updates (ai.analyzeBrief), 'ia' for one an AI proposal fills — since version 2"
   },
   "mode": "confirm_on_stale",
   "invariants": [

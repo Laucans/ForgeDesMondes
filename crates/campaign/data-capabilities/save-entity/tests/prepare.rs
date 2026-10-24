@@ -525,3 +525,58 @@ fn every_field_a_save_writes_is_one_its_manifest_touches() {
         }
     }
 }
+
+#[test]
+fn a_save_is_the_dms_unless_it_names_a_brief_or_the_ia_as_its_source() {
+    let first = new(morlox()).expect("saved");
+    assert_eq!(first.payload["source"], "dm");
+    let base = after(&Row::new(), &first);
+    for (source, written) in [
+        (json!(null), "dm"),
+        (json!("dm"), "dm"),
+        (json!("brief"), "brief"),
+        (json!("ia"), "ia"),
+    ] {
+        let wire = row(json!({
+            "campaign": VALOMBRE,
+            "entity": { "id": MORLOX, "notes": "Doit 40 po à Vesna." },
+            "source": source,
+        }));
+        let Prepared { payload, .. } = prepare(&wire, &base, fresh("f2", LATER)).expect("saved");
+        assert_eq!(payload["source"], written, "{source}");
+        assert_eq!(payload["versionNumber"], 2);
+        assert!(
+            !payload["snapshot"]
+                .as_object()
+                .unwrap()
+                .contains_key("source")
+        );
+    }
+    // A flat payload names its source beside the element's fields, which
+    // never take it.
+    let flat = row(json!({ "id": MORLOX, "notes": "Rembourse.", "source": "brief" }));
+    let Prepared { payload, .. } = prepare(&flat, &base, fresh("f2", LATER)).expect("saved");
+    assert_eq!(payload["source"], "brief");
+}
+
+#[test]
+fn a_source_a_save_cannot_name_is_refused() {
+    for source in [
+        json!("restauration"),
+        json!("dndbeyond"),
+        json!("DM"),
+        json!(""),
+        json!(1),
+    ] {
+        let wire = row(json!({ "campaign": VALOMBRE, "entity": morlox(), "source": source }));
+        assert_eq!(
+            prepare(&wire, &Row::new(), fresh("f1", NOW)),
+            Err(Refusal::NotASource),
+            "{source}"
+        );
+    }
+    assert_eq!(
+        Refusal::NotASource.to_string(),
+        "une sauvegarde vient du dm, d'un brief ou de l'ia"
+    );
+}

@@ -520,6 +520,7 @@
     return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
   }
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
+  var SOURCES = { dm: "Fiche enregistr\xE9e par le DM", brief: "Mise \xE0 jour par le brief", ia: "Proposition de l\u2019IA" };
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var onScreen = (fraction, kept) => typeof fraction === "number" && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept;
@@ -1229,6 +1230,43 @@
       server.noteProposals = [];
       return void 0;
     },
+    // ai.analyzeBrief (crates/ai/data-capabilities/analyze-brief): the brief
+    // kept as text alone and cut into scenes; what the campaign holds is linked
+    // to them, an NPC the brief speaks of gains a version of source `brief`
+    // (read `ia`), every unknown NPC, place or event waits on the to-create
+    // list with its type and excerpt, and nothing is created
+    // (`brief-no-auto-creation`). The mock's AI finds what the fixture
+    // OralBrief lists; a dictation is heard as its transcript. A brief that
+    // holds no word is refused before anything is written.
+    "ai.analyzeBrief": async (server, { payload }) => {
+      const oral = await server.load("OralBrief");
+      const typed = String(payload.text || "").trim();
+      const lines = typed ? typed.split(/\n+/).map((line) => line.trim()).filter(Boolean) : payload.dictation ? oral.transcript : [];
+      if (lines.length === 0) return ["no-brief"];
+      const seconds = Number.isInteger(payload.durationSeconds) ? payload.durationSeconds : 0;
+      const brief = await server.load("session.getLastBrief");
+      Object.assign(brief, {
+        session: payload.session,
+        lastRun: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19),
+        duration: `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`,
+        transcript: lines,
+        result: JSON.parse(JSON.stringify(oral.result))
+      });
+      const fixture = await server.load("campaign.listEntitiesToCreate");
+      const entries = Array.isArray(fixture) ? fixture : fixture.items;
+      const said = (name) => lines.find((line) => name.split(/[\s’']+/).some((word) => word.length > 3 && normalized(line).includes(normalized(word)))) || name;
+      for (const missing of oral.result.missing) {
+        const waiting = entries.some((e) => e.status === "todo" && e.type === missing.type && normalized(e.name) === normalized(missing.name));
+        if (!waiting) entries.push({ id: `tc-${server.uuid()}`, type: missing.type, name: missing.name, session: payload.session, sessionTitle: "", excerpt: said(missing.name), status: "todo", entity: null });
+      }
+      const history = await server.load("campaign.listEntityVersions") || {};
+      for (const known of oral.result.recognized.filter((r) => r.updated)) {
+        const entry = history[known.id] || (history[known.id] = { name: known.name, versions: [] });
+        const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+        entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "ia", source: SOURCES.brief, seen: false, changes: [{ field: "notes", old: null, new: said(known.name) }] });
+      }
+      return void 0;
+    },
     // ai.createFromBrief (crates/ai/data-capabilities/create-from-brief): the
     // to-create entry becomes an element of the campaign, from its excerpt alone
     // or from the excerpt and the DM's refinement (the fixture ToCreateList
@@ -1271,6 +1309,8 @@
     // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
     // are kept: a DEX modifier given is never written.
     "campaign.saveEntity": async (server, { payload }) => {
+      const source = payload.source ?? "dm";
+      if (!(source in SOURCES)) return ["not-a-source"];
       const given = payload.entity || payload;
       const lists = await Promise.all(Object.values(LISTS).filter((v2, i, all2) => all2.indexOf(v2) === i).map(async (name) => [name, await server.load(name) || []]));
       const all = lists.flatMap(([name, list2]) => list2.map((element) => ({ name, element })));
@@ -1305,7 +1345,7 @@
       entry.name = after.name;
       const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Fiche enregistr\xE9e par le DM", seen: true, changes });
+      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: source === "dm" ? "dm" : "ia", source: SOURCES[source], seen: true, changes });
       return void 0;
     },
     // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
