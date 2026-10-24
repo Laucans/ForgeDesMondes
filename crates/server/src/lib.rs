@@ -45,6 +45,7 @@
 mod applier;
 mod fixtures;
 mod names;
+mod proposing;
 
 use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -70,6 +71,7 @@ use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, SharedLlm};
 use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
+pub use proposing::Proposing;
 use serde_json::{Value, json};
 
 /// Where the server listens when `PORT` is unset: the rules' runtime's port.
@@ -178,30 +180,63 @@ impl Config {
 /// The `llm` port as `ports` wires it: its fake, whose home server answers
 /// its model list at the opencode provider's URL the fixtures describe
 /// (`AiSettings.json` in `fixtures`) — so a save of that URL detects it, as
-/// the real endpoint would make it. Without that fixture, only the cloud
-/// host and the binaries are recognised.
-pub fn llm(ports: Ports, fixtures: Option<&Path>) -> FakeLlm {
+/// the real endpoint would make it — and which answers a character's prompt
+/// with the proposal the fixtures give for it (`EntityEditor.json`,
+/// [`characters`]). Without those fixtures, only the cloud host and the
+/// binaries are recognised, and a prompt is answered the canned sentence.
+pub fn llm(ports: Ports, fixtures: Option<&Path>) -> Proposing {
     match ports {
         Ports::Fake => {
-            let fake = FakeLlm::new();
-            let settings = fixtures
-                .and_then(|dir| std::fs::read_to_string(dir.join("AiSettings.json")).ok())
-                .and_then(|text| serde_json::from_str::<Value>(&text).ok());
-            let Some(settings) = settings else {
-                return fake;
+            let proposing = |fake| characters(fake, fixture(fixtures, "EntityEditor.json"));
+            let Some(settings) = fixture(fixtures, "AiSettings.json") else {
+                return proposing(FakeLlm::new());
             };
             let home = &settings["providers"]["opencode"];
             let Some(url) = home["url"].as_str() else {
-                return fake;
+                return proposing(FakeLlm::new());
             };
             let models: Vec<Value> = ["generationModel", "summaryModel"]
                 .iter()
                 .filter_map(|model| home[*model].as_str())
                 .map(|id| json!({ "id": id, "object": "model" }))
                 .collect();
-            fake.with_endpoint(url, json!({ "object": "list", "data": models }))
+            proposing(
+                FakeLlm::new().with_endpoint(url, json!({ "object": "list", "data": models })),
+            )
         }
     }
+}
+
+/// The fixture `file` of `fixtures`, when it is there and JSON.
+fn fixture(fixtures: Option<&Path>, file: &str) -> Option<Value> {
+    fixtures
+        .and_then(|dir| std::fs::read_to_string(dir.join(file)).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+}
+
+/// `fake` answering the proposals of `editor` (`EntityEditor.json`): each
+/// one of `proposals` to the prompt that holds the dictation of the same
+/// name, then the `default` one to any other prompt.
+fn characters(fake: FakeLlm, editor: Option<Value>) -> Proposing {
+    let fake = Proposing::new(fake);
+    let Some(editor) = editor else {
+        return fake;
+    };
+    let Some(proposals) = editor["proposals"].as_object() else {
+        return fake;
+    };
+    let dictated = proposals.iter().filter_map(|(name, proposal)| {
+        let dictation = editor["dictations"][name].as_str()?;
+        Some((dictation.to_owned(), proposal.clone()))
+    });
+    let fallback = proposals
+        .get("default")
+        .map(|proposal| (String::new(), proposal.clone()));
+    dictated
+        .chain(fallback)
+        .fold(fake, |fake, (holding, proposal)| {
+            fake.with_proposal(holding, proposal)
+        })
 }
 
 /// The `speech-to-text` port as `ports` wires it: its fake, which hears in
@@ -212,9 +247,7 @@ pub fn llm(ports: Ports, fixtures: Option<&Path>) -> FakeLlm {
 pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> FakeSpeechToText {
     match ports {
         Ports::Fake => {
-            let draft = fixtures
-                .and_then(|dir| std::fs::read_to_string(dir.join("NoteImport.json")).ok())
-                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            let draft = fixture(fixtures, "NoteImport.json")
                 .and_then(|notes| notes["draft"].as_str().map(str::to_owned));
             FakeSpeechToText::new(draft.unwrap_or_default())
         }
@@ -518,7 +551,7 @@ mod tests {
     }
 
     /// The provider the fake's connection test reaches at `url`.
-    async fn reached(llm: &FakeLlm, url: &str) -> Option<ports_llm::Provider> {
+    async fn reached(llm: &impl Llm, url: &str) -> Option<ports_llm::Provider> {
         let config = ports_llm::ProviderConfig::Api {
             url: url.to_string(),
             api_type: None,
@@ -540,6 +573,60 @@ mod tests {
             Some(ports_llm::Provider::OpencodeServer)
         );
         assert_eq!(reached(&llm, "https://inconnu.example.org").await, None);
+    }
+
+    /// What the fake answers a character's `prompt`.
+    async fn proposed(llm: &impl Llm, prompt: &str) -> String {
+        let config = ports_llm::ProviderConfig::Binary {
+            binary: ports_llm::Binary::ClaudeCode,
+            models: ports_llm::Models {
+                generation: "g".to_string(),
+                summary: "s".to_string(),
+            },
+        };
+        let request = ports_llm::GenerateRequest::new(ports_llm::TextKind::Prompt, prompt);
+        llm.generate(&config, &request)
+            .await
+            .expect("an answer")
+            .text
+    }
+
+    #[tokio::test]
+    async fn the_fake_llm_answers_a_characters_prompt_with_the_fixtures_proposal() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let editor: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixtures.join("EntityEditor.json")).expect("the fixture"),
+        )
+        .expect("JSON");
+        let llm = llm(Ports::Fake, Some(&fixtures));
+        for (dictation, proposal) in [("morlox", "morlox"), ("default", "default")] {
+            let prompt = format!(
+                "Prompt initial : {}",
+                editor["dictations"][dictation]
+                    .as_str()
+                    .expect("a dictation")
+            );
+            let answer: Value =
+                serde_json::from_str(&proposed(&llm, &prompt).await).expect("one JSON object");
+            assert_eq!(answer, editor["proposals"][proposal], "{dictation}");
+        }
+        let anyone: Value =
+            serde_json::from_str(&proposed(&llm, "Un druide").await).expect("one JSON object");
+        assert_eq!(anyone, editor["proposals"]["default"]);
+    }
+
+    #[tokio::test]
+    async fn without_the_fixture_the_fake_llm_proposes_no_character() {
+        let dir = folder(
+            "no-entity-editor",
+            &[("EntityEditor.json", r#"{"dictations": {}}"#)],
+        );
+        let without_proposals = llm(Ports::Fake, Some(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+        for fake in [without_proposals, llm(Ports::Fake, None)] {
+            let answer = proposed(&fake, "Un druide").await;
+            assert!(answer.starts_with("Réponse simulée de "), "{answer}");
+        }
     }
 
     #[tokio::test]
@@ -899,7 +986,7 @@ mod tests {
         assert_eq!(empty, json!({ "asOf": 0, "data": { "requests": [] } }));
 
         // The cloud host is recognised by its URL alone: the test reaches it.
-        reached(&llm, "https://api.anthropic.com/v1").await;
+        reached(llm.as_ref(), "https://api.anthropic.com/v1").await;
         // No persisted query: a hash, whatever it is, changes nothing.
         let (status, listed) = provider_requests_of(
             llm.clone(),

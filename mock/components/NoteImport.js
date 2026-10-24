@@ -1377,7 +1377,7 @@ ${heard}`;
       entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Fiche enregistr\xE9e par le DM", seen: true, changes });
       return void 0;
     },
-    // ai.proposeCharacter (crates/ai/data-capabilities/propose-character, planned): the
+    // ai.proposeCharacter (crates/ai/data-capabilities/propose-character): the
     // initial prompt told or typed gives the character's background and behaviour and, for an NPC,
     // a statblock — the proposals of fixtures/EntityEditor.json, the fake llm's answers. It applies
     // at once and is a version like any other (source ia), unseen until the DM looks. A prompt with

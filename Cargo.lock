@@ -599,6 +599,7 @@ dependencies = [
  "next-turn",
  "place-tokens",
  "play-sound",
+ "propose-character",
  "remove-participant",
  "remove-present-character",
  "remove-sound",
@@ -1636,6 +1637,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "propose-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "ai-provider",
+ "async-trait",
+ "base64 0.22.1",
+ "harness-dataguard",
+ "platform-conformance",
+ "ports-llm",
+ "ports-speech-to-text",
+ "restore-entity-version",
+ "save-entity",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
