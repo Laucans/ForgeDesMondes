@@ -229,8 +229,9 @@ pub async fn migrate(client: &mut Client, dir: &Path) -> Result<Vec<String>, Err
 pub struct Table {
     /// The table's name.
     pub name: &'static str,
-    /// The column that identifies a row: a row whose key the table holds is
-    /// left as it is.
+    /// The column that identifies a row — or, for a key of several columns,
+    /// their names separated by commas (`"session_id,character_id"`): a row
+    /// whose key the table holds is left as it is.
     pub key: &'static str,
     /// The columns the rows give; the others take their default.
     pub columns: &'static [&'static str],
@@ -251,6 +252,13 @@ fn identifier(name: &str) -> Result<&str, Error> {
     }
 }
 
+/// The values of `key` (a column, or several separated by commas) in `row`.
+fn key_of(row: &Value, key: &str) -> Vec<String> {
+    key.split(',')
+        .map(|column| row[column].to_string())
+        .collect()
+}
+
 /// Inserts into each table, in order, the rows whose key it does not hold
 /// yet, and answers how many were inserted. All tables go in one
 /// transaction: a row the database refuses — a CHECK, a foreign key, an
@@ -269,7 +277,12 @@ pub async fn insert_missing(client: &mut Client, tables: &[Table]) -> Result<u64
     let mut statements = Vec::new();
     for table in tables {
         let name = identifier(table.name)?;
-        let key = identifier(table.key)?;
+        let same = table
+            .key
+            .split(',')
+            .map(|key| identifier(key).map(|k| format!("t.\"{k}\" = r.\"{k}\"")))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(" AND ");
         let columns = table
             .columns
             .iter()
@@ -279,7 +292,7 @@ pub async fn insert_missing(client: &mut Client, tables: &[Table]) -> Result<u64
         statements.push(format!(
             "INSERT INTO \"{name}\" ({}) SELECT {} \
              FROM jsonb_populate_recordset(NULL::\"{name}\", $1::jsonb) AS r \
-             WHERE NOT EXISTS (SELECT 1 FROM \"{name}\" t WHERE t.\"{key}\" = r.\"{key}\")",
+             WHERE NOT EXISTS (SELECT 1 FROM \"{name}\" t WHERE {same})",
             columns.join(", "),
             picked.join(", "),
         ));
@@ -295,7 +308,7 @@ pub async fn insert_missing(client: &mut Client, tables: &[Table]) -> Result<u64
             table
                 .rows
                 .iter()
-                .filter(|row| keys.insert(row[table.key].to_string()))
+                .filter(|row| keys.insert(key_of(row, table.key)))
                 .cloned()
                 .collect(),
         );

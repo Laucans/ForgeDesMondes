@@ -40,6 +40,11 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 // modifier least of all, computed from the score (AbilityModifier@1).
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
+// The sources a save may name (EntityVersion@1), and the origin
+// campaign.listEntityVersions words each one as: the DM's hand, or the AI's
+// (which also reads the DM's brief).
+const SAVED_BY = { dm: 'manuelle', brief: 'ia', ia: 'ia' };
+
 // The element `id` among the lists a save writes.
 const elementOf = async (server, id) => {
   for (const name of new Set(Object.values(LISTS))) {
@@ -773,14 +778,91 @@ export const COMMANDS = {
     server.noteProposals = [];
     return undefined;
   },
-  // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
+  // ai.analyzeBrief (crates/ai/data-capabilities/analyze-brief): the brief
+  // kept as text alone and cut into scenes; what the campaign holds is linked
+  // to them, an NPC the brief speaks of gains a version of source `brief`
+  // (read `ia`), every unknown NPC, place or event waits on the to-create
+  // list with its type and excerpt, and nothing is created
+  // (`brief-no-auto-creation`). The mock's AI finds what the fixture
+  // OralBrief lists; a dictation is heard as its transcript. A brief that
+  // holds no word is refused before anything is written.
+  'ai.analyzeBrief': async (server, { payload }) => {
+    const oral = await server.load('OralBrief');
+    const typed = String(payload.text || '').trim();
+    const lines = typed ? typed.split(/\n+/).map((line) => line.trim()).filter(Boolean) : payload.dictation ? oral.transcript : [];
+    if (lines.length === 0) return ['no-brief'];
+    const seconds = Number.isInteger(payload.durationSeconds) ? payload.durationSeconds : 0;
+    const brief = await server.load('session.getLastBrief');
+    Object.assign(brief, {
+      session: payload.session,
+      lastRun: new Date().toISOString().slice(0, 19),
+      duration: `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`,
+      transcript: lines,
+      result: JSON.parse(JSON.stringify(oral.result)),
+    });
+    const fixture = await server.load('campaign.listEntitiesToCreate');
+    const entries = Array.isArray(fixture) ? fixture : fixture.items;
+    // The line that names it: by one of its words that is no article.
+    const said = (name) => lines.find((line) => name.split(/[\s’']+/).some((word) => word.length > 3 && normalized(line).includes(normalized(word)))) || name;
+    for (const missing of oral.result.missing) {
+      const waiting = entries.some((e) => e.status === 'todo' && e.type === missing.type && normalized(e.name) === normalized(missing.name));
+      if (!waiting) entries.push({ id: `tc-${server.uuid()}`, type: missing.type, name: missing.name, session: payload.session, sessionTitle: '', excerpt: said(missing.name), status: 'todo', entity: null });
+    }
+    const history = (await server.load('campaign.listEntityVersions')) || {};
+    for (const known of oral.result.recognized.filter((r) => r.updated)) {
+      const entry = history[known.id] || (history[known.id] = { name: known.name, versions: [] });
+      const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+      entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: SAVED_BY.brief, source: 'brief', restoredFrom: null, seen: false, changes: [{ field: 'notes', old: null, new: said(known.name) }] });
+    }
+    return undefined;
+  },
+  // ai.createFromBrief (crates/ai/data-capabilities/create-from-brief): the
+  // to-create entry becomes an element of the campaign, from its excerpt alone
+  // or from the excerpt and the DM's refinement (the fixture ToCreateList
+  // gives the AI's proposal for each); the entry is created once its element
+  // is set (`to-create-leaves-once-created`), and an entry already created is
+  // refused. An NPC gets its background, behaviour and sheet. The element has
+  // its first version, of source `brief`, and the entry keeps the refinement
+  // it was made from.
+  'ai.createFromBrief': async (server, { payload }) => {
+    const entries = await server.load('campaign.listEntitiesToCreate');
+    const entry = (Array.isArray(entries) ? entries : entries?.items || []).find((candidate) => candidate.id === payload.entry);
+    if (!entry) return ['not-found'];
+    if (entry.status === 'created') return ['to-create-leaves-once-created'];
+    const given = (await server.load('ToCreateList')).proposals?.[entry.id] || {};
+    const refined = typeof payload.refinement === 'string' && payload.refinement.trim() !== '';
+    const proposal = (refined ? given.refined : given.fromBrief) || { description: entry.excerpt };
+    const { statblock, ...text } = proposal;
+    const kind = { pnj: 'pnj', lieu: 'lieu', 'événement': 'evenement' }[entry.type];
+    const entities = await server.load('entities');
+    const list = { pnj: entities.characters, lieu: entities.places, evenement: entities.events }[kind];
+    const id = `${entry.id.replace(/^tc-/, '')}-${server.uuid().slice(0, 8)}`;
+    const figure = (value) => (Number.isNaN(parseInt(value, 10)) ? null : parseInt(value, 10));
+    const vital = (label) => statblock?.vitals?.find((v) => v.label === label)?.value;
+    list.push({
+      id, name: entry.name, aliases: [], kind, notes: '', ...text,
+      ...(statblock ? { type: statblock.type, stats: statblock.abilities, ca: figure(vital('CA')), pvMax: figure(vital('PV')), speed: vital('Vitesse'), features: statblock.features } : {}),
+    });
+    const history = (await server.load('campaign.listEntityVersions')) || {};
+    history[id] = { name: entry.name, versions: [{ v: 1, date: new Date().toISOString().slice(0, 19), origin: SAVED_BY.brief, source: 'brief', seen: false, changes: [] }] };
+    entry.status = 'created';
+    entry.entity = id;
+    entry.refinement = refined ? payload.refinement.trim() : null;
+    return undefined;
+  },
+  // campaign.saveEntity (crates/campaign/data-capabilities/save-entity): the
   // DM's explicit save of an element, its sheet and its aliases, which adds a
-  // version (EntityVersion@1, source `dm`) whose changes are the fields that
-  // moved. An alias naming another element, by its name or an alias
+  // version (EntityVersion@1) whose changes are the fields that moved. Its
+  // source is the one the save names, `dm` when none, else `brief` or `ia`:
+  // any other is refused before anything is written, as the server answers
+  // 422. A version from the brief or the AI is one the DM has not seen yet.
+  // An alias naming another element, by its name or an alias
   // (AliasMatch@1), is refused by `alias-unique-in-campaign`; a player on
   // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
   // are kept: a DEX modifier given is never written.
   'campaign.saveEntity': async (server, { payload }) => {
+    const source = payload.source ?? 'dm';
+    if (typeof source !== 'string' || !Object.hasOwn(SAVED_BY, source)) return ['unprocessable'];
     const given = payload.entity || payload;
     const lists = await Promise.all(Object.values(LISTS).filter((v, i, all) => all.indexOf(v) === i).map(async (name) => [name, (await server.load(name)) || []]));
     const all = lists.flatMap(([name, list]) => list.map((element) => ({ name, element })));
@@ -817,7 +899,7 @@ export const COMMANDS = {
       .filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null))
       .map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
     const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: 'dm', source: 'Fiche enregistrée par le DM', seen: true, changes });
+    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: SAVED_BY[source], source, seen: source === 'dm', changes });
     return undefined;
   },
   // ai.proposeCharacter (crates/ai/data-capabilities/propose-character): the

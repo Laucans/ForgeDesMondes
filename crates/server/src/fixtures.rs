@@ -2,8 +2,8 @@
 //! holds.
 //!
 //! [`fixtures`] reads the folder and plans the load; it touches no database.
-//! A fixture a landed aggregate holds (the Campaign, Player, Entity and Media
-//! aggregates') becomes the rows of its tables, in the order the foreign keys
+//! A fixture a landed aggregate holds (the Campaign, Player, Entity, Media and
+//! Session aggregates') becomes the rows of its tables, in the order the foreign keys
 //! and the aggregates' triggers need; the others are skipped with their
 //! reason. What is planned is loaded whole, in one transaction, by
 //! [`data::insert_missing`]: the tables' CHECKs and invariants judge every row
@@ -14,7 +14,8 @@
 //! the UUIDv5 of `<table>:<slug>` under [`NAMESPACE`], so a restart plans the
 //! same ids and loads nothing twice. [`Fixtures::names`] pairs each slug with
 //! its uuid. A row with no slug of its own is named by what identifies it:
-//! `entity_alias:<element slug>:<alias>`, `entity_version:<element slug>:<n>`.
+//! `entity_alias:<element slug>:<alias>`, `entity_version:<element slug>:<n>`,
+//! `oral_brief:<session slug>`.
 //!
 //! What the tables have no column for is not loaded: the portrait and the
 //! crop, the speed and the descriptive `type` line of a sheet, the art and
@@ -23,7 +24,18 @@
 //! `campaign.cover_media_id` names a media row, and a media row names its
 //! campaign, so the one cannot be inserted before the other. An illustration
 //! is described by its ratio alone: it is loaded as 1000 pixels high, and as
-//! wide as its ratio says.
+//! wide as its ratio says. Of a session, the `played` status is the table's
+//! `closed`, and no scene, no journal line, no start or close time is loaded:
+//! the fixtures of the Session aggregate give the sessions, the PCs present at
+//! each, the last brief and the to-create list, and nothing of the brief's
+//! scenes.
+//!
+//! A PC present at a session is one row of `session_present_character`, keyed
+//! by the pair `session_id,character_id`: a row the DM changed since is left
+//! alone, and a restart loads none twice. The stamps of `added_at` keep the
+//! fixture's order. The fixture gives no time of
+//! recording for a brief, only `lastRun`, the time of its analysis: both
+//! columns take it, and a time with no zone is UTC.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -130,6 +142,38 @@ const VERSION: &[&str] = &[
     "created_at",
 ];
 
+const SESSION: &[&str] = &[
+    "id",
+    "campaign_id",
+    "position",
+    "title",
+    "planned_on",
+    "status",
+    "microphone_on",
+    "summary",
+];
+const PRESENCE: &[&str] = &["session_id", "character_id", "added_at"];
+const BRIEF: &[&str] = &[
+    "id",
+    "session_id",
+    "transcript",
+    "duration_seconds",
+    "recorded_at",
+    "analyzed_at",
+];
+const TO_CREATE: &[&str] = &[
+    "id",
+    "campaign_id",
+    "session_id",
+    "brief_id",
+    "type",
+    "name",
+    "excerpt",
+    "status",
+    "created_entity_id",
+    "created_at",
+];
+
 /// The six abilities of a sheet, with the column of each.
 const ABILITIES: [(&str, &str); 6] = [
     ("FOR", "strength"),
@@ -181,6 +225,9 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             "campaign.getCampaign.json" => read.campaign_details(&value),
             "entities.json" => read.entities(&value),
             "media.json" => read.media(&value),
+            SESSIONS => read.sessions(&value),
+            BRIEF_FILE => read.brief(&value),
+            TO_CREATE_FILE => read.creations(&value),
             _ => {
                 plan.skipped
                     .push((name, "no aggregate holds it".to_string()));
@@ -194,11 +241,24 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
                 .push((name, format!("cannot be mapped: {why}"))),
         }
     }
+    // What depends on another file is checked once every file is read, in the
+    // order the foreign keys run: a file that does not fit is left out whole,
+    // and so is what hangs on it.
     if let Err(why) = read.library_fits() {
         read.library = None;
-        plan.loaded.retain(|name| name != LIBRARY);
-        plan.skipped
-            .push((LIBRARY.to_string(), format!("cannot be mapped: {why}")));
+        withdraw(&mut plan, LIBRARY, &why);
+    }
+    if let Err(why) = read.sessions_fit() {
+        read.sessions = None;
+        withdraw(&mut plan, SESSIONS, &why);
+    }
+    if let Err(why) = read.brief_fits() {
+        read.brief = None;
+        withdraw(&mut plan, BRIEF_FILE, &why);
+    }
+    if let Err(why) = read.to_create_fits() {
+        read.to_create = None;
+        withdraw(&mut plan, TO_CREATE_FILE, &why);
     }
     read.plan(&mut plan);
     Ok(plan)
@@ -206,6 +266,28 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
 
 /// The fixture of a campaign's media.
 const LIBRARY: &str = "media.json";
+/// The fixtures of the Session aggregate: a campaign's sessions, a session's
+/// last brief, a campaign's to-create list.
+const SESSIONS: &str = "SessionList.json";
+const BRIEF_FILE: &str = "OralBrief.json";
+const TO_CREATE_FILE: &str = "ToCreateList.json";
+
+/// Takes `file` back out of the files planned: it is skipped, with `why`.
+fn withdraw(plan: &mut Fixtures, file: &str, why: &str) {
+    plan.loaded.retain(|name| name != file);
+    plan.skipped
+        .push((file.to_string(), format!("cannot be mapped: {why}")));
+}
+
+/// The first stamp of the fixtures, and the base the rows with no date of
+/// their own count from, a microsecond apart.
+const FIRST: &str = "2026-08-20T10:00:00";
+
+/// The `index`th stamp after `at` (a time with no zone, as the fixtures
+/// write it): fixed and in fixture order, so that a list keeps the fixture's.
+fn stamp(at: &str, index: usize) -> String {
+    format!("{at}.{index:06}Z")
+}
 
 /// What the files that mapped say. A file maps whole or not at all: nothing
 /// of one that fails is kept.
@@ -216,6 +298,54 @@ struct Read {
     campaigns: BTreeMap<String, Map<String, Value>>,
     entities: Option<Entities>,
     library: Option<Library>,
+    sessions: Option<Sessions>,
+    brief: Option<Brief>,
+    to_create: Option<ToCreate>,
+}
+
+/// The `SessionList.json` document, mapped: a campaign's sessions.
+struct Sessions {
+    campaign: String,
+    sessions: Vec<Session>,
+}
+
+struct Session {
+    slug: String,
+    position: i32,
+    title: String,
+    /// The day, or null.
+    planned_on: Value,
+    status: &'static str,
+    summary: Value,
+    /// The PCs present, by slug.
+    present: Vec<String>,
+}
+
+/// The `OralBrief.json` document, mapped: the last brief of a session.
+struct Brief {
+    session: String,
+    transcript: String,
+    seconds: i32,
+    /// When it was recorded, a time with no zone.
+    at: String,
+    analyzed: bool,
+}
+
+/// The `ToCreateList.json` document, mapped: the elements the briefs
+/// mentioned and the campaign does not hold yet.
+struct ToCreate {
+    entries: Vec<Entry>,
+}
+
+struct Entry {
+    slug: String,
+    kind: &'static str,
+    name: String,
+    excerpt: String,
+    /// The session it came from, by slug.
+    session: String,
+    /// The element created from it, by slug.
+    created: Option<String>,
 }
 
 /// The `media.json` document, mapped: a campaign's battlemaps and
@@ -365,6 +495,171 @@ impl Read {
         Ok(())
     }
 
+    fn sessions(&mut self, value: &Value) -> Result<(), String> {
+        let campaign = required(value, "campaign")?.to_string();
+        let mut sessions = Vec::new();
+        for session in array(&value["sessions"], "sessions")? {
+            sessions.push(session_of(session)?);
+        }
+        let mut slugs = BTreeSet::new();
+        if let Some(twice) = sessions.iter().find(|s| !slugs.insert(&s.slug)) {
+            return Err(format!("the slug {:?} names two rows", twice.slug));
+        }
+        self.sessions = Some(Sessions { campaign, sessions });
+        Ok(())
+    }
+
+    fn brief(&mut self, value: &Value) -> Result<(), String> {
+        let at = required(value, "lastRun")?;
+        if !is_time(at) {
+            return Err(format!("lastRun {at:?} is not a time"));
+        }
+        let mut lines = Vec::new();
+        for line in array(&value["transcript"], "the transcript")? {
+            lines.push(
+                line.as_str()
+                    .ok_or("a line of the transcript is not a text")?,
+            );
+        }
+        self.brief = Some(Brief {
+            session: required(value, "session")?.to_string(),
+            transcript: lines.join("\n"),
+            seconds: seconds_of(required(value, "duration")?)?,
+            at: at.to_string(),
+            analyzed: value["result"].is_object(),
+        });
+        Ok(())
+    }
+
+    fn creations(&mut self, value: &Value) -> Result<(), String> {
+        let mut entries = Vec::new();
+        for item in array(&value["items"], "items")? {
+            entries.push(entry_of(item)?);
+        }
+        let mut slugs = BTreeSet::new();
+        if let Some(twice) = entries.iter().find(|e| !slugs.insert(&e.slug)) {
+            return Err(format!("the slug {:?} names two rows", twice.slug));
+        }
+        self.to_create = Some(ToCreate { entries });
+        Ok(())
+    }
+
+    /// Whether a campaign, a player, an element or a medium of the files
+    /// read is named `slug`: the slugs of the rows planned before the
+    /// sessions.
+    fn named(&self, slug: &str) -> bool {
+        self.campaigns.contains_key(slug)
+            || self.entities.as_ref().is_some_and(|e| {
+                e.players.iter().any(|p| p.slug == slug)
+                    || e.elements.iter().any(|element| element.slug == slug)
+            })
+            || self
+                .library
+                .as_ref()
+                .is_some_and(|l| l.media.iter().any(|m| m.slug == slug))
+    }
+
+    /// Whether the element `slug` is of `campaign` and of `kind`.
+    fn element(&self, campaign: &str, slug: &str, kind: &str) -> bool {
+        self.entities.as_ref().is_some_and(|e| {
+            e.campaign == campaign
+                && e.elements
+                    .iter()
+                    .any(|element| element.slug == slug && element.kind == kind)
+        })
+    }
+
+    /// Whether the sessions read fit what the other files say: their
+    /// campaign is one of them, each PC present a « pj » of that campaign,
+    /// and no slug of theirs names another row.
+    fn sessions_fit(&self) -> Result<(), String> {
+        let Some(sessions) = &self.sessions else {
+            return Ok(());
+        };
+        if !self.campaigns.contains_key(&sessions.campaign) {
+            return Err(format!(
+                "no fixture describes the campaign {:?}",
+                sessions.campaign
+            ));
+        }
+        for session in &sessions.sessions {
+            if self.named(&session.slug) {
+                return Err(format!("the slug {:?} names two rows", session.slug));
+            }
+            if let Some(pc) = session
+                .present
+                .iter()
+                .find(|pc| !self.element(&sessions.campaign, pc, "pj"))
+            {
+                return Err(format!(
+                    "{pc:?}, present at {:?}, is no pj of its campaign",
+                    session.slug
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the session of the brief is one the sessions read give.
+    fn brief_fits(&self) -> Result<(), String> {
+        let Some(brief) = &self.brief else {
+            return Ok(());
+        };
+        if self.session(&brief.session).is_none() {
+            return Err(format!(
+                "no fixture describes the session {:?}",
+                brief.session
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether each entry of the to-create list comes from one of the sessions
+    /// read — which says its campaign — names no other row, and, once
+    /// created, points at an element of that campaign of its own kind.
+    fn to_create_fits(&self) -> Result<(), String> {
+        let Some(list) = &self.to_create else {
+            return Ok(());
+        };
+        for entry in &list.entries {
+            let Some(campaign) = self.session(&entry.session) else {
+                return Err(format!(
+                    "no fixture describes the session {:?} of {:?}",
+                    entry.session, entry.slug
+                ));
+            };
+            let in_sessions = self
+                .sessions
+                .iter()
+                .flat_map(|s| &s.sessions)
+                .any(|s| s.slug == entry.slug);
+            if in_sessions || self.named(&entry.slug) {
+                return Err(format!("the slug {:?} names two rows", entry.slug));
+            }
+            if let Some(created) = entry
+                .created
+                .as_deref()
+                .filter(|created| !self.element(campaign, created, entry.kind))
+            {
+                return Err(format!(
+                    "the element {created:?} of {:?} is no {:?} of its campaign",
+                    entry.slug, entry.kind
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The campaign of the session `slug`, when the sessions read give it.
+    fn session(&self, slug: &str) -> Option<&str> {
+        let sessions = self.sessions.as_ref()?;
+        sessions
+            .sessions
+            .iter()
+            .any(|s| s.slug == slug)
+            .then_some(sessions.campaign.as_str())
+    }
+
     /// Whether the media read fit what the other files say: their campaign
     /// is one of them, each place a « lieu » of that campaign, and no slug
     /// of theirs names another row. Checked once every file is read.
@@ -484,6 +779,73 @@ impl Read {
                 table("battlemap_grid", "media_id", GRID, grids),
             ]);
         }
+        if let Some(sessions) = &self.sessions {
+            let campaign = id("campaign", &sessions.campaign);
+            let mut rows = Vec::new();
+            let mut present = Vec::new();
+            for session in &sessions.sessions {
+                let row = id("session", &session.slug);
+                rows.push(json!({
+                    "id": row, "campaign_id": campaign, "position": session.position,
+                    "title": session.title, "planned_on": session.planned_on,
+                    "status": session.status, "microphone_on": false,
+                    "summary": session.summary,
+                }));
+                for pc in &session.present {
+                    // A list reads them by `added_at`: the stamps keep the fixture's order.
+                    present.push(json!({
+                        "session_id": row, "character_id": id("entity", pc),
+                        "added_at": stamp(FIRST, present.len()),
+                    }));
+                }
+                names.push((session.slug.clone(), row));
+            }
+            tables.extend([
+                table("session", "id", SESSION, rows),
+                table(
+                    "session_present_character",
+                    "session_id,character_id",
+                    PRESENCE,
+                    present,
+                ),
+            ]);
+        }
+        let brief = self.brief;
+        if let Some(brief) = &brief {
+            let at = format!("{}Z", brief.at);
+            tables.push(table(
+                "oral_brief",
+                "id",
+                BRIEF,
+                vec![json!({
+                    "id": id("oral_brief", &brief.session),
+                    "session_id": id("session", &brief.session),
+                    "transcript": brief.transcript, "duration_seconds": brief.seconds,
+                    "recorded_at": at, "analyzed_at": brief.analyzed.then_some(&at),
+                })],
+            ));
+        }
+        // Fitted: each entry comes from one of the sessions, which says its campaign.
+        if let (Some(list), Some(sessions)) = (self.to_create, &self.sessions) {
+            let campaign = id("campaign", &sessions.campaign);
+            let mut rows = Vec::new();
+            for (index, entry) in list.entries.into_iter().enumerate() {
+                // Counted from the brief that listed it, when the fixtures have it.
+                let brief = brief.as_ref().filter(|b| b.session == entry.session);
+                let row = id("entity_to_create", &entry.slug);
+                rows.push(json!({
+                    "id": row, "campaign_id": campaign,
+                    "session_id": id("session", &entry.session),
+                    "brief_id": brief.map(|b| id("oral_brief", &b.session)),
+                    "type": entry.kind, "name": entry.name, "excerpt": entry.excerpt,
+                    "status": if entry.created.is_some() { "creee" } else { "a_creer" },
+                    "created_entity_id": entry.created.map(|created| id("entity", &created)),
+                    "created_at": stamp(brief.map_or(FIRST, |b| b.at.as_str()), index),
+                }));
+                names.push((entry.slug, row));
+            }
+            tables.push(table("entity_to_create", "id", TO_CREATE, rows));
+        }
         names.sort();
         plan.tables = tables;
         plan.names = names;
@@ -505,9 +867,7 @@ impl Rows {
     /// aggregate refuses an element that no version records.
     fn add(&mut self, campaign: &str, index: usize, element: &Element) {
         let entity = id("entity", &element.slug);
-        // Fixed and in fixture order, a microsecond apart, so that a list
-        // keeps the fixture's.
-        let at = format!("2026-08-20T10:00:00.{index:06}Z");
+        let at = stamp(FIRST, index);
         self.entities.push(json!({
             "id": entity, "campaign_id": campaign, "type": element.kind,
             "name": element.name, "description": element.description,
@@ -628,6 +988,84 @@ fn medium_of(value: &Value, kind: &'static str) -> Result<Medium, String> {
     })
 }
 
+/// One session of `SessionList.json`, mapped: `played` is the table's
+/// `closed`, the other two statuses are its own.
+fn session_of(value: &Value) -> Result<Session, String> {
+    let slug = required(value, "id")?.to_string();
+    let status = match value["status"].as_str() {
+        Some("prep") => "prep",
+        Some("live") => "live",
+        Some("played") => "closed",
+        other => return Err(format!("{slug} is {other:?}")),
+    };
+    let position = value["order"]
+        .as_i64()
+        .and_then(|n| i32::try_from(n).ok())
+        .ok_or_else(|| format!("{slug} has no order"))?;
+    // The column holds a day, not a time.
+    let planned_on = match date(value, "date")? {
+        Value::String(at) => json!(&at[..10]),
+        other => other,
+    };
+    // A PC listed twice is present once.
+    let mut present: Vec<String> = Vec::new();
+    for pc in array(&value["present"], "present")? {
+        let pc = pc.as_str().ok_or("a PC present is not a text")?;
+        if !present.iter().any(|known| known == pc) {
+            present.push(pc.to_string());
+        }
+    }
+    Ok(Session {
+        title: required(value, "title")?.to_string(),
+        summary: value["summary"].clone(),
+        slug,
+        position,
+        planned_on,
+        status,
+        present,
+    })
+}
+
+/// A duration written `mm:ss` (`04:12`), in seconds.
+fn seconds_of(text: &str) -> Result<i32, String> {
+    let seconds = text.split_once(':').and_then(|(minutes, seconds)| {
+        let (minutes, seconds) = (minutes.parse::<i32>().ok()?, seconds.parse::<i32>().ok()?);
+        (minutes >= 0 && (0..60).contains(&seconds))
+            .then(|| minutes.checked_mul(60)?.checked_add(seconds))
+    });
+    seconds
+        .flatten()
+        .ok_or_else(|| format!("the duration {text:?} is not mm:ss"))
+}
+
+/// One entry of `ToCreateList.json`, mapped: `todo` is the table's
+/// `a_creer`, and `created` its `creee`, which names the element created —
+/// an entry is created if and only if it does.
+fn entry_of(value: &Value) -> Result<Entry, String> {
+    let slug = required(value, "id")?.to_string();
+    let kind = match value["type"].as_str() {
+        Some("pnj") => "pnj",
+        Some("lieu") => "lieu",
+        Some("evenement") => "evenement",
+        other => return Err(format!("{slug} is of type {other:?}")),
+    };
+    let created = match (value["status"].as_str(), value["entity"].as_str()) {
+        (Some("todo"), None) => None,
+        (Some("created"), Some(entity)) => Some(entity.to_string()),
+        (status, entity) => {
+            return Err(format!("{slug} is {status:?} with the element {entity:?}"));
+        }
+    };
+    Ok(Entry {
+        name: required(value, "name")?.to_string(),
+        excerpt: required(value, "excerpt")?.to_string(),
+        session: required(value, "session")?.to_string(),
+        slug,
+        kind,
+        created,
+    })
+}
+
 /// A battlemap's grid as the columns of `battlemap_grid`: its orientation
 /// as the table names it, its opacity a fraction of 1 where the fixture
 /// gives a percentage.
@@ -734,11 +1172,61 @@ fn array<'a>(value: &'a Value, what: &str) -> Result<&'a Vec<Value>, String> {
         .ok_or_else(|| format!("{what} is not a list"))
 }
 
+/// The whole number the digits of `text` at `range` write.
+fn digits(text: &str, range: std::ops::Range<usize>) -> Option<u32> {
+    let digits = text.get(range)?;
+    if digits.bytes().all(|b| b.is_ascii_digit()) {
+        digits.parse().ok()
+    } else {
+        None
+    }
+}
+
+/// Whether `text` is a day of the calendar, written `2026-08-20`.
+fn is_day(text: &str) -> bool {
+    let (Some(year), Some(month), Some(day)) =
+        (digits(text, 0..4), digits(text, 5..7), digits(text, 8..10))
+    else {
+        return false;
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let last = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => 28 + u32::from(leap),
+        _ => return false,
+    };
+    text.len() == 10
+        && text.as_bytes()[4] == b'-'
+        && text.as_bytes()[7] == b'-'
+        && year > 0
+        && (1..=last).contains(&day)
+}
+
+/// Whether `text` is a time with no zone, written `2026-10-14T19:31:00`.
+fn is_time(text: &str) -> bool {
+    let (Some(hour), Some(minute), Some(second)) = (
+        digits(text, 11..13),
+        digits(text, 14..16),
+        digits(text, 17..19),
+    ) else {
+        return false;
+    };
+    text.len() == 19
+        && text.get(..10).is_some_and(is_day)
+        && text.as_bytes()[10] == b'T'
+        && text.as_bytes()[13] == b':'
+        && text.as_bytes()[16] == b':'
+        && hour < 24
+        && minute < 60
+        && second < 60
+}
+
 /// A day (`2026-08-20`) as the midnight UTC the column holds; null stays null.
 fn date(value: &Value, key: &str) -> Result<Value, String> {
     match value[key].as_str() {
         None => Ok(Value::Null),
-        Some(day) if day.len() == 10 => Ok(json!(format!("{day}T00:00:00Z"))),
+        Some(day) if is_day(day) => Ok(json!(format!("{day}T00:00:00Z"))),
         Some(day) => Err(format!("{key} {day:?} is not a day")),
     }
 }
@@ -826,6 +1314,9 @@ mod tests {
         assert_eq!(
             plan.loaded,
             [
+                "OralBrief.json",
+                "SessionList.json",
+                "ToCreateList.json",
                 "campaign.getCampaign.json",
                 "campaign.listCampaigns.json",
                 "entities.json",
@@ -852,7 +1343,11 @@ mod tests {
                 "entity_alias",
                 "entity_version",
                 "media",
-                "battlemap_grid"
+                "battlemap_grid",
+                "session",
+                "session_present_character",
+                "oral_brief",
+                "entity_to_create"
             ]
         );
     }
@@ -1368,5 +1863,512 @@ mod tests {
             "{:?}",
             plan.skipped
         );
+    }
+
+    /// The mock-up's fixtures, the files named in `over` replaced by theirs.
+    fn replaced(over: &[(&str, Value)]) -> Fixtures {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
+            .expect("the fixtures folder")
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let name = path.file_name()?.to_str()?.to_string();
+                let json = path.extension().is_some_and(|e| e == "json");
+                json.then(|| (name, std::fs::read_to_string(&path).expect("a fixture")))
+            })
+            .collect();
+        for (name, value) in over {
+            files.retain(|(file, _)| file != name);
+            files.push((name.to_string(), value.to_string()));
+        }
+        static PLANNED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = PLANNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(name, text)| (name.as_str(), text.as_str()))
+            .collect();
+        let folder = folder(&format!("sessions-{n}"), &files);
+        let plan = fixtures(&folder).expect("the folder is listed");
+        std::fs::remove_dir_all(&folder).ok();
+        plan
+    }
+
+    /// The files left out for what they say, not for being nobody's.
+    fn unmapped(plan: &Fixtures) -> Vec<&Skipped> {
+        plan.skipped
+            .iter()
+            .filter(|(_, why)| why != "no aggregate holds it")
+            .collect()
+    }
+
+    /// A fixture of the mock-up, as JSON.
+    fn mock_file(name: &str) -> Value {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        serde_json::from_str(&std::fs::read_to_string(path.join(name)).expect("the fixture"))
+            .expect("JSON")
+    }
+
+    #[test]
+    fn the_sessions_of_the_mock_up_are_planned_with_the_pcs_present() {
+        let plan = mock();
+        let sessions = rows(&plan, "session");
+        assert_eq!(sessions.len(), 4);
+        let campaign = id("campaign", "cendres-valombre");
+        assert!(sessions.iter().all(|s| s["campaign_id"] == campaign));
+        assert!(sessions.iter().all(|s| s["microphone_on"] == false));
+        let session = |slug: &str| {
+            sessions
+                .iter()
+                .find(|s| s["id"] == id("session", slug))
+                .copied()
+                .expect("a planned session")
+        };
+        let second = session("s2");
+        assert_eq!(second["position"], 2);
+        assert_eq!(second["title"], "Le moulin en flammes");
+        assert_eq!(second["planned_on"], "2026-09-19");
+        assert_eq!(second["status"], "closed", "played is closed");
+        assert!(
+            second["summary"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("Le moulin brûle"))
+        );
+        assert_eq!(session("s4")["status"], "prep");
+        let order: Vec<i64> = sessions
+            .iter()
+            .filter_map(|s| s["position"].as_i64())
+            .collect();
+        assert_eq!(order, [1, 2, 3, 4], "in the fixture's order");
+
+        let present = rows(&plan, "session_present_character");
+        assert_eq!(present.len(), 4 + 3 + 4 + 4);
+        let at = |slug: &str| -> BTreeSet<&str> {
+            present
+                .iter()
+                .filter(|p| p["session_id"] == id("session", slug))
+                .filter_map(|p| p["character_id"].as_str())
+                .collect()
+        };
+        let kael = id("entity", "kael");
+        let elowen = id("entity", "elowen");
+        assert_eq!(at("s2").len(), 3);
+        assert!(at("s2").contains(elowen.as_str()) && at("s2").contains(kael.as_str()));
+        assert!(!at("s2").contains(id("entity", "sirielle").as_str()));
+        let pairs: BTreeSet<(&str, &str)> = present
+            .iter()
+            .filter_map(|p| Some((p["session_id"].as_str()?, p["character_id"].as_str()?)))
+            .collect();
+        assert_eq!(
+            pairs.len(),
+            present.len(),
+            "a PC is present once per session"
+        );
+        let stamps: Vec<&str> = present
+            .iter()
+            .filter(|p| p["session_id"] == id("session", "s1"))
+            .filter_map(|p| p["added_at"].as_str())
+            .collect();
+        assert_eq!(stamps.len(), 4);
+        assert!(
+            stamps.windows(2).all(|w| w[0] < w[1]),
+            "in the fixture's order"
+        );
+        assert!(
+            plan.tables.iter().any(
+                |t| t.name == "session_present_character" && t.key == "session_id,character_id"
+            )
+        );
+        for (slug, uuid) in [("s1", id("session", "s1")), ("s4", id("session", "s4"))] {
+            assert!(plan.names.contains(&(slug.to_string(), uuid)), "{slug}");
+        }
+    }
+
+    #[test]
+    fn the_last_brief_of_the_mock_up_is_one_analysed_row_of_text() {
+        let plan = mock();
+        let briefs = rows(&plan, "oral_brief");
+        assert_eq!(briefs.len(), 1);
+        let brief = briefs[0];
+        assert_eq!(brief["id"], id("oral_brief", "s4"));
+        assert_eq!(brief["session_id"], id("session", "s4"));
+        assert_eq!(brief["duration_seconds"], 4 * 60 + 12);
+        assert_eq!(brief["recorded_at"], "2026-10-14T19:31:00Z");
+        assert_eq!(brief["analyzed_at"], "2026-10-14T19:31:00Z");
+        let transcript = brief["transcript"].as_str().expect("a text");
+        let lines: Vec<&str> = transcript.lines().collect();
+        assert_eq!(lines.len(), 7, "one line per line of the fixture");
+        assert_eq!(lines[0], "Bon, séance quatre, l’embuscade du gué.");
+    }
+
+    #[test]
+    fn the_to_create_list_of_the_mock_up_is_planned_with_what_became_of_each_entry() {
+        let plan = mock();
+        let entries = rows(&plan, "entity_to_create");
+        assert_eq!(entries.len(), 3);
+        let entry = |slug: &str| {
+            entries
+                .iter()
+                .find(|e| e["id"] == id("entity_to_create", slug))
+                .copied()
+                .expect("a planned entry")
+        };
+        let campaign = id("campaign", "cendres-valombre");
+        assert!(entries.iter().all(|e| e["campaign_id"] == campaign));
+        assert!(
+            entries
+                .iter()
+                .all(|e| e["session_id"] == id("session", "s4"))
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|e| e["brief_id"] == id("oral_brief", "s4"))
+        );
+        let odric = entry("tc-odric");
+        assert_eq!(odric["status"], "a_creer");
+        assert_eq!(odric["type"], "pnj");
+        assert_eq!(odric["name"], "Frère Odric");
+        assert!(odric["created_entity_id"].is_null());
+        assert!(
+            odric["excerpt"]
+                .as_str()
+                .is_some_and(|e| e.contains("frère Odric"))
+        );
+        let vesna = entry("tc-vesna");
+        assert_eq!(vesna["status"], "creee");
+        assert_eq!(vesna["created_entity_id"], id("entity", "vesna"));
+        assert_eq!(entry("tc-gue")["type"], "lieu");
+        // The list keeps the fixture's order, from the brief's time.
+        let stamps: Vec<&str> = ["tc-vesna", "tc-odric", "tc-gue"]
+            .iter()
+            .filter_map(|slug| entry(slug)["created_at"].as_str())
+            .collect();
+        assert_eq!(stamps[0], "2026-10-14T19:31:00.000000Z");
+        assert!(stamps.windows(2).all(|w| w[0] < w[1]), "{stamps:?}");
+        assert!(
+            plan.names
+                .contains(&("tc-odric".to_string(), id("entity_to_create", "tc-odric")))
+        );
+    }
+
+    #[test]
+    fn an_entry_whose_session_has_no_brief_is_not_tied_to_one() {
+        let mut list = mock_file(TO_CREATE_FILE);
+        list["items"][1]["session"] = json!("s3");
+        let plan = replaced(&[(TO_CREATE_FILE, list)]);
+        let entries = rows(&plan, "entity_to_create");
+        let odric = entries
+            .iter()
+            .find(|e| e["id"] == id("entity_to_create", "tc-odric"))
+            .expect("an entry");
+        assert!(odric["brief_id"].is_null(), "{odric}");
+        assert_eq!(odric["session_id"], id("session", "s3"));
+        assert_eq!(odric["created_at"], "2026-08-20T10:00:00.000001Z");
+    }
+
+    #[test]
+    fn a_day_a_summary_or_a_pc_a_fixture_leaves_out_is_null_or_not_loaded() {
+        let mut list = mock_file(SESSIONS);
+        list["sessions"][0]["date"] = Value::Null;
+        list["sessions"][0]["summary"] = Value::Null;
+        list["sessions"][0]["present"] = json!(["elowen", "elowen"]);
+        let plan = replaced(&[(SESSIONS, list)]);
+        assert!(
+            plan.skipped.iter().all(|(n, _)| n != SESSIONS),
+            "{:?}",
+            plan.skipped
+        );
+        let sessions = rows(&plan, "session");
+        let first = sessions
+            .iter()
+            .find(|s| s["id"] == id("session", "s1"))
+            .expect("a session");
+        assert!(first["planned_on"].is_null() && first["summary"].is_null());
+        let present = rows(&plan, "session_present_character");
+        let first_present = present
+            .iter()
+            .filter(|p| p["session_id"] == id("session", "s1"))
+            .count();
+        assert_eq!(first_present, 1, "a PC listed twice is present once");
+    }
+
+    #[test]
+    fn a_session_file_that_does_not_fit_is_skipped_with_what_hangs_on_it() {
+        let sessions = |edit: &dyn Fn(&mut Value)| {
+            let mut list = mock_file(SESSIONS);
+            edit(&mut list);
+            list
+        };
+        let cases = [
+            (
+                "a PC that is an NPC",
+                sessions(&|l| l["sessions"][0]["present"] = json!(["morlox"])),
+                "is no pj",
+            ),
+            (
+                "a PC nobody describes",
+                sessions(&|l| l["sessions"][0]["present"] = json!(["nobody"])),
+                "is no pj",
+            ),
+            (
+                "a campaign nobody describes",
+                sessions(&|l| l["campaign"] = json!("nowhere")),
+                "no fixture describes the campaign",
+            ),
+            (
+                "a slug an element has",
+                sessions(&|l| l["sessions"][0]["id"] = json!("elowen")),
+                "names two rows",
+            ),
+            (
+                "a slug a medium has",
+                sessions(&|l| l["sessions"][0]["id"] = json!("bm-gue")),
+                "names two rows",
+            ),
+            (
+                "a slug twice",
+                sessions(&|l| l["sessions"][1]["id"] = json!("s1")),
+                "names two rows",
+            ),
+            (
+                "a status of nobody's",
+                sessions(&|l| l["sessions"][0]["status"] = json!("over")),
+                "over",
+            ),
+            (
+                "no order",
+                sessions(&|l| l["sessions"][0]["order"] = json!("first")),
+                "no order",
+            ),
+            (
+                "a day that is not a day",
+                sessions(&|l| l["sessions"][0]["date"] = json!("5 septembre")),
+                "is not a day",
+            ),
+            (
+                "a day the calendar does not have",
+                sessions(&|l| l["sessions"][0]["date"] = json!("2026-02-30")),
+                "is not a day",
+            ),
+        ];
+        for (what, list, why) in cases {
+            let plan = replaced(&[(SESSIONS, list)]);
+            let left = unmapped(&plan);
+            let names: Vec<&str> = left.iter().map(|(n, _)| n.as_str()).collect();
+            // The brief and the list name a session: they go with the sessions.
+            assert_eq!(names, [SESSIONS, BRIEF_FILE, TO_CREATE_FILE], "{what}");
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            assert!(left[1].1.contains("no fixture describes the session"));
+            for file in [SESSIONS, BRIEF_FILE, TO_CREATE_FILE] {
+                assert!(!plan.loaded.iter().any(|n| n == file), "{what}: {file}");
+            }
+            assert!(plan.loaded.iter().any(|n| n == "entities.json"), "{what}");
+            for table in [
+                "session",
+                "session_present_character",
+                "oral_brief",
+                "entity_to_create",
+            ] {
+                assert!(rows(&plan, table).is_empty(), "{what}: {table}");
+            }
+            assert!(
+                !plan
+                    .names
+                    .iter()
+                    .any(|(slug, _)| slug == "s4" || slug == "tc-odric")
+            );
+        }
+    }
+
+    #[test]
+    fn a_brief_or_a_list_that_does_not_fit_is_skipped_alone() {
+        let brief = |edit: &dyn Fn(&mut Value)| {
+            let mut file = mock_file(BRIEF_FILE);
+            edit(&mut file);
+            (BRIEF_FILE, file)
+        };
+        let list = |edit: &dyn Fn(&mut Value)| {
+            let mut file = mock_file(TO_CREATE_FILE);
+            edit(&mut file);
+            (TO_CREATE_FILE, file)
+        };
+        let cases = [
+            (
+                "a session nobody describes",
+                brief(&|b| b["session"] = json!("s9")),
+                "no fixture describes the session",
+            ),
+            (
+                "no zone-less time",
+                brief(&|b| b["lastRun"] = json!("yesterday")),
+                "is not a time",
+            ),
+            (
+                "a time with a zone",
+                brief(&|b| b["lastRun"] = json!("2026-10-14T19:31:00.5Z")),
+                "is not a time",
+            ),
+            (
+                "a duration in words",
+                brief(&|b| b["duration"] = json!("four")),
+                "is not mm:ss",
+            ),
+            (
+                "a line that is no text",
+                brief(&|b| b["transcript"][0] = json!(1)),
+                "not a text",
+            ),
+            (
+                "a session nobody describes",
+                list(&|l| l["items"][0]["session"] = json!("s9")),
+                "no fixture describes the session",
+            ),
+            (
+                "a type nobody has",
+                list(&|l| l["items"][0]["type"] = json!("monstre")),
+                "of type",
+            ),
+            (
+                "created with no element",
+                list(&|l| l["items"][0]["entity"] = Value::Null),
+                "with the element",
+            ),
+            (
+                "to do with an element",
+                list(&|l| l["items"][1]["entity"] = json!("vesna")),
+                "with the element",
+            ),
+            (
+                "an element nobody describes",
+                list(&|l| l["items"][0]["entity"] = json!("nobody")),
+                "is no \"pnj\"",
+            ),
+            (
+                "an element of another kind",
+                list(&|l| l["items"][0]["entity"] = json!("valombre")),
+                "is no \"pnj\"",
+            ),
+            (
+                "a slug an element has",
+                list(&|l| l["items"][0]["id"] = json!("elowen")),
+                "names two rows",
+            ),
+            (
+                "a slug a session has",
+                list(&|l| l["items"][0]["id"] = json!("s1")),
+                "names two rows",
+            ),
+            (
+                "a slug twice",
+                list(&|l| l["items"][1]["id"] = json!("tc-vesna")),
+                "names two rows",
+            ),
+        ];
+        for (what, (file, value), why) in cases {
+            let plan = replaced(&[(file, value)]);
+            let left = unmapped(&plan);
+            assert_eq!(left.len(), 1, "{what}: {left:?}");
+            assert_eq!(left[0].0, file, "{what}");
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            assert_eq!(
+                rows(&plan, "session").len(),
+                4,
+                "{what}: the sessions are loaded"
+            );
+            let table = if file == BRIEF_FILE {
+                "oral_brief"
+            } else {
+                "entity_to_create"
+            };
+            assert!(rows(&plan, table).is_empty(), "{what}");
+        }
+    }
+
+    #[test]
+    fn a_duration_is_minutes_and_seconds() {
+        assert_eq!(seconds_of("04:12"), Ok(252));
+        assert_eq!(seconds_of("75:00"), Ok(4500));
+        assert_eq!(seconds_of("00:00"), Ok(0));
+        for text in [
+            "4",
+            "04:60",
+            "-1:00",
+            "04:-1",
+            "a:b",
+            "",
+            "99999999999:00",
+            "40000000:00",
+        ] {
+            assert!(seconds_of(text).is_err(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn an_entry_whose_brief_is_withdrawn_is_still_planned_with_no_brief() {
+        let mut brief = mock_file(BRIEF_FILE);
+        brief["session"] = json!("s9");
+        let plan = replaced(&[(BRIEF_FILE, brief)]);
+        let entries = rows(&plan, "entity_to_create");
+        assert_eq!(entries.len(), 3);
+        assert!(
+            entries.iter().all(|e| e["brief_id"].is_null()),
+            "{entries:?}"
+        );
+    }
+
+    #[test]
+    fn a_day_and_a_time_are_the_calendar_s_and_the_clock_s() {
+        for day in [
+            "2026-08-20",
+            "2024-02-29",
+            "2000-02-29",
+            "2026-12-31",
+            "0001-01-01",
+        ] {
+            assert!(is_day(day), "{day}");
+        }
+        for day in [
+            "",
+            "2026-8-20",
+            "2026-08-2",
+            "2026-02-29",
+            "1900-02-29",
+            "2026-04-31",
+            "2026-00-10",
+            "2026-13-10",
+            "2026-08-00",
+            "2026-08-32",
+            "0000-01-01",
+            "2026/08/20",
+            "2026-08-20T",
+            "+026-08-20",
+            "2026-08-+1",
+            "20 août 2026",
+        ] {
+            assert!(!is_day(day), "{day:?}");
+        }
+        for time in [
+            "2026-10-14T19:31:00",
+            "2026-10-14T00:00:00",
+            "2026-10-14T23:59:59",
+        ] {
+            assert!(is_time(time), "{time}");
+        }
+        for time in [
+            "",
+            "2026-10-14",
+            "2026-10-14 19:31:00",
+            "2026-10-14T24:00:00",
+            "2026-10-14T19:60:00",
+            "2026-10-14T19:31:60",
+            "2026-02-30T10:00:00",
+            "2026-10-14T19:31:00Z",
+            "2026-10-14T19-31-00",
+            "2026-10-14T19:31-00",
+            "2026-10-14T1:31:000",
+            "2026-10-14T19:31:0é",
+        ] {
+            assert!(!is_time(time), "{time:?}");
+        }
     }
 }
