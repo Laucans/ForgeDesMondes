@@ -233,28 +233,42 @@ fn save(campaign: &str, entity: &str, notes: &str) -> Submission {
     }
 }
 
-/// The session's campaign: its row as the queue leaves it, else the tables'.
+/// The session's campaign: the tables', else its row as the queue leaves
+/// it. A session whose creation is still queued is refused, 422: the brief
+/// and the scenes point at it in their tables, and a foreign key refused
+/// at apply is a rejection for good — a step that waited for it instead
+/// would stop the applier on every partition after it.
 async fn campaign_of(
     context: &Context<'_>,
     session: &str,
 ) -> Result<Option<String>, plugins::Refusal> {
-    let row = context.row(&format!("{PARTITION}{session}")).await?;
-    if let Some(campaign) = row
-        .get(aggregate_session::SESSION_CAMPAIGN_ID)
-        .and_then(Value::as_str)
-    {
+    let found = asked(context, SESSION, session).await?;
+    if let Some(campaign) = found.first().and_then(|row| row["campaign"].as_str()) {
         return Ok(Some(campaign.to_owned()));
     }
-    let found = asked(context, SESSION, session).await?;
-    Ok(found
-        .first()
-        .and_then(|row| row["campaign"].as_str())
-        .map(str::to_owned))
+    let row = context.row(&format!("{PARTITION}{session}")).await?;
+    let Some(campaign) = row
+        .get(aggregate_session::SESSION_CAMPAIGN_ID)
+        .and_then(Value::as_str)
+    else {
+        return Ok(None);
+    };
+    if !asked(context, PENDING, session).await?.is_empty() {
+        return Err(plugins::Refusal::unprocessable(format!(
+            "la séance {session} n'est pas encore enregistrée : le brief attend qu'elle le soit"
+        )));
+    }
+    Ok(Some(campaign.to_owned()))
 }
 
 /// The campaign of the session `$1` names.
 const SESSION: &str = "SELECT campaign_id::text AS campaign FROM session
     WHERE id::text = lower($1::text)";
+
+/// The commands still queued on the partition of the session `$1` names.
+const PENDING: &str = "SELECT q.command FROM dataguard_queue q
+    WHERE q.partition = 'Session/' || lower($1::text)
+        AND NOT (q.state = ANY (ARRAY['applied', 'rejected', 'cancelled', 'expired']))";
 
 /// The elements of the campaign `$1` names, with their type, their name and
 /// their aliases as written, in the order of their ids — none the engine
@@ -275,10 +289,20 @@ const MEDIA: &str = "SELECT m.id::text AS id, m.title FROM media m
             WHERE r.partition = 'Media/' || m.id::text AND r.tombstoned)
     ORDER BY m.id";
 
-/// The entries of the campaign `$1` names that wait to be created.
-const WAITING: &str = "SELECT t.type, t.name FROM entity_to_create t
-    WHERE t.campaign_id::text = lower($1::text) AND t.status = 'a_creer'
-    ORDER BY t.id";
+/// The entries of the campaign `$1` names that wait to be created: the
+/// table's, and those an analysis queued that the applier has not written
+/// yet.
+const WAITING: &str = "SELECT w.type, w.name FROM (
+        SELECT t.id::text AS id, t.type, t.name FROM entity_to_create t
+        WHERE t.campaign_id::text = lower($1::text) AND t.status = 'a_creer'
+        UNION ALL
+        SELECT q.command, q.entry -> 'payload' ->> 'type', q.entry -> 'payload' ->> 'name'
+        FROM dataguard_queue q
+        WHERE q.data_capability = 'ai.analyzeBrief'
+            AND NOT (q.state = ANY (ARRAY['applied', 'rejected', 'cancelled', 'expired']))
+            AND lower(q.entry -> 'payload' ->> 'entityToCreateCampaignId') = lower($1::text)
+            AND q.entry -> 'payload' ->> 'entityToCreateStatus' = 'a_creer'
+    ) w ORDER BY w.id";
 
 /// The rows `sql` answers for `id`: none over the engine's memory, which has
 /// no table.

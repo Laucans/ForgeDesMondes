@@ -70,6 +70,9 @@ impl Rows for Tables {
             json!([])
         } else if sql.contains("FROM entity_to_create") {
             json!([{ "type": "lieu", "name": "Le gué" }])
+        } else if sql.contains("FROM dataguard_queue") {
+            // The store's rows are applied ones: nothing queued on them.
+            json!([])
         } else {
             panic!("an unknown query: {sql}")
         })

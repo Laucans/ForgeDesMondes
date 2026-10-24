@@ -20,7 +20,7 @@ use harness_dataguard::command::{CommandResult, State};
 use harness_dataguard::engine::Engine;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::MemoryNotifier;
-use harness_dataguard::plugins::{Plugins, Shared};
+use harness_dataguard::plugins::{Plugins, RefusalKind, Shared};
 use harness_dataguard::postgres::{PgStore, ReadOnly, SystemClock};
 use harness_dataguard::store::RandomIds;
 use harness_dataguard::tokio_postgres::Client;
@@ -538,4 +538,90 @@ async fn a_table_that_fails_fails_the_step_and_rejects_nothing() {
         Err(harness_dataguard::Error::Store(_)) => {}
         other => panic!("the store's failure, not the command's: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn a_brief_queued_twice_before_the_applier_runs_lists_each_unknown_once() {
+    let scratch = Scratch::new("twice").await;
+    let engine = scratch.serve().await;
+    let brief = json!({ "session": SEANCE, "text": BRIEF });
+    let first = submit(&engine, "ai.analyzeBrief", brief.clone(), None).await;
+    let second = submit(&engine, "ai.analyzeBrief", brief, None).await;
+    assert_ne!(first.partition, second.partition);
+    let results = applied(&engine).await;
+    assert!(
+        results.iter().all(|r| r.status == State::Applied),
+        "{results:?}"
+    );
+    assert_eq!(
+        scratch
+            .rows("SELECT type, name, count(*) AS times FROM entity_to_create GROUP BY type, name ORDER BY name")
+            .await,
+        [
+            json!({ "type": "lieu", "name": "Le Pont des Pendus", "times": 1 }),
+            // Not saved here: an NPC the campaign does not hold.
+            json!({ "type": "pnj", "name": "Morlox", "times": 1 }),
+            json!({ "type": "evenement", "name": "Où a lieu l'embuscade", "times": 1 }),
+            json!({ "type": "pnj", "name": "Vesna la Balafrée", "times": 1 }),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_brief_of_a_session_still_queued_is_refused_until_it_is_applied() {
+    let scratch = Scratch::new("queued").await;
+    let engine = scratch.serve().await;
+    let session = "51000000-0000-4000-8000-000000000006";
+    submit(
+        &engine,
+        "test.addRow",
+        json!({
+            "sessionId": session, "sessionCampaignId": VALOMBRE,
+            "sessionTitle": "La séance 5", "sessionStatus": "prep", "microphoneOn": false,
+        }),
+        Some(session),
+    )
+    .await;
+    let analysis: Submission = serde_json::from_value(json!({
+        "dataCapability": "ai.analyzeBrief",
+        "payload": { "session": session, "text": BRIEF },
+        "caller": { "by": "dm", "from": "OralBrief", "roles": ["role:approver"] },
+    }))
+    .expect("a submission");
+    match engine.submit(analysis.clone()).await {
+        Err(harness_dataguard::Error::Refused(refusal)) => {
+            assert_eq!(refusal.kind, RefusalKind::Unprocessable);
+            assert!(
+                refusal.message.contains("pas encore enregistrée"),
+                "{}",
+                refusal.message
+            );
+        }
+        other => panic!("refused while the session is queued: {other:?}"),
+    }
+    assert!(
+        scratch
+            .rows("SELECT command FROM dataguard_queue WHERE data_capability = 'ai.analyzeBrief'")
+            .await
+            .is_empty(),
+        "nothing queued"
+    );
+
+    let results = applied(&engine).await;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].status, State::Applied, "{results:?}");
+    engine.submit(analysis).await.expect("queued once applied");
+    let results = applied(&engine).await;
+    assert!(
+        results.iter().all(|r| r.status == State::Applied),
+        "{results:?}"
+    );
+    assert_eq!(
+        scratch
+            .rows(&format!(
+                "SELECT session_id::text FROM oral_brief WHERE session_id = '{session}'"
+            ))
+            .await,
+        [json!({ "session_id": session })]
+    );
 }
