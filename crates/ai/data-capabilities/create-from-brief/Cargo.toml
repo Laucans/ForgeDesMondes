@@ -1,0 +1,30 @@
+[package]
+name = "create-from-brief"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability ai.createFromBrief: one « à créer » entry of a brief made an element of the campaign — the llm port proposes it from the brief's excerpt and the DM's refinement, typed or dictated (an NPC's description, background, behaviour and statblock; a place's or an event's description) — saved through campaign.saveEntity with its first version (EntityVersion@1), linked to the entry's scene at its next position, the entry « creee »."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target: a scene's row and its fields.
+aggregate-session = { path = "../../../session/aggregates/Session" }
+# The provider the AI settings make active.
+ai-provider = { path = "../../provider" }
+# The engine's `Prepare` is an async trait.
+async-trait = "0.1"
+base64 = "0.22"
+ports-llm = { path = "../../../ports/llm" }
+ports-speech-to-text = { path = "../../../ports/speech-to-text" }
+serde_json = "1"
+# The id an element is given is derived from its entry's, so a creation
+# retried finds the element it made and does not make it twice.
+sha2 = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync"] }
+# The element a creation saves, as the server plants it.
+aggregate-entity = { path = "../../../campaign/aggregates/Entity" }
+save-entity = { path = "../../../campaign/data-capabilities/save-entity" }

@@ -35,6 +35,7 @@ ignored = [
     "create-battlemap-instance",
     "create-campaign",
     "create-entities-from-note",
+    "create-from-brief",
     "create-session",
     "end-combat",
     "export-campaign",
@@ -116,6 +117,7 @@ close-window = { path = "../../live/data-capabilities/close-window" }
 create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }
 create-campaign = { path = "../../campaign/data-capabilities/create-campaign" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
+create-from-brief = { path = "../../ai/data-capabilities/create-from-brief" }
 create-session = { path = "../../session/data-capabilities/create-session" }
 end-combat = { path = "../../table/data-capabilities/end-combat" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }

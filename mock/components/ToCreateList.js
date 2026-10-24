@@ -1421,7 +1421,9 @@ ${heard}`;
     // or from the excerpt and the DM's refinement (the fixture ToCreateList
     // gives the AI's proposal for each); the entry is created once its element
     // is set (`to-create-leaves-once-created`), and an entry already created is
-    // refused. An NPC gets its background, behaviour and sheet.
+    // refused. An NPC gets its background, behaviour and sheet. The element has
+    // its first version, of source `brief`, and the entry keeps the refinement
+    // it was made from.
     "ai.createFromBrief": async (server, { payload }) => {
       const entries = await server.load("campaign.listEntitiesToCreate");
       const entry = (Array.isArray(entries) ? entries : entries?.items || []).find((candidate) => candidate.id === payload.entry);
@@ -1446,8 +1448,11 @@ ${heard}`;
         ...text2,
         ...statblock2 ? { type: statblock2.type, stats: statblock2.abilities, ca: figure2(vital("CA")), pvMax: figure2(vital("PV")), speed: vital("Vitesse"), features: statblock2.features } : {}
       });
+      const history = await server.load("campaign.listEntityVersions") || {};
+      history[id] = { name: entry.name, versions: [{ v: 1, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: SAVED_BY.brief, source: "brief", seen: false, changes: [] }] };
       entry.status = "created";
       entry.entity = id;
+      entry.refinement = refined ? payload.refinement.trim() : null;
       return void 0;
     },
     // campaign.saveEntity (crates/campaign/data-capabilities/save-entity): the

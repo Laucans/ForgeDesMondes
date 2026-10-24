@@ -502,6 +502,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-from-brief"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "aggregate-session",
+ "ai-provider",
+ "async-trait",
+ "base64 0.22.1",
+ "harness-dataguard",
+ "ports-llm",
+ "ports-speech-to-text",
+ "save-entity",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
 name = "create-session"
 version = "0.1.0"
 dependencies = [
@@ -571,6 +589,7 @@ dependencies = [
  "create-battlemap-instance",
  "create-campaign",
  "create-entities-from-note",
+ "create-from-brief",
  "create-session",
  "end-combat",
  "export-campaign",
