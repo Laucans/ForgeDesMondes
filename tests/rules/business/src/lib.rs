@@ -102,6 +102,30 @@ impl Server {
             .map_err(|e| format!("commanding {data_capability}: {e}"))?
             .into_json()
             .map_err(|e| format!("commanding {data_capability}: {e}"))?;
+        let result = self.settle(data_capability, &accepted)?;
+        // A command may queue follow-ups (`then`, one command per playback
+        // for « Tout arrêter »): it is done when they are, not before.
+        for follow_up in accepted
+            .get("then")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            // On the wire: `{"submitted": {…}}` or `{"refused": {…, "error"}}`.
+            match follow_up.get("submitted") {
+                Some(submitted) => self.settle(data_capability, submitted)?,
+                None => {
+                    return Err(format!(
+                        "{data_capability}: a follow-up was refused: {follow_up}"
+                    ));
+                }
+            };
+        }
+        Ok(result)
+    }
+
+    /// Waits for the command an `accepted` answer names to settle.
+    fn settle(&self, data_capability: &str, accepted: &Value) -> Result<Value, String> {
         let mut result = accepted.get("result").cloned().unwrap_or(Value::Null);
         let id = accepted
             .get("commandId")
