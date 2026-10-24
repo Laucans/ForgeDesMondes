@@ -196,6 +196,9 @@ export const READS = {
   // One element's sheet: a character, a place or an event of `entities`.
   'campaign.getEntity': async (server, { id }) => {
     const entities = await server.load('entities');
-    return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+    const entity = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+    // AbilityModifier@1: the modifier of each score is computed, never stored.
+    if (!entity?.stats) return entity;
+    return { ...entity, modifiers: Object.fromEntries(Object.entries(entity.stats).map(([ability, score]) => [ability, typeof score === 'number' ? Math.floor((score - 10) / 2) : null])) };
   },
 };
