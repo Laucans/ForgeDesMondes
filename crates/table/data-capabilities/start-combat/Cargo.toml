@@ -1,0 +1,27 @@
+[package]
+name = "start-combat"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.startCombat: a battlemap instance's combat, every token in it (Initiative@1) — an NPC's d20 + DEX modifier, a PC's initiative the DM's (npc-initiative-bounds), ranked by initiative, then DEX, then a draw (initiative-tiebreak), a hidden token like any other (hidden-keeps-rank); round 1 on rank 1, and never a second open combat (one-active-combat)."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+# A combat's id, derived from its instance and its place among the
+# instance's combats, and an entry's, from its combat and its token
+# (UUIDv5): a combat or an entry queued is found on its partition before it
+# is applied. The dice draw from fresh random ids (UUIDv4).
+uuid = { version = "1", default-features = false, features = ["v4", "v5"] }
+
+[dev-dependencies]
+# Its target aggregate, which its tests plant beside it.
+aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
+# The migrations' applier the server runs: the tables its tests read.
+data = { path = "../../../data" }
+# The Concept's fixtures `initiative` and `ranked` are held to.
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

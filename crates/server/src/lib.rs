@@ -40,6 +40,7 @@
 //! a uuid in the store: [`renaming`] turns one into the other around the
 //! reads.
 
+mod applier;
 mod fixtures;
 mod names;
 
@@ -48,6 +49,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub use applier::{applier, waking};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};

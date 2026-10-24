@@ -1,0 +1,8 @@
+{
+  "microUi": "SceneBoard",
+  "system": "session",
+  "description": "Les PJ présents et les scènes ordonnées de la séance, avec leurs lieux, PNJ, événements, médias, notes et instance de battlemap",
+  "needs": ["session.getSession", "session.listScenes", "campaign.listCharacters", "media.listMedia", "table.getBattlemapInstance"],
+  "actions": ["session.addPresentCharacter", "session.removePresentCharacter", "session.addScene", "session.reorderScenes", "table.createBattlemapInstance"],
+  "props": {}
+}

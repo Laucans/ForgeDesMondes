@@ -3,6 +3,21 @@
 version = 4
 
 [[package]]
+name = "add-participant"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "remove-participant",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "add-place-to-session"
 version = "0.1.0"
 dependencies = [
@@ -67,6 +82,8 @@ dependencies = [
 name = "aggregate-battlemap-instance"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "data",
  "harness-dataguard",
  "platform-conformance",
  "serde_json",
@@ -360,6 +377,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "change-hit-points"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "close-session"
 version = "0.1.0"
 dependencies = [
@@ -426,6 +456,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "create-battlemap-instance"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -505,6 +548,7 @@ dependencies = [
 name = "dataguard-registry"
 version = "0.1.0"
 dependencies = [
+ "add-participant",
  "add-place-to-session",
  "add-present-character",
  "add-scene",
@@ -521,13 +565,17 @@ dependencies = [
  "aggregate-sound",
  "aggregate-sound-playback",
  "aggregate-suggestion",
+ "change-hit-points",
  "close-session",
+ "create-battlemap-instance",
  "create-campaign",
  "create-entities-from-note",
  "create-session",
+ "end-combat",
  "export-campaign",
  "extract-from-notes",
  "get-battlemap",
+ "get-battlemap-instance",
  "get-campaign",
  "get-entity",
  "get-live-session",
@@ -547,10 +595,18 @@ dependencies = [
  "list-scenes",
  "list-sessions",
  "list-sounds",
+ "move-token",
+ "next-turn",
+ "place-tokens",
  "play-sound",
+ "remove-participant",
  "remove-present-character",
  "remove-sound",
+ "remove-token",
+ "rename-token",
+ "reorder-initiative",
  "reorder-scenes",
+ "reset-battlemap",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -558,6 +614,9 @@ dependencies = [
  "set-master-volume",
  "set-media-place",
  "set-sound-volume",
+ "set-token-condition",
+ "set-token-visibility",
+ "start-combat",
  "stop-all",
  "test-connection",
  "update-sound",
@@ -605,6 +664,20 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
+name = "end-combat"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "start-combat",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "errno"
@@ -715,6 +788,14 @@ dependencies = [
 
 [[package]]
 name = "get-battlemap"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-battlemap-instance"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
@@ -1297,6 +1378,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "move-token"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "next-turn"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "objc2-core-foundation"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1385,6 +1493,19 @@ name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
+name = "place-tokens"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "platform-conformance"
@@ -1601,6 +1722,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "remove-participant"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "remove-present-character"
 version = "0.1.0"
 dependencies = [
@@ -1625,6 +1759,45 @@ dependencies = [
  "play-sound",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "remove-token"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "rename-token"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "reorder-initiative"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1674,6 +1847,19 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "reset-battlemap"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1999,6 +2185,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "set-token-condition"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "set-token-visibility"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "sha1_smol"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2080,6 +2292,20 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "start-combat"
+version = "0.1.0"
+dependencies = [
+ "aggregate-battlemap-instance",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "stop-all"

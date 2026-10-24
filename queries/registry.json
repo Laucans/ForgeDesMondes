@@ -312,7 +312,7 @@
       "query": "ListScenes",
       "capability": "session.listScenes",
       "file": "crates/session/queries/list-scenes.graphql",
-      "sha256": "1585c6134b8ad2b55067ada4a78363fd55eb36750ae0c008d911ac3bbcc965b1",
+      "sha256": "33a4970e894edc26c1584ac35c6322fe4f0f8bd4e7a53a851579080b8d9a883b",
       "fields": [
         "scene.id",
         "scene.sessionId",
@@ -332,7 +332,10 @@
         "entityToCreate.id",
         "entityToCreate.sceneId",
         "entityToCreate.status",
-        "entityToCreate.createdAt"
+        "entityToCreate.createdAt",
+        "battlemapInstance.id",
+        "battlemapInstance.sceneId",
+        "battlemapInstance.createdAt"
       ]
     },
     {
@@ -370,6 +373,43 @@
         "soundPlayback.sessionId",
         "soundPlayback.stoppedAt",
         "session.status"
+      ]
+    },
+    {
+      "query": "GetBattlemapInstance",
+      "capability": "table.getBattlemapInstance",
+      "file": "crates/table/queries/get-battlemap-instance.graphql",
+      "sha256": "605097ed2883f5c19bba99864e968fe9a4ea3f977c778cfc9819ae34442c8824",
+      "fields": [
+        "battlemapInstance.id",
+        "battlemapInstance.battlemapMediaId",
+        "battlemapInstance.sessionId",
+        "battlemapInstance.sceneId",
+        "token.id",
+        "token.characterId",
+        "token.number",
+        "token.name",
+        "token.q",
+        "token.r",
+        "token.visible",
+        "token.hpCurrent",
+        "token.hpMax",
+        "token.conditions",
+        "entity.type",
+        "character.tokenColor",
+        "character.portraitMediaId",
+        "character.tokenCrop",
+        "combat.id",
+        "combat.round",
+        "combat.currentEntryId",
+        "combat.endedAt",
+        "initiativeEntry.id",
+        "initiativeEntry.tokenId",
+        "initiativeEntry.initiative",
+        "initiativeOrderView.entryId",
+        "initiativeOrderView.orderIndex",
+        "initiativeOrderView.shownToPlayers",
+        "initiativeOrderView.skipped"
       ]
     }
   ]

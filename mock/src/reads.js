@@ -54,6 +54,12 @@ export const READS = {
       threads: bar.closing.threads,
     };
   },
+  // table.getBattlemapInstance: the fixture's instance, or one a command made.
+  'table.getBattlemapInstance': async (server, { instance }) => {
+    const fixture = await server.load('table.getBattlemapInstance');
+    if (!instance || instance === fixture.id) return fixture;
+    return server.instances && server.instances.get(instance);
+  },
   // session.getSession (crates/session/capabilities/get-session): one session's
   // header and the PCs present, a session of `session.listSessions` (the ones
   // created since included), its status labelled as SessionLifecycle@1 says. An
