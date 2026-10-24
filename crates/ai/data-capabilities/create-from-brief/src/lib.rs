@@ -79,6 +79,9 @@ pub const MANIFEST: &str = include_str!("../data-capability.json");
 /// The DataCapability an element is saved through: the Entity aggregate's.
 pub const SAVE_ENTITY: &str = "campaign.saveEntity";
 
+/// The source of the element's first version (EntityVersion@1): the brief.
+const BRIEF: &str = "brief";
+
 /// The payload's fields.
 const ENTRY: &str = "entry";
 const REFINEMENT: &str = "refinement";
@@ -893,8 +896,8 @@ fn nul(value: &Value) -> bool {
 /// The element `entry` becomes, `element` being its id: its save as the
 /// DM's editor sends it — its campaign, its type, its name, the proposal's
 /// description, else the excerpt — which `campaign.saveEntity` makes an
-/// element with its first version; an NPC with the proposal's sheet and, for
-/// initial prompt, the excerpt and the refinement.
+/// element with its first version, of source `brief`; an NPC with the
+/// proposal's sheet and, for initial prompt, the excerpt and the refinement.
 ///
 /// # Errors
 ///
@@ -929,6 +932,7 @@ pub fn save(
     Ok(Row::from([
         ("campaign".to_owned(), entry.campaign.clone().into()),
         ("entity".to_owned(), entity),
+        ("source".to_owned(), BRIEF.into()),
     ]))
 }
 
@@ -1173,6 +1177,7 @@ mod tests {
         let proposal = proposed(SHEET, PNJ).expect("a proposal");
         let saved = save(&entry, &proposal, Some("Il boite."), "e1").expect("a save");
         assert_eq!(saved["campaign"], entry.campaign.as_str());
+        assert_eq!(saved["source"], "brief");
         let entity = &saved["entity"];
         assert_eq!(entity["id"], "e1");
         assert_eq!(entity["kind"], "pnj");

@@ -785,7 +785,8 @@ export const COMMANDS = {
   // gives the AI's proposal for each); the entry is created once its element
   // is set (`to-create-leaves-once-created`), and an entry already created is
   // refused. An NPC gets its background, behaviour and sheet. The element has
-  // its first version, and the entry keeps the refinement it was made from.
+  // its first version, of source `brief`, and the entry keeps the refinement
+  // it was made from.
   'ai.createFromBrief': async (server, { payload }) => {
     const entries = await server.load('campaign.listEntitiesToCreate');
     const entry = (Array.isArray(entries) ? entries : entries?.items || []).find((candidate) => candidate.id === payload.entry);
@@ -806,7 +807,7 @@ export const COMMANDS = {
       ...(statblock ? { type: statblock.type, stats: statblock.abilities, ca: figure(vital('CA')), pvMax: figure(vital('PV')), speed: vital('Vitesse'), features: statblock.features } : {}),
     });
     const history = (await server.load('campaign.listEntityVersions')) || {};
-    history[id] = { name: entry.name, versions: [{ v: 1, date: new Date().toISOString().slice(0, 19), origin: 'dm', source: 'Créé depuis le brief', seen: true, changes: [] }] };
+    history[id] = { name: entry.name, versions: [{ v: 1, date: new Date().toISOString().slice(0, 19), origin: SAVED_BY.brief, source: 'brief', seen: false, changes: [] }] };
     entry.status = 'created';
     entry.entity = id;
     entry.refinement = refined ? payload.refinement.trim() : null;

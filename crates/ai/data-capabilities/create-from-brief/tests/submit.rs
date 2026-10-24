@@ -557,8 +557,9 @@ async fn a_pnj_is_created_from_its_excerpt_with_its_sheet_and_first_version() {
     assert_eq!(made["actions"][0]["name"], "Bâton ferré");
     // default-token: an NPC without a colour takes the accent.
     assert_eq!(made["tokenColor"], "accent");
-    // every-change-versioned: its first version (EntityVersion@1).
+    // every-change-versioned: its first version (EntityVersion@1), the brief's.
     assert_eq!(made["versionNumber"], 1);
+    assert_eq!(made["source"], "brief");
 
     // to-create-leaves-once-created: « creee » naming its element.
     let entry = served.row(&format!("Session/{ODRIC}")).await;
@@ -726,6 +727,7 @@ async fn a_place_or_an_event_is_created_with_its_description_and_no_sheet() {
             );
         }
         assert_eq!(made["versionNumber"], 1);
+        assert_eq!(made["source"], "brief");
         let entry = served.row(&format!("Session/{id}")).await;
         assert_eq!(entry["entityToCreateStatus"], CREEE);
     }
@@ -1155,6 +1157,7 @@ async fn the_list_s_command_targeting_the_entry_s_session_creates_and_links() {
     let made = served.element(ODRIC).await;
     assert_eq!(made["name"], "Frère Odric");
     assert_eq!(made["versionNumber"], 1);
+    assert_eq!(made["source"], "brief");
     let entry = served.row(&format!("Session/{ODRIC}")).await;
     assert_eq!(entry["entityToCreateStatus"], CREEE);
     assert_eq!(entry["createdEntityId"], element.as_str());
