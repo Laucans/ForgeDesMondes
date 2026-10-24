@@ -626,7 +626,7 @@
     "SceneBoard": {
       "kind": "micro-ui",
       "producer": 25,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "Session": {
@@ -1082,79 +1082,79 @@
     "table.addParticipant": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.changeHitPoints": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.createBattlemapInstance": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.endCombat": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.getBattlemapInstance": {
       "kind": "capability",
       "producer": 25,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "table.moveToken": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.nextTurn": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.placeTokens": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.removeParticipant": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.removeToken": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.renameToken": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.reorderInitiative": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.resetBattlemap": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.setTokenCondition": {
