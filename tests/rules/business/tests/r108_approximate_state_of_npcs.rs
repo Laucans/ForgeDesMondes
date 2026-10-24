@@ -23,13 +23,16 @@ fn r108_approximate_state_of_npcs() {
             "data-capability:session.addScene",
             "data-capability:session.createSession",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
             let campaign = new_campaign(s, "campagne")?;
             let id = new_character(s, &campaign, "pnj", json!({ "pvMax": 20 }))?;
             let session = new_session(s, &campaign, &[])?;
             let scene = new_scene(s, &session, json!({}))?;
-            let map = new_instance(s, &session, &scene, "bm-gue")?;
+            let battlemap = new_battlemap(s, &campaign)?;
+            let map = new_instance(s, &session, &scene, &battlemap)?;
             place(s, &map, &id, (5, 5), 1)?;
             let token = tokens(s, &map, "dm")?[0].clone();
 
