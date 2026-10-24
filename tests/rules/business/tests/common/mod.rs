@@ -180,9 +180,11 @@ pub fn new_session(s: &Server, campaign: &str, present: &[&str]) -> Result<Strin
         .ok_or_else(|| format!("the session {title} is not listed"))
 }
 
+/// Finds an item by its `title` (sessions, scenes, media) or its `name`
+/// (sounds) and answers its id.
 pub fn by_name_or_title(list: &[Value], title: &str) -> Option<String> {
     list.iter()
-        .find(|v| text(v, "title") == title)
+        .find(|v| text(v, "title") == title || text(v, "name") == title)
         .map(|v| text(v, "id").to_string())
 }
 
@@ -218,6 +220,21 @@ pub fn new_instance(
         .map(|sc| text(sc, "battlemap").to_string())
         .filter(|id| !id.is_empty())
         .ok_or_else(|| format!("the scene {scene} has no battlemap instance"))
+}
+
+/// Uploads a battlemap into a campaign and answers its id: an instance takes
+/// a battlemap of its session's campaign only.
+pub fn new_battlemap(s: &Server, campaign: &str) -> Result<String, String> {
+    let title = unique("Battlemap de test");
+    apply(
+        s,
+        "media.uploadMedia",
+        json!({ "campaign": campaign, "kind": "battlemap", "title": title, "width": 900, "height": 600 }),
+        None,
+    )?;
+    let data = s.read("media.listMedia", json!({ "campaign": campaign }))?;
+    by_name_or_title(&items(&data, "battlemaps"), &title)
+        .ok_or_else(|| format!("the battlemap {title} is not listed"))
 }
 
 /// A battlemap instance of its own, on the fixtures' battlemap, in a new session.
