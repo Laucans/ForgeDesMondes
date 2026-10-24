@@ -9,11 +9,12 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use dataguard_server::MEMORY;
+use ports_character_sheets::SharedCharacterSheets;
 use ports_llm::SharedLlm;
 use ports_speech_to_text::SharedSpeechToText;
 use server::{
-    Config, Error, Names, Ports, app, applier, fixtures, inventory, llm, plant, renaming, shared,
-    speech_to_text, waking,
+    Config, Error, Names, Ports, app, applier, character_sheets, fixtures, inventory, llm, plant,
+    renaming, shared, speech_to_text, waking,
 };
 use tokio::sync::Notify;
 
@@ -110,10 +111,12 @@ async fn run() -> Result<(), Error> {
     // reach the same fake, and read the same journal.
     let llm = SharedLlm::new(llm(config.ports, config.fixtures.as_deref()));
     let speech = SharedSpeechToText::new(speech_to_text(config.ports, config.fixtures.as_deref()));
+    let sheets =
+        SharedCharacterSheets::new(character_sheets(config.ports, config.fixtures.as_deref()));
 
     // After the fixtures: the engine's aggregates warm from the tables they
     // hold (the Entity aggregate's aliases, its versions).
-    let planted = plant(&config, shared(&llm, &speech)).await?;
+    let planted = plant(&config, shared(&llm, &speech, &sheets)).await?;
     if config.read_only_url.is_none() && config.database_url != MEMORY {
         eprintln!(
             "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"
