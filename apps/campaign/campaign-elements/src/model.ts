@@ -13,7 +13,7 @@ const records = (value: unknown): Array<Record<string, unknown>> => (Array.isArr
 export function normalize(term: string): string {
   return term
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .normalize('NFC')
     .toLowerCase()
     .trim();

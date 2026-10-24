@@ -75,7 +75,7 @@ const when = (at: string): string => {
 };
 
 /** The kit's Table: each player with the characters they play, their D&D Beyond sync and level. */
-export function playersPanel(players: Player[], characters: Character[]): string {
+export function playersPanel(players: Player[], characters: Character[], charactersUnreadable = false): string {
   const rows = players
     .map((player) => {
       const played = characters.filter((c) => c.kind === 'pj' && c.player === player.id);
@@ -88,7 +88,8 @@ export function playersPanel(players: Player[], characters: Character[]): string
       return `<tr id="player-${esc(player.id)}">${cells.map((cell, i) => `<td${i === 3 ? ' class="num"' : ''}>${cell}</td>`).join('')}</tr>`;
     })
     .join('');
-  return `<table class="kit-table" id="elements-players-table"><thead><tr><th>Joueur</th><th>Personnage</th><th>D&amp;D Beyond</th><th class="num">Niveau</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const note = charactersUnreadable ? unreadable('les personnages') : '';
+  return `${note}<table class="kit-table" id="elements-players-table"><thead><tr><th>Joueur</th><th>Personnage</th><th>D&amp;D Beyond</th><th class="num">Niveau</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 const characterEntry = (c: Character): string =>
@@ -105,7 +106,7 @@ export const placesPanel = (places: Named[]): string =>
 export const eventsPanel = (events: Named[]): string =>
   grid(events.map((v) => entry(sheetHref(v.id), `elements-event-${v.id}`, art('blood', '!'), v.name, v.aliases.join(', '))));
 
-const link = (label: string, href: string): string => smallButtons(`<button type="button" class="secondary" data-href="${href}">${esc(label)}</button>`);
+const link = (label: string, href: string): string => smallButtons(`<button type="button" class="secondary" data-href="${esc(href)}">${esc(label)}</button>`);
 
 export const mediaPanel = (media: Media[]): string =>
   grid(media.map((m) => entry('medias.html', `elements-media-${m.id}`, art(m.art, m.glyph), m.title, `${m.kind === 'battlemap' ? 'Battlemap' : 'Illustration'} · ${m.size}`))) +

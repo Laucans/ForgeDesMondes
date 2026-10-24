@@ -108,7 +108,7 @@
   var texts = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
   var records = (value) => Array.isArray(value) ? value.filter(isRecord) : [];
   function normalize(term) {
-    return term.normalize("NFD").replace(/[̀-ͯ]/g, "").normalize("NFC").toLowerCase().trim();
+    return term.normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC").toLowerCase().trim();
   }
   function parsePlayers(data) {
     return records(data).map((row) => ({ id: text(row.id), name: text(row.name) }));
@@ -265,7 +265,7 @@
     const date = new Date(at);
     return Number.isNaN(date.getTime()) ? at : date.toLocaleDateString("fr-FR");
   };
-  function playersPanel(players, characters) {
+  function playersPanel(players, characters, charactersUnreadable = false) {
     const rows = players.map((player) => {
       const played = characters.filter((c) => c.kind === "pj" && c.player === player.id);
       const cells = [
@@ -276,7 +276,8 @@
       ];
       return `<tr id="player-${esc(player.id)}">${cells.map((cell, i) => `<td${i === 3 ? ' class="num"' : ""}>${cell}</td>`).join("")}</tr>`;
     }).join("");
-    return `<table class="kit-table" id="elements-players-table"><thead><tr><th>Joueur</th><th>Personnage</th><th>D&amp;D Beyond</th><th class="num">Niveau</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const note = charactersUnreadable ? unreadable("les personnages") : "";
+    return `${note}<table class="kit-table" id="elements-players-table"><thead><tr><th>Joueur</th><th>Personnage</th><th>D&amp;D Beyond</th><th class="num">Niveau</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   var characterEntry = (c) => entry(sheetHref(c.id), `elements-char-${c.id}`, art(c.art || "night", c.initials), c.name, `${c.kind === "pj" ? "PJ" : "PNJ"} \xB7 ${c.aliases.join(", ") || c.type}`);
   function charactersPanel(characters) {
@@ -284,7 +285,7 @@
   }
   var placesPanel = (places) => grid(places.map((p) => entry(sheetHref(p.id), `elements-place-${p.id}`, art(p.art || "night", placeGlyph(p.name)), p.name, p.aliases.join(", "))));
   var eventsPanel = (events) => grid(events.map((v) => entry(sheetHref(v.id), `elements-event-${v.id}`, art("blood", "!"), v.name, v.aliases.join(", "))));
-  var link = (label, href) => smallButtons(`<button type="button" class="secondary" data-href="${href}">${esc(label)}</button>`);
+  var link = (label, href) => smallButtons(`<button type="button" class="secondary" data-href="${esc(href)}">${esc(label)}</button>`);
   var mediaPanel = (media) => grid(media.map((m) => entry("medias.html", `elements-media-${m.id}`, art(m.art, m.glyph), m.title, `${m.kind === "battlemap" ? "Battlemap" : "Illustration"} \xB7 ${m.size}`))) + `<div class="mf-elements__links">${link("G\xE9rer les m\xE9dias et les grilles", "medias.html")}</div>`;
   var soundsPanel = (sounds) => grid(sounds.map((s) => `<li class="item" id="elements-sound-${esc(s.id)}"><span>\u266A ${esc(s.name)}</span><small class="muted">${esc(s.tags.join(" \xB7 "))}</small></li>`)) + `<div class="mf-elements__links">${link("Ouvrir la biblioth\xE8que de sons", "soundbox.html")}</div>`;
   function railSkeleton() {
@@ -437,13 +438,19 @@
     const folded = /* @__PURE__ */ new Set();
     const mobile = typeof win?.matchMedia === "function" ? win.matchMedia(NARROW) : null;
     const narrow = () => mobile?.matches === true;
+    const drawn = /* @__PURE__ */ new WeakMap();
+    const put = (el, html) => {
+      if (drawn.get(el) === html && el.isConnected) return;
+      drawn.set(el, html);
+      el.innerHTML = html;
+    };
     const part = (id) => {
       const found = host2.querySelector(`#${id}`);
       if (!found) throw new Error(`CampaignElements: #${id} is not in the panel`);
       return found;
     };
     const sections = {
-      players: { own: LIST_PLAYERS, also: [LIST_CHARACTERS], html: () => playersPanel(players, characters), count: () => players.length },
+      players: { own: LIST_PLAYERS, also: [LIST_CHARACTERS], html: () => playersPanel(players, characters, status.get(LIST_CHARACTERS) === "failed"), count: () => players.length },
       characters: { own: LIST_CHARACTERS, also: [], html: () => charactersPanel(characters), count: () => characters.length },
       places: { own: LIST_PLACES, also: [], html: () => placesPanel(places), count: () => places.length },
       events: { own: LIST_EVENTS, also: [], html: () => eventsPanel(events), count: () => events.length },
@@ -457,7 +464,7 @@
         const waiting = [section.own, ...section.also].some((id) => (status.get(id) ?? "pending") === "pending");
         const failed = status.get(section.own) === "failed";
         const ready = !waiting && !failed;
-        part(`elements-tabs-panel-${i}`).innerHTML = failed ? unreadable("cette liste") : ready ? section.html() : '<p class="small muted">Chargement\u2026</p>';
+        put(part(`elements-tabs-panel-${i}`), failed ? unreadable("cette liste") : ready ? section.html() : '<p class="small muted">Chargement\u2026</p>');
         part(`elements-tabs-tab-${i}`).textContent = ready ? tabLabel(label, section.count()) : label;
       });
     }
@@ -470,7 +477,8 @@
     let index = [];
     function paintRail() {
       const found = search(index, query);
-      part("rail-groups").innerHTML = railGroups(found, folded, shown);
+      const failed = NEEDED.rail.some((id) => status.get(id) === "failed");
+      put(part("rail-groups"), (failed ? unreadable("une partie des \xE9l\xE9ments") : "") + railGroups(found, folded, shown));
       part("rail-count").textContent = countText(query, found.length);
     }
     function syncRail() {
@@ -527,9 +535,7 @@
     function paint() {
       if (modeOf(current) === "tabs") return paintTabs();
       index = railIndex(characters, places, events);
-      const failed = NEEDED.rail.filter((id) => status.get(id) === "failed");
       paintRail();
-      if (failed.length > 0) part("rail-groups").insertAdjacentHTML("afterbegin", unreadable("une partie des \xE9l\xE9ments"));
     }
     async function load() {
       const mine = generation += 1;
@@ -551,6 +557,7 @@
     }
     function frame() {
       status.clear();
+      query = "";
       host2.innerHTML = modeOf(current) === "rail" ? railSkeleton() : tabsSkeleton();
       if (modeOf(current) === "tabs") return;
       part("elements-rail").dataset.collapsed = String(readFolded(memory));
@@ -601,29 +608,38 @@
       if (host2.querySelector("#elements-rail")) setOpen(false);
     };
     mobile?.addEventListener("change", close);
-    const stopOpened = bus.onOpened(follow);
-    let first = true;
     const poll = {};
+    const stopOpened = bus.onOpened((opened) => {
+      if (host2.isConnected) follow(opened);
+      else release();
+    });
+    function release() {
+      poll.stop?.();
+      stopOpened();
+      mobile?.removeEventListener("change", close);
+    }
+    let first = true;
     poll.stop = shell2.onDataVersion?.(() => {
-      if (!host2.isConnected) {
-        poll.stop?.();
-        stopOpened();
-        mobile?.removeEventListener("change", close);
-        return;
-      }
+      if (!host2.isConnected) return release();
       if (first) first = false;
       else void load();
     });
+    const start = () => {
+      void load().then(() => {
+        if (modeOf(current) === "rail") bus.query();
+      });
+    };
     frame();
-    void load().then(() => {
-      if (modeOf(current) === "rail") bus.query();
-    });
+    start();
     return {
       update(next) {
         const before = current;
         current = next;
-        if (modeOf(before) !== modeOf(next)) frame();
-        void load();
+        const another = campaignOf(before) !== campaignOf(next);
+        const otherMode = modeOf(before) !== modeOf(next);
+        if (another) [players, characters, places, events, media, sounds] = [[], [], [], [], [], []];
+        if (another || otherMode) frame();
+        start();
       }
     };
   }

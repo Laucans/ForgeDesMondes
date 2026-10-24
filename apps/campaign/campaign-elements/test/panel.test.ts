@@ -172,6 +172,11 @@ test('every part that shows a read names it, and each of the six Capabilities is
   assert.deepEqual(own, ['campaign.listPlayers', 'campaign.listCharacters', 'campaign.listPlaces', 'campaign.listEvents', 'media.listMedia', 'soundbox.listSounds']);
 });
 
+test('the links of the media and sounds tabs are attributes the page text cannot break', async () => {
+  const t = await panel({});
+  for (const button of t.document.querySelectorAll<HTMLElement>('[data-href]')) assert.doesNotMatch(button.dataset.href ?? '', /["<>]/);
+});
+
 test('« Nouveau… » in the tabs leads to the sheet of a new element; a link of the page leaves by the bus', async () => {
   const t = await panel({});
   await t.click('#elements-new-pnj');
@@ -190,10 +195,11 @@ test('one Capability that fails leaves the other tabs on screen, and says which 
   assert.equal(t.document.querySelectorAll('#elements-tabs-panel-2 a').length, 4);
 });
 
-test('the players tab waits for the characters, and keeps its rows if they cannot be read', async () => {
+test('the players tab keeps its rows when the characters cannot be read, and says so', async () => {
   const t = await panel({}, { fail: ['campaign.listCharacters'] });
   assert.equal(t.$('#elements-tabs-tab-0').textContent, 'Joueurs (4)');
   assert.deepEqual([...t.$('#player-jou-julie').querySelectorAll('td')].map((c) => c.textContent), ['Julie', '', '', '']);
+  assert.match(t.$('#elements-tabs-panel-0').textContent ?? '', /Impossible de lire les personnages/);
   assert.match(t.$('#elements-tabs-panel-1').textContent ?? '', /Impossible de lire/);
 });
 
@@ -438,6 +444,13 @@ test('a drawer left open is closed when the screen changes width', async () => {
   assert.equal(t.$('#rail-toggle').textContent, '«');
 });
 
+test('the note of a list that could not be read stays through a search', async () => {
+  const t = await panel({ mode: 'rail' }, { fail: ['campaign.listPlaces'] });
+  await t.type('elowen');
+  assert.match(t.$('#rail-groups').textContent ?? '', /Impossible de lire/);
+  assert.deepEqual(t.names(), ['Elowen Ventargent']);
+});
+
 test('a Capability that fails leaves the other sections on screen, with a note', async () => {
   const t = await panel({ mode: 'rail' }, { fail: ['campaign.listPlaces'] });
   assert.match(t.$('#rail-groups').textContent ?? '', /Impossible de lire/);
@@ -481,6 +494,56 @@ test('another campaign reads the lists again; the other mode redraws the panel',
   assert.equal(t.document.querySelector('#elements-rail'), null);
   assert.equal(t.$('#elements-tabs-tab-1').getAttribute('aria-selected'), 'true');
   assert.equal(t.$('#elements-tabs-tab-1').textContent, 'Personnages (9)');
+});
+
+test('a poll that finds the same lists leaves the page as it is (focus and scroll stay)', async () => {
+  const t = await panel({ mode: 'rail' });
+  const before = t.$('#rail-entry-elowen');
+  t.shell.moved();
+  await settle();
+  t.shell.moved();
+  await settle();
+  assert.equal(t.$('#rail-entry-elowen'), before);
+  const tabs = await panel({});
+  const row = tabs.$('#elements-char-elowen');
+  tabs.shell.moved();
+  await settle();
+  tabs.shell.moved();
+  await settle();
+  assert.equal(tabs.$('#elements-char-elowen'), row);
+});
+
+test('another campaign shows nothing of the last one while it is read, nor its search', async () => {
+  const t = await panel({ mode: 'rail', campaign: 'a' });
+  await t.type('elowen');
+  t.mounted.update({ mode: 'rail', campaign: 'b' });
+  assert.equal((t.$('#rail-search-input') as HTMLInputElement).value, '');
+  assert.deepEqual(t.ids(), []);
+  await settle();
+  assert.equal(t.ids().length, 16);
+  assert.equal(t.$('#rail-count').textContent, '');
+  assert.equal(t.bus.asked(), 2);
+});
+
+test('a switch of mode starts from an empty search and asks the sheet again', async () => {
+  const t = await panel({ mode: 'tabs' });
+  t.mounted.update({ mode: 'rail' });
+  await settle();
+  await t.type('elowen');
+  t.mounted.update({ mode: 'tabs' });
+  t.mounted.update({ mode: 'rail' });
+  await settle();
+  assert.equal(t.ids().length, 16);
+  assert.equal(t.bus.asked(), 3);
+});
+
+test('a panel taken off the page lets go of the sheet’s words too', async () => {
+  const p = page();
+  const bus = fakeBus();
+  mount(p.host, { mode: 'rail' }, fakeShell().shell, bus.bus);
+  await settle();
+  p.host.remove();
+  assert.doesNotThrow(() => bus.tell({ id: 'elowen' }));
 });
 
 test('the style is put once on the page, whatever the number of panels', async () => {

@@ -203,7 +203,7 @@
         "campaign": "string — id de la campagne, remplacé par ?campaign= dans l’adresse"
       },
       "source": "apps/campaign/campaign-elements",
-      "builtFrom": "4968f412667c8412"
+      "builtFrom": "ba3bac6891fab2e8"
     },
     {
       "name": "NoteImport",

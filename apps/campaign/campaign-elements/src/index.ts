@@ -114,6 +114,14 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
   const mobile = typeof win?.matchMedia === 'function' ? win.matchMedia(NARROW) : null;
   const narrow = (): boolean => mobile?.matches === true;
 
+  /** A part is drawn again only when what it shows changed: a poll that finds the same lists keeps the focus and the scroll. */
+  const drawn = new WeakMap<Element, string>();
+  const put = (el: HTMLElement, html: string): void => {
+    if (drawn.get(el) === html && el.isConnected) return;
+    drawn.set(el, html);
+    el.innerHTML = html;
+  };
+
   const part = <T extends HTMLElement>(id: string): T => {
     const found = host.querySelector<T>(`#${id}`);
     if (!found) throw new Error(`CampaignElements: #${id} is not in the panel`);
@@ -124,7 +132,7 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
 
   /** Per tab: the answer it shows, the others it waits for, how it draws and what it counts. */
   const sections: Record<string, { own: string; also: string[]; html(): string; count(): number }> = {
-    players: { own: LIST_PLAYERS, also: [LIST_CHARACTERS], html: () => playersPanel(players, characters), count: () => players.length },
+    players: { own: LIST_PLAYERS, also: [LIST_CHARACTERS], html: () => playersPanel(players, characters, status.get(LIST_CHARACTERS) === 'failed'), count: () => players.length },
     characters: { own: LIST_CHARACTERS, also: [], html: () => charactersPanel(characters), count: () => characters.length },
     places: { own: LIST_PLACES, also: [], html: () => placesPanel(places), count: () => places.length },
     events: { own: LIST_EVENTS, also: [], html: () => eventsPanel(events), count: () => events.length },
@@ -139,7 +147,7 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
       const waiting = [section.own, ...section.also].some((id) => (status.get(id) ?? 'pending') === 'pending');
       const failed = status.get(section.own) === 'failed';
       const ready = !waiting && !failed;
-      part(`elements-tabs-panel-${i}`).innerHTML = failed ? unreadable('cette liste') : ready ? section.html() : '<p class="small muted">Chargement…</p>';
+      put(part(`elements-tabs-panel-${i}`), failed ? unreadable('cette liste') : ready ? section.html() : '<p class="small muted">Chargement…</p>');
       part(`elements-tabs-tab-${i}`).textContent = ready ? tabLabel(label, section.count()) : label;
     });
   }
@@ -157,7 +165,8 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
 
   function paintRail(): void {
     const found = search(index, query);
-    part('rail-groups').innerHTML = railGroups(found, folded, shown);
+    const failed = NEEDED.rail.some((id) => status.get(id) === 'failed');
+    put(part('rail-groups'), (failed ? unreadable('une partie des éléments') : '') + railGroups(found, folded, shown));
     part('rail-count').textContent = countText(query, found.length);
   }
 
@@ -225,9 +234,7 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
   function paint(): void {
     if (modeOf(current) === 'tabs') return paintTabs();
     index = railIndex(characters, places, events);
-    const failed = NEEDED.rail.filter((id) => status.get(id) === 'failed');
     paintRail();
-    if (failed.length > 0) part('rail-groups').insertAdjacentHTML('afterbegin', unreadable('une partie des éléments'));
   }
 
   /** Reads what the mode shows, each Capability on its own: one that fails leaves the others on screen. */
@@ -253,6 +260,7 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
   /** The skeleton of the mode, its reads pending. */
   function frame(): void {
     status.clear();
+    query = '';
     host.innerHTML = modeOf(current) === 'rail' ? railSkeleton() : tabsSkeleton();
     if (modeOf(current) === 'tabs') return;
     part('elements-rail').dataset.collapsed = String(readFolded(memory));
@@ -308,36 +316,47 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
     if (host.querySelector('#elements-rail')) setOpen(false);
   };
   mobile?.addEventListener('change', close);
-  const stopOpened = bus.onOpened(follow);
+  const poll: { stop?: () => void } = {};
+  const stopOpened = bus.onOpened((opened) => {
+    if (host.isConnected) follow(opened);
+    else release();
+  });
+  /** A panel the shell took off the page lets go of its poll and of its listeners. */
+  function release(): void {
+    poll.stop?.();
+    stopOpened();
+    mobile?.removeEventListener('change', close);
+  }
 
   // The data moved under the panel (an editor saved, the AI, D&D Beyond): the lists may have changed.
   let first = true;
-  const poll: { stop?: () => void } = {};
   poll.stop = shell.onDataVersion?.(() => {
-    // A panel the shell took off the page lets go of its poll and of its listeners.
-    if (!host.isConnected) {
-      poll.stop?.();
-      stopOpened();
-      mobile?.removeEventListener('change', close);
-      return;
-    }
+    if (!host.isConnected) return release();
     // The first word of the shell only says where the data stands, which the first read has.
     if (first) first = false;
     else void load();
   });
 
+  /** Reads what the mode shows; the sheet then answers with the element it shows, so the rail highlights it. */
+  const start = (): void => {
+    void load().then(() => {
+      if (modeOf(current) === 'rail') bus.query();
+    });
+  };
+
   frame();
-  void load().then(() => {
-    // The sheet answers with the element it shows, so the first load highlights it.
-    if (modeOf(current) === 'rail') bus.query();
-  });
+  start();
 
   return {
     update(next) {
       const before = current;
       current = next;
-      if (modeOf(before) !== modeOf(next)) frame();
-      void load();
+      const another = campaignOf(before) !== campaignOf(next);
+      const otherMode = modeOf(before) !== modeOf(next);
+      // What is on screen was the other campaign's, or the other mode's search: nothing of it stays.
+      if (another) [players, characters, places, events, media, sounds] = [[], [], [], [], [], []];
+      if (another || otherMode) frame();
+      start();
     },
   };
 }
