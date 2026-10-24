@@ -1,0 +1,9 @@
+{
+  "capability": "live.listSuggestions",
+  "system": "live",
+  "version": "1.0.0",
+  "description": "What the suggestion pill shows: the elements and sounds the microphone heard during the campaign's live session. 'suggestions' is the pill's stack, the 5 most recent; 'history' lists every suggestion of the session; both newest first (by detected_at descending), each item { id, kind: 'entity' | 'sound', type (an element's type: pj, pnj, lieu or événement; absent on a sound), name, via (the words that were heard), detectedAt }. The id is the element's or the sound's, never the suggestion's. Nothing is stored beyond the suggestions: the stack and the history are derived at read time. A campaign with no live session has neither.",
+  "input": { "campaign": "string, optional — the campaign whose live session is read; the live session otherwise" },
+  "output": "{ suggestions: Item[], history: Item[] } with Item = { id: string, kind: 'entity' | 'sound', type?: 'pj' | 'pnj' | 'lieu' | 'événement', name: string, via: string, detectedAt: string }",
+  "reads": ["queries/listSuggestions.graphql"]
+}
