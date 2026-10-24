@@ -60,6 +60,6 @@ export interface Timing {
 
 /** Where dictated text comes from: the host that hears the microphone hands the transcript over. */
 export interface Dictation {
-  /** The text of a dictation that has just ended; '' when there is none. */
+  /** The text heard since the last call — only the new part, never the whole dictation again; '' when there is none. */
   transcript(): string;
 }

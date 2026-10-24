@@ -261,12 +261,13 @@ test('a refused analysis says why and keeps the text and the last brief', async 
   assert.equal((s.$('#brief-text') as HTMLTextAreaElement).disabled, false);
 });
 
-test('an analysis that does not settle says where it stopped', async () => {
+test('an analysis still waiting its turn says so, keeps its text, and is not to be sent twice', async () => {
   const s = await screen({ polls: true, settleAs: 'parked' });
   s.type('un brief');
   await s.click('#brief-analyse');
-  assert.match(s.$('#brief-error').textContent ?? '', /n’a pas abouti \(état : parked\)/);
+  assert.match(s.$('#brief-error').textContent ?? '', /toujours en attente \(état : parked\).*ne la relancez pas/);
   assert.equal(s.results.length, 5);
+  assert.equal((s.$('#brief-text') as HTMLTextAreaElement).value, 'un brief');
 });
 
 test('an analysis applied but whose result cannot be read says so, and the screen is usable again', async () => {
@@ -326,4 +327,46 @@ test('a brief that cannot be read says so', async () => {
   mount(host, { session: 's4' }, shell, timing);
   await settle();
   assert.match(host.querySelector('#brief-error')?.textContent ?? '', /Impossible de lire le dernier brief/);
+});
+
+test('an analysis that ends in neither a final nor a waiting state says it did not succeed', async () => {
+  const s = await screen({ apply: () => ({ status: '' }), settleAs: '' });
+  s.type('un brief');
+  await s.click('#brief-analyse');
+  assert.match(s.$('#brief-error').textContent ?? '', /n’a pas abouti \(état : inconnu\)/);
+});
+
+test('a result for a session the page has left is not shown, and a new session starts with a quiet microphone and an empty text area', async () => {
+  const s = await screen();
+  s.type('un brief');
+  await s.click('#brief-mic');
+  s.mounted.update({ session: 's9' });
+  await settle();
+  assert.equal((s.$('#brief-text') as HTMLTextAreaElement).value, '');
+  assert.equal(s.$('#brief-mic-box').getAttribute('data-state'), 'idle');
+  assert.equal(s.$('#brief-mic-box').querySelector('.kit-micbutton__timer')?.textContent, '00:00');
+  assert.match(s.$('#brief-none').textContent ?? '', /Aucun brief/);
+});
+
+test('the page leaves while the analysis runs: its result is not painted over the new session', async () => {
+  const s = await screen();
+  s.type('un brief');
+  const running = s.click('#brief-analyse');
+  s.mounted.update({ session: 's9' });
+  await running;
+  assert.equal(s.sent[0]?.payload.session, 's4');
+  assert.deepEqual(s.reads.map((r) => r.variables?.session), ['s4', 's9']);
+  assert.match(s.$('#brief-none').textContent ?? '', /Aucun brief/);
+  assert.equal(s.host.querySelector('#brief-done'), null);
+});
+
+test('an id with a quote cannot break out of the markup', async () => {
+  const s = await screen();
+  s.briefs.set('s4', { ...last, result: { ...last.result, recognized: [{ id: 'a" onclick="x', type: 'pnj', name: 'Piège', heard: null, updated: true }] } });
+  s.mounted.update({ session: 's5' });
+  s.mounted.update({ session: 's4' });
+  await settle();
+  const diff = s.host.querySelector('[data-diff]') as HTMLElement;
+  assert.equal(diff.dataset.diff, 'a" onclick="x');
+  assert.equal(diff.getAttribute('onclick'), null);
 });

@@ -14,7 +14,9 @@ const { host, props } = mountPoint();
 const shell = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
 mockServer().load('OralBrief').then((fixture) => {
   // What the microphone "hears" on the mock-up, where no speech-to-text port listens: the brief told in the fixture.
-  const dictation = { transcript: () => fixture.transcript.join('\n') };
+  // Handed over once: what is heard is not heard again.
+  let told = false;
+  const dictation = { transcript: () => (told ? '' : ((told = true), fixture.transcript.join('\n'))) };
   // « Voir le diff » opens the changed sheet's history, which the page's other micro-frontend follows.
   host.addEventListener('open-versions', (e) => window.Mock?.emit('open-versions', e.detail));
   compose({ session: fixture.session, ...props }, (resolved) => mount(host, resolved, shell, undefined, dictation));

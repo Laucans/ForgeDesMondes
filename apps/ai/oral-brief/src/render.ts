@@ -21,7 +21,7 @@ export type MicState = keyof typeof MIC_TEXTS;
 function button(p: { id: string; label: string; variant: string; writes?: string; disabled?: boolean; diff?: string }): string {
   const writes = p.writes === undefined ? '' : ` data-writes="${p.writes}"`;
   const diff = p.diff === undefined ? '' : ` data-diff="${esc(p.diff)}"`;
-  return `<button type="button" class="${p.variant}" id="${p.id}"${writes}${diff}${p.disabled === true ? ' disabled' : ''}>${esc(p.label)}</button>`;
+  return `<button type="button" class="${p.variant}" id="${esc(p.id)}"${writes}${diff}${p.disabled === true ? ' disabled' : ''}>${esc(p.label)}</button>`;
 }
 
 /** The kit's Badge, one label. */

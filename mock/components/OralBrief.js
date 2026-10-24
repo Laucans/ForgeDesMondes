@@ -164,7 +164,7 @@
   function button(p) {
     const writes = p.writes === void 0 ? "" : ` data-writes="${p.writes}"`;
     const diff = p.diff === void 0 ? "" : ` data-diff="${esc(p.diff)}"`;
-    return `<button type="button" class="${p.variant}" id="${p.id}"${writes}${diff}${p.disabled === true ? " disabled" : ""}>${esc(p.label)}</button>`;
+    return `<button type="button" class="${p.variant}" id="${esc(p.id)}"${writes}${diff}${p.disabled === true ? " disabled" : ""}>${esc(p.label)}</button>`;
   }
   var badge = (label, tone) => `<span class="kit-badge"><span${tone === "" ? "" : ` class="${tone}"`}>${esc(label)}</span></span>`;
   function skeleton() {
@@ -326,17 +326,21 @@ ${heard}`;
         return;
       }
       if (session === "") return say({ kind: "error", text: "Aucune s\xE9ance choisie." });
+      const target = session;
       lock(true);
       try {
         say({ kind: "busy", text: "Analyse du brief en cours\u2026" });
-        const outcome = await send(ANALYZE_BRIEF, { session, text: text2 });
+        const outcome = await send(ANALYZE_BRIEF, { session: target, text: text2 });
         if (outcome.status === "rejected") return say({ kind: "error", text: `Analyse refus\xE9e : ${reasons(outcome.violations)}.` });
+        if (!isFinal(outcome.status) && outcome.status !== "") return say({ kind: "error", text: `L\u2019analyse est toujours en attente (\xE9tat : ${outcome.status}) : elle s\u2019appliquera \xE0 son tour, ne la relancez pas.` });
         if (outcome.status !== "applied") return say({ kind: "error", text: `L\u2019analyse n\u2019a pas abouti (\xE9tat : ${outcome.status || "inconnu"}).` });
+        if (target !== session) return;
         field().value = "";
         seconds = 0;
         setMic("idle");
         try {
           const brief = await read();
+          if (target !== session) return;
           paint(brief);
           say({ kind: "ok", text: `Brief analys\xE9 \xB7 ${brief.scenes.length} sc\xE8ne${brief.scenes.length > 1 ? "s" : ""}, ${brief.missing.length} \xE0 cr\xE9er.` });
         } catch {
@@ -365,7 +369,15 @@ ${heard}`;
     paint(NO_BRIEF);
     const load = () => {
       if (session === "") return;
-      read().then(paint, () => say({ kind: "error", text: "Impossible de lire le dernier brief." }));
+      const target = session;
+      read().then(
+        (brief) => {
+          if (target === session) paint(brief);
+        },
+        () => {
+          if (target === session) say({ kind: "error", text: "Impossible de lire le dernier brief." });
+        }
+      );
     };
     load();
     return {
@@ -373,6 +385,9 @@ ${heard}`;
         const chosen = sessionOf(next);
         if (chosen === session) return;
         session = chosen;
+        seconds = 0;
+        setMic("idle");
+        field().value = "";
         paint(NO_BRIEF);
         say({ kind: "none" });
         load();
@@ -1643,7 +1658,8 @@ ${heard}`;
   var { host, props } = mountPoint();
   var shell = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
   mockServer().load("OralBrief").then((fixture) => {
-    const dictation = { transcript: () => fixture.transcript.join("\n") };
+    let told = false;
+    const dictation = { transcript: () => told ? "" : (told = true, fixture.transcript.join("\n")) };
     host.addEventListener("open-versions", (e) => window.Mock?.emit("open-versions", e.detail));
     compose({ session: fixture.session, ...props }, (resolved) => mount(host, resolved, shell, void 0, dictation));
   });

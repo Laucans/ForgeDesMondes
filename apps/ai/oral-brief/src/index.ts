@@ -140,18 +140,24 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       return;
     }
     if (session === '') return say({ kind: 'error', text: 'Aucune séance choisie.' });
+    // The brief belongs to the session it was sent for: a page that moves on meanwhile is not shown its result.
+    const target = session;
     lock(true);
     try {
       say({ kind: 'busy', text: 'Analyse du brief en cours…' });
-      const outcome = await send(ANALYZE_BRIEF, { session, text });
+      const outcome = await send(ANALYZE_BRIEF, { session: target, text });
       if (outcome.status === 'rejected') return say({ kind: 'error', text: `Analyse refusée : ${reasons(outcome.violations)}.` });
+      // A command still waiting its turn keeps its text: it applies on its own clock, and sending it again would analyse the brief twice.
+      if (!isFinal(outcome.status) && outcome.status !== '') return say({ kind: 'error', text: `L’analyse est toujours en attente (état : ${outcome.status}) : elle s’appliquera à son tour, ne la relancez pas.` });
       if (outcome.status !== 'applied') return say({ kind: 'error', text: `L’analyse n’a pas abouti (état : ${outcome.status || 'inconnu'}).` });
+      if (target !== session) return;
       // The brief is analysed: the text area is spent, and the view shows what the analysis left.
       field().value = '';
       seconds = 0;
       setMic('idle');
       try {
         const brief = await read();
+        if (target !== session) return;
         paint(brief);
         say({ kind: 'ok', text: `Brief analysé · ${brief.scenes.length} scène${brief.scenes.length > 1 ? 's' : ''}, ${brief.missing.length} à créer.` });
       } catch {
@@ -185,7 +191,16 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   paint(NO_BRIEF);
   const load = (): void => {
     if (session === '') return;
-    read().then(paint, () => say({ kind: 'error', text: 'Impossible de lire le dernier brief.' }));
+    const target = session;
+    // An answer for a session the page has left is not shown.
+    read().then(
+      (brief) => {
+        if (target === session) paint(brief);
+      },
+      () => {
+        if (target === session) say({ kind: 'error', text: 'Impossible de lire le dernier brief.' });
+      },
+    );
   };
   load();
 
@@ -194,6 +209,10 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       const chosen = sessionOf(next);
       if (chosen === session) return;
       session = chosen;
+      // Another session starts with a quiet microphone and an empty text area.
+      seconds = 0;
+      setMic('idle');
+      field().value = '';
       paint(NO_BRIEF);
       say({ kind: 'none' });
       load();
