@@ -1010,8 +1010,8 @@
     "session.listScenes": {
       "kind": "capability",
       "producer": 20,
-      "state": "built",
-      "version": 1
+      "state": "evolving",
+      "version": 2
     },
     "session.listSessions": {
       "kind": "capability",
