@@ -572,7 +572,7 @@
     "LiveSoundbox": {
       "kind": "micro-ui",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "Media": {
@@ -656,7 +656,7 @@
     "SoundLibrary": {
       "kind": "micro-ui",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "SoundPlayback": {
@@ -1034,49 +1034,49 @@
     "soundbox.addSound": {
       "kind": "data-capability",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "soundbox.listSounds": {
       "kind": "capability",
       "producer": 21,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "soundbox.playSound": {
       "kind": "data-capability",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "soundbox.removeSound": {
       "kind": "data-capability",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "soundbox.setMasterVolume": {
       "kind": "data-capability",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "soundbox.setSoundVolume": {
       "kind": "data-capability",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "soundbox.stopAll": {
       "kind": "data-capability",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "soundbox.updateSound": {
       "kind": "data-capability",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.addParticipant": {
