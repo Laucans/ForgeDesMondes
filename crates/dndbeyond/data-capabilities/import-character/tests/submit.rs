@@ -14,9 +14,8 @@ use harness_dataguard::api::Submission;
 use harness_dataguard::command::{CommandResult, State};
 use harness_dataguard::engine::Engine;
 use harness_dataguard::manifest::DataCapability;
-use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
+use harness_dataguard::memory::{FixedClock, MemoryNotifier, MemoryStore};
 use harness_dataguard::plugins::{RefusalKind, Shared};
-use harness_dataguard::postgres::SystemClock;
 use harness_dataguard::store::{RandomIds, Store};
 use ports_character_sheets::fake::FakeCharacterSheets;
 use ports_character_sheets::{
@@ -30,6 +29,9 @@ use support::{BRANNOC, ELOWEN, elowen, elowen_url, id, sheet};
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const JULIE: &str = "a0000000-0000-4000-8000-000000000001";
 
+/// Where the test's clock starts, in milliseconds since the epoch.
+const NOW_MILLIS: u64 = 1_792_656_000_123;
+
 /// What became of a submission: queued, or refused before it was — as the
 /// server answers it, 202, 404 or 422.
 #[derive(Debug, PartialEq, Eq)]
@@ -40,9 +42,11 @@ enum Status {
 }
 
 /// The engine as the server plants this DataCapability and its aggregate,
-/// with the character-sheets port's fake, whose characters a clone shares.
+/// with the character-sheets port's fake, whose characters a clone shares,
+/// and a clock the test moves: two imports never share an instant by chance.
 struct Served {
     engine: Engine,
+    clock: Arc<FixedClock>,
     store: Arc<MemoryStore>,
     sheets: FakeCharacterSheets,
 }
@@ -59,12 +63,13 @@ async fn served() -> Served {
 /// [`served`], the engine fetching from `port`.
 async fn served_by(port: SharedCharacterSheets, sheets: FakeCharacterSheets) -> Served {
     let store = Arc::new(MemoryStore::default());
+    let clock = Arc::new(FixedClock::at_millis(NOW_MILLIS));
     let mut shared = Shared::default();
     shared.insert(Arc::new(port));
     let engine = Engine::new(
         store.clone(),
         Arc::new(MemoryNotifier::default()),
-        Arc::new(SystemClock),
+        clock.clone(),
     )
     .with_aggregate(Aggregate::parse(aggregate_entity::MANIFEST).expect("contract I"))
     .with_data_capability(DataCapability::parse(import_character::MANIFEST).expect("contract F"))
@@ -78,6 +83,7 @@ async fn served_by(port: SharedCharacterSheets, sheets: FakeCharacterSheets) -> 
     engine.load().await.expect("the units fit");
     Served {
         engine,
+        clock,
         store,
         sheets,
     }
@@ -199,6 +205,8 @@ async fn the_same_url_imported_again_updates_the_same_pc_with_a_version_naming_w
     let mut levelled = sheet(ELOWEN, "Elowen la Grande", 52);
     levelled.statblock.wisdom = 16;
     let _ = s.sheets.clone().with_sheet(levelled);
+    // Time passes between the two imports: the sync date moves with it.
+    s.clock.set_millis(NOW_MILLIS + 1);
     let again = s
         .imported(
             json!({ "url": format!("https://dndbeyond.com/characters/{ELOWEN}/builder"),
