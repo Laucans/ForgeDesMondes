@@ -13,7 +13,7 @@ const records = (value: unknown): Record<string, unknown>[] => (Array.isArray(va
 // ---------- AliasMatch@1 ----------
 
 /** The accents of a decomposed letter: the combining marks U+0300 to U+036F. */
-const ACCENTS = /[̀-ͯ]/g;
+const ACCENTS = /[\u0300-\u036f]/g;
 
 /**
  * AliasMatch@1's normalised term: lowercase, the accents removed and the letter recomposed, the white
@@ -118,8 +118,14 @@ export function parseLibrary(data: unknown): Library {
 /** A medium of the library as an element of the panel. */
 const medium = (m: Medium, type: 'battlemap' | 'illustration'): Item => ({ type, id: m.id, name: m.title, aliases: [] });
 
-/** The first battlemap of the library a scene links: the one its instance is of. */
-const mapOf = (scene: Scene, library: Library): string | undefined => scene.media.find((id) => library.battlemaps.some((m) => m.id === id));
+/**
+ * The battlemap of the library a scene's instance is of: the one it links, when it links exactly one. The
+ * instance does not name its map here, so with two the choice would be a guess: none is chosen.
+ */
+function mapOf(scene: Scene, library: Library): string | undefined {
+  const maps = scene.media.filter((id) => library.battlemaps.some((m) => m.id === id));
+  return maps.length === 1 ? maps[0] : undefined;
+}
 
 /** The battlemaps of the library the session holds an instance of: the scene that links one gives its instance. */
 function instances(world: World): Map<string, string> {
@@ -156,7 +162,7 @@ const named = (index: readonly Item[], type: Item['type'], ids: readonly string[
 /** A scene's places, NPCs, events and media, each run labelled; an empty run is not listed. */
 export function sceneGroups(scene: Scene, world: World, index: readonly Item[]): Group[] {
   const map = mapOf(scene, world.library);
-  const library = [...named(index, 'battlemap', scene.media), ...named(index, 'illustration', scene.media)];
+  const library = scene.media.flatMap((id) => index.filter((item) => item.id === id && (item.type === 'battlemap' || item.type === 'illustration')));
   // The scene's own instance, whatever the session holds of the same map elsewhere; one with no map linked is still the scene's.
   const own = library.map((item) => (item.type === 'battlemap' ? (item.id === map && scene.battlemap !== null ? { ...item, instance: scene.battlemap } : item) : item));
   const loose: Item[] = map === undefined && scene.battlemap !== null ? [{ type: 'battlemap', id: scene.battlemap, name: 'Battlemap de la scène', aliases: [], instance: scene.battlemap }] : [];

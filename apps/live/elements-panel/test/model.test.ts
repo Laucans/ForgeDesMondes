@@ -164,6 +164,15 @@ describe('the groups', () => {
     assert.equal(groups[0]?.items[0]?.instance, 'inst-9');
   });
 
+  test('a scene that links two battlemaps gives its instance to neither: the instance does not say which it is of', () => {
+    const scene = { id: 'sc9', title: 'T', places: [], characters: [], events: [], media: ['bm-gue', 'bm-moulin'], battlemap: 'inst-9' };
+    const world = { ...WORLD, scenes: [scene] };
+    const index = buildIndex(world);
+    const items = sceneGroups(scene, world, index).find((g) => g.key === 'medias')?.items ?? [];
+    assert.deepEqual(items.map((i) => [i.id, i.instance]), [['inst-9', 'inst-9'], ['bm-gue', undefined], ['bm-moulin', undefined]]);
+    assert.equal(index.find((i) => i.id === 'bm-gue')?.instance, undefined);
+  });
+
   test('an id the campaign lacks is left out', () => {
     const scene = { id: 'sc9', title: 'T', places: ['nowhere'], characters: ['ghost'], events: [], media: ['gone'], battlemap: null };
     assert.deepEqual(sceneGroups(scene, WORLD, INDEX), []);

@@ -12,12 +12,12 @@ import { shellOnce } from './server.js';
 const { host, props } = mountPoint();
 // The shell's client calls its own origin by path; the mock server wants an absolute URL.
 const base = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
-// The panel reads for the session the screen's context names. The mock-up's page sets none: the session in
-// preparation of the fixtures, s4, is the one the mock server answers for.
+// The panel reads for the session and the campaign the screen's context names. The mock-up's page sets none:
+// the session in preparation of the fixtures, s4, and its campaign are the ones the mock server answers for.
 const shell = {
   ...base,
   context: {
-    get: (name) => getContext(name) ?? (name === 'session' ? 's4' : undefined),
+    get: (name) => getContext(name) ?? { session: 's4', campaign: 'cendres-valombre' }[name],
     on: (listener) => onContext(listener),
   },
 };

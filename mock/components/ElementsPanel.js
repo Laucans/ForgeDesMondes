@@ -116,7 +116,7 @@
   var text = (value) => typeof value === "string" ? value : "";
   var texts = (value) => Array.isArray(value) ? value.filter((v) => typeof v === "string") : [];
   var records = (value) => Array.isArray(value) ? value.filter(isRecord) : [];
-  var ACCENTS = /[̀-ͯ]/g;
+  var ACCENTS = /[\u0300-\u036f]/g;
   function normalize(term) {
     return term.toLowerCase().normalize("NFD").replace(ACCENTS, "").normalize("NFC").trim();
   }
@@ -178,7 +178,10 @@
     return { battlemaps: media(answer.battlemaps), illustrations: media(answer.illustrations) };
   }
   var medium = (m, type) => ({ type, id: m.id, name: m.title, aliases: [] });
-  var mapOf = (scene, library) => scene.media.find((id) => library.battlemaps.some((m) => m.id === id));
+  function mapOf(scene, library) {
+    const maps = scene.media.filter((id) => library.battlemaps.some((m) => m.id === id));
+    return maps.length === 1 ? maps[0] : void 0;
+  }
   function instances(world) {
     const held = /* @__PURE__ */ new Map();
     for (const scene of world.scenes) {
@@ -206,7 +209,7 @@
   });
   function sceneGroups(scene, world, index) {
     const map = mapOf(scene, world.library);
-    const library = [...named(index, "battlemap", scene.media), ...named(index, "illustration", scene.media)];
+    const library = scene.media.flatMap((id) => index.filter((item) => item.id === id && (item.type === "battlemap" || item.type === "illustration")));
     const own = library.map((item) => item.type === "battlemap" ? item.id === map && scene.battlemap !== null ? { ...item, instance: scene.battlemap } : item : item);
     const loose = map === void 0 && scene.battlemap !== null ? [{ type: "battlemap", id: scene.battlemap, name: "Battlemap de la sc\xE8ne", aliases: [], instance: scene.battlemap }] : [];
     const groups2 = [
@@ -283,11 +286,11 @@
   }
   var list = (items, prefix) => `<ul class="mf-ep__list">${items.map((item) => row(item, prefix)).join("")}</ul>`;
   var results = (items) => items.map((item) => row(item, "found")).join("");
-  function scenes(all, groupsOf) {
+  function scenes(all, groupsOf, current) {
     if (all.length === 0) return '<p class="mf-ep__empty">Aucune sc\xE8ne dans la s\xE9ance.</p>';
     return all.map((scene, i) => {
       const groups2 = groupsOf(scene).map((g) => `<div class="mf-ep__group"><h3>${esc(g.label)}</h3>${list(g.items, scene.id)}</div>`).join("");
-      return `<details id="elements-scene-${esc(scene.id)}" data-scene-index="${i}"${i === 0 ? ' open class="is-current"' : ""}><summary>Sc\xE8ne ${i + 1} \xB7 ${esc(scene.title)}</summary>${groups2}</details>`;
+      return `<details id="elements-scene-${esc(scene.id)}" data-scene-index="${i}"${i === current ? ' open class="is-current"' : ""}><summary>Sc\xE8ne ${i + 1} \xB7 ${esc(scene.title)}</summary>${groups2}</details>`;
     }).join("");
   }
   var groups = (all) => all.map((g) => `<details id="elements-group-${esc(normalize(g.label))}"><summary>${esc(g.label)} <small>${g.items.length}</small></summary><div class="mf-ep__group">${list(g.items, "all")}</div></details>`).join("");
@@ -340,6 +343,8 @@
     let world = EMPTY;
     let index = [];
     let generation = 0;
+    let current = 0;
+    let readFailed = false;
     const part = (id) => {
       const found = host2.querySelector(`#${id}`);
       if (found === null) throw new Error(`the panel has no #${id}`);
@@ -373,27 +378,44 @@
       part("elements-results-list").innerHTML = results(found);
     }
     function paint() {
-      part("elements-scenes").innerHTML = scenes(world.scenes, (scene) => sceneGroups(scene, world, index));
+      const unfolded = new Map([...host2.querySelectorAll("#elements-scenes details, #elements-groups details")].map((d) => [d.id, d.open]));
+      part("elements-scenes").innerHTML = scenes(world.scenes, (scene) => sceneGroups(scene, world, index), current);
       part("elements-groups").innerHTML = groups(campaignGroups(index));
+      host2.querySelectorAll("#elements-scenes details, #elements-groups details").forEach((d) => {
+        const was = unfolded.get(d.id);
+        if (was !== void 0) d.open = was;
+      });
       paintSearch();
     }
     async function start() {
       generation += 1;
       const mine = generation;
-      const [asked, forCampaign] = [session() === "" ? {} : { session: session() }, campaign() === "" ? {} : { campaign: campaign() }];
-      const read = (id, variables) => shell2.capability(id, void 0, variables).then((answer) => answer.data);
+      const [forSession, forCampaign] = [session() === "" ? null : { session: session() }, campaign() === "" ? null : { campaign: campaign() }];
+      const read = async (id, variables) => variables === null ? [] : (await shell2.capability(id, void 0, variables)).data;
       const answers = await Promise.allSettled([
-        read(LIST_SCENES, asked),
+        read(LIST_SCENES, forSession),
         read(LIST_CHARACTERS, forCampaign),
         read(LIST_PLACES, forCampaign),
         read(LIST_EVENTS, forCampaign),
         read(LIST_MEDIA, forCampaign)
       ]);
       if (mine !== generation) return;
-      const [s, c, p, e, m] = answers.map((a) => a.status === "fulfilled" ? a.value : void 0);
-      world = { scenes: parseScenes(s), characters: parseCharacters(c), places: parsePlaces(p), events: parseEvents(e), library: parseLibrary(m) };
+      const [s, c, p, e, m] = answers;
+      world = {
+        scenes: s?.status === "fulfilled" ? parseScenes(s.value) : world.scenes,
+        characters: c?.status === "fulfilled" ? parseCharacters(c.value) : world.characters,
+        places: p?.status === "fulfilled" ? parsePlaces(p.value) : world.places,
+        events: e?.status === "fulfilled" ? parseEvents(e.value) : world.events,
+        library: m?.status === "fulfilled" ? parseLibrary(m.value) : world.library
+      };
       index = buildIndex(world);
-      say(answers.some((a) => a.status === "rejected") ? "Une partie du panneau n\u2019a pas pu \xEAtre lue." : "", true);
+      if (answers.some((a) => a.status === "rejected")) {
+        readFailed = true;
+        say("Une partie du panneau n\u2019a pas pu \xEAtre lue.", true);
+      } else if (readFailed) {
+        readFailed = false;
+        say("");
+      }
       paint();
     }
     async function submit(body) {
@@ -446,10 +468,12 @@
     });
     doc.addEventListener(SCENE_EVENT, (event) => {
       const detail = event.detail;
+      if (typeof detail?.index !== "number") return;
+      current = detail.index;
       host2.querySelectorAll("#elements-scenes details").forEach((d) => {
-        const current = Number(d.dataset.sceneIndex) === detail.index;
-        d.open = current;
-        d.classList.toggle("is-current", current);
+        const at = Number(d.dataset.sceneIndex) === current;
+        d.open = at;
+        d.classList.toggle("is-current", at);
       });
     });
     shell2.context?.on?.((name) => {
@@ -1681,7 +1705,7 @@
   var shell = {
     ...base,
     context: {
-      get: (name) => getContext(name) ?? (name === "session" ? "s4" : void 0),
+      get: (name) => getContext(name) ?? { session: "s4", campaign: "cendres-valombre" }[name],
       on: (listener) => onContext(listener)
     }
   };

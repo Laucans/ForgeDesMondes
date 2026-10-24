@@ -77,6 +77,10 @@ export function mount(host: HTMLElement, _raw: Record<string, unknown>, shell: S
   let world: World = EMPTY;
   let index: Item[] = [];
   let generation = 0;
+  /** The scene the session is at: the one the screen last told, the first until then. */
+  let current = 0;
+  /** The status line says a read failed: the next read that succeeds takes it down, a command's message is never taken down by a read. */
+  let readFailed = false;
 
   const part = <T extends HTMLElement = HTMLElement>(id: string): T => {
     const found = host.querySelector<T>(`#${id}`);
@@ -116,31 +120,53 @@ export function mount(host: HTMLElement, _raw: Record<string, unknown>, shell: S
     part('elements-results-list').innerHTML = results(found);
   }
 
+  /** The regions are drawn again; what the DM folded or unfolded stays so. */
   function paint(): void {
-    part('elements-scenes').innerHTML = scenes(world.scenes, (scene) => sceneGroups(scene, world, index));
+    const unfolded = new Map([...host.querySelectorAll<HTMLDetailsElement>('#elements-scenes details, #elements-groups details')].map((d) => [d.id, d.open]));
+    part('elements-scenes').innerHTML = scenes(world.scenes, (scene) => sceneGroups(scene, world, index), current);
     part('elements-groups').innerHTML = groups(campaignGroups(index));
+    host.querySelectorAll<HTMLDetailsElement>('#elements-scenes details, #elements-groups details').forEach((d) => {
+      const was = unfolded.get(d.id);
+      if (was !== undefined) d.open = was;
+    });
     paintSearch();
   }
 
   // ---------- reading ----------
-  /** The five reads, for the session and the campaign the screen names; an older answer never replaces a newer one. */
+  /**
+   * The five reads, for the session and the campaign the screen names; an older answer never replaces a newer one.
+   * What is not named is not asked: without a session no scene is listed, without a campaign nothing else is. A read
+   * that fails leaves what the panel already held of it.
+   */
   async function start(): Promise<void> {
     generation += 1;
     const mine = generation;
-    const [asked, forCampaign] = [session() === '' ? {} : { session: session() }, campaign() === '' ? {} : { campaign: campaign() }];
-    const read = (id: string, variables: Record<string, unknown>): Promise<unknown> => shell.capability(id, undefined, variables).then((answer) => answer.data);
+    const [forSession, forCampaign] = [session() === '' ? null : { session: session() }, campaign() === '' ? null : { campaign: campaign() }];
+    const read = async (id: string, variables: Record<string, unknown> | null): Promise<unknown> => (variables === null ? [] : (await shell.capability(id, undefined, variables)).data);
     const answers = await Promise.allSettled([
-      read(LIST_SCENES, asked),
+      read(LIST_SCENES, forSession),
       read(LIST_CHARACTERS, forCampaign),
       read(LIST_PLACES, forCampaign),
       read(LIST_EVENTS, forCampaign),
       read(LIST_MEDIA, forCampaign),
     ]);
     if (mine !== generation) return;
-    const [s, c, p, e, m] = answers.map((a) => (a.status === 'fulfilled' ? a.value : undefined));
-    world = { scenes: parseScenes(s), characters: parseCharacters(c), places: parsePlaces(p), events: parseEvents(e), library: parseLibrary(m) };
+    const [s, c, p, e, m] = answers;
+    world = {
+      scenes: s?.status === 'fulfilled' ? parseScenes(s.value) : world.scenes,
+      characters: c?.status === 'fulfilled' ? parseCharacters(c.value) : world.characters,
+      places: p?.status === 'fulfilled' ? parsePlaces(p.value) : world.places,
+      events: e?.status === 'fulfilled' ? parseEvents(e.value) : world.events,
+      library: m?.status === 'fulfilled' ? parseLibrary(m.value) : world.library,
+    };
     index = buildIndex(world);
-    say(answers.some((a) => a.status === 'rejected') ? 'Une partie du panneau n’a pas pu être lue.' : '', true);
+    if (answers.some((a) => a.status === 'rejected')) {
+      readFailed = true;
+      say('Une partie du panneau n’a pas pu être lue.', true);
+    } else if (readFailed) {
+      readFailed = false;
+      say('');
+    }
     paint();
   }
 
@@ -204,11 +230,13 @@ export function mount(host: HTMLElement, _raw: Record<string, unknown>, shell: S
 
   // The scene the session is at opens; the others fold.
   doc.addEventListener(SCENE_EVENT, (event) => {
-    const detail = (event as CustomEvent<{ index?: number }>).detail;
+    const detail = (event as CustomEvent<{ index?: unknown } | null>).detail;
+    if (typeof detail?.index !== 'number') return;
+    current = detail.index;
     host.querySelectorAll<HTMLDetailsElement>('#elements-scenes details').forEach((d) => {
-      const current = Number(d.dataset.sceneIndex) === detail.index;
-      d.open = current;
-      d.classList.toggle('is-current', current);
+      const at = Number(d.dataset.sceneIndex) === current;
+      d.open = at;
+      d.classList.toggle('is-current', at);
     });
   });
 

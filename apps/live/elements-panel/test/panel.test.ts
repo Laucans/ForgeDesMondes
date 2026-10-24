@@ -128,19 +128,30 @@ test('it reads the five Capabilities by identifier alone, for the session and ca
   for (const id of manifest.needs.filter((n) => n !== 'session.listScenes')) assert.deepEqual(p.fake.reads.find((r) => r.id === id)?.variables, { campaign: 'cendres-valombre' });
 });
 
-test('with no session or campaign in the screen’s context it asks for neither', async () => {
-  const p = await panel();
-  assert.ok(p.fake.reads.every((r) => Object.keys(r.variables ?? {}).length === 0));
+test('what the screen has not named is not asked: no session, no scenes read; no campaign, nothing else', async () => {
+  const none = await panel();
+  assert.deepEqual(none.fake.reads, []);
+  assert.match(none.$('#elements-scenes').textContent ?? '', /Aucune scène/);
+  assert.equal(none.$('#elements-status').hidden, true);
+
+  const campaignOnly = await panel({ context: { campaign: 'c' } });
+  assert.deepEqual(campaignOnly.fake.reads.map((r) => r.id).sort(), ['campaign.listCharacters', 'campaign.listEvents', 'campaign.listPlaces', 'media.listMedia']);
+  assert.match(campaignOnly.$('#elements-scenes').textContent ?? '', /Aucune scène/);
 });
 
 test('the screen setting the session later makes the panel read again', async () => {
   const p = await panel();
   p.fake.setContext('session', 's4');
   await settle();
-  assert.deepEqual(p.fake.reads.filter((r) => r.id === 'session.listScenes').map((r) => r.variables), [{}, { session: 's4' }]);
+  assert.deepEqual(p.fake.reads.map((r) => [r.id, r.variables]), [['session.listScenes', { session: 's4' }]]);
+  assert.equal(p.host.querySelectorAll('#elements-scenes details').length, 3);
   p.fake.setContext('unrelated', 'x');
   await settle();
-  assert.equal(p.fake.reads.filter((r) => r.id === 'session.listScenes').length, 2);
+  assert.equal(p.fake.reads.length, 1);
+  p.fake.setContext('campaign', 'cendres-valombre');
+  await settle();
+  assert.equal(p.fake.reads.length, 6);
+  assert.equal(p.host.querySelectorAll('#elements-groups details').length, 5);
 });
 
 test('a search in progress follows what is read again', async () => {
@@ -162,6 +173,66 @@ test('a search in progress follows what is read again', async () => {
   }
 });
 
+test('a read that fails keeps what the panel already held of it; one that succeeds again takes the message down', async () => {
+  const p = await panel({ context: CONTEXT, failing: [] });
+  assert.equal(p.host.querySelectorAll('#elements-groups details')[0]?.querySelectorAll('li').length, 4);
+  const failing = new Set<string>(['campaign.listCharacters', 'session.listScenes']);
+  const read = p.fake.shell.capability.bind(p.fake.shell);
+  p.fake.shell.capability = async (id, sha, variables) => {
+    if (failing.has(id)) throw new Error('down');
+    return read(id, sha, variables);
+  };
+  p.fake.setContext('session', 's5');
+  await settle();
+  assert.equal(p.$('#elements-status').hidden, false);
+  assert.equal(p.host.querySelectorAll('#elements-groups details')[0]?.querySelectorAll('li').length, 4, 'the characters stay');
+  assert.equal(p.host.querySelectorAll('#elements-scenes details').length, 3, 'the scenes stay');
+  failing.clear();
+  p.fake.setContext('session', 's6');
+  await settle();
+  assert.equal(p.$('#elements-status').hidden, true);
+});
+
+test('a read that ends while a command is under way does not take its message away', async () => {
+  const p = await panel({ context: CONTEXT });
+  await p.click('#sc3-battlemap-bm-gue [data-send-map]');
+  assert.equal(p.$('#elements-status').textContent, 'Battlemap envoyée aux joueurs.');
+  p.fake.setContext('session', 's5');
+  await settle();
+  assert.equal(p.$('#elements-status').textContent, 'Battlemap envoyée aux joueurs.');
+});
+
+test('what the DM unfolded and the scene the session is at stay as they were when the panel is read again', async () => {
+  const p = await panel({ context: CONTEXT });
+  p.$<HTMLDetailsElement>('#elements-group-pnj').open = true;
+  p.doc.dispatchEvent(new p.dom.window.CustomEvent('fdm:scene', { detail: { index: 1 } }));
+  p.$<HTMLDetailsElement>('#elements-scene-sc3').open = true;
+  p.fake.setContext('session', 's5');
+  await settle();
+  assert.deepEqual([...p.host.querySelectorAll<HTMLDetailsElement>('#elements-scenes details')].map((d) => d.open), [false, true, true]);
+  assert.deepEqual([...p.host.querySelectorAll('#elements-scenes details.is-current')].map((d) => d.id), ['elements-scene-sc2']);
+  assert.ok(p.$<HTMLDetailsElement>('#elements-group-pnj').open);
+  assert.ok(!p.$<HTMLDetailsElement>('#elements-group-pj').open);
+});
+
+test('a scene event with no scene in it changes nothing', async () => {
+  const p = await panel({ context: CONTEXT });
+  p.doc.dispatchEvent(new p.dom.window.CustomEvent('fdm:scene'));
+  p.doc.dispatchEvent(new p.dom.window.CustomEvent('fdm:scene', { detail: { index: 'x' } }));
+  assert.ok(p.$<HTMLDetailsElement>('#elements-scene-sc1').open);
+});
+
+test('a scene’s media keep the order the Capability gives, battlemaps and illustrations mixed', async () => {
+  const scenes = (mockFixture('session.listScenes') as Array<Record<string, unknown>>).map((scene) => ({ ...scene, media: ['ill-moulin', 'bm-gue', 'ill-gaspard'] }));
+  ANSWERS['session.listScenes'] = scenes;
+  try {
+    const p = await panel({ context: CONTEXT });
+    assert.deepEqual([...p.host.querySelectorAll('#elements-scene-sc1 [id^="sc1-"][id*="-ill-"], #elements-scene-sc1 [id^="sc1-battlemap"]')].map((e) => e.id), ['sc1-illustration-ill-moulin', 'sc1-battlemap-bm-gue', 'sc1-illustration-ill-gaspard']);
+  } finally {
+    ANSWERS['session.listScenes'] = mockFixture('session.listScenes');
+  }
+});
+
 test('a PC a scene lists is not among the scene’s NPCs', async () => {
   const scenes = (mockFixture('session.listScenes') as Array<Record<string, unknown>>).map((scene) => ({ ...scene, characters: ['elowen', 'gaspard'] }));
   ANSWERS['session.listScenes'] = scenes;
@@ -175,7 +246,7 @@ test('a PC a scene lists is not among the scene’s NPCs', async () => {
 });
 
 test('a session with no scene says so; a read that fails leaves the rest of the panel and says it', async () => {
-  const p = await panel({ failing: ['session.listScenes'] });
+  const p = await panel({ context: CONTEXT, failing: ['session.listScenes'] });
   assert.match(p.$('#elements-scenes').textContent ?? '', /Aucune scène/);
   assert.equal(p.$('#elements-status').hidden, false);
   assert.match(p.$('#elements-status').textContent ?? '', /n’a pas pu être lue/);
@@ -295,10 +366,10 @@ test('a command the server refuses says why; one that never settles, or never le
 });
 
 test('without a session in the context the command still names the diffusion, with no id', async () => {
-  const p = await panel();
+  const p = await panel({ context: { campaign: 'cendres-valombre' } });
   await p.click('#all-illustration-ill-cover [data-send-window]');
   assert.deepEqual(p.fake.sent[0]?.target, { aggregate: 'Diffusion' });
-  assert.deepEqual(p.fake.sent[0]?.payload, { media: 'ill-cover' });
+  assert.deepEqual(p.fake.sent[0]?.payload, { media: 'ill-cover', campaign: 'cendres-valombre' });
 });
 
 test('a PC is dragged by the Battlemap’s own type, which opens the map for the drop', async () => {
