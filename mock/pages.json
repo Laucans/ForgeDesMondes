@@ -526,8 +526,11 @@
       ],
       "props": {
         "type": "\"character\" | \"place\" | \"event\" | \"illustration\"",
-        "id": "string — élément ouvert au départ"
-      }
+        "id": "string — élément ouvert au départ",
+        "campaign": "string — id de la campagne ; absent, l’envoi en fenêtre ne peut pas nommer la campagne"
+      },
+      "source": "apps/live/table-sheet",
+      "builtFrom": "293e426d29163acc"
     },
     {
       "name": "LiveSoundbox",
