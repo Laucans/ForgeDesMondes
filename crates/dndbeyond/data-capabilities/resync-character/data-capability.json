@@ -1,0 +1,44 @@
+{
+  "dataCapability": "dndbeyond.resyncCharacter",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Entity",
+    "id": "$entityId"
+  },
+  "touches": [
+    "Entity.strength",
+    "Entity.dexterity",
+    "Entity.constitution",
+    "Entity.intelligence",
+    "Entity.wisdom",
+    "Entity.charisma",
+    "Entity.armorClass",
+    "Entity.hpMax",
+    "Entity.spells",
+    "Entity.actions",
+    "Entity.dndbeyondSyncedAt",
+    "Entity.updatedAt",
+    "Entity.entityVersionId",
+    "Entity.entityVersionEntityId",
+    "Entity.versionNumber",
+    "Entity.source",
+    "Entity.snapshot",
+    "Entity.diff",
+    "Entity.restoredFromVersionId",
+    "Entity.entityVersionCreatedAt"
+  ],
+  "payload": {
+    "entityId": "uuid — the PC resynchronised, when the command's target does not name it; it must be linked to D&D Beyond (an import made it, or linked it), else the resync is refused"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "dndbeyond-resync-scope",
+    "every-change-versioned"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "ports": ["character-sheets"],
+  "idempotencyKey": "optional"
+}
