@@ -27,7 +27,8 @@
 //! And a stream: [`SpeechToText::listen`] yields the phrases the engine heard,
 //! in order, and stays open, silent, once they are said; its vocabulary
 //! reaches the journal as it was passed — whole, empty and each list alone —
-//! with no audio byte; and stopping it ends it, leaving no task running.
+//! with no audio byte; and stopping it ends it promptly, leaving no task
+//! running.
 //!
 //! A failed check panics with what it was about.
 
@@ -40,6 +41,10 @@ const WATCH: Duration = Duration::from_millis(100);
 
 /// How long a stream has to say a phrase its stand-in has to say.
 const PATIENCE: Duration = Duration::from_secs(5);
+
+/// How long a stopped stream has to end: its task ends on the signal, it is not
+/// left to be aborted.
+const PROMPTLY: Duration = Duration::from_secs(1);
 
 /// What the adapter's engine stand-in hears.
 #[derive(Clone, Debug)]
@@ -213,7 +218,9 @@ async fn a_stream_stays_open_until_it_is_stopped<P: SpeechToText>(port: &P, scen
 async fn a_stopped_stream_leaves_no_task_running<P: SpeechToText>(port: &P, scenario: &Scenario) {
     let mut stream = open(port, &scenario.vocabulary).await;
     hear(&mut stream).await;
-    stream.stop().await;
+    tokio::time::timeout(PROMPTLY, stream.stop())
+        .await
+        .expect("a stopped stream ends promptly");
     assert!(stream.is_finished(), "the task of a stopped stream is over");
     assert!(
         stream.next().await.is_none(),

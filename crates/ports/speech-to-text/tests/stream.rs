@@ -24,6 +24,14 @@ fn watched() -> (Dropped, oneshot::Receiver<()>) {
     (Dropped(Some(sender)), receiver)
 }
 
+/// Waits for the future that held the guard to be dropped.
+async fn is_dropped(dropped: oneshot::Receiver<()>) {
+    tokio::time::timeout(Duration::from_secs(10), dropped)
+        .await
+        .expect("the task was dropped in time")
+        .expect("the guard told it was dropped");
+}
+
 #[tokio::test]
 async fn it_yields_what_the_task_says_then_ends_with_the_task() {
     let mut stream = TranscriptStream::spawn(|phrases, _| async move {
@@ -79,7 +87,7 @@ async fn stopping_aborts_a_task_that_ignores_the_signal() {
     assert!(!stream.is_finished());
     stream.stop().await;
     assert!(stream.is_finished());
-    dropped.await.expect("the task was dropped");
+    is_dropped(dropped).await;
 }
 
 /// A `stop` given up on midway leaves the task to the stream, which still
@@ -96,7 +104,7 @@ async fn a_stop_given_up_on_midway_leaves_the_task_to_the_stream() {
     assert!(given_up.is_err());
     assert!(!stream.is_finished());
     drop(stream);
-    dropped.await.expect("the task was dropped");
+    is_dropped(dropped).await;
 }
 
 #[tokio::test]
@@ -149,7 +157,7 @@ async fn dropping_the_stream_aborts_its_task() {
     });
     tokio::task::yield_now().await;
     drop(stream);
-    dropped.await.expect("the task was dropped");
+    is_dropped(dropped).await;
 }
 
 #[tokio::test]

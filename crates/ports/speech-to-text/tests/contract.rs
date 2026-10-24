@@ -130,6 +130,12 @@ enum Fault {
     StreamEndsAfterTheLastPhrase,
     /// Opens, and never hears anything.
     StreamHearsNothing,
+    /// Sorts a stream's aliases, but only when they are the sole terms.
+    StreamSortsLoneAliases,
+    /// Drops a stream's sound names, but only when they are the sole terms.
+    StreamDropsLoneSounds,
+    /// Says its phrases, and does not end when told to stop.
+    StreamIgnoresStop,
 }
 
 struct Faulty {
@@ -204,6 +210,16 @@ impl SpeechToText for Faulty {
             {
                 journalled.campaign_names.reverse();
             }
+            Fault::StreamSortsLoneAliases
+                if journalled.campaign_names.is_empty() && journalled.sound_names.is_empty() =>
+            {
+                journalled.aliases.sort();
+            }
+            Fault::StreamDropsLoneSounds
+                if journalled.campaign_names.is_empty() && journalled.aliases.is_empty() =>
+            {
+                journalled.sound_names.clear();
+            }
             _ => {}
         }
         if matches!(self.fault, Fault::StreamCountsAudio) {
@@ -222,10 +238,14 @@ impl SpeechToText for Faulty {
             _ => {}
         }
         let ends = matches!(self.fault, Fault::StreamEndsAfterTheLastPhrase);
+        let ignores_stop = matches!(self.fault, Fault::StreamIgnoresStop);
         Ok(TranscriptStream::spawn(
             move |sender, mut stop| async move {
                 for phrase in phrases {
                     sender.say(phrase).await;
+                }
+                if ignores_stop {
+                    std::future::pending::<()>().await;
                 }
                 if !ends {
                     stop.requested().await;
@@ -309,6 +329,26 @@ async fn the_contract_fails_a_stream_that_drops_the_aliases() {
 #[should_panic(expected = "the vocabulary journalled for a stream")]
 async fn the_contract_fails_a_stream_that_reorders_names_given_alone() {
     run(&Faulty::new(Fault::StreamReordersLoneNames), &scenario()).await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "the vocabulary journalled for a stream")]
+async fn the_contract_fails_a_stream_that_sorts_aliases_given_alone() {
+    run(&Faulty::new(Fault::StreamSortsLoneAliases), &scenario()).await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "the vocabulary journalled for a stream")]
+async fn the_contract_fails_a_stream_that_drops_sounds_given_alone() {
+    run(&Faulty::new(Fault::StreamDropsLoneSounds), &scenario()).await;
+}
+
+/// Time is paused: the grace a stream gives a task elapses at once, after the
+/// patience the contract has.
+#[tokio::test(start_paused = true)]
+#[should_panic(expected = "a stopped stream ends promptly")]
+async fn the_contract_fails_a_stream_that_has_to_be_aborted_to_stop() {
+    run(&Faulty::new(Fault::StreamIgnoresStop), &scenario()).await;
 }
 
 #[tokio::test]
