@@ -2,7 +2,7 @@
   "version": 1,
   "heads": {
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
-    "main_agent": "e13063e245b0f2a8ee3dddb95dd345213e814a59",
+    "main_agent": "20e08ee4106937680dc3de17b8bfcd2470b8a891",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
     "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8231e1957a1c7f5f44be11679c0f3bf1380ff473",
     "milestone/18-campaigns-players-and-characters-with-versioned-history": "84e4f9939f92ec443a49d0e0b71400bbe25f18be",
@@ -11,7 +11,7 @@
     "milestone/21-soundbox-tagged-sound-library-and-live-playback": "93760d4df5c59bdf188ccfc6494e546cc40545c9",
     "milestone/22-entity-sheet-assisted-creation-d-d-beyond-navigation-rail": "2772e2ded93f205ad162388f059279f6ecfe7df2",
     "milestone/23-notes-import-extraction-then-validation-in-a-batch": "2275836ef0bfc5b5380b9a2ccea864f6dcc2337c",
-    "milestone/24-oral-brief-scenes-updated-npcs-and-the-to-create-list": "4fd3eee5ae47eee043489176a2498bba71909c64",
+    "milestone/24-oral-brief-scenes-updated-npcs-and-the-to-create-list": "35a3317d9769d160c8605981bab35ed37c6838c4",
     "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "24240292f1833fdc6ead6cb28403549f49622845",
     "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "80786b6a06a4ebc6e121302ad81eee96bb283822",
     "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "e2d7d98ebb9056df1b687d08a7d8a540396159db",
