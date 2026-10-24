@@ -1,0 +1,21 @@
+{
+  "dataCapability": "table.setTokenVisibility",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": ["BattlemapInstance.visible"],
+  "payload": {
+    "instance": "uuid — the battlemap instance the token stands on, when the command names no target; never written",
+    "token": "uuid — the token hidden or revealed, a token of that instance (instance-isolated); never written, the change lands on the token's own row",
+    "visible": "boolean — false hides the token from the players, true reveals it; its initiative rank and every other rank stay as they are (hidden-keeps-rank)"
+  },
+  "mode": "overwrite",
+  "invariants": ["instance-isolated", "hidden-keeps-rank", "players-see-band-only", "state-persisted-reset"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

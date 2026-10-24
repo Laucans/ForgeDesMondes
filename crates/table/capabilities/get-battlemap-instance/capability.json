@@ -1,0 +1,10 @@
+{
+  "capability": "table.getBattlemapInstance",
+  "system": "table",
+  "version": "1.0.0",
+  "description": "One battlemap instance of a scene, as the DM or the players see it: its tokens and its combat. The view is `dm` or `player`; a view not given is the players'. Each token carries its id, its character (`char`), its kind (pj or pnj), its name, its number (null for a PC), its hex (`q`, `r`), whether it is visible, its condition badges (`states`), its health band (`status`: indemne, blessé, en sang or mort, never for a PC, whose hit points are not tracked), whether it is dead (an NPC is dead when its hit points are 0), and its disc: the colour, the initial of its name and whether its character has a portrait with its crop (a coloured disc with the initial and the number until a portrait exists). The DM view shows everything, hit points included (`hp`, `hpMax`) and hidden tokens. The player view drops hidden tokens and every hit point figure and tells how hurt an NPC is by its band alone. The combat is the one running (null when none): its round, the token whose turn it is (`current`) and the carousel (`order`), each participant at its rank with its initiative, dead ones skipped; the DM carousel keeps a hidden participant at its rank, flagged `hidden`, the players' carousel leaves it out until it is revealed, without moving any other. An unknown instance has no answer (null).",
+  "implements": "HealthBand@1",
+  "input": { "instance": "string", "view": "string" },
+  "output": "{ id: string, battlemap: string, session: string, scene: string, roster: string[], state: { tokens: { id, char, kind: 'pj' | 'pnj', name, num: number | null, q, r, visible, states: string[], status: 'indemne' | 'blessé' | 'en sang' | 'mort' | null, dead, initials, color, portrait, crop, hp?, hpMax? }[], combat: { round: number, current: string | null, order: { id, name, initiative, hidden? }[] } | null } } | null",
+  "reads": ["queries/get-battlemap-instance.graphql"]
+}

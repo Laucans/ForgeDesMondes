@@ -1,0 +1,19 @@
+{
+  "dataCapability": "table.removeParticipant",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "delete",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$entry"
+  },
+  "touches": ["BattlemapInstance.initiativeEntryId"],
+  "payload": {
+    "participant": "uuid — the participant taken out of the open combat, named by its initiative entry or by its token, when the command's target is the instance; when absent or null, the command's target is the participant, its entry or its token. The entry's partition is tombstoned (a soft delete) and nothing else is written: its token stays on the map, the order closes up by itself (orderIndex, derived), and a participant that holds the turn is refused — the caller sends table.nextTurn first, then this command, and the next living participant has the turn"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["instance-isolated"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

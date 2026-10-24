@@ -13,11 +13,13 @@ const bridged = new WeakSet();
  * The battlemap instance of `fixtures/table.getBattlemapInstance.json`, shared
  * by the tabs of this machine (the DM view, the player view) through the
  * mock-up's store: what one tab changes the other reads, as two views of the
- * one server would. Undefined when it is another instance.
+ * one server would. Another id is an instance a command made
+ * (table.createBattlemapInstance), kept in this tab; undefined when none has it.
  */
 export async function instanceOf(server, id) {
   const data = await server.load('table.getBattlemapInstance');
-  if (!data || (id && data.id !== id)) return undefined;
+  if (!data) return undefined;
+  if (id && data.id !== id) return server.instances ? server.instances.get(id) : undefined;
   const store = window.Mock && window.Mock.store;
   if (store && !bridged.has(data)) {
     bridged.add(data);

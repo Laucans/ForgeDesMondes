@@ -1,0 +1,610 @@
+{
+  "concept": "Initiative",
+  "version": 1,
+  "cases": [
+    {
+      "name": "an NPC with DEX 16 rolling 11 has initiative 14 (11 + 3)",
+      "input": {
+        "operation": "initiative",
+        "kind": "npc",
+        "dex": 16,
+        "roll": 11
+      },
+      "output": {
+        "roll": 11,
+        "dexModifier": 3,
+        "initiative": 14
+      }
+    },
+    {
+      "name": "an NPC with DEX 12 rolling 13 has initiative 14 (13 + 1)",
+      "input": {
+        "operation": "initiative",
+        "kind": "npc",
+        "dex": 12,
+        "roll": 13
+      },
+      "output": {
+        "roll": 13,
+        "dexModifier": 1,
+        "initiative": 14
+      }
+    },
+    {
+      "name": "a PC has no roll: its initiative is the figure the DM entered",
+      "input": {
+        "operation": "initiative",
+        "kind": "pc",
+        "enteredInitiative": 14
+      },
+      "output": {
+        "roll": null,
+        "dexModifier": null,
+        "initiative": 14
+      }
+    },
+    {
+      "name": "DEX 10 gives no modifier",
+      "input": {
+        "operation": "initiative",
+        "kind": "npc",
+        "dex": 10,
+        "roll": 8
+      },
+      "output": {
+        "roll": 8,
+        "dexModifier": 0,
+        "initiative": 8
+      }
+    },
+    {
+      "name": "DEX 9 gives -1: the modifier is floored, not truncated",
+      "input": {
+        "operation": "initiative",
+        "kind": "npc",
+        "dex": 9,
+        "roll": 1
+      },
+      "output": {
+        "roll": 1,
+        "dexModifier": -1,
+        "initiative": 0
+      }
+    },
+    {
+      "name": "DEX 1 gives -5 and the lowest roll still counts",
+      "input": {
+        "operation": "initiative",
+        "kind": "npc",
+        "dex": 1,
+        "roll": 1
+      },
+      "output": {
+        "roll": 1,
+        "dexModifier": -5,
+        "initiative": -4
+      }
+    },
+    {
+      "name": "DEX 20 rolling the top of the die gives 25",
+      "input": {
+        "operation": "initiative",
+        "kind": "npc",
+        "dex": 20,
+        "roll": 20
+      },
+      "output": {
+        "roll": 20,
+        "dexModifier": 5,
+        "initiative": 25
+      }
+    },
+    {
+      "name": "an odd DEX floors to the lower modifier: DEX 15 gives +2",
+      "input": {
+        "operation": "initiative",
+        "kind": "npc",
+        "dex": 15,
+        "roll": 12
+      },
+      "output": {
+        "roll": 12,
+        "dexModifier": 2,
+        "initiative": 14
+      }
+    },
+    {
+      "name": "R105: at 14 all round, DEX 16 comes first and an equal DEX goes to the higher draw",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "pc-entered",
+            "initiative": 14,
+            "dex": 12,
+            "draw": 2
+          },
+          {
+            "id": "npc-dex-12",
+            "initiative": 14,
+            "dex": 12,
+            "draw": 9
+          },
+          {
+            "id": "npc-dex-16",
+            "initiative": 14,
+            "dex": 16,
+            "draw": 5
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "npc-dex-16",
+          "npc-dex-12",
+          "pc-entered"
+        ]
+      }
+    },
+    {
+      "name": "R105: the same tie with the draws swapped goes the other way",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "pc-entered",
+            "initiative": 14,
+            "dex": 12,
+            "draw": 9
+          },
+          {
+            "id": "npc-dex-12",
+            "initiative": 14,
+            "dex": 12,
+            "draw": 2
+          },
+          {
+            "id": "npc-dex-16",
+            "initiative": 14,
+            "dex": 16,
+            "draw": 5
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "npc-dex-16",
+          "pc-entered",
+          "npc-dex-12"
+        ]
+      }
+    },
+    {
+      "name": "a higher initiative wins whatever the DEX and the draw",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "slow-nimble",
+            "initiative": 14,
+            "dex": 20,
+            "draw": 99
+          },
+          {
+            "id": "quick-clumsy",
+            "initiative": 18,
+            "dex": 8,
+            "draw": 1
+          },
+          {
+            "id": "last",
+            "initiative": 3,
+            "dex": 10,
+            "draw": 50
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "quick-clumsy",
+          "slow-nimble",
+          "last"
+        ]
+      }
+    },
+    {
+      "name": "DEX counts as the score, not as the modifier it gives",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "dex-15",
+            "initiative": 10,
+            "dex": 15,
+            "draw": 10
+          },
+          {
+            "id": "dex-14",
+            "initiative": 10,
+            "dex": 14,
+            "draw": 90
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "dex-15",
+          "dex-14"
+        ]
+      }
+    },
+    {
+      "name": "a participant with no DEX ranks after every known DEX at the same initiative",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "pc-no-dex",
+            "initiative": 14,
+            "dex": null,
+            "draw": 99
+          },
+          {
+            "id": "npc-dex-8",
+            "initiative": 14,
+            "dex": 8,
+            "draw": 1
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "npc-dex-8",
+          "pc-no-dex"
+        ]
+      }
+    },
+    {
+      "name": "R107: a hidden token keeps its rank",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "bandit-chief",
+            "initiative": 17,
+            "dex": 14,
+            "draw": 3,
+            "hidden": true
+          },
+          {
+            "id": "bandit-2",
+            "initiative": 12,
+            "dex": 12,
+            "draw": 4
+          },
+          {
+            "id": "hero",
+            "initiative": 20,
+            "dex": 10,
+            "draw": 5
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "hero",
+          "bandit-chief",
+          "bandit-2"
+        ]
+      }
+    },
+    {
+      "name": "a dead participant keeps its rank",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "first",
+            "initiative": 19,
+            "dex": 10,
+            "draw": 1
+          },
+          {
+            "id": "fallen",
+            "initiative": 15,
+            "dex": 10,
+            "draw": 2,
+            "alive": false
+          },
+          {
+            "id": "third",
+            "initiative": 9,
+            "dex": 10,
+            "draw": 3
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "first",
+          "fallen",
+          "third"
+        ]
+      }
+    },
+    {
+      "name": "two participants with no DEX are settled by the draw",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "pc-low-draw",
+            "initiative": 14,
+            "dex": null,
+            "draw": 1
+          },
+          {
+            "id": "pc-high-draw",
+            "initiative": 14,
+            "dex": null,
+            "draw": 8
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "pc-high-draw",
+          "pc-low-draw"
+        ]
+      }
+    },
+    {
+      "name": "a full tie keeps the order the participants were given",
+      "input": {
+        "operation": "order",
+        "participants": [
+          {
+            "id": "zulu",
+            "initiative": 14,
+            "dex": 12,
+            "draw": 5
+          },
+          {
+            "id": "alpha",
+            "initiative": 14,
+            "dex": 12,
+            "draw": 5
+          },
+          {
+            "id": "mike",
+            "initiative": 14,
+            "dex": 12,
+            "draw": 5
+          }
+        ]
+      },
+      "output": {
+        "order": [
+          "zulu",
+          "alpha",
+          "mike"
+        ]
+      }
+    },
+    {
+      "name": "no participant, no order",
+      "input": {
+        "operation": "order",
+        "participants": []
+      },
+      "output": {
+        "order": []
+      }
+    },
+    {
+      "name": "« Suivant » from the first goes to the next living one, the dead second skipped",
+      "input": {
+        "operation": "next",
+        "participants": [
+          {
+            "id": "first",
+            "alive": true
+          },
+          {
+            "id": "second",
+            "alive": false
+          },
+          {
+            "id": "third",
+            "alive": true
+          }
+        ],
+        "current": "first",
+        "round": 1
+      },
+      "output": {
+        "current": "third",
+        "round": 1
+      }
+    },
+    {
+      "name": "« Suivant » from the last goes back to the first and adds a round",
+      "input": {
+        "operation": "next",
+        "participants": [
+          {
+            "id": "first",
+            "alive": true
+          },
+          {
+            "id": "second",
+            "alive": false
+          },
+          {
+            "id": "third",
+            "alive": true
+          }
+        ],
+        "current": "third",
+        "round": 1
+      },
+      "output": {
+        "current": "first",
+        "round": 2
+      }
+    },
+    {
+      "name": "« Suivant » moves one rank when the next one is alive",
+      "input": {
+        "operation": "next",
+        "participants": [
+          {
+            "id": "first",
+            "alive": true
+          },
+          {
+            "id": "second",
+            "alive": true
+          },
+          {
+            "id": "third",
+            "alive": true
+          }
+        ],
+        "current": "first",
+        "round": 1
+      },
+      "output": {
+        "current": "second",
+        "round": 1
+      }
+    },
+    {
+      "name": "a dead first participant is skipped on the wrap, and the round still goes up",
+      "input": {
+        "operation": "next",
+        "participants": [
+          {
+            "id": "first",
+            "alive": false
+          },
+          {
+            "id": "second",
+            "alive": true
+          },
+          {
+            "id": "third",
+            "alive": true
+          }
+        ],
+        "current": "third",
+        "round": 3
+      },
+      "output": {
+        "current": "second",
+        "round": 4
+      }
+    },
+    {
+      "name": "a current participant who just died hands the turn to the next one in rank",
+      "input": {
+        "operation": "next",
+        "participants": [
+          {
+            "id": "first",
+            "alive": true
+          },
+          {
+            "id": "second",
+            "alive": false
+          },
+          {
+            "id": "third",
+            "alive": true
+          }
+        ],
+        "current": "second",
+        "round": 2
+      },
+      "output": {
+        "current": "third",
+        "round": 2
+      }
+    },
+    {
+      "name": "a current participant who just died in last rank wraps and adds a round",
+      "input": {
+        "operation": "next",
+        "participants": [
+          {
+            "id": "first",
+            "alive": true
+          },
+          {
+            "id": "second",
+            "alive": true
+          },
+          {
+            "id": "third",
+            "alive": false
+          }
+        ],
+        "current": "third",
+        "round": 2
+      },
+      "output": {
+        "current": "first",
+        "round": 3
+      }
+    },
+    {
+      "name": "alone alive, the turn comes back to oneself with a new round",
+      "input": {
+        "operation": "next",
+        "participants": [
+          {
+            "id": "first",
+            "alive": true
+          },
+          {
+            "id": "second",
+            "alive": false
+          }
+        ],
+        "current": "first",
+        "round": 1
+      },
+      "output": {
+        "current": "first",
+        "round": 2
+      }
+    },
+    {
+      "name": "R107: a hidden participant takes its turn in its rank",
+      "input": {
+        "operation": "next",
+        "participants": [
+          {
+            "id": "first",
+            "alive": true
+          },
+          {
+            "id": "second",
+            "alive": true,
+            "hidden": true
+          },
+          {
+            "id": "third",
+            "alive": true
+          }
+        ],
+        "current": "first",
+        "round": 1
+      },
+      "output": {
+        "current": "second",
+        "round": 1
+      }
+    }
+  ]
+}

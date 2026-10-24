@@ -133,7 +133,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "b61cf36b5a00d486"
+      "builtFrom": "ae43268c3f2fd7ff"
     },
     {
       "name": "CampaignOverview",
@@ -153,7 +153,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "ee1346995f0012f4"
+      "builtFrom": "458b056ce27a5be9"
     },
     {
       "name": "SessionList",
@@ -175,7 +175,7 @@
         "campaign": "string — id de la campagne dont on liste les séances"
       },
       "source": "apps/session/session-list",
-      "builtFrom": "3fad9c93bef2bdd9"
+      "builtFrom": "16f2538be7ca63f4"
     },
     {
       "name": "CampaignElements",
@@ -222,7 +222,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "6a646a48020a4670"
+      "builtFrom": "d0c42d25a0143925"
     },
     {
       "name": "ToCreateList",
@@ -286,7 +286,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "73ed4fb89a207d80"
+      "builtFrom": "543aa9acec66b5d5"
     },
     {
       "name": "PreviousSummary",
@@ -346,7 +346,9 @@
         "session.reorderScenes",
         "table.createBattlemapInstance"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/session/scene-board",
+      "builtFrom": "503253539ff2c7cc"
     },
     {
       "name": "Battlemap",
@@ -388,7 +390,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "aaa8162a27f3de1b"
+      "builtFrom": "5d2b48f394a7d38a"
     },
     {
       "name": "MediaLibrary",
@@ -416,7 +418,7 @@
         "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
       },
       "source": "apps/media/media-library",
-      "builtFrom": "3e6cff80d0a6cdfe"
+      "builtFrom": "4beb17ec63126d77"
     },
     {
       "name": "GridSettings",
@@ -436,7 +438,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "1df1ca322556cf8f"
+      "builtFrom": "ab40afcfbcb7a39e"
     },
     {
       "name": "SoundLibrary",
@@ -458,7 +460,7 @@
         "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
       },
       "source": "apps/soundbox/sound-library",
-      "builtFrom": "a3990573d070fb29"
+      "builtFrom": "4e1f1d1eafd17024"
     },
     {
       "name": "LiveSessionBar",
@@ -546,7 +548,7 @@
       ],
       "props": {},
       "source": "apps/soundbox/live-soundbox",
-      "builtFrom": "98fcb863c4413068"
+      "builtFrom": "0645f17829addc1d"
     },
     {
       "name": "SuggestionPill",
@@ -589,7 +591,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "0a821ea9a91b028a"
+      "builtFrom": "73682276e97707c3"
     }
   ]
 }

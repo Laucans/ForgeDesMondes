@@ -1,0 +1,23 @@
+[package]
+name = "next-turn"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability table.nextTurn: « Suivant » on a battlemap instance's open combat (Initiative@1) — the turn to the next living participant in rank order, a dead NPC skipped (dead-derived), a hidden one taking its turn at its rank (hidden-keeps-rank), and one round more when it wraps to the first (next-turn)."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+uuid = { version = "1", default-features = false }
+
+[dev-dependencies]
+# Its target aggregate, which its tests plant beside it.
+aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
+# The migrations' applier the server runs: the tables its tests read.
+data = { path = "../../../data" }
+# The Concept's fixtures `next` is held to.
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
