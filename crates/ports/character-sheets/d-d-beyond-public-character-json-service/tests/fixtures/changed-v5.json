@@ -1,0 +1,8 @@
+{
+  "id": 112847390,
+  "success": true,
+  "message": "Character successfully received.",
+  "data": {
+    "character": { "name": "Elowen Ventargent", "abilityScores": { "str": 12 } }
+  }
+}
