@@ -40,8 +40,10 @@ const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', l
 // modifier least of all, computed from the score (AbilityModifier@1).
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
-// The sources a save may name (EntityVersion@1), and how its version says it.
-const SAVED_BY = { dm: 'Fiche enregistrée par le DM', brief: 'Fiche mise à jour par le brief', ia: "Fiche complétée par l'IA" };
+// The sources a save may name (EntityVersion@1), and the origin
+// campaign.listEntityVersions words each one as: the DM's hand, or the AI's
+// (which also reads the DM's brief).
+const SAVED_BY = { dm: 'manuelle', brief: 'ia', ia: 'ia' };
 
 // A position on the screen, in fractions of it: from 0 to 1 — `kept` when
 // what is asked is no number, which the server refuses.
@@ -809,14 +811,16 @@ export const COMMANDS = {
   // campaign.saveEntity (crates/campaign/data-capabilities/save-entity): the
   // DM's explicit save of an element, its sheet and its aliases, which adds a
   // version (EntityVersion@1) whose changes are the fields that moved. Its
-  // source is the one the save names, `dm` when none: `brief` or `ia`, any
-  // other refused before anything is written, as the server answers 422. An alias naming another element, by its name or an alias
+  // source is the one the save names, `dm` when none, else `brief` or `ia`:
+  // any other is refused before anything is written, as the server answers
+  // 422. A version from the brief or the AI is one the DM has not seen yet.
+  // An alias naming another element, by its name or an alias
   // (AliasMatch@1), is refused by `alias-unique-in-campaign`; a player on
   // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
   // are kept: a DEX modifier given is never written.
   'campaign.saveEntity': async (server, { payload }) => {
-    const origin = payload.source ?? 'dm';
-    if (!Object.hasOwn(SAVED_BY, origin)) return ['unprocessable'];
+    const source = payload.source ?? 'dm';
+    if (typeof source !== 'string' || !Object.hasOwn(SAVED_BY, source)) return ['unprocessable'];
     const given = payload.entity || payload;
     const lists = await Promise.all(Object.values(LISTS).filter((v, i, all) => all.indexOf(v) === i).map(async (name) => [name, (await server.load(name)) || []]));
     const all = lists.flatMap(([name, list]) => list.map((element) => ({ name, element })));
@@ -853,7 +857,7 @@ export const COMMANDS = {
       .filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null))
       .map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
     const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin, source: SAVED_BY[origin], seen: true, changes });
+    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: SAVED_BY[source], source, seen: source === 'dm', changes });
     return undefined;
   },
   // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
