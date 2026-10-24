@@ -1292,6 +1292,26 @@
       server.noteProposals = proposals.map((p) => ({ id: p.id, type: p.type, name: p.name, excerpt: p.excerpt, existing: p.existing, checked: !p.existing }));
       return void 0;
     },
+    // ai.analyzeBrief (crates/ai/data-capabilities/analyze-brief): the brief told
+    // or typed, kept as text (`text-only-no-audio`), cut into scenes with the
+    // elements recognised and the ones to create — nothing created
+    // (`brief-no-auto-creation`). The mock's AI finds in any brief what the
+    // fixture OralBrief lists; the brief becomes session 4's last, and the
+    // existing NPC it changes gets a version, as the real analysis writes one.
+    "ai.analyzeBrief": async (server, { payload: payload2 }) => {
+      const text2 = String(payload2.text || "").trim();
+      const brief = await server.load("session.getLastBrief");
+      const lines = text2.split("\n").map((line) => line.trim()).filter(Boolean);
+      Object.assign(brief, { transcript: lines, lastRun: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) });
+      const histories = await server.load("campaign.listEntityVersions");
+      const history = histories.morlox;
+      const change = (await server.load("OralBrief")).result.recognized.find((x) => x.updated);
+      if (history && change) {
+        const latest = history.versions[0];
+        history.versions.unshift({ v: latest ? latest.v + 1 : 1, date: brief.lastRun, origin: "ia", source: `Brief oral \u2014 s\xE9ance ${String(payload2.session).replace(/^s/, "")}`, restoredFrom: null, seen: false, changes: latest ? latest.changes : [] });
+      }
+      return void 0;
+    },
     // campaign.createEntitiesFromNote (crates/campaign/data-capabilities/create-entities-from-note):
     // one element per accepted proposal, the raw note kept as an import listed
     // newest first, the proposals no longer awaiting.
