@@ -275,7 +275,8 @@ pub async fn propose<L: Llm, S: SpeechToText>(
 async fn prompt<S: SpeechToText>(speech: &S, wire: &Row, base: &Row) -> Result<String, Refusal> {
     let filled = |prompt: Option<&str>| {
         prompt
-            .filter(|prompt| !prompt.trim().is_empty())
+            .map(str::trim)
+            .filter(|prompt| !prompt.is_empty())
             .map(str::to_owned)
     };
     if let Some(typed) = filled(text(wire, "prompt")) {
@@ -341,13 +342,9 @@ pub fn request(kind: &str, name: &str, prompt: &str) -> GenerateRequest {
 /// unfilled or unsound — all of them when it holds no object —
 /// [`Refusal::Unwritable`] for a value the tables could never hold.
 pub fn proposed(answer: &str) -> Result<Proposal, Refusal> {
-    let found = answer
-        .find('{')
-        .zip(answer.rfind('}'))
-        .and_then(|(start, end)| answer.get(start..=end))
-        .and_then(|object| serde_json::from_str::<Value>(object).ok());
+    let found = object(answer);
     let empty = Map::new();
-    let answer = found.as_ref().and_then(Value::as_object).unwrap_or(&empty);
+    let answer = found.as_ref().unwrap_or(&empty);
     let prose = |field: &str| {
         answer
             .get(field)
@@ -395,6 +392,31 @@ pub fn proposed(answer: &str) -> Result<Proposal, Refusal> {
     Ok(proposal)
 }
 
+/// The first JSON object `answer` holds, read from one of its `{` — prose,
+/// a code fence or braces around it skipped.
+fn object(answer: &str) -> Option<Map<String, Value>> {
+    answer.match_indices('{').find_map(|(start, _)| {
+        let mut read = serde_json::Deserializer::from_str(&answer[start..]).into_iter::<Value>();
+        match read.next() {
+            Some(Ok(Value::Object(object))) => Some(object),
+            _ => None,
+        }
+    })
+}
+
+/// `value` with a number written with a fraction of zero (`15.0`) written as
+/// the integer it is: providers differ in how they write one.
+fn integral(value: &Value) -> Value {
+    match value.as_f64() {
+        Some(number)
+            if value.as_i64().is_none() && number.fract() == 0.0 && number.abs() < 1e15 =>
+        {
+            Value::from(number as i64)
+        }
+        _ => value.clone(),
+    }
+}
+
 /// Whether `value` holds the character U+0000, which neither `text` nor
 /// `jsonb` can hold.
 fn nul(value: &Value) -> bool {
@@ -418,7 +440,7 @@ fn statblock_of(answer: &Map<String, Value>) -> Row {
             .and_then(|stats| stats.get(sheet).or_else(|| stats.get(srd)))
             .or_else(|| answer.get(field));
         if let Some(score) = score {
-            statblock.insert(field.into(), score.clone());
+            statblock.insert(field.into(), integral(score));
         }
     }
     for (field, names) in [
@@ -426,7 +448,7 @@ fn statblock_of(answer: &Map<String, Value>) -> Row {
         ("hpMax", ["pvMax", "hpMax"]),
     ] {
         if let Some(value) = names.iter().find_map(|name| answer.get(*name)) {
-            statblock.insert(field.into(), value.clone());
+            statblock.insert(field.into(), integral(value));
         }
     }
     if let Some(actions) = answer.get("actions").or_else(|| answer.get("features")) {
@@ -521,12 +543,17 @@ pub fn prepare(base: &Row, prompt: &str, proposal: &Proposal, fresh: Fresh<'_>) 
         .stamped(&payload)
 }
 
-/// The version `base` carries: the element's last, as the queue leaves it.
+/// The version `base` carries: the element's last, as the queue leaves it —
+/// an empty snapshot when it holds none.
 fn last_version(base: &Row) -> Option<Kept> {
     Some(Kept {
         id: text(base, "entityVersionId").unwrap_or_default().to_owned(),
         number: base.get("versionNumber")?.as_u64()?,
-        snapshot: base.get("snapshot")?.as_object()?.clone(),
+        snapshot: base
+            .get("snapshot")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default(),
         diff: Vec::new(),
     })
 }

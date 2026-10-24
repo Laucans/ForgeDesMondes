@@ -558,3 +558,68 @@ fn an_element_with_no_version_yet_takes_the_first() {
         payload["snapshot"].as_object().map(|s| s.len())
     );
 }
+
+#[test]
+fn braces_in_the_prose_around_the_answer_are_skipped() {
+    let expected = proposed(&sergente().to_string()).expect("a proposal");
+    let after = format!(
+        "Voici la fiche : {}\nRemplace {{nom}} si besoin.",
+        sergente()
+    );
+    assert_eq!(proposed(&after), Ok(expected.clone()));
+    let before = format!("Pour {{nom}} : {} et voilà.", sergente());
+    assert_eq!(proposed(&before), Ok(expected));
+}
+
+#[test]
+fn an_integer_written_with_a_fraction_of_zero_is_taken_as_that_integer() {
+    let mut answer = sergente();
+    answer["ca"] = json!(15.0);
+    answer["pvMax"] = json!(65.0);
+    answer["stats"]["FOR"] = json!(14.0);
+    let proposal = proposed(&answer.to_string()).expect("a proposal");
+    assert_eq!(proposal.statblock["armorClass"], json!(15));
+    assert!(proposal.statblock["armorClass"].is_i64());
+    assert!(proposal.statblock["hpMax"].is_i64());
+    assert!(proposal.statblock["strength"].is_i64());
+    answer["stats"]["DEX"] = json!(16.5);
+    assert_eq!(
+        proposed(&answer.to_string()),
+        Err(Refusal::Incomplete(vec!["dexterity"]))
+    );
+}
+
+#[tokio::test]
+async fn the_prompt_is_kept_without_the_white_space_around_it() {
+    let llm = answering(sergente());
+    let typed = format!("  {PROMPT} \n");
+    let (prompt, _) = propose(
+        &llm,
+        &cloud(),
+        &deaf(),
+        &row(json!({ "prompt": typed })),
+        &npc(),
+    )
+    .await
+    .expect("a proposal");
+    assert_eq!(prompt, PROMPT);
+    let mut padded = npc();
+    padded.insert("initialPrompt".into(), json!(" Un gobelin marchand. "));
+    let (prompt, _) = propose(&llm, &cloud(), &deaf(), &Row::new(), &padded)
+        .await
+        .expect("a proposal");
+    assert_eq!(prompt, "Un gobelin marchand.");
+}
+
+#[test]
+fn a_row_numbering_its_version_without_its_snapshot_still_takes_the_next_number() {
+    let proposal = proposed(&sergente().to_string()).expect("a proposal");
+    let mut base = npc();
+    base.remove("snapshot");
+    let fresh = Fresh {
+        version: "v",
+        now: "2026-10-24T12:00:00Z",
+    };
+    let payload = prepare(&base, PROMPT, &proposal, fresh);
+    assert_eq!(payload["versionNumber"], json!(2));
+}
