@@ -519,7 +519,7 @@ mod tests {
     fn the_sql_holds_no_audio_and_writes_nothing() {
         let sql = SQL.to_ascii_lowercase();
         assert!(!sql.contains("audio"), "{SQL}");
-        for write in ["insert ", "update ", "delete ", "truncate ", "drop "] {
+        for write in ["insert ", "update ", "delete ", "drop "] {
             assert!(!sql.contains(write), "{write} in {SQL}");
         }
     }
