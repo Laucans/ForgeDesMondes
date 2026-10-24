@@ -1,0 +1,17 @@
+{
+  "microUi": "ElementsPanel",
+  "system": "live",
+  "description": "Le panneau gauche de la DM view : la séance scène par scène, puis toute la campagne par type, avec une recherche approximative sur les noms et alias ; un clic ouvre l’élément ou la battlemap au centre, « Envoyer » les montre aux joueurs",
+  "needs": [
+    "session.listScenes",
+    "campaign.listCharacters",
+    "campaign.listPlaces",
+    "campaign.listEvents",
+    "media.listMedia"
+  ],
+  "actions": [
+    "live.showOnPlayerView",
+    "live.showWindowOnPlayerView"
+  ],
+  "props": {}
+}
