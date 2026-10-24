@@ -220,6 +220,21 @@ pub fn new_instance(
         .ok_or_else(|| format!("the scene {scene} has no battlemap instance"))
 }
 
+/// Uploads a battlemap into a campaign and answers its id: an instance takes
+/// a battlemap of its session's campaign only.
+pub fn new_battlemap(s: &Server, campaign: &str) -> Result<String, String> {
+    let title = unique("Battlemap de test");
+    apply(
+        s,
+        "media.uploadMedia",
+        json!({ "campaign": campaign, "kind": "battlemap", "title": title, "width": 900, "height": 600 }),
+        None,
+    )?;
+    let data = s.read("media.listMedia", json!({ "campaign": campaign }))?;
+    by_name_or_title(&items(&data, "battlemaps"), &title)
+        .ok_or_else(|| format!("the battlemap {title} is not listed"))
+}
+
 /// A battlemap instance of its own, on the fixtures' battlemap, in a new session.
 pub fn fresh_instance(s: &Server, present: &[&str]) -> Result<String, String> {
     let session = new_session(s, CAMPAIGN, present)?;
