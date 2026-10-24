@@ -599,11 +599,13 @@ dependencies = [
  "get-campaign",
  "get-diffusion",
  "get-entity",
+ "get-last-brief",
  "get-session",
  "get-settings",
  "harness-dataguard",
  "list-campaigns",
  "list-characters",
+ "list-entities-to-create",
  "list-entity-versions",
  "list-events",
  "list-imported-notes",
@@ -847,6 +849,13 @@ name = "get-entity"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-last-brief"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
@@ -1240,6 +1249,13 @@ dependencies = [
 
 [[package]]
 name = "list-characters"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-entities-to-create"
 version = "0.1.0"
 dependencies = [
  "serde_json",

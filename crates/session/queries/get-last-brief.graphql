@@ -1,0 +1,21 @@
+# fields: oralBrief.id, oralBrief.sessionId, oralBrief.transcript, oralBrief.durationSeconds, oralBrief.recordedAt, oralBrief.analyzedAt, scene.id, scene.sessionId, scene.position, scene.title, sceneEntity.sceneId, sceneEntity.entityId, sceneEntity.position, entity.id, entity.type, entity.name, entity.createdAt, entityAlias.entityId, entityAlias.alias, entityVersion.entityId, entityVersion.versionNumber, entityVersion.source, entityVersion.diff, entityVersion.createdAt, entityToCreate.id, entityToCreate.briefId, entityToCreate.sceneId, entityToCreate.type, entityToCreate.name, entityToCreate.status, entityToCreate.createdAt
+# A session's last oral brief — the most recently recorded — and what its
+# analysis left in the store: the session's scenes by rank with the names of
+# their linked elements (the entries still to create marked as such), the
+# elements linked to those scenes with what the brief said of each (the
+# alias or name found in the transcript, AliasMatch@1) and whether the brief
+# wrote a new version of it, and the entries the brief added to the to-create
+# list. Text only: the transcript is the transcribed text, never audio. A
+# brief not yet analysed has no scenes, no recognised and no missing element.
+query GetLastBrief($session: ID!) {
+  lastBrief(session: $session) {
+    id
+    sessionId
+    transcript
+    durationSeconds
+    analyzedAt
+    scenes
+    recognized
+    missing
+  }
+}

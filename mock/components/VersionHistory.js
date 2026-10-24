@@ -620,6 +620,12 @@
       const imports = Array.isArray(fixture) ? fixture : fixture && fixture.imports || [];
       return { imports: [...imports].sort((x, y) => String(y.date).localeCompare(String(x.date))), proposals: server2.noteProposals || [] };
     },
+    // campaign.listEntitiesToCreate (crates/campaign/capabilities/list-entities-to-create):
+    // the to-create list, answered as `{ items }`; the fixture is the bare list of entries.
+    "campaign.listEntitiesToCreate": async (server2) => {
+      const fixture = await server2.load("campaign.listEntitiesToCreate");
+      return { items: Array.isArray(fixture) ? fixture : fixture && fixture.items || [] };
+    },
     // soundbox.listSounds (crates/soundbox/capabilities/list-sounds): the
     // campaign's sounds with their effective gain — the own volume times the
     // master volume, both percents (EffectiveVolume@1) — and whether one plays
@@ -648,6 +654,9 @@
     // session.listScenes (crates/session/capabilities/list-scenes): a session's scenes by rank. The fixture
     // is the scenes of session 4, the one in preparation; another session has none yet.
     "session.listScenes": async (server2, { session }) => session === "s4" ? await server2.load("session.listScenes") : [],
+    // session.getLastBrief (crates/session/capabilities/get-last-brief): a session's last oral brief and what its
+    // analysis found. The fixture is the brief of session 4; another session has none: the same shape, empty.
+    "session.getLastBrief": async (server2, { session }) => session === "s4" ? await server2.load("session.getLastBrief") : { session, lastRun: null, duration: null, transcript: [], result: { scenes: [], recognized: [], missing: [] } },
     // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
     // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
     "campaign.listEntityVersions": async (server2, { entity }) => {

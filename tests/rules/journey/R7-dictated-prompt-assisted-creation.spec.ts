@@ -22,9 +22,13 @@ rule('R7', ['screen:parametres-ia', 'screen:fiche-entite', 'micro-ui:AiSettings'
     }
     await ai.getByRole('button', { name: 'Enregistrer' }).click();
 
-    // A NPC, its initial prompt dictated, the proposal asked.
+    // A NPC, named and saved: the proposal is asked for a sheet that exists.
     await open(page, 'fiche-entite', '?new=pnj');
     const editor = component(page, 'EntityEditor');
+    await editor.getByLabel('Nom').fill(`Sergente du gué (${mode})`);
+    await editor.getByRole('button', { name: 'Enregistrer la fiche' }).click();
+
+    // Its initial prompt dictated, the proposal asked.
     await editor.getByLabel('Prompt initial').fill(dictation);
     await editor.getByRole('button', { name: /Proposer background, comportement et statblock/ }).click();
 
