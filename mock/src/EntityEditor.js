@@ -3,11 +3,12 @@
 // protocol from the fixtures. mock/build.sh bundles this file into
 // mock/components/EntityEditor.js, which the fragment loads.
 //
-// The sheet speaks the page's bus itself (the rail's `open-entity`, its own
-// `entity-opened`, the address's `?id=`). This glue turns its other DOM events
-// into the bus's words: `entity-updated` (the history reads again) and
-// `open-versions` (« Voir le diff »). What the AI or D&D Beyond changed is
-// already a version on the mock server: the history only has to read it again.
+// The other fragments talk by the page's bus (`Mock.emit`). This glue turns it
+// into what the Micro-UI knows: the rail's `open-entity` becomes the sheet's
+// prop (`?id=` or `new:<kind>`), the sheet's DOM events become the bus's
+// `entity-opened` (the rail follows) and `open-versions` (« Voir le diff »).
+// What the AI or D&D Beyond changed is already a version on the mock server:
+// the history only has to read it again.
 
 import { createShell } from '../../apps/shell/src/client/shell.ts';
 import { mount } from '../../apps/campaign/entity-editor/src/index.ts';
@@ -22,7 +23,11 @@ const server = mockServer();
 const shell = shellOnce((s) => createShell((input, init) => s.fetch(new URL(input, location.href), init)));
 
 let opened = null;
-host.addEventListener('entity-editor:opened', (e) => { opened = e.detail; });
+host.addEventListener('entity-editor:opened', (e) => {
+  opened = e.detail;
+  Mock.emit('entity-opened', opened);
+  try { history.replaceState(null, '', opened.id ? `?id=${encodeURIComponent(opened.id)}` : `?new=${opened.kind}`); } catch (err) { /* page in a frame without history access */ }
+});
 host.addEventListener('entity-editor:updated', (e) => Mock.emit('entity-updated', { id: e.detail.id, versioned: true }));
 host.addEventListener('entity-editor:history', (e) => Mock.emit('open-versions', { id: e.detail.id }));
 
@@ -32,5 +37,8 @@ Promise.all([server.load('EntityEditor'), server.load('campaign.getCampaign')]).
   // Where no speech-to-text port listens, the microphone "hears" the dictation of the fixture.
   const dictation = { transcript: () => (opened && editor.dictations[opened.id]) || editor.dictations.default };
   const first = param('id') || (param('new') ? `new:${param('new')}` : null) || props.entity || editor.defaultEntity;
-  compose({ ...props, entity: first }, (resolved) => mount(host, resolved, shell, undefined, dictation));
+  const mounted = compose({ ...props, entity: first }, (resolved) => mount(host, resolved, shell, undefined, dictation));
+  // A click in the rail: the sheet changes in place.
+  Mock.on('open-entity', (req) => mounted.update({ entity: req.new ? `new:${req.new}` : req.id }));
+  Mock.on('entity-query', () => { if (opened) Mock.emit('entity-opened', opened); });
 });
