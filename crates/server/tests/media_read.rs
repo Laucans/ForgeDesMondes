@@ -256,6 +256,25 @@ async fn a_campaign_s_library_lists_its_media_and_no_other_campaign_s() {
             "uploadedAt": "2026-10-15", "place": null, "ratio": 0.67 }])
     );
 
+    // Version 2 names the campaign `campaign`; version 1's `campaignId` is the
+    // same read.
+    let by_campaign = reads
+        .run("media.listMedia", &json!({ "campaign": CENDRES }))
+        .await
+        .expect("an answer");
+    assert_eq!(
+        by_campaign, library,
+        "campaign and campaignId list one library"
+    );
+    let both = reads
+        .run(
+            "media.listMedia",
+            &json!({ "campaign": CENDRES, "campaignId": OTHER }),
+        )
+        .await
+        .expect("an answer");
+    assert_eq!(both, library, "campaign wins over campaignId");
+
     let other = reads
         .run("media.listMedia", &json!({ "campaignId": OTHER }))
         .await

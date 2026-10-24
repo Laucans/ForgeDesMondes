@@ -1,0 +1,17 @@
+# fields: session.id, session.campaignId, session.position, session.title, session.plannedOn, session.status, session.summary, sessionPresentCharacter.characterId
+# The campaign page's sessions, in order: a number, a title, a date and a
+# status each, the PCs ticked present, and the summary written when the
+# session closed. The scenes, the journal and the media of a session are
+# other reads.
+query ListSessions($campaign: ID!) {
+  sessions(campaign: $campaign) {
+    id
+    campaignId
+    position
+    title
+    plannedOn
+    status
+    present
+    summary
+  }
+}

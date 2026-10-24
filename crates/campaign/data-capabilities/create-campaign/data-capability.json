@@ -1,0 +1,32 @@
+{
+  "dataCapability": "campaign.createCampaign",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "Campaign",
+    "id": "$id"
+  },
+  "touches": [
+    "Campaign.id",
+    "Campaign.name",
+    "Campaign.kind",
+    "Campaign.pitch",
+    "Campaign.art",
+    "Campaign.glyph",
+    "Campaign.createdAt",
+    "Campaign.soundMasterVolume"
+  ],
+  "payload": {
+    "name": "string — the campaign's name, required, never blank",
+    "type": "'campagne' | 'oneshot' — a oneshot comes with its single session: position 1, in prep, the microphone off, titled after the campaign (oneshot-single-session)",
+    "pitch": "string | null",
+    "art": "string | null — the cover's art",
+    "glyph": "string | null — the cover's glyph"
+  },
+  "mode": "overwrite",
+  "invariants": ["oneshot-single-session", "master-volume-range"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
