@@ -502,6 +502,7 @@ dependencies = [
  "list-players",
  "list-scenes",
  "list-sessions",
+ "remove-present-character",
  "reorder-scenes",
  "restore-entity-version",
  "save-entity",
@@ -1503,6 +1504,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "remove-present-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

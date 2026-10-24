@@ -30,6 +30,11 @@
 //! A session's scene order is a row of its own, its scenes' ids under
 //! `scenePosition`, rewritten into their ranks in the transaction that
 //! applies it ([`SceneOrder`]): every rank at once, 1 to n.
+//!
+//! A PC unticked is the tombstone of its presence, a row of its own named
+//! by the session and the PC ([`presence_of`]), which takes their one link
+//! row out of `session_present_character` in the transaction that applies
+//! it ([`Absences`]): the PCs that remain are the ones offered.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -39,10 +44,12 @@ use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
+mod absences;
 mod order;
 mod scenes;
 mod sessions;
 
+pub use absences::{Absences, presence_of};
 pub use order::{SceneOrder, order_id, session_of};
 pub use scenes::{
     LINKS, NOTES, PARTITION, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, Scenes,
@@ -159,6 +166,8 @@ impl Judge for Session {
 pub fn plugin() -> Plugin {
     Plugin::new()
         .judge(AGGREGATE, Session)
+        // A PC unticked: its one link row out.
+        .project_pg(AGGREGATE, Absences)
         .project_pg(AGGREGATE, Sessions)
         .project_pg(AGGREGATE, Scenes)
         .project_pg(AGGREGATE, SceneOrder)
