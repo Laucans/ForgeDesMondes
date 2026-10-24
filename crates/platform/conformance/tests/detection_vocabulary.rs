@@ -22,7 +22,8 @@ fn normalize(term: &str) -> String {
 }
 
 /// The words of a text: maximal runs of letters, digits and combining marks,
-/// each normalised with `AliasMatch@1`.
+/// each normalised with `AliasMatch@1`. The marks are those of `AliasMatch@1`
+/// (U+0300 to U+036F): the fixtures hold no other script.
 fn words(text: &str) -> Vec<String> {
     text.split(|c: char| !(c.is_alphanumeric() || ('\u{300}'..='\u{36f}').contains(&c)))
         .filter(|word| !word.is_empty())
@@ -240,7 +241,7 @@ fn the_fixtures_cover_each_rule_of_the_definition() {
         "at most once",
         "without accents",
         "order of the phrase",
-        "tie",
+        "wins the tie",
     ] {
         assert!(has(keyword), "no case about {keyword:?}");
     }
@@ -281,7 +282,7 @@ fn la_balafree_is_vesna_with_or_without_accents_and_case() {
 
 #[test]
 fn a_term_is_never_found_inside_a_longer_word() {
-    assert!(detections("la taverne").len() == 1);
+    assert_eq!(detections("la taverne"), [pair("tav", "la taverne")]);
     assert!(detections("la tavernes, la tavernette").is_empty());
     assert!(detections("lla taverne").is_empty());
 }

@@ -945,30 +945,24 @@
           {
             "id": "incendie-moulin",
             "campaign": "cendres-valombre",
-            "name": "L’incendie du moulin",
+            "name": "Le grand incendie",
             "aliases": [
-              "l’incendie",
-              "le feu du moulin"
+              "l’incendie"
             ]
           }
         ],
         "sounds": [],
-        "phrase": "Ça sent le feu du moulin... et l'incendie !"
+        "phrase": "Au feu, l'incendie !"
       },
       "output": {
         "vocabulary": [
           {
-            "term": "L’incendie du moulin",
+            "term": "Le grand incendie",
             "kind": "entity",
             "id": "incendie-moulin"
           },
           {
             "term": "l’incendie",
-            "kind": "entity",
-            "id": "incendie-moulin"
-          },
-          {
-            "term": "le feu du moulin",
             "kind": "entity",
             "id": "incendie-moulin"
           }
@@ -977,7 +971,7 @@
           {
             "kind": "entity",
             "id": "incendie-moulin",
-            "via": "le feu du moulin"
+            "via": "l’incendie"
           }
         ]
       }
