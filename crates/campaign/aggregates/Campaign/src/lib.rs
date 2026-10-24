@@ -7,13 +7,16 @@
 //! What a campaign's own row can say is judged here; the rest waits for the
 //! tables it needs. `oneshot-single-session` counts sessions, which the
 //! Session aggregate keeps: here, a campaign is a oneshot or a campagne and
-//! nothing else, so that count has a kind to be judged against.
+//! nothing else, so that count has a kind to be judged against, and a
+//! creation (`campaign.createCampaign`) writes a oneshot with its one
+//! session and a campagne with none.
 //! `import-creates-copy` gives the archive's other rows new ids too, which
 //! the import's DataCapability does: here, an import is a new row, never one
 //! that exists — the original's least of all.
 //!
 //! Over PostgreSQL, the aggregate also projects its writes into the
-//! `campaign` table and hydrates the campaigns the fixtures wrote there
+//! `campaign` table — a creation's campaign, with a oneshot's session, and
+//! the exports' stamps — and hydrates the campaigns the fixtures wrote there
 //! ([`projection`]).
 
 use std::collections::BTreeMap;
@@ -32,6 +35,30 @@ pub const AGGREGATE_JSON: &str = include_str!("../aggregate.json");
 
 /// The kinds of campaign, as the table types them.
 const KINDS: [&str; 2] = ["campagne", "oneshot"];
+
+/// What a creation writes of a oneshot's session, as the Session aggregate
+/// names its fields: its id, its campaign, its position, its title, its
+/// status and its microphone.
+const SESSION: [&str; 6] = [
+    "sessionId",
+    "sessionCampaignId",
+    "sessionPosition",
+    "sessionTitle",
+    "sessionStatus",
+    "microphoneOn",
+];
+
+/// The DataCapability behind a creation of a campaign.
+const CREATE_CAMPAIGN: &str = "campaign.createCampaign";
+
+/// A oneshot: the kind with a single session.
+const ONESHOT: &str = "oneshot";
+
+/// A oneshot's session, as its creation writes it: the campaign's first, in
+/// preparation, the microphone off.
+const SESSION_POSITION: u64 = 1;
+const SESSION_STATUS: &str = "prep";
+const MICROPHONE_ON: bool = false;
 
 /// The DataCapability behind an export to an archive.
 const EXPORT_CAMPAIGN: &str = "campaign.exportCampaign";
@@ -108,12 +135,40 @@ fn names_target(id: &Value, entry: &Entry) -> bool {
 
 /// Every campaign is a campagne or a oneshot: a command that leaves a row of
 /// another kind, or of none — created without it, or written to a campaign
-/// the engine does not hold — is refused.
-fn oneshot_single_session(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
-    state
-        .get("kind")
+/// the engine does not hold — is refused. A creation of a campaign
+/// (`campaign.createCampaign`) is an insert of a campaign that was not
+/// there, and writes a oneshot with its one session — of this campaign, at
+/// position 1, in prep, the microphone off, titled — and a campagne with
+/// none.
+fn oneshot_single_session(state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
+    let kind = state.get("kind").and_then(Value::as_str);
+    if !kind.is_some_and(|kind| KINDS.contains(&kind)) {
+        return false;
+    }
+    if entry.data_capability.split('@').next() != Some(CREATE_CAMPAIGN) {
+        return true;
+    }
+    if entry.effect != Effect::Insert || existed(state, entry) {
+        return false;
+    }
+    let session = SESSION.map(|field| entry.payload.get(field));
+    if kind != Some(ONESHOT) {
+        return session.iter().all(Option::is_none);
+    }
+    let [id, campaign, position, title, status, microphone] = session;
+    text(id).is_some()
+        && campaign.is_some_and(|campaign| names_target(campaign, entry))
+        && position.and_then(Value::as_u64) == Some(SESSION_POSITION)
+        && text(title).is_some()
+        && text(status) == Some(SESSION_STATUS)
+        && microphone.and_then(Value::as_bool) == Some(MICROPHONE_ON)
+}
+
+/// A value's text, when it is some that is not empty.
+fn text(value: Option<&Value>) -> Option<&str> {
+    value
         .and_then(Value::as_str)
-        .is_some_and(|kind| KINDS.contains(&kind))
+        .filter(|text| !text.is_empty())
 }
 
 /// An import is a new row, under an id that is not its original's: no

@@ -55,6 +55,7 @@
     },
     {
       "path": "pages/medias.html",
+      "screen": "medias",
       "title": "Médias et réglage de battlemap",
       "objective": "Le DM téléverse ses battlemaps et illustrations et règle la grille hexagonale de chaque carte avec un aperçu en direct",
       "components": [
@@ -129,7 +130,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "5dace37b16386366"
+      "builtFrom": "b270fdca10b6ccf6"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +150,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "2102a09ebeed46d4"
+      "builtFrom": "c7b3b29ec80e6b1c"
     },
     {
       "name": "SessionList",
@@ -167,7 +168,11 @@
       "actions": [
         "session.createSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on liste les séances"
+      },
+      "source": "apps/session/session-list",
+      "builtFrom": "2ab37a9d2e4a4d77"
     },
     {
       "name": "CampaignElements",
@@ -214,7 +219,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "01c1361defeaf0c0"
+      "builtFrom": "a32de4dda41128a8"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +283,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "501e71403cc90790"
+      "builtFrom": "67006717b9895a78"
     },
     {
       "name": "PreviousSummary",
@@ -399,7 +404,13 @@
         "media.setMediaPlace",
         "session.addPlaceToSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on montre les médias, remplacé par ?id= dans l’adresse",
+        "session": "string — id de la séance en préparation, vide quand aucune n'est choisie : sans elle, aucune fiche n'est rattachée à une séance",
+        "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
+      },
+      "source": "apps/media/media-library",
+      "builtFrom": "a493531fd672c82e"
     },
     {
       "name": "GridSettings",
@@ -419,7 +430,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "e4995d72d3bf5bab"
+      "builtFrom": "aa9a0b9b2d5c6dc5"
     },
     {
       "name": "SoundLibrary",
@@ -441,7 +452,7 @@
         "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
       },
       "source": "apps/soundbox/sound-library",
-      "builtFrom": "ac2fe1ce299ad91d"
+      "builtFrom": "088ca05760a103c7"
     },
     {
       "name": "LiveSessionBar",
@@ -529,7 +540,7 @@
       ],
       "props": {},
       "source": "apps/soundbox/live-soundbox",
-      "builtFrom": "9a29e2e872292a98"
+      "builtFrom": "19c40da309f163c0"
     },
     {
       "name": "SuggestionPill",
