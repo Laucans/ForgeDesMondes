@@ -36,15 +36,17 @@ pub const CAPABILITY: &str = "session.getLastBrief";
 /// What the persisted query `get-last-brief.graphql` selects: the most
 /// recently recorded brief of the session bound to `$1` (compared as text, so
 /// that an id which is not a uuid finds nothing instead of failing), its
-/// analysis date as `YYYY-MM-DDTHH:MM:SS` UTC text, and — once analysed — the
-/// session's scenes by rank with their links, the elements linked to them
-/// with what the transcript says of each and the fields of the latest version
-/// the brief wrote, and the entries to create the brief added, as JSON arrays
-/// (empty when there is none). `heard` is cut out of the transcript where the
-/// normalised name or alias is found (`alias_match_normalized`, AliasMatch@1),
-/// the longest first; the transcript is wrapped in two marks so that the
-/// normalisation trims none of it, and a normalisation that changed its length
-/// finds nothing rather than a wrong cut.
+/// analysis date as `YYYY-MM-DDTHH:MM:SS` text in UTC, and — once analysed —
+/// the session's scenes by rank with their links, the elements linked to them
+/// with what the transcript says of each and the fields every version the
+/// brief wrote changed, and the entries to create the brief added, as JSON
+/// arrays (empty when there is none). `heard` is cut out of the transcript
+/// (in its composed form) where the name or an alias is found as whole words
+/// once normalised (`alias_match_normalized`, AliasMatch@1; the punctuation
+/// counts as a space), the longest first. The transcript is normalised once,
+/// wrapped in two marks so that the normalisation trims none of it; a
+/// normalisation that changed its length finds nothing rather than a wrong
+/// cut.
 pub const SQL: &str = r#"SELECT b.id::text AS id,
     b.session_id::text AS session_id,
     b.transcript,
@@ -71,19 +73,22 @@ pub const SQL: &str = r#"SELECT b.id::text AS id,
                 'id', e.id::text,
                 'type', e.type,
                 'name', e.name,
-                'heard', (SELECT substr(b.transcript, strpos(h.text, t.nt) - 1, char_length(t.nt))
-                          FROM (SELECT alias_match_normalized('·' || b.transcript || '·') AS text) h,
-                               LATERAL (SELECT alias_match_normalized(x.term) AS nt
-                                        FROM (SELECT e.name AS term
-                                              UNION ALL
-                                              SELECT a.alias FROM entity_alias a WHERE a.entity_id = e.id) x) t
-                          WHERE t.nt <> '' AND strpos(h.text, t.nt) > 0
-                            AND char_length(h.text) = char_length(b.transcript) + 2
-                          ORDER BY char_length(t.nt) DESC, strpos(h.text, t.nt) LIMIT 1),
-                'version', (SELECT jsonb_build_object('fields', coalesce((SELECT jsonb_agg(d.value ->> 'field') FROM jsonb_array_elements(ev.diff) d), '[]'::jsonb))
-                            FROM entity_version ev
-                            WHERE ev.entity_id = e.id AND ev.source = 'brief' AND ev.created_at >= b.recorded_at
-                            ORDER BY ev.version_number DESC LIMIT 1)
+                'heard', (SELECT substr(n.text, strpos(n.words, ' ' || t.term || ' '), char_length(t.term))
+                          FROM (SELECT regexp_replace(alias_match_normalized(x.term), '[^[:alnum:]]', ' ', 'g') AS term
+                                FROM (SELECT e.name AS term
+                                      UNION ALL
+                                      SELECT a.alias FROM entity_alias a WHERE a.entity_id = e.id) x) t
+                          WHERE btrim(t.term) <> '' AND strpos(n.words, ' ' || t.term || ' ') > 0
+                            AND char_length(n.words) = char_length(n.text) + 2
+                          ORDER BY char_length(t.term) DESC, strpos(n.words, ' ' || t.term || ' ') LIMIT 1),
+                'version', CASE WHEN EXISTS (SELECT 1 FROM entity_version ev
+                                             WHERE ev.entity_id = e.id AND ev.source = 'brief' AND ev.created_at >= b.recorded_at)
+                    THEN jsonb_build_object('fields', coalesce(
+                        (SELECT jsonb_agg(c.field ORDER BY c.field)
+                         FROM (SELECT DISTINCT d.value ->> 'field' AS field
+                               FROM entity_version ev, jsonb_array_elements(ev.diff) d
+                               WHERE ev.entity_id = e.id AND ev.source = 'brief' AND ev.created_at >= b.recorded_at) c),
+                        '[]'::jsonb)) END
             ) ORDER BY f.ord, f.pos, e.id)
          FROM (SELECT DISTINCT ON (se.entity_id) se.entity_id, sc.position AS ord, se.position AS pos
                FROM scene_entity se JOIN scene sc ON sc.id = se.scene_id
@@ -97,10 +102,10 @@ pub const SQL: &str = r#"SELECT b.id::text AS id,
          FROM entity_to_create t WHERE t.brief_id = b.id AND t.status = 'a_creer'),
         '[]'::jsonb
     ) END AS missing
-FROM oral_brief b
-WHERE b.session_id::text = $1
-ORDER BY b.recorded_at DESC, b.id DESC
-LIMIT 1"#;
+FROM (SELECT * FROM oral_brief WHERE session_id::text = $1 ORDER BY recorded_at DESC, id DESC LIMIT 1) b
+CROSS JOIN LATERAL (SELECT z.text,
+                           regexp_replace(alias_match_normalized('·' || z.text || '·'), '[^[:alnum:]]', ' ', 'g') AS words
+                    FROM (SELECT normalize(b.transcript, NFC) AS text) z) n"#;
 
 /// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
 /// what the registry hands the query.
@@ -475,7 +480,7 @@ mod tests {
             "{SQL}"
         );
         assert!(!SQL.contains(';'), "a second statement in {SQL}");
-        assert!(SQL.contains("b.session_id::text = $1"), "{SQL}");
+        assert!(SQL.contains("WHERE session_id::text = $1"), "{SQL}");
         assert!(!SQL.contains("$2"), "{SQL}");
         assert_eq!(VARIABLES, ["session"]);
     }
@@ -483,7 +488,7 @@ mod tests {
     #[test]
     fn the_sql_takes_the_most_recently_recorded_brief_only() {
         assert!(
-            SQL.contains("ORDER BY b.recorded_at DESC, b.id DESC\nLIMIT 1"),
+            SQL.contains("ORDER BY recorded_at DESC, id DESC LIMIT 1) b"),
             "{SQL}"
         );
     }
@@ -513,6 +518,39 @@ mod tests {
             "{SQL}"
         );
         assert!(SQL.contains("alias_match_normalized"), "{SQL}");
+    }
+
+    #[test]
+    fn the_sql_hears_whole_words_in_the_composed_transcript() {
+        assert!(SQL.contains("normalize(b.transcript, NFC)"), "{SQL}");
+        assert!(SQL.contains("'[^[:alnum:]]', ' ', 'g'"), "{SQL}");
+        assert!(
+            SQL.contains("strpos(n.words, ' ' || t.term || ' ')"),
+            "a term is looked up between two spaces: {SQL}"
+        );
+        assert!(
+            SQL.contains("char_length(n.words) = char_length(n.text) + 2"),
+            "{SQL}"
+        );
+        assert!(SQL.contains("ORDER BY char_length(t.term) DESC"), "{SQL}");
+        assert_eq!(
+            SQL.matches("alias_match_normalized(").count(),
+            2,
+            "the transcript is normalised once, each term once: {SQL}"
+        );
+    }
+
+    #[test]
+    fn the_sql_merges_the_fields_of_every_version_the_brief_wrote() {
+        assert!(
+            SQL.contains("SELECT DISTINCT d.value ->> 'field' AS field"),
+            "{SQL}"
+        );
+        assert!(SQL.contains("jsonb_agg(c.field ORDER BY c.field)"), "{SQL}");
+        assert!(
+            SQL.contains("CASE WHEN EXISTS (SELECT 1 FROM entity_version ev"),
+            "{SQL}"
+        );
     }
 
     #[test]
