@@ -360,7 +360,7 @@
       timers.delete(id);
     };
     async function create(item, refinement) {
-      if (busy || item.status === "created") return;
+      if (item.status === "created") return;
       if (campaign === "") return fail("Aucune campagne choisie.");
       const view = viewOf(item.id);
       busy = true;

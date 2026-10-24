@@ -244,7 +244,7 @@
         "session": "string — id de la séance d’origine, vide pour toute la campagne"
       },
       "source": "apps/ai/to-create-list",
-      "builtFrom": "6733f0b18b7e0bbe"
+      "builtFrom": "09bfee96e32fa1a9"
     },
     {
       "name": "EntityEditor",
