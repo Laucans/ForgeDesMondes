@@ -8,13 +8,14 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use dataguard_server::{MEMORY, applier};
+use dataguard_server::MEMORY;
 use ports_llm::SharedLlm;
 use ports_speech_to_text::SharedSpeechToText;
 use server::{
-    Config, Error, Names, Ports, app, fixtures, inventory, llm, plant, renaming, shared,
-    speech_to_text,
+    Config, Error, Names, Ports, app, applier, fixtures, inventory, llm, plant, renaming, shared,
+    speech_to_text, waking,
 };
+use tokio::sync::Notify;
 
 /// The product's migrations, the Data layer's `crates/data/migrations/*.sql`
 /// — among the tracked `*migrations/*.sql` `scripts/rules-runtime.sh` and
@@ -123,10 +124,13 @@ async fn run() -> Result<(), Error> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|source| Error::Serve { addr, source })?;
-    let applier = applier(Arc::clone(&planted.engine));
+    // Woken by every write the wire answers: a command is applied at once,
+    // not at the next second's tick.
+    let wake = Arc::new(Notify::new());
+    let applier = applier(Arc::clone(&planted.engine), Arc::clone(&wake));
     eprintln!("server: listening on {addr}");
     // The fixtures' slugs on the wire, their uuids in the store (D8).
-    let app = renaming(app(&planted, Arc::new(llm)), names);
+    let app = waking(renaming(app(&planted, Arc::new(llm)), names), wake);
     let served = axum::serve(listener, app)
         .with_graceful_shutdown(stopped())
         .await
