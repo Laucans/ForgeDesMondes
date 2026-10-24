@@ -20,24 +20,30 @@ fn r22_combat_and_initiative_carousel() {
             "data-capability:session.addScene",
             "data-capability:session.createSession",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
-            let map = fresh_instance(s, &["elowen"])?;
-            place(s, &map, "elowen", (1, 1), 1)?;
-            place(s, &map, "bandit", (5, 5), 1)?;
-            place(s, &map, "vesna", (6, 5), 1)?;
+            let (map, cast) = fresh_instance(s, &["elowen", "bandit", "vesna"])?;
+            place(s, &map, cast.id("elowen"), (1, 1), 1)?;
+            place(s, &map, cast.id("bandit"), (5, 5), 1)?;
+            place(s, &map, cast.id("vesna"), (6, 5), 1)?;
             let all = tokens(s, &map, "dm")?;
             let (pj, bandit, boss) = (
-                of_character(&all, "elowen")[0].clone(),
-                of_character(&all, "bandit")[0].clone(),
-                of_character(&all, "vesna")[0].clone(),
+                of_character(&all, cast.id("elowen"))[0].clone(),
+                of_character(&all, cast.id("bandit"))[0].clone(),
+                of_character(&all, cast.id("vesna"))[0].clone(),
             );
 
             // Both NPC reach 14: the bandit rolls 13 with DEX 12 (+1), the boss 11 with DEX 16 (+3).
             apply(
                 s,
                 "table.startCombat",
-                json!({ "initiative": { "elowen": 18 }, "rolls": { text(&bandit, "id"): 13, text(&boss, "id"): 11 } }),
+                json!({ "initiative": { cast.id("elowen"): 18 }, "rolls": { text(&bandit, "id"): 13, text(&boss, "id"): 11 } }),
                 Some(&map),
             )?;
             let started = combat(s, &map, "dm")?;

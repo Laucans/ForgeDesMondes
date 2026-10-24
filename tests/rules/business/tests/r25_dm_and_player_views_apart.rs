@@ -22,16 +22,22 @@ fn r25_dm_and_player_views_apart() {
             "data-capability:session.addScene",
             "data-capability:session.createSession",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
-            let map = fresh_instance(s, &["elowen"])?;
-            place(s, &map, "elowen", (1, 1), 1)?;
-            place(s, &map, "bandit", (5, 5), 1)?;
-            place(s, &map, "vesna", (6, 5), 1)?;
+            let (map, cast) = fresh_instance(s, &["elowen", "bandit", "vesna"])?;
+            place(s, &map, cast.id("elowen"), (1, 1), 1)?;
+            place(s, &map, cast.id("bandit"), (5, 5), 1)?;
+            place(s, &map, cast.id("vesna"), (6, 5), 1)?;
             let all = tokens(s, &map, "dm")?;
             let (bandit, hidden) = (
-                of_character(&all, "bandit")[0].clone(),
-                of_character(&all, "vesna")[0].clone(),
+                of_character(&all, cast.id("bandit"))[0].clone(),
+                of_character(&all, cast.id("vesna"))[0].clone(),
             );
             apply(
                 s,
@@ -49,7 +55,7 @@ fn r25_dm_and_player_views_apart() {
             apply(
                 s,
                 "table.startCombat",
-                json!({ "initiative": { "elowen": 20 }, "rolls": { text(&bandit, "id"): 10, text(&hidden, "id"): 11 } }),
+                json!({ "initiative": { cast.id("elowen"): 20 }, "rolls": { text(&bandit, "id"): 10, text(&hidden, "id"): 11 } }),
                 Some(&map),
             )?;
 

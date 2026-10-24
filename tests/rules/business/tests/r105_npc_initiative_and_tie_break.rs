@@ -19,22 +19,28 @@ fn r105_npc_initiative_and_tie_break() {
             "data-capability:session.addScene",
             "data-capability:session.createSession",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
             // DEX 16 is the boss (+3), DEX 12 the bandit (+1): both total 14, the PJ enters 14.
-            let map = fresh_instance(s, &["elowen"])?;
-            place(s, &map, "elowen", (1, 1), 1)?;
-            place(s, &map, "bandit", (5, 5), 1)?;
-            place(s, &map, "vesna", (6, 5), 1)?;
+            let (map, cast) = fresh_instance(s, &["elowen", "bandit", "vesna"])?;
+            place(s, &map, cast.id("elowen"), (1, 1), 1)?;
+            place(s, &map, cast.id("bandit"), (5, 5), 1)?;
+            place(s, &map, cast.id("vesna"), (6, 5), 1)?;
             let all = tokens(s, &map, "dm")?;
             let (bandit, boss) = (
-                of_character(&all, "bandit")[0].clone(),
-                of_character(&all, "vesna")[0].clone(),
+                of_character(&all, cast.id("bandit"))[0].clone(),
+                of_character(&all, cast.id("vesna"))[0].clone(),
             );
             apply(
                 s,
                 "table.startCombat",
-                json!({ "initiative": { "elowen": 14 }, "rolls": { text(&bandit, "id"): 13, text(&boss, "id"): 11 } }),
+                json!({ "initiative": { cast.id("elowen"): 14 }, "rolls": { text(&bandit, "id"): 13, text(&boss, "id"): 11 } }),
                 Some(&map),
             )?;
             let started = combat(s, &map, "dm")?;
@@ -48,7 +54,7 @@ fn r105_npc_initiative_and_tie_break() {
                 started["order"]
                     .as_array()?
                     .iter()
-                    .find(|o| text(o, "id") == text(t, "id"))?["init"]
+                    .find(|o| text(o, "id") == text(t, "id"))?["initiative"]
                     .as_i64()
             };
             check(
@@ -57,19 +63,19 @@ fn r105_npc_initiative_and_tie_break() {
             )?;
 
             // Left to the dice, each NPC lands within 1 + modifier and 20 + modifier.
-            let map = fresh_instance(s, &["elowen"])?;
-            place(s, &map, "elowen", (1, 1), 1)?;
-            place(s, &map, "bandit", (5, 5), 1)?;
-            place(s, &map, "vesna", (6, 5), 1)?;
+            let (map, cast) = fresh_instance(s, &["elowen", "bandit", "vesna"])?;
+            place(s, &map, cast.id("elowen"), (1, 1), 1)?;
+            place(s, &map, cast.id("bandit"), (5, 5), 1)?;
+            place(s, &map, cast.id("vesna"), (6, 5), 1)?;
             let all = tokens(s, &map, "dm")?;
             let (bandit, boss) = (
-                of_character(&all, "bandit")[0].clone(),
-                of_character(&all, "vesna")[0].clone(),
+                of_character(&all, cast.id("bandit"))[0].clone(),
+                of_character(&all, cast.id("vesna"))[0].clone(),
             );
             apply(
                 s,
                 "table.startCombat",
-                json!({ "initiative": { "elowen": 14 } }),
+                json!({ "initiative": { cast.id("elowen"): 14 } }),
                 Some(&map),
             )?;
             let rolled = combat(s, &map, "dm")?;
@@ -79,7 +85,7 @@ fn r105_npc_initiative_and_tie_break() {
                     .into_iter()
                     .flatten()
                     .find(|o| text(o, "id") == text(t, "id"))
-                    .and_then(|o| o["init"].as_i64())
+                    .and_then(|o| o["initiative"].as_i64())
                     .ok_or("a NPC has no initiative")?;
                 check(
                     (1 + modifier..=20 + modifier).contains(&init),
@@ -89,9 +95,12 @@ fn r105_npc_initiative_and_tie_break() {
 
             // Equal totals and equal DEX: the tie is settled at random, so both orders must come up.
             let mut firsts = std::collections::HashSet::new();
+            let campaign = new_campaign(s, "campagne")?;
+            let cast = new_cast(s, &campaign, &["bandit"])?;
+            let battlemap = new_battlemap(s, &campaign)?;
             for _ in 0..24 {
-                let map = fresh_instance(s, &[])?;
-                place(s, &map, "bandit", (5, 5), 2)?;
+                let map = instance_in(s, &campaign, &battlemap, &[])?;
+                place(s, &map, cast.id("bandit"), (5, 5), 2)?;
                 let pair = tokens(s, &map, "dm")?;
                 let rolls = json!({ text(&pair[0], "id"): 10, text(&pair[1], "id"): 10 });
                 apply(

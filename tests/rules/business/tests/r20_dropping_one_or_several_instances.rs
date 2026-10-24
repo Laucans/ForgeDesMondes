@@ -20,10 +20,15 @@ fn r20_dropping_one_or_several_instances() {
             "data-capability:session.addScene",
             "data-capability:session.createSession",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "capability:campaign.listCampaigns",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
-            let map = fresh_instance(s, &[])?;
-            place(s, &map, "bandit", (5, 5), 3)?;
+            let (map, cast) = fresh_instance(s, &["bandit"])?;
+            place(s, &map, cast.id("bandit"), (5, 5), 3)?;
             let placed = tokens(s, &map, "dm")?;
             check(placed.len() == 3, "× 3 must drop three instances")?;
             let mut names: Vec<String> =
