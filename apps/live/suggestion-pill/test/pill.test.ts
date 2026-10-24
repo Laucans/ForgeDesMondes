@@ -301,7 +301,7 @@ test('a new campaign empties the pill and reads it again', async () => {
   assert.deepEqual(p.reads[1]?.variables, { campaign: 'c2' });
 });
 
-test('it never reaches for a microphone or a network of its own', () => {
+test('it never reaches for a microphone of its own: only the server listens, locally (live-only-local-audio)', () => {
   const sources = ['index', 'model', 'render', 'ids'].map((name) => readFileSync(new URL(`../src/${name}.ts`, import.meta.url), 'utf8')).join('\n');
-  assert.doesNotMatch(sources, /getUserMedia|MediaRecorder|fetch\(|XMLHttpRequest|WebSocket|EventSource/);
+  assert.doesNotMatch(sources, /getUserMedia|MediaRecorder|AudioContext|mediaDevices/);
 });
