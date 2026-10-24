@@ -43,6 +43,7 @@
 mod applier;
 mod fixtures;
 mod names;
+mod proposing;
 
 use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -66,6 +67,7 @@ use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, SharedLlm};
 use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
+pub use proposing::Proposing;
 use serde_json::{Value, json};
 
 /// Where the server listens when `PORT` is unset: the rules' runtime's port.
@@ -178,23 +180,25 @@ impl Config {
 /// with the proposal the fixtures give for it (`EntityEditor.json`,
 /// [`characters`]). Without those fixtures, only the cloud host and the
 /// binaries are recognised, and a prompt is answered the canned sentence.
-pub fn llm(ports: Ports, fixtures: Option<&Path>) -> FakeLlm {
+pub fn llm(ports: Ports, fixtures: Option<&Path>) -> Proposing {
     match ports {
         Ports::Fake => {
-            let fake = characters(FakeLlm::new(), fixture(fixtures, "EntityEditor.json"));
+            let proposing = |fake| characters(fake, fixture(fixtures, "EntityEditor.json"));
             let Some(settings) = fixture(fixtures, "AiSettings.json") else {
-                return fake;
+                return proposing(FakeLlm::new());
             };
             let home = &settings["providers"]["opencode"];
             let Some(url) = home["url"].as_str() else {
-                return fake;
+                return proposing(FakeLlm::new());
             };
             let models: Vec<Value> = ["generationModel", "summaryModel"]
                 .iter()
                 .filter_map(|model| home[*model].as_str())
                 .map(|id| json!({ "id": id, "object": "model" }))
                 .collect();
-            fake.with_endpoint(url, json!({ "object": "list", "data": models }))
+            proposing(
+                FakeLlm::new().with_endpoint(url, json!({ "object": "list", "data": models })),
+            )
         }
     }
 }
@@ -209,7 +213,8 @@ fn fixture(fixtures: Option<&Path>, file: &str) -> Option<Value> {
 /// `fake` answering the proposals of `editor` (`EntityEditor.json`): each
 /// one of `proposals` to the prompt that holds the dictation of the same
 /// name, then the `default` one to any other prompt.
-fn characters(fake: FakeLlm, editor: Option<Value>) -> FakeLlm {
+fn characters(fake: FakeLlm, editor: Option<Value>) -> Proposing {
+    let fake = Proposing::new(fake);
     let Some(editor) = editor else {
         return fake;
     };
@@ -226,7 +231,7 @@ fn characters(fake: FakeLlm, editor: Option<Value>) -> FakeLlm {
     dictated
         .chain(fallback)
         .fold(fake, |fake, (holding, proposal)| {
-            fake.with_character(holding, proposal)
+            fake.with_proposal(holding, proposal)
         })
 }
 
@@ -508,7 +513,7 @@ mod tests {
     }
 
     /// The provider the fake's connection test reaches at `url`.
-    async fn reached(llm: &FakeLlm, url: &str) -> Option<ports_llm::Provider> {
+    async fn reached(llm: &impl Llm, url: &str) -> Option<ports_llm::Provider> {
         let config = ports_llm::ProviderConfig::Api {
             url: url.to_string(),
             api_type: None,
@@ -533,7 +538,7 @@ mod tests {
     }
 
     /// What the fake answers a character's `prompt`.
-    async fn proposed(llm: &FakeLlm, prompt: &str) -> String {
+    async fn proposed(llm: &impl Llm, prompt: &str) -> String {
         let config = ports_llm::ProviderConfig::Binary {
             binary: ports_llm::Binary::ClaudeCode,
             models: ports_llm::Models {
@@ -874,7 +879,7 @@ mod tests {
         assert_eq!(empty, json!({ "asOf": 0, "data": { "requests": [] } }));
 
         // The cloud host is recognised by its URL alone: the test reaches it.
-        reached(&llm, "https://api.anthropic.com/v1").await;
+        reached(llm.as_ref(), "https://api.anthropic.com/v1").await;
         // No persisted query: a hash, whatever it is, changes nothing.
         let (status, listed) = provider_requests_of(
             llm.clone(),

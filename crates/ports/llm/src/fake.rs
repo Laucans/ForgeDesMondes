@@ -33,21 +33,6 @@
 //! taken for a name, and an event and the characters of its sentence are
 //! proposed side by side.
 //!
-//! # The answer to a [`TextKind::Prompt`] request
-//!
-//! A fake handed character proposals ([`FakeLlm::with_character`]) answers a
-//! prompt that holds one's words with that proposal, as one JSON object —
-//! the shape `ai.proposeCharacter` asks for and parses:
-//!
-//! ```json
-//! {"background":"…","behavior":"…","stats":{"FOR":8,"DEX":15,"CON":10,"INT":13,"SAG":9,"CHA":12},
-//!  "ca":13,"pvMax":21,"features":[{"name":"Fuite agile","text":"…"}]}
-//! ```
-//!
-//! The first proposal handed whose words the prompt holds answers it; one
-//! handed for no words answers any prompt. A prompt no proposal answers, and
-//! every prompt of a fake handed none, keeps the canned sentence.
-//!
 //! Every other kind keeps the canned sentence.
 
 use std::collections::HashMap;
@@ -68,9 +53,6 @@ pub const FAKE_LATENCY_MS: u64 = 12;
 pub struct FakeLlm {
     /// What each URL's endpoint answers to its list of models.
     endpoints: HashMap<String, Value>,
-    /// The character proposals a prompt is answered, with the words it
-    /// holds for each, in the order they were handed.
-    characters: Vec<(String, Value)>,
     journal: RequestJournal,
 }
 
@@ -88,23 +70,6 @@ impl FakeLlm {
     pub fn with_endpoint(mut self, url: impl Into<String>, model_list: Value) -> Self {
         self.endpoints.insert(url.into(), model_list);
         self
-    }
-
-    /// Makes a [`TextKind::Prompt`] request whose text holds `holding` — any
-    /// request, when `holding` is empty — answered `proposal`, written as
-    /// JSON, unless a proposal handed earlier answers it first.
-    #[must_use]
-    pub fn with_character(mut self, holding: impl Into<String>, proposal: Value) -> Self {
-        self.characters.push((holding.into(), proposal));
-        self
-    }
-
-    /// The proposal handed for the words `prompt` holds, the first one first.
-    fn character(&self, prompt: &str) -> Option<&Value> {
-        self.characters
-            .iter()
-            .find(|(holding, _)| prompt.contains(holding.as_str()))
-            .map(|(_, proposal)| proposal)
     }
 
     /// The provider `config` reaches; `trust_hint` takes the type a saved API
@@ -160,14 +125,9 @@ impl Llm for FakeLlm {
         self.journal
             .record(RequestKind::from(request.kind), provider, &request.text);
         let model = config.models().for_kind(request.kind).to_owned();
-        let character = match request.kind {
-            TextKind::Prompt => self.character(&request.text),
-            TextKind::Brief | TextKind::Notes | TextKind::Journal => None,
-        };
-        let text = match (request.kind, character) {
-            (TextKind::Notes, _) => notes_answer(&request.text),
-            (_, Some(proposal)) => proposal.to_string(),
-            (TextKind::Prompt | TextKind::Brief | TextKind::Journal, None) => format!(
+        let text = match request.kind {
+            TextKind::Notes => notes_answer(&request.text),
+            TextKind::Prompt | TextKind::Brief | TextKind::Journal => format!(
                 "Réponse simulée de {model} ({}, {} caractères)",
                 provider.label(),
                 request.text.chars().count()

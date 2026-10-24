@@ -19,11 +19,13 @@ use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::plugins::{RefusalKind, Shared};
 use harness_dataguard::postgres::SystemClock;
 use harness_dataguard::store::{RandomIds, Store};
-use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, SharedLlm};
 use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Map, Value, json};
+
+mod support;
+use support::Proposing;
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 
@@ -56,10 +58,10 @@ enum Status {
 struct Served {
     engine: Engine,
     store: Arc<MemoryStore>,
-    llm: FakeLlm,
+    llm: Proposing,
 }
 
-async fn served(llm: FakeLlm) -> Served {
+async fn served(llm: Proposing) -> Served {
     let store = Arc::new(MemoryStore::default());
     let mut shared = Shared::default();
     shared.insert(Arc::new(SharedLlm::new(llm.clone())));
@@ -185,7 +187,7 @@ fn sheet(row: &Map<String, Value>) -> Map<String, Value> {
 
 #[tokio::test]
 async fn a_proposal_fills_the_sheet_at_once_as_a_version_from_the_ia() {
-    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let s = served(Proposing::answering(sergente())).await;
     let npc = s
         .saved(json!({ "kind": "pnj", "name": "La sergente", "prompt": PROMPT }))
         .await;
@@ -236,7 +238,7 @@ async fn a_proposal_fills_the_sheet_at_once_as_a_version_from_the_ia() {
 
 #[tokio::test]
 async fn undoing_the_proposal_or_going_back_to_the_version_before_restores_the_sheet_exactly() {
-    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let s = served(Proposing::answering(sergente())).await;
     let npc = s
         .saved(json!({ "kind": "pnj", "name": "La sergente", "prompt": PROMPT }))
         .await;
@@ -278,7 +280,7 @@ async fn undoing_the_proposal_or_going_back_to_the_version_before_restores_the_s
 
 #[tokio::test]
 async fn a_dictated_prompt_is_transcribed_and_kept_as_the_sheets_prompt() {
-    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let s = served(Proposing::answering(sergente())).await;
     let npc = s
         .saved(json!({ "kind": "pnj", "name": "La sergente" }))
         .await;
@@ -296,7 +298,7 @@ async fn a_dictated_prompt_is_transcribed_and_kept_as_the_sheets_prompt() {
 
 #[tokio::test]
 async fn the_element_may_be_named_by_its_entity_id_instead_of_the_target() {
-    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let s = served(Proposing::answering(sergente())).await;
     let npc = s
         .saved(json!({ "kind": "pnj", "name": "La sergente", "prompt": PROMPT }))
         .await;
@@ -311,7 +313,7 @@ async fn the_element_may_be_named_by_its_entity_id_instead_of_the_target() {
 async fn an_incomplete_proposal_is_refused_naming_the_invariant_and_nothing_is_queued() {
     let mut partial = sergente();
     partial.as_object_mut().expect("an object").remove("ca");
-    let s = served(FakeLlm::new().with_character("", partial)).await;
+    let s = served(Proposing::answering(partial)).await;
     let npc = s
         .saved(json!({ "kind": "pnj", "name": "La sergente", "prompt": PROMPT }))
         .await;
@@ -335,7 +337,7 @@ async fn an_incomplete_proposal_is_refused_naming_the_invariant_and_nothing_is_q
 
 #[tokio::test]
 async fn an_unknown_element_is_not_found_and_a_place_unprocessable() {
-    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let s = served(Proposing::answering(sergente())).await;
     let (status, _) = s
         .post(
             "ai.proposeCharacter@1",
@@ -373,7 +375,7 @@ async fn an_unknown_element_is_not_found_and_a_place_unprocessable() {
 
 #[tokio::test]
 async fn an_idempotency_key_answers_the_first_proposal_again_without_asking_the_provider() {
-    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let s = served(Proposing::answering(sergente())).await;
     let npc = s
         .saved(json!({ "kind": "pnj", "name": "La sergente", "prompt": PROMPT }))
         .await;
@@ -401,7 +403,7 @@ async fn an_idempotency_key_answers_the_first_proposal_again_without_asking_the_
 
 #[tokio::test]
 async fn a_proposal_queued_behind_a_save_is_never_refused_and_applies_after_it() {
-    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let s = served(Proposing::answering(sergente())).await;
     let npc = s
         .saved(json!({ "kind": "pnj", "name": "La sergente", "prompt": PROMPT }))
         .await;
@@ -439,7 +441,7 @@ async fn a_proposal_queued_behind_a_save_is_never_refused_and_applies_after_it()
 
 #[tokio::test]
 async fn a_pcs_proposal_writes_its_story_and_leaves_its_statblock_as_it_is() {
-    let s = served(FakeLlm::new().with_character("", sergente())).await;
+    let s = served(Proposing::answering(sergente())).await;
     let pc = s
         .saved(json!({
             "kind": "pj", "name": "Elowen", "stats": { "DEX": 18 }, "ca": 16, "pvMax": 44

@@ -1,5 +1,5 @@
 //! A proposal made from a prompt, outside the engine: the prompt — typed,
-//! dictated or the sheet's — sent as text alone to the `llm` port's fake, its
+//! dictated or the sheet's — sent as text alone to the `llm` port's fake (`tests/support`), its
 //! answer read whatever the provider and held to StatBlock@1, and the command
 //! it becomes, versioned with source `ia`. The engine's side is
 //! `tests/submit.rs`.
@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use ports_llm::fake::FakeLlm;
 use ports_llm::{ApiType, Llm, Models, Provider, ProviderConfig, RequestKind, TextKind};
 use ports_speech_to_text::fake::FakeSpeechToText;
 use ports_speech_to_text::{
@@ -18,6 +17,9 @@ use propose_character::{
     Fresh, Proposal, Refusal, Row, prepare, propose, proposed, request, vocabulary,
 };
 use serde_json::{Value, json};
+
+mod support;
+use support::Proposing;
 
 const MORLOX: &str = "e1000000-0000-4000-8000-000000000003";
 
@@ -98,8 +100,8 @@ fn home() -> ProviderConfig {
     }
 }
 
-fn answering(proposal: Value) -> FakeLlm {
-    FakeLlm::new().with_character("", proposal)
+fn answering(proposal: Value) -> Proposing {
+    Proposing::answering(proposal)
 }
 
 fn deaf() -> FakeSpeechToText {
@@ -314,7 +316,7 @@ async fn a_provider_that_cannot_be_reached_is_told() {
 async fn an_answer_that_is_no_proposal_fills_nothing_and_is_refused_naming_every_field() {
     // The fake handed no proposal answers its canned sentence.
     let refused = propose(
-        &FakeLlm::new(),
+        &Proposing::new(),
         &cloud(),
         &deaf(),
         &row(json!({ "prompt": PROMPT })),
