@@ -792,7 +792,7 @@ export const COMMANDS = {
     for (const known of oral.result.recognized.filter((r) => r.updated)) {
       const entry = history[known.id] || (history[known.id] = { name: known.name, versions: [] });
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-      entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: 'ia', source: SOURCES.brief, seen: false, changes: [{ field: 'notes', old: null, new: said(known.name) }] });
+      entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: 'ia', source: SOURCES.brief, restoredFrom: null, seen: false, changes: [{ field: 'notes', old: null, new: said(known.name) }] });
     }
     return undefined;
   },
