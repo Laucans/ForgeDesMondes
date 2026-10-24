@@ -1489,6 +1489,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ports-character-sheets"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "ports-character-sheets-dndbeyond"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "ports-character-sheets",
+ "reqwest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ports-llm"
 version = "0.1.0"
 dependencies = [

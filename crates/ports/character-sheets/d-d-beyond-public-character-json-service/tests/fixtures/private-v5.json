@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "message": "Forbidden",
+  "data": { "errorCode": "403", "serverMessage": "You do not have permission to view this character." }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "ports-character-sheets-dndbeyond"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "The adapter of the `character-sheets` port that ports.json names: D&D Beyond's public character JSON service (v5, unofficial, the character shared as public), mapped to a StatBlock@1-shaped sheet. It passes `ports_character_sheets::contract`."
+publish = false
+
+[dependencies]
+ports-character-sheets = { path = ".." }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+serde_json = "1"
+
+[dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "rt-multi-thread"] }
