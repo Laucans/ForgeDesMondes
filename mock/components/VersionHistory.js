@@ -669,7 +669,9 @@
     // One element's sheet: a character, a place or an event of `entities`.
     "campaign.getEntity": async (server2, { id }) => {
       const entities = await server2.load("entities");
-      return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+      const entity = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+      if (!entity?.stats) return entity;
+      return { ...entity, modifiers: Object.fromEntries(Object.entries(entity.stats).map(([ability, score]) => [ability, typeof score === "number" ? Math.floor((score - 10) / 2) : null])) };
     }
   };
 
@@ -1392,6 +1394,39 @@
       const note = server2.noteText || "";
       imports.unshift({ id: `imp-${server2.uuid()}`, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), title: note.split("\n")[0].replace(/[.\s]+$/, "") || "Notes import\xE9es", chars: note.length, proposed: proposals.length, created: created.length });
       server2.noteProposals = [];
+      return void 0;
+    },
+    // ai.createFromBrief (crates/ai/data-capabilities/create-from-brief): the
+    // to-create entry becomes an element of the campaign, from its excerpt alone
+    // or from the excerpt and the DM's refinement (the fixture ToCreateList
+    // gives the AI's proposal for each); the entry is created once its element
+    // is set (`to-create-leaves-once-created`), and an entry already created is
+    // refused. An NPC gets its background, behaviour and sheet.
+    "ai.createFromBrief": async (server2, { payload }) => {
+      const entries = await server2.load("campaign.listEntitiesToCreate");
+      const entry = (Array.isArray(entries) ? entries : entries?.items || []).find((candidate) => candidate.id === payload.entry);
+      if (!entry) return ["not-found"];
+      if (entry.status === "created") return ["to-create-leaves-once-created"];
+      const given = (await server2.load("ToCreateList")).proposals?.[entry.id] || {};
+      const refined = typeof payload.refinement === "string" && payload.refinement.trim() !== "";
+      const proposal = (refined ? given.refined : given.fromBrief) || { description: entry.excerpt };
+      const { statblock, ...text2 } = proposal;
+      const kind = { pnj: "pnj", lieu: "lieu", "\xE9v\xE9nement": "evenement" }[entry.type];
+      const entities = await server2.load("entities");
+      const list = { pnj: entities.characters, lieu: entities.places, evenement: entities.events }[kind];
+      const id = `${entry.id.replace(/^tc-/, "")}-${server2.uuid().slice(0, 8)}`;
+      const vital = (label) => statblock?.vitals?.find((v) => v.label === label)?.value;
+      list.push({
+        id,
+        name: entry.name,
+        aliases: [],
+        kind,
+        notes: "",
+        ...text2,
+        ...statblock ? { type: statblock.type, stats: statblock.abilities, ca: parseInt(vital("CA"), 10) || null, pvMax: parseInt(vital("PV"), 10) || null, speed: vital("Vitesse"), features: statblock.features } : {}
+      });
+      entry.status = "created";
+      entry.entity = id;
       return void 0;
     },
     // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
