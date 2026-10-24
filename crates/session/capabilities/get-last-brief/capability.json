@@ -1,0 +1,13 @@
+{
+  "capability": "session.getLastBrief",
+  "system": "session",
+  "version": "1.0.0",
+  "description": "A session's last oral brief and what its analysis left in the store, for the DM who dictates a brief: session, lastRun (when the brief was analysed, null while it is not), duration (mm:ss), transcript (the transcribed text, one line per entry — text only, never audio), and result { scenes, recognized, missing }. scenes are the session's scenes by order, each with its title and the names of its linked elements, an entry still to create marked ' (à créer)'; recognized are the elements linked to those scenes, each with id, type, name, heard (what the brief said of it, null when the brief does not say it) and updated, true with a change summary when the brief wrote a new version of it; missing are the entries the brief added to the to-create list and that are still to create, with id, type and name. A session with no brief answers the same shape, empty (no brief), never an error.",
+  "input": {
+    "session": "string"
+  },
+  "output": "{ session: string, lastRun: string | null, duration: string | null, transcript: string[], result: { scenes: { order: number, title: string, links: string[] }[], recognized: { id: string, type: string, name: string, heard: string | null, updated: boolean, change?: string }[], missing: { id: string, type: string, name: string }[] } }",
+  "reads": [
+    "queries/get-last-brief.graphql"
+  ]
+}
