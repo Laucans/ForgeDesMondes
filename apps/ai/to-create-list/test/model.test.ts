@@ -40,7 +40,7 @@ test('the refinement is sent only when the DM wrote one', () => {
     dataCapability: 'ai.createFromBrief@1',
     payload: { entry: 'tc-a' },
     target: { aggregate: 'Session', id: 's4' },
-    caller: { by: 'dm', from: 'ToCreateList', roles: [] },
+    caller: { by: 'dm', from: 'ToCreateList', roles: ['role:approver'] },
   });
   assert.deepEqual((commandBody('ai.createFromBrief', item, 'Il boite.') as { payload: unknown }).payload, { entry: 'tc-a', refinement: 'Il boite.' });
 });
