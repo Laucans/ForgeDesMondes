@@ -1408,26 +1408,6 @@
       server2.noteProposals = proposals.map((p) => ({ id: p.id, type: p.type, name: p.name, excerpt: p.excerpt, existing: p.existing, checked: !p.existing }));
       return void 0;
     },
-    // ai.analyzeBrief (crates/ai/data-capabilities/analyze-brief): the brief told
-    // or typed, kept as text (`text-only-no-audio`), cut into scenes with the
-    // elements recognised and the ones to create — nothing created
-    // (`brief-no-auto-creation`). The mock's AI finds in any brief what the
-    // fixture OralBrief lists; the brief becomes session 4's last, and the
-    // existing NPC it changes gets a version, as the real analysis writes one.
-    "ai.analyzeBrief": async (server2, { payload }) => {
-      const text2 = String(payload.text || "").trim();
-      const brief = await server2.load("session.getLastBrief");
-      const lines = text2.split("\n").map((line) => line.trim()).filter(Boolean);
-      Object.assign(brief, { transcript: lines, lastRun: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) });
-      const histories = await server2.load("campaign.listEntityVersions");
-      const history = histories.morlox;
-      const change2 = (await server2.load("OralBrief")).result.recognized.find((x) => x.updated);
-      if (history && change2) {
-        const latest = history.versions[0];
-        history.versions.unshift({ v: latest ? latest.v + 1 : 1, date: brief.lastRun, origin: "ia", source: `Brief oral \u2014 s\xE9ance ${String(payload.session).replace(/^s/, "")}`, restoredFrom: null, seen: false, changes: latest ? latest.changes : [] });
-      }
-      return void 0;
-    },
     // campaign.createEntitiesFromNote (crates/campaign/data-capabilities/create-entities-from-note):
     // one element per accepted proposal, the raw note kept as an import listed
     // newest first, the proposals no longer awaiting.
@@ -1440,6 +1420,43 @@
       const note = server2.noteText || "";
       imports.unshift({ id: `imp-${server2.uuid()}`, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), title: note.split("\n")[0].replace(/[.\s]+$/, "") || "Notes import\xE9es", chars: note.length, proposed: proposals.length, created: created.length });
       server2.noteProposals = [];
+      return void 0;
+    },
+    // ai.analyzeBrief (crates/ai/data-capabilities/analyze-brief): the brief
+    // kept as text alone and cut into scenes; what the campaign holds is linked
+    // to them, an NPC the brief speaks of gains a version of source `brief`
+    // (read `ia`), every unknown NPC, place or event waits on the to-create
+    // list with its type and excerpt, and nothing is created
+    // (`brief-no-auto-creation`). The mock's AI finds what the fixture
+    // OralBrief lists; a dictation is heard as its transcript. A brief that
+    // holds no word is refused before anything is written.
+    "ai.analyzeBrief": async (server2, { payload }) => {
+      const oral = await server2.load("OralBrief");
+      const typed = String(payload.text || "").trim();
+      const lines = typed ? typed.split(/\n+/).map((line) => line.trim()).filter(Boolean) : payload.dictation ? oral.transcript : [];
+      if (lines.length === 0) return ["no-brief"];
+      const seconds = Number.isInteger(payload.durationSeconds) ? payload.durationSeconds : 0;
+      const brief = await server2.load("session.getLastBrief");
+      Object.assign(brief, {
+        session: payload.session,
+        lastRun: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19),
+        duration: `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`,
+        transcript: lines,
+        result: JSON.parse(JSON.stringify(oral.result))
+      });
+      const fixture = await server2.load("campaign.listEntitiesToCreate");
+      const entries = Array.isArray(fixture) ? fixture : fixture.items;
+      const said = (name) => lines.find((line) => name.split(/[\s’']+/).some((word) => word.length > 3 && normalized(line).includes(normalized(word)))) || name;
+      for (const missing of oral.result.missing) {
+        const waiting = entries.some((e) => e.status === "todo" && e.type === missing.type && normalized(e.name) === normalized(missing.name));
+        if (!waiting) entries.push({ id: `tc-${server2.uuid()}`, type: missing.type, name: missing.name, session: payload.session, sessionTitle: "", excerpt: said(missing.name), status: "todo", entity: null });
+      }
+      const history = await server2.load("campaign.listEntityVersions") || {};
+      for (const known of oral.result.recognized.filter((r) => r.updated)) {
+        const entry = history[known.id] || (history[known.id] = { name: known.name, versions: [] });
+        const v = Math.max(0, ...entry.versions.map((version2) => version2.v)) + 1;
+        entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: SAVED_BY.brief, source: "brief", restoredFrom: null, seen: false, changes: [{ field: "notes", old: null, new: said(known.name) }] });
+      }
       return void 0;
     },
     // ai.createFromBrief (crates/ai/data-capabilities/create-from-brief): the

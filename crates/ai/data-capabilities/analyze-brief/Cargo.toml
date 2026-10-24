@@ -1,0 +1,34 @@
+[package]
+name = "analyze-brief"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability ai.analyzeBrief: the DM's brief kept as an oral brief, text only, and cut by the llm port into ordered scenes — the elements and media the campaign holds (AliasMatch@1) linked to them, each existing NPC the brief speaks of updated through campaign.saveEntity with a version of source `brief`, every unknown NPC, place or event put on the to-create list with its type and excerpt; nothing created."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target: the Session aggregate's fields, its partitions and its scenes.
+aggregate-session = { path = "../../../session/aggregates/Session" }
+# The provider the AI settings make active.
+ai-provider = { path = "../../provider" }
+# The engine's `Prepare` and `ProjectPg` are async traits.
+async-trait = "0.1"
+base64 = "0.22"
+ports-llm = { path = "../../../ports/llm" }
+ports-speech-to-text = { path = "../../../ports/speech-to-text" }
+serde_json = "1"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+# The Concept's fixtures `normalized` is held to.
+platform-conformance = { path = "../../../platform/conformance" }
+# The migrations' applier: the tables the projection writes.
+data = { path = "../../../data" }
+# The follow-up an NPC's update is, run as the server runs it.
+save-entity = { path = "../../../campaign/data-capabilities/save-entity" }
+aggregate-entity = { path = "../../../campaign/aggregates/Entity" }
+# The test's database, dropped even when the test panics (rule 19).
+platform-scratch-db = { path = "../../../platform/scratch-db" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

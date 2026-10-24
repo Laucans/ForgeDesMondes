@@ -125,10 +125,21 @@ mod tests {
         let llm = Proposing::new(FakeLlm::new())
             .with_proposal("", json!({ "background": "Quelqu’un" }))
             .with_proposal("gué", json!({ "background": "Le gué" }));
+        // A brief or a journal keeps the bare fake's answer, scenes for a brief.
         for kind in [TextKind::Brief, TextKind::Journal] {
             let text = answer(&llm, kind, "Une embuscade au gué.").await;
-            assert!(text.starts_with("Réponse simulée de "), "{kind:?}: {text}");
+            let bare = FakeLlm::new()
+                .generate(
+                    &config(),
+                    &GenerateRequest::new(kind, "Une embuscade au gué."),
+                )
+                .await
+                .expect("an answer")
+                .text;
+            assert_eq!(text, bare, "{kind:?}");
         }
+        let journal = answer(&llm, TextKind::Journal, "Une embuscade au gué.").await;
+        assert!(journal.starts_with("Réponse simulée de "), "{journal}");
         let notes = answer(&llm, TextKind::Notes, "Une embuscade au gué.").await;
         assert!(notes.starts_with("{\"proposals\":"), "{notes}");
         let other = Proposing::new(FakeLlm::new()).with_proposal("sergente", json!({}));

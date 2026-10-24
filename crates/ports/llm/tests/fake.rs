@@ -112,7 +112,7 @@ async fn each_binary_connects() {
 async fn the_same_request_gets_the_same_answer() {
     let fake = FakeLlm::new();
     let config = api("https://api.anthropic.com", None);
-    let request = GenerateRequest::new(TextKind::Brief, "Les notes");
+    let request = GenerateRequest::new(TextKind::Prompt, "Les notes");
     let first = fake.generate(&config, &request).await;
     let second = fake.generate(&config, &request).await;
     assert_eq!(first, second);
@@ -386,12 +386,6 @@ async fn the_other_kinds_keep_their_canned_sentence() {
             20,
         ),
         (
-            TextKind::Brief,
-            "Une embuscade au gué.",
-            "qwen2.5-32b-instruct",
-            21,
-        ),
-        (
             TextKind::Journal,
             "00:01 Elowen brûle le moulin.",
             "qwen2.5-14b-instruct",
@@ -457,5 +451,241 @@ async fn a_name_runs_over_the_joiners_between_capitalised_words_and_only_those()
         let proposals = proposals_of(text).await;
         let found: Vec<_> = proposals.iter().map(|(_, name)| name.as_str()).collect();
         assert_eq!(found, names, "{text:?}");
+    }
+}
+
+/// The brief of the mock-up, as mock/fixtures/OralBrief.json transcribes it,
+/// its lines joined.
+fn brief() -> String {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../mock/fixtures/OralBrief.json"
+    );
+    let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    fixture["transcript"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line.as_str().unwrap())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+async fn brief_answer(text: &str) -> Value {
+    let answer = FakeLlm::new()
+        .generate(
+            &api("https://api.anthropic.com", None),
+            &GenerateRequest::new(TextKind::Brief, text),
+        )
+        .await
+        .unwrap();
+    assert_eq!(answer.model, "qwen2.5-32b-instruct");
+    serde_json::from_str(&answer.text).unwrap_or_else(|error| panic!("{error}: {}", answer.text))
+}
+
+/// The `(type, name)` of each element of each scene.
+fn elements_of(answer: &Value) -> Vec<Vec<(String, String)>> {
+    answer["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|scene| {
+            scene["elements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|element| {
+                    (
+                        element["type"].as_str().unwrap().to_owned(),
+                        element["name"].as_str().unwrap().to_owned(),
+                    )
+                })
+                .collect()
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_brief_of_the_mock_up_is_cut_into_its_three_scenes() {
+    let text = brief();
+    let answer = brief_answer(&text).await;
+    let scenes = answer["scenes"].as_array().unwrap();
+    let titles: Vec<&str> = scenes
+        .iter()
+        .map(|scene| scene["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        titles,
+        ["Séance quatre", "Sur la route", "Le gué des Corbeaux"]
+    );
+    for scene in scenes {
+        assert_eq!(
+            scene.as_object().unwrap().len(),
+            3,
+            "title, notes and elements, nothing else: {scene}"
+        );
+        let notes = scene["notes"].as_str().unwrap();
+        assert!(text.contains(notes), "the notes are the brief's: {notes}");
+        for element in scene["elements"].as_array().unwrap() {
+            let excerpt = element["excerpt"].as_str().unwrap();
+            assert!(!excerpt.is_empty(), "{element}");
+        }
+    }
+    // The scenes hold the whole brief, in order.
+    let joined: Vec<&str> = scenes
+        .iter()
+        .map(|scene| scene["notes"].as_str().unwrap())
+        .collect();
+    assert_eq!(joined.join(" "), text);
+}
+
+#[tokio::test]
+async fn the_brief_of_the_mock_up_names_its_characters_places_and_events_plainly() {
+    let answer = brief_answer(&brief()).await;
+    let has = |scene: usize, kind: &str, name: &str| {
+        elements_of(&answer)[scene].contains(&(kind.to_owned(), name.to_owned()))
+    };
+    for (scene, kind, name) in [
+        (0, "evenement", "L’embuscade du gué"),
+        (0, "lieu", "La Taverne du Sanglier"),
+        (0, "pnj", "Gaspard"),
+        (0, "lieu", "Le gué des Corbeaux"),
+        (0, "pnj", "Morlox"),
+        (1, "pnj", "Frère Odric"),
+        (2, "lieu", "Le gué des Corbeaux"),
+        (2, "pnj", "Vesna la Balafrée"),
+        (2, "pnj", "Morlox"),
+    ] {
+        assert!(has(scene, kind, name), "{scene} {kind} {name}: {answer}");
+    }
+    let names: Vec<String> = elements_of(&answer)
+        .into_iter()
+        .flatten()
+        .map(|(_, name)| name)
+        .collect();
+    for not_a_name in [
+        "Bon",
+        "Deuxième",
+        "Troisième",
+        "Trois",
+        "PV",
+        "Balafrée",
+        "Odric",
+    ] {
+        assert!(
+            !names.iter().any(|name| name == not_a_name),
+            "{not_a_name}: {names:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_element_named_twice_in_a_scene_is_one_with_both_sentences_for_excerpt() {
+    let answer = brief_answer("Morlox arrive. Il pleut. Morlox repart ! Morlox, Morlox.").await;
+    assert_eq!(
+        answer,
+        json!({"scenes": [{
+            "title": "Morlox arrive",
+            "notes": "Morlox arrive. Il pleut. Morlox repart ! Morlox, Morlox.",
+            "elements": [{"type": "pnj", "name": "Morlox", "excerpt": "Morlox arrive Morlox repart Morlox, Morlox"}],
+        }]})
+    );
+}
+
+#[tokio::test]
+async fn a_brief_with_no_marker_is_one_scene_and_a_scene_with_no_title_is_numbered() {
+    let answer = brief_answer("On commence à la Taverne du Sanglier. Puis le groupe tombe sur le Pont des Pendus, où a lieu l'embuscade.").await;
+    assert_eq!(answer["scenes"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        answer["scenes"][0]["title"],
+        "On commence à la Taverne du Sanglier"
+    );
+    assert_eq!(
+        elements_of(&answer)[0],
+        [
+            ("lieu", "La Taverne du Sanglier"),
+            ("evenement", "Où a lieu l'embuscade"),
+            ("lieu", "Le Pont des Pendus"),
+        ]
+        .map(|(kind, name)| (kind.to_owned(), name.to_owned()))
+    );
+    let answer = brief_answer("Bon. Scène deux, Gaspard.").await;
+    let titles: Vec<&str> = answer["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|scene| scene["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["Scène 1", "Scène 2"]);
+    assert_eq!(answer["scenes"][1]["notes"], "Scène deux, Gaspard.");
+}
+
+#[tokio::test]
+async fn a_nickname_joins_the_name_it_follows_with_its_article_or_without() {
+    for (text, names) in [
+        (
+            "Puis Vesna, qu’on appelle la Balafrée, cachée.",
+            vec!["Vesna la Balafrée"],
+        ),
+        (
+            "Puis Vesna, qu'on surnomme Balafrée Rouge.",
+            vec!["Vesna Balafrée Rouge"],
+        ),
+        ("Puis Gaspard, dit le Rouge.", vec!["Gaspard le Rouge"]),
+        ("Puis Gaspard, dit le rouge.", vec!["Gaspard"]),
+        ("Puis Gaspard dit le Rouge.", vec!["Gaspard", "Rouge"]),
+        ("Puis Gaspard, dit, Rouge.", vec!["Gaspard", "Rouge"]),
+        (
+            "Puis Gaspard, qu’on, appelle Rouge.",
+            vec!["Gaspard", "Rouge"],
+        ),
+        ("Puis Gaspard,", vec!["Gaspard"]),
+        // What follows the marker is an article and a name, or nothing.
+        ("Puis Gaspard, dit vieux Rouge.", vec!["Gaspard", "Rouge"]),
+        ("Puis Gaspard, dit le, Rouge.", vec!["Gaspard", "Rouge"]),
+    ] {
+        let answer = brief_answer(text).await;
+        let found: Vec<String> = elements_of(&answer)
+            .into_iter()
+            .flatten()
+            .map(|(_, name)| name)
+            .collect();
+        assert_eq!(found, names, "{text:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_title_leads_a_character_and_an_article_a_place_in_a_brief_only() {
+    let text =
+        "Ils voient frère Odric au mont Pourpre, puis la Tour Noire et le Sanglier. Le PNJ dort.";
+    let answer = brief_answer(text).await;
+    assert_eq!(
+        elements_of(&answer)[0],
+        [
+            ("pnj", "Frère Odric"),
+            ("lieu", "Mont Pourpre"),
+            ("lieu", "La Tour Noire"),
+            ("pnj", "Sanglier"),
+        ]
+        .map(|(kind, name)| (kind.to_owned(), name.to_owned()))
+    );
+    let notes = proposals_of(text).await;
+    assert_eq!(
+        notes,
+        [
+            ("pnj", "Odric"),
+            ("lieu", "mont Pourpre"),
+            ("lieu", "Tour Noire"),
+            ("pnj", "Sanglier"),
+            ("pnj", "Le PNJ"),
+        ]
+        .map(|(kind, name)| (kind.to_owned(), name.to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn a_brief_that_says_nothing_has_no_scene() {
+    for text in ["", "  \n "] {
+        assert_eq!(brief_answer(text).await, json!({"scenes": []}), "{text:?}");
     }
 }
