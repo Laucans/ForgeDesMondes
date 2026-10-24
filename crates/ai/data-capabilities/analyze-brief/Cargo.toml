@@ -29,4 +29,6 @@ data = { path = "../../../data" }
 # The follow-up an NPC's update is, run as the server runs it.
 save-entity = { path = "../../../campaign/data-capabilities/save-entity" }
 aggregate-entity = { path = "../../../campaign/aggregates/Entity" }
-tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
+# The test's database, dropped even when the test panics (rule 19).
+platform-scratch-db = { path = "../../../platform/scratch-db" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

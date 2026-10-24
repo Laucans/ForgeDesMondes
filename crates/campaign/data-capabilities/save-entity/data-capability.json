@@ -1,8 +1,44 @@
 {
+  "callableBy": [
+    "*"
+  ],
   "dataCapability": "campaign.saveEntity",
-  "owner": "dataguard",
-  "version": 2,
   "effect": "upsert",
+  "idempotencyKey": "optional",
+  "invariants": [
+    "explicit-save-only",
+    "every-change-versioned",
+    "alias-unique-in-campaign",
+    "dex-modifier-derived",
+    "character-is-pj-or-pnj",
+    "default-token"
+  ],
+  "mode": "confirm_on_stale",
+  "owner": "dataguard",
+  "payload": {
+    "campaign": "uuid — the element's campaign; required for a new element",
+    "entity.actions": "array — or entity.features",
+    "entity.aliases": "string[] — normalised and unique per AliasMatch@1; blanks and duplicates dropped",
+    "entity.background": "string | null",
+    "entity.behavior": "string | null",
+    "entity.ca": "integer | null — armour class",
+    "entity.color": "string — the token's colour; a new PC or NPC without one takes 'accent'",
+    "entity.crop": "object | null — the portrait's crop the token shows",
+    "entity.description": "string | null",
+    "entity.id": "uuid — the element saved; absent for a new one, whose id the server gives",
+    "entity.kind": "'pj' | 'pnj' | 'lieu' | 'evenement' — required for a new element",
+    "entity.name": "string",
+    "entity.notes": "string | null",
+    "entity.player": "uuid | null — a PC's player, of the same campaign",
+    "entity.portrait": "uuid | null — the portrait's media",
+    "entity.prompt": "string | null — the initial prompt",
+    "entity.pvMax": "integer | null — hit points max",
+    "entity.spells": "array",
+    "entity.stats": "{ FOR, DEX, CON, INT, SAG, CHA }: the six scores; a modifier given is never written (AbilityModifier@1)",
+    "entity.token": "uuid | null — the token's media",
+    "source": "'dm' | 'brief' | 'ia' — optional, 'dm' when absent; written unchanged as the EntityVersion@1 source of the version this save adds; any other value is refused (422)"
+  },
+  "permissions": [],
   "target": {
     "aggregate": "Entity",
     "id": "$entityId"
@@ -49,39 +85,5 @@
     "Entity.restoredFromVersionId",
     "Entity.entityVersionCreatedAt"
   ],
-  "payload": {
-    "campaign": "uuid — the element's campaign; required for a new element",
-    "entity.id": "uuid — the element saved; absent for a new one, whose id the server gives",
-    "entity.kind": "'pj' | 'pnj' | 'lieu' | 'evenement' — required for a new element",
-    "entity.name": "string",
-    "entity.aliases": "string[] — normalised and unique per AliasMatch@1; blanks and duplicates dropped",
-    "entity.description": "string | null",
-    "entity.notes": "string | null",
-    "entity.player": "uuid | null — a PC's player, of the same campaign",
-    "entity.prompt": "string | null — the initial prompt",
-    "entity.background": "string | null",
-    "entity.behavior": "string | null",
-    "entity.stats": "{ FOR, DEX, CON, INT, SAG, CHA }: the six scores; a modifier given is never written (AbilityModifier@1)",
-    "entity.ca": "integer | null — armour class",
-    "entity.pvMax": "integer | null — hit points max",
-    "entity.spells": "array",
-    "entity.actions": "array — or entity.features",
-    "entity.portrait": "uuid | null — the portrait's media",
-    "entity.token": "uuid | null — the token's media",
-    "entity.crop": "object | null — the portrait's crop the token shows",
-    "entity.color": "string — the token's colour; a new PC or NPC without one takes 'accent'",
-    "source": "'dm' | 'brief' | 'ia' — where the save comes from, written as its version's source (EntityVersion@1): 'dm' when absent, the DM's own save; 'brief' for an element the analysis of a brief updates (ai.analyzeBrief), 'ia' for one an AI proposal fills — since version 2"
-  },
-  "mode": "confirm_on_stale",
-  "invariants": [
-    "explicit-save-only",
-    "every-change-versioned",
-    "alias-unique-in-campaign",
-    "dex-modifier-derived",
-    "character-is-pj-or-pnj",
-    "default-token"
-  ],
-  "permissions": [],
-  "callableBy": ["*"],
-  "idempotencyKey": "optional"
+  "version": 2
 }

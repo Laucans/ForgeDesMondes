@@ -222,6 +222,7 @@ dependencies = [
  "data",
  "harness-dataguard",
  "platform-conformance",
+ "platform-scratch-db",
  "ports-llm",
  "ports-speech-to-text",
  "save-entity",
@@ -1554,6 +1555,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-normalization",
+]
+
+[[package]]
+name = "platform-scratch-db"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "tokio",
 ]
 
 [[package]]

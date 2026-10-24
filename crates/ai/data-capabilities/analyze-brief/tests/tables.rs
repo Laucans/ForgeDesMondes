@@ -8,8 +8,8 @@
 //! speaks of, a version of source `brief` with its diff — and no element is
 //! created. [`BriefTables`] alone: a media of another campaign rejects its
 //! link, a row written again or a tombstone changes nothing. Each test works
-//! in a scratch database of its own, migrated as the server migrates it,
-//! dropped when it ends.
+//! in a scratch database of its own ([`ScratchDb`]), migrated as the server
+//! migrates it, dropped when it ends — even on a panic.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -23,7 +23,8 @@ use harness_dataguard::memory::MemoryNotifier;
 use harness_dataguard::plugins::{Plugins, Shared};
 use harness_dataguard::postgres::{PgStore, ReadOnly, SystemClock};
 use harness_dataguard::store::RandomIds;
-use harness_dataguard::tokio_postgres::{self, Client, NoTls};
+use harness_dataguard::tokio_postgres::Client;
+use platform_scratch_db::ScratchDb;
 use ports_llm::SharedLlm;
 use ports_llm::fake::FakeLlm;
 use ports_speech_to_text::SharedSpeechToText;
@@ -49,54 +50,22 @@ const PHARE: &str = "a1000000-0000-4000-8000-000000000005";
 const BRIEF: &str = "On commence à la Taverne, où Morlox attend au Comptoir. \
 Deuxième scène, le Pont des Pendus, où a lieu l'embuscade. Vesna, qu’on appelle la Balafrée, surgit.";
 
-fn url() -> String {
-    std::env::var("DATABASE_URL").expect("DATABASE_URL names the harness's PostgreSQL")
-}
-
-async fn connect(url: &str) -> Client {
-    let (client, connection) = tokio_postgres::connect(url, NoTls)
-        .await
-        .expect("PostgreSQL");
-    tokio::spawn(connection);
-    client
-}
-
-/// `DATABASE_URL` naming the database `name` instead.
-fn naming(name: &str) -> String {
-    let url = url();
-    let (address, query) = url.split_once('?').unwrap_or((&url, ""));
-    let (server, _) = address.rsplit_once('/').expect("a URL naming its database");
-    let query = if query.is_empty() {
-        String::new()
-    } else {
-        format!("?{query}")
-    };
-    format!("{server}/{name}{query}")
-}
-
 /// A database of its own, migrated as the server migrates it, holding — as
 /// the fixtures write them — Valombre with the tavern (alias « la
 /// taverne ») and the counter's illustration, Brume with its lighthouse's,
 /// and Valombre's session 4 with its two scenes.
 struct Scratch {
-    name: String,
-    url: String,
+    db: ScratchDb,
     client: Client,
     notifier: Arc<MemoryNotifier>,
 }
 
 impl Scratch {
     async fn new(name: &str) -> Scratch {
-        let name = format!("analyze_brief_test_{name}_{}", std::process::id());
-        let admin = connect(&url()).await;
-        for sql in [
-            format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
-            format!("CREATE DATABASE {name}"),
-        ] {
-            admin.batch_execute(&sql).await.expect("a scratch database");
-        }
-        let url = naming(&name);
-        let mut client = connect(&url).await;
+        let db = ScratchDb::create(&format!("analyze_brief_{name}"))
+            .await
+            .expect("DATABASE_URL names the harness's PostgreSQL");
+        let mut client = db.connect().await.expect("PostgreSQL");
         let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/migrations");
         data::migrate(&mut client, &migrations)
             .await
@@ -122,8 +91,7 @@ impl Scratch {
             .await
             .expect("Valombre, Brume, session 4 and the media");
         Scratch {
-            name,
-            url,
+            db,
             client,
             notifier: Arc::default(),
         }
@@ -142,7 +110,7 @@ impl Scratch {
             .into_iter()
             .collect()
         };
-        let store = PgStore::open(connect(&self.url).await)
+        let store = PgStore::open(self.db.connect().await.expect("PostgreSQL"))
             .await
             .expect("the store")
             .with_projections(&plugins())
@@ -156,7 +124,9 @@ impl Scratch {
             self.notifier.clone(),
             Arc::new(SystemClock),
         )
-        .with_rows(Arc::new(ReadOnly::new(connect(&self.url).await)))
+        .with_rows(Arc::new(ReadOnly::new(
+            self.db.connect().await.expect("PostgreSQL"),
+        )))
         .with_ids(Arc::new(RandomIds))
         .with_aggregate(Aggregate::parse(aggregate_session::DOCUMENT).expect("contract I"))
         .with_aggregate(Aggregate::parse(aggregate_entity::MANIFEST).expect("contract I"))
@@ -179,24 +149,6 @@ impl Scratch {
             .iter()
             .map(|row| serde_json::from_str(row.get::<_, &str>(0)).expect("JSON"))
             .collect()
-    }
-
-    /// Drops the scratch database. A role that is no superuser cannot end
-    /// an autovacuum worker still on it: it is tried again a moment later.
-    async fn drop(self) {
-        drop(self.client);
-        let admin = connect(&url()).await;
-        let sql = format!("DROP DATABASE {} WITH (FORCE)", self.name);
-        for _ in 0..20 {
-            if admin.batch_execute(&sql).await.is_ok() {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-        }
-        admin
-            .batch_execute(&sql)
-            .await
-            .expect("the scratch database dropped");
     }
 }
 
@@ -387,7 +339,6 @@ async fn a_brief_is_kept_its_scenes_follow_the_last_its_unknowns_wait_and_morlox
             .await,
         [json!({ "notes": "Doit 40 po.\nOn commence à la Taverne, où Morlox attend au Comptoir" })]
     );
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -437,7 +388,6 @@ async fn an_element_or_a_media_the_engine_tombstoned_is_not_recognised() {
             .len(),
         3
     );
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -539,7 +489,6 @@ async fn a_media_of_another_campaign_is_never_linked_and_a_row_is_written_once()
         scratch.rows("SELECT scene_id FROM scene_media").await.len(),
         1
     );
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -562,7 +511,6 @@ async fn a_brief_of_a_session_the_tables_do_not_hold_is_rejected_whole() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].status, State::Rejected, "{results:?}");
     assert!(scratch.rows("SELECT id FROM oral_brief").await.is_empty());
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -590,5 +538,4 @@ async fn a_table_that_fails_fails_the_step_and_rejects_nothing() {
         Err(harness_dataguard::Error::Store(_)) => {}
         other => panic!("the store's failure, not the command's: {other:?}"),
     }
-    scratch.drop().await;
 }

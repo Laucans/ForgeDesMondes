@@ -33,16 +33,17 @@ function apiType(settings, url) {
 // no accent (a combining mark U+0300 to U+036F of the decomposed letter).
 const normalized = (term) => String(term ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC');
 
-// Where a save comes from (EntityVersion@1), as the history words it; a brief's
-// and an AI proposal's read `ia`.
-const SOURCES = { dm: 'Fiche enregistrée par le DM', brief: 'Mise à jour par le brief', ia: 'Proposition de l’IA' };
-
 // The fixture each kind of element is listed in.
 const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharacters', lieu: 'campaign.listPlaces', evenement: 'campaign.listEvents' };
 
 // What a save writes of the editor's fields: these, and nothing else — a DEX
 // modifier least of all, computed from the score (AbilityModifier@1).
 const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
+
+// The sources a save may name (EntityVersion@1), and the origin
+// campaign.listEntityVersions words each one as: the DM's hand, or the AI's
+// (which also reads the DM's brief).
+const SAVED_BY = { dm: 'manuelle', brief: 'ia', ia: 'ia' };
 
 // A position on the screen, in fractions of it: from 0 to 1 — `kept` when
 // what is asked is no number, which the server refuses.
@@ -792,7 +793,7 @@ export const COMMANDS = {
     for (const known of oral.result.recognized.filter((r) => r.updated)) {
       const entry = history[known.id] || (history[known.id] = { name: known.name, versions: [] });
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-      entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: 'ia', source: SOURCES.brief, restoredFrom: null, seen: false, changes: [{ field: 'notes', old: null, new: said(known.name) }] });
+      entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: SAVED_BY.brief, source: 'brief', restoredFrom: null, seen: false, changes: [{ field: 'notes', old: null, new: said(known.name) }] });
     }
     return undefined;
   },
@@ -825,17 +826,19 @@ export const COMMANDS = {
     entry.entity = id;
     return undefined;
   },
-  // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
+  // campaign.saveEntity (crates/campaign/data-capabilities/save-entity): the
   // DM's explicit save of an element, its sheet and its aliases, which adds a
-  // version (EntityVersion@1, source `dm`) whose changes are the fields that
-  // moved. An alias naming another element, by its name or an alias
+  // version (EntityVersion@1) whose changes are the fields that moved. Its
+  // source is the one the save names, `dm` when none, else `brief` or `ia`:
+  // any other is refused before anything is written, as the server answers
+  // 422. A version from the brief or the AI is one the DM has not seen yet.
+  // An alias naming another element, by its name or an alias
   // (AliasMatch@1), is refused by `alias-unique-in-campaign`; a player on
   // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
   // are kept: a DEX modifier given is never written.
   'campaign.saveEntity': async (server, { payload }) => {
-    // Version 2: the save names where it comes from, the DM's when it does not.
     const source = payload.source ?? 'dm';
-    if (!Object.hasOwn(SOURCES, source)) return ['not-a-source'];
+    if (typeof source !== 'string' || !Object.hasOwn(SAVED_BY, source)) return ['unprocessable'];
     const given = payload.entity || payload;
     const lists = await Promise.all(Object.values(LISTS).filter((v, i, all) => all.indexOf(v) === i).map(async (name) => [name, (await server.load(name)) || []]));
     const all = lists.flatMap(([name, list]) => list.map((element) => ({ name, element })));
@@ -872,7 +875,7 @@ export const COMMANDS = {
       .filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null))
       .map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
     const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: source === 'dm' ? 'dm' : 'ia', source: SOURCES[source], seen: source === 'dm', changes });
+    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: SAVED_BY[source], source, seen: source === 'dm', changes });
     return undefined;
   },
   // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
