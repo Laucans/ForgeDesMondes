@@ -611,6 +611,7 @@ dependencies = [
  "reset-battlemap",
  "resize-window",
  "restore-entity-version",
+ "resync-character",
  "save-entity",
  "save-grid-settings",
  "save-settings",
@@ -1942,6 +1943,20 @@ dependencies = [
  "harness-dataguard",
  "platform-conformance",
  "save-entity",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "resync-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "ports-character-sheets",
  "serde_json",
  "tokio",
 ]
