@@ -26,8 +26,9 @@ const PILE: usize = 5;
 /// session of the campaign bound to `$1` — of two, the last one planned, as
 /// the DataCapabilities that write find it; the last one started, among the
 /// campaigns', when `$1` is the empty text — and its suggestions, newest first,
-/// each with the element or the sound it names (suggestion-target: exactly
-/// one) and the words that were heard. The campaign is compared as text, so
+/// each with the element or the sound it names and the words that were heard.
+/// A row that names not exactly one of them breaks suggestion-target and is
+/// left out. The campaign is compared as text, so
 /// that an id which is not a uuid finds nothing instead of failing.
 pub const SQL: &str = r#"WITH live AS (
     SELECT s.id
@@ -47,6 +48,7 @@ FROM live_suggestion g
 JOIN live ON live.id = g.session_id
 LEFT JOIN entity e ON e.id = g.entity_id
 LEFT JOIN sound so ON so.id = g.sound_id
+WHERE num_nonnulls(g.entity_id, g.sound_id) = 1
 ORDER BY g.detected_at DESC, g.id"#;
 
 /// The request's variables [`SQL`] binds, in the order of its `$1`: the

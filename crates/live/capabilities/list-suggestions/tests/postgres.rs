@@ -220,3 +220,20 @@ async fn no_campaign_reads_the_live_session_and_a_non_uuid_finds_nothing() {
         json!({ "suggestions": [], "history": [] })
     );
 }
+
+#[tokio::test]
+async fn a_suggestion_naming_not_exactly_one_target_is_left_out() {
+    let mut db = Scratch::new("one_target").await;
+    db.suggest(SEANCE, GASPARD, "Gaspard", 1).await;
+    db.client
+        .batch_execute(&format!(
+            "INSERT INTO live_suggestion (session_id, matched_text, detected_at) \
+             VALUES ('{SEANCE}', 'personne', timestamptz '2026-03-14 20:01:00+00'); \
+             INSERT INTO live_suggestion (session_id, entity_id, sound_id, matched_text, detected_at) \
+             VALUES ('{SEANCE}', '{GASPARD}', '{PORTE}', 'les deux', timestamptz '2026-03-14 20:02:00+00')"
+        ))
+        .await
+        .expect("the two malformed suggestions");
+    let got = db.read(VALOMBRE).await;
+    assert_eq!(vias(&got["history"]), ["Gaspard"]);
+}

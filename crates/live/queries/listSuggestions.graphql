@@ -1,4 +1,4 @@
-# fields: session.status, session.campaignId, session.startedAt, session.position, suggestion.entityId, suggestion.soundId, suggestion.matchedText, suggestion.detectedAt, entity.type, entity.name, sound.name
+# fields: session.status, session.campaignId, session.startedAt, session.position, suggestion.sessionId, suggestion.entityId, suggestion.soundId, suggestion.matchedText, suggestion.detectedAt, entity.type, entity.name, sound.name
 # What the suggestion pill shows: every suggestion of the campaign's live
 # session, newest first, each resolved to the element or the sound it names
 # and the words that were heard. The pill's stack (the 5 most recent) is cut
