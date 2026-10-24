@@ -9,7 +9,7 @@
     "milestone/19-media-library-data-and-hex-grid-settings": "4d0c2df5fbddf807262e128f53cd43f18f54f779",
     "milestone/20-sessions-present-pcs-scenes-and-media-attached-by-place": "dea4dcd41f4053c4895b7c3311b7906c145728b0",
     "milestone/21-soundbox-tagged-sound-library-and-live-playback": "93760d4df5c59bdf188ccfc6494e546cc40545c9",
-    "milestone/22-entity-sheet-assisted-creation-d-d-beyond-navigation-rail": "0081ee31223493007f011a1e53f25b90f3c12dfe",
+    "milestone/22-entity-sheet-assisted-creation-d-d-beyond-navigation-rail": "626efdd574742efed6a30ede6a768f8a075221fd",
     "milestone/23-notes-import-extraction-then-validation-in-a-batch": "2275836ef0bfc5b5380b9a2ccea864f6dcc2337c",
     "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "24240292f1833fdc6ead6cb28403549f49622845",
     "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "80786b6a06a4ebc6e121302ad81eee96bb283822",
@@ -280,6 +280,14 @@
       "sha": "e09a1417ee2a1b7f3335a6ccd18848e9e56ae4aa",
       "at": "2026-10-24T06:17:53Z",
       "dir": "milestone/29-dm-view-elements-panel-and-table-sheet/20261024T061753Z-e09a141",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/22-entity-sheet-assisted-creation-d-d-beyond-navigation-rail",
+      "sha": "626efdd574742efed6a30ede6a768f8a075221fd",
+      "at": "2026-10-24T08:02:10Z",
+      "dir": "milestone/22-entity-sheet-assisted-creation-d-d-beyond-navigation-rail/20261024T080210Z-626efdd",
       "schema": true,
       "model": true
     }
