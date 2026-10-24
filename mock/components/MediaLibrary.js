@@ -839,9 +839,16 @@
     "table.setTokenVisibility": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
       t.visible = payload.visible === true;
     }),
-    // table.setTokenCondition: the badges of that token alone.
-    "table.setTokenCondition": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t) => {
-      t.states = [...payload.conditions || []];
+    // table.setTokenCondition (crates/table/data-capabilities/set-token-condition): the badge
+    // `payload.state` put on that token when `payload.on`, after the others and once, or taken off,
+    // the others keeping their order — its conditions alone. A state that is no name without the
+    // blanks around it, or holds U+0000, or an `on` that is no boolean, is `state-persisted-reset`.
+    "table.setTokenCondition": (server, { payload, targetId }) => onToken(server, { id: targetId || payload.instance }, payload.token, (t) => {
+      const state = typeof payload.state === "string" ? payload.state.trim() : "";
+      if (!state || state.includes("\0") || typeof payload.on !== "boolean") return ["state-persisted-reset"];
+      const held = t.states || [];
+      t.states = payload.on ? held.includes(state) ? held : [...held, state] : held.filter((s) => s !== state);
+      return void 0;
     }),
     // table.removeToken: the token leaves the map.
     "table.removeToken": (server, { payload, targetId }) => onToken(server, { id: targetId }, payload.token, (t, state) => {
@@ -892,38 +899,46 @@
       advance(combat, state);
       return void 0;
     }),
-    // table.reorderInitiative: the participant takes the rank `position`; nobody else changes relative rank.
-    "table.reorderInitiative": (server, { payload, targetId }) => onCombat(server, targetId, (combat) => {
-      const from = combat.order.findIndex((o) => o.id === payload.token);
-      if (from < 0) return ["instance-isolated"];
-      const [moved] = combat.order.splice(from, 1);
-      combat.order.splice(Math.max(0, Math.min(combat.order.length, Number(payload.position) || 0)), 0, moved);
+    // table.reorderInitiative (crates/table/data-capabilities/reorder-initiative): the open combat
+    // reordered as `payload.order` gives it, every participant once, named by its token — the ranks
+    // 1 to n in that order; the turn and the round stay. An order that is no list, omits a
+    // participant, repeats one or names one not in the combat is `initiative-tiebreak`.
+    "table.reorderInitiative": (server, { payload, targetId }) => onCombat(server, targetId || payload.instance, (combat) => {
+      const named = Array.isArray(payload.order) ? payload.order : [];
+      if (named.length !== combat.order.length) return ["initiative-tiebreak"];
+      const order = [];
+      for (const id of named) {
+        const found = combat.order.find((o) => o.id === id && !order.includes(o));
+        if (!found) return ["initiative-tiebreak"];
+        order.push(found);
+      }
+      combat.order = order;
       return void 0;
     }),
-    // table.addParticipant: a token joins the running order at the place its initiative earns.
-    "table.addParticipant": (server, { payload, targetId }) => onCombat(server, targetId, async (combat, state) => {
+    // table.addParticipant (crates/table/data-capabilities/add-participant): a token joins the running
+    // order at the place its initiative earns. An NPC rolls a d20 plus its DEX modifier and is given no
+    // figure; a PC takes the `payload.initiative` the DM entered (`npc-initiative-bounds`). A token not
+    // on the instance is `not-found`; one already in the order is `initiative-tiebreak`.
+    "table.addParticipant": (server, { payload, targetId }) => onCombat(server, targetId || payload.instance, async (combat, state) => {
       const token = state.tokens.find((t) => t.id === payload.token);
-      if (!token || combat.order.some((o) => o.id === token.id)) return ["instance-isolated"];
+      if (!token) return ["not-found"];
+      if (combat.order.some((o) => o.id === token.id)) return ["initiative-tiebreak"];
+      const pc = token.kind === "pj";
+      if (pc ? !Number.isInteger(payload.initiative) : payload.initiative != null) return ["npc-initiative-bounds"];
       const dex = dexModifier(await server.load("campaign.listCharacters") || [], token.char);
-      const roll = Number(payload.roll);
-      const init = token.kind === "pnj" ? roll + dex : Number(payload.initiative);
-      if (!(init >= 1) || token.kind === "pnj" && !(roll >= 1 && roll <= 20)) return ["npc-initiative-bounds"];
+      const init = pc ? payload.initiative : 1 + Math.floor(Math.random() * 20) + dex;
       const at = combat.order.findIndex((o) => o.init < init || o.init === init && o.dex < dex);
       combat.order.splice(at < 0 ? combat.order.length : at, 0, { id: token.id, init, dex });
       return void 0;
     }),
-    // table.removeParticipant: the token leaves the order, not the map; the turn passes on if it was its turn.
-    "table.removeParticipant": (server, { payload, targetId }) => onCombat(server, targetId, (combat, state) => {
-      if (!combat.order.some((o) => o.id === payload.token)) return ["instance-isolated"];
-      const rest = { ...combat, order: combat.order.filter((o) => o.id !== payload.token) };
-      if (combat.current === payload.token) {
-        const gone = { ...state, tokens: state.tokens.map((t) => t.id === payload.token ? { ...t, dead: true } : t) };
-        advance(combat, gone);
-        rest.round = combat.round;
-        rest.current = combat.current === payload.token ? rest.order[0] && rest.order[0].id || "" : combat.current;
-      }
-      if (rest.order.length) Object.assign(combat, rest);
-      else state.combat = null;
+    // table.removeParticipant (crates/table/data-capabilities/remove-participant): the participant
+    // `payload.participant` — named by its token, as the carousel shows it — taken out of the open combat;
+    // its token stays on the map and the order closes up. The participant that holds the turn is refused
+    // by `next-turn`: the Battlemap sends table.nextTurn first. One not in the combat is `not-found`.
+    "table.removeParticipant": (server, { payload, targetId }) => onCombat(server, targetId, (combat) => {
+      if (!combat.order.some((o) => o.id === payload.participant)) return ["not-found"];
+      if (combat.current === payload.participant) return ["next-turn"];
+      combat.order = combat.order.filter((o) => o.id !== payload.participant);
       return void 0;
     }),
     // table.endCombat: the combat ends; the tokens stay as they are.
