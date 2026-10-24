@@ -3,8 +3,8 @@
 //! partition never the one deleted, and a session the tables do not hold
 //! refused as not found.
 
-use aggregate_session::presence_of;
-use remove_present_character::{Asked, Refusal, Row, asked, prepare, presence};
+use aggregate_session::{presence_id, presence_of};
+use remove_present_character::{Asked, Refusal, Row, asked, prepare};
 use serde_json::{Value, json};
 
 const SEANCE: &str = "51000000-0000-4000-8000-00000000000a";
@@ -115,7 +115,8 @@ fn the_partition_deleted_is_the_presence_s_never_the_session_s() {
     let asked = elowen_at(SEANCE);
     let id = prepare(&asked, true).expect("a live session");
     assert_eq!(id, format!("{SEANCE}.{ELOWEN}"));
-    assert_eq!(id, presence(&asked));
+    // The row session.addPresentCharacter ticks.
+    assert_eq!(id, presence_id(SEANCE, ELOWEN));
     assert_ne!(id, SEANCE);
     // The aggregate reads the session and the PC back from it.
     assert_eq!(

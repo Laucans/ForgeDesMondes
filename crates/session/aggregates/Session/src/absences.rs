@@ -4,7 +4,8 @@
 //!
 //! A presence is a partition of its own, `Session/<session>.<pc>`: the
 //! session's id and the PC's, lowercase, joined by a dot — never a uuid, so
-//! never a session's, a scene's or an order's row ([`presence_of`]). Ticked
+//! never a session's, a scene's or an order's row ([`presence_of`], the
+//! inverse of [`crate::presence_id`]). Ticked
 //! after the session's creation, the presence's row is written there; ticked
 //! at its creation, the PC is one of the session's own row's list, and the
 //! presence's partition holds nothing until it is unticked.
@@ -76,7 +77,7 @@ mod tests {
     use harness_dataguard::store::Write;
 
     use super::{absence, presence_of};
-    use crate::order_id;
+    use crate::{order_id, presence_id};
 
     const SEANCE: &str = "51000000-0000-4000-8000-00000000000A";
     const PJ: &str = "E1000000-0000-4000-8000-000000000004";
@@ -93,6 +94,11 @@ mod tests {
     fn a_presence_is_its_session_and_its_pc_joined_by_a_dot_lowercase() {
         assert_eq!(
             presence_of(&format!("{SEANCE}.{PJ}")),
+            Some((SEANCE.to_lowercase(), PJ.to_lowercase()))
+        );
+        // The row a tick writes is the one an untick reads back.
+        assert_eq!(
+            presence_of(&presence_id(SEANCE, PJ)),
             Some((SEANCE.to_lowercase(), PJ.to_lowercase()))
         );
         // The order of the two ids is the presence's: session first.

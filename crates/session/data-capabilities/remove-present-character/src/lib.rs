@@ -5,7 +5,8 @@
 //! stay as they are.
 //!
 //! An untick is one deletion on the presence's own partition,
-//! `Session/<session>.<pc>` ([`presence`]) — never the session's own row,
+//! `Session/<session>.<pc>` (`presence_id`, the row
+//! `session.addPresentCharacter` ticks) — never the session's own row,
 //! whose tombstone would remove the session: the same PC ticked and
 //! unticked queues on one row. Its tombstone takes the one link row of the
 //! session and the PC out of the table when it is applied
@@ -30,7 +31,7 @@
 
 use std::collections::BTreeMap;
 
-use aggregate_session::uuid;
+use aggregate_session::{presence_id, uuid};
 use async_trait::async_trait;
 use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::Value;
@@ -184,15 +185,9 @@ pub fn asked(wire: &Row, target: Option<&str>) -> Result<Asked, Refusal> {
     Ok(Asked { session, character })
 }
 
-/// The id of the presence of `asked.character` at `asked.session`: their
-/// ids joined by a dot, the row a tick writes and an untick tombstones.
-#[must_use]
-pub fn presence(asked: &Asked) -> String {
-    format!("{}.{}", asked.session, asked.character)
-}
-
 /// `asked` judged against whether the store holds its session live: the
-/// presence whose partition the untick deletes.
+/// presence whose partition the untick deletes, the row a tick writes
+/// (`presence_id`).
 ///
 /// # Errors
 ///
@@ -201,5 +196,5 @@ pub fn prepare(asked: &Asked, session: bool) -> Result<String, Refusal> {
     if !session {
         return Err(Refusal::UnknownSession);
     }
-    Ok(presence(asked))
+    Ok(presence_id(&asked.session, &asked.character))
 }
