@@ -23,10 +23,8 @@ interface Options {
 function fakeShell(options: Options = {}) {
   const reads: Array<{ id: string; sha256: string | undefined; variables: Record<string, unknown> | undefined }> = [];
   let listener: (() => void) | undefined;
-  const contextSets: Array<[string, unknown]> = [];
   const data = structuredClone({ ...DATA, ...options.data });
   const shell: Shell = {
-    context: { set: (name, value) => void contextSets.push([name, value]) },
     async capability(id, sha256, variables) {
       reads.push({ id, sha256, variables });
       if (options.fail?.includes(id)) throw new Error('down');
@@ -37,7 +35,7 @@ function fakeShell(options: Options = {}) {
       return () => undefined;
     },
   };
-  return { shell, reads, data, contextSets, moved: () => listener?.() };
+  return { shell, reads, data, moved: () => listener?.() };
 }
 
 function fakeBus() {
@@ -212,18 +210,6 @@ test('the campaign is asked for by its prop, else by the address', async () => {
   assert.ok(byUrl.shell.reads.every((r) => r.variables?.campaign === 'from-url'));
   const none = await panel({});
   assert.ok(none.shell.reads.every((r) => r.variables?.campaign === ''));
-});
-
-test('the campaign on show is the screen\'s: published to its context when it is known, and again when it changes', async () => {
-  const byProp = await panel({ mode: 'rail', campaign: ' c-1 ' });
-  assert.deepEqual(byProp.shell.contextSets, [['campaign', 'c-1']]);
-  byProp.mounted.update({ mode: 'rail', campaign: 'c-2' });
-  assert.deepEqual(byProp.shell.contextSets, [['campaign', 'c-1'], ['campaign', 'c-2']]);
-  const byUrl = await panel({ mode: 'rail' }, { url: 'http://localhost/fiche-entite.html?campaign=from-url' });
-  assert.deepEqual(byUrl.shell.contextSets, [['campaign', 'from-url']]);
-  // No campaign named: nothing is published, the sheet beside keeps its own.
-  const none = await panel({ mode: 'rail' });
-  assert.deepEqual(none.shell.contextSets, []);
 });
 
 // ---- rail

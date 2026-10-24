@@ -2,7 +2,7 @@
 // draft the DM edits against the sheet the server holds, the commands a click
 // becomes and the diff of what the AI or D&D Beyond changed.
 
-import { APPROVER, DATA_CAPABILITY_VERSION, ENTITY_AGGREGATE, NEW_PREFIX } from './ids.ts';
+import { DATA_CAPABILITY_VERSION, ENTITY_AGGREGATE, NEW_PREFIX } from './ids.ts';
 import { ABILITIES, type Ability, type Change, type Crop, type Entity, type Feature, type Kind, type Media, type Player, type Target } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -37,13 +37,11 @@ export function initialsOf(name: string): string {
   return letters.join('').toUpperCase().slice(0, 2);
 }
 
-/** Whether the sheet has a portrait: the one just picked, else the one the server holds. */
-const hasPortrait = (entity: Pick<Entity, 'portrait' | 'portraitMedia'>): boolean => (entity.portraitMedia === undefined ? entity.portrait : entity.portraitMedia !== null);
-
 /** default-token (TokenAppearance@1): with neither a portrait nor a token image, the token is the initials on the colour. */
 export function tokenHasImage(entity: Pick<Entity, 'portrait' | 'tokenImage' | 'portraitMedia' | 'tokenMedia'>): boolean {
+  const portrait = entity.portraitMedia === undefined ? entity.portrait : entity.portraitMedia !== null;
   const token = entity.tokenMedia === undefined ? entity.tokenImage : entity.tokenMedia !== null;
-  return hasPortrait(entity) || token;
+  return portrait || token;
 }
 
 /** A name of a colour of the design system, else the default: it ends up in a `var(--color-…)`. */
@@ -166,14 +164,14 @@ export function isDirty(draft: Entity, stored: Entity): boolean {
   return JSON.stringify(comparable(draft)) !== JSON.stringify(comparable(stored));
 }
 
-/** `POST /commands` for one DataCapability, by identifier. Each is the DM's own act on their sheet, whose identity and versions are critical: the DM approves it by asking for it. */
+/** `POST /commands` for one DataCapability, by identifier. */
 export function commandBody(dataCapability: string, payload: Record<string, unknown>, target: { aggregate: string; id?: string }, idempotencyKey: string): unknown {
   return {
     dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
     payload,
     target,
     idempotencyKey,
-    caller: { by: 'dm', from: 'EntityEditor', roles: [APPROVER] },
+    caller: { by: 'dm', from: 'EntityEditor', roles: [] },
   };
 }
 
@@ -212,8 +210,7 @@ export function savePayload(entity: Entity, campaign: string, isNew: boolean): R
     sent.ca = entity.ca;
     sent.pvMax = entity.pvMax;
     sent.features = entity.features;
-    // default-token (TokenAppearance@1): a crop is a crop of the portrait, so a sheet with none keeps none.
-    sent.crop = hasPortrait(entity) ? entity.crop : null;
+    sent.crop = entity.crop;
     sent.color = entity.color;
     if (entity.portraitMedia !== undefined) sent.portrait = entity.portraitMedia;
     if (entity.tokenMedia !== undefined) sent.token = entity.tokenMedia;

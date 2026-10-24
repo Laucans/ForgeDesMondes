@@ -158,30 +158,14 @@ test('what is saved is the fields the DM edits under entity; a modifier is never
   assert.deepEqual(savePayload(place, 'camp', false), { entity: { id: 'p', kind: 'lieu', name: 'Taverne', aliases: ['la taverne'], description: 'd', notes: 'n' } });
 });
 
-test('default-token: a crop is sent only with a portrait, the one the server holds or the one just picked', () => {
-  const cropOf = (e: Parameters<typeof savePayload>[0]) => (savePayload(e, 'camp', false).entity as Record<string, unknown>).crop;
-  const base = sheet();
-  assert.deepEqual(cropOf({ ...base, portrait: true }), base.crop);
-  assert.equal(cropOf({ ...base, portrait: false }), null);
-  assert.deepEqual(cropOf({ ...base, portrait: false, portraitMedia: 'ill-1' }), base.crop);
-  assert.equal(cropOf({ ...base, portrait: true, portraitMedia: null }), null);
-});
-
 test('a command names its DataCapability and its version, its target and its key', () => {
   assert.deepEqual(commandBody('ai.proposeCharacter', { prompt: 'x' }, { aggregate: 'Entity', id: 'a' }, 'k'), {
     dataCapability: 'ai.proposeCharacter@1',
     payload: { prompt: 'x' },
     target: { aggregate: 'Entity', id: 'a' },
     idempotencyKey: 'k',
-    caller: { by: 'dm', from: 'EntityEditor', roles: ['role:approver'] },
+    caller: { by: 'dm', from: 'EntityEditor', roles: [] },
   });
-});
-
-test('every command carries the approver role: the DM approves their own act on the sheet', () => {
-  for (const id of ['campaign.saveEntity', 'ai.proposeCharacter', 'dndbeyond.importCharacter', 'dndbeyond.resyncCharacter']) {
-    const body = commandBody(id, {}, { aggregate: 'Entity', id: 'a' }, 'k') as { caller: { by: string; roles: string[] } };
-    assert.deepEqual(body.caller.roles, ['role:approver'], id);
-  }
 });
 
 test('the changes between two sheets are worded as the history words them', () => {

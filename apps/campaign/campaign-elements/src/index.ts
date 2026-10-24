@@ -99,13 +99,6 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
   const modeOf = (p: Props): 'tabs' | 'rail' => (p.mode === 'rail' ? 'rail' : 'tabs');
   const campaignOf = (p: Props): string => (p.campaign ?? '').trim() || (new URLSearchParams(win?.location.search ?? '').get('campaign') ?? '').trim();
 
-  /** The campaign on show is the screen's: the sheet beside the rail reads its lists and files its new sheets there. */
-  const publish = (p: Props): void => {
-    const campaign = campaignOf(p);
-    if (campaign !== '') shell.context?.set('campaign', campaign);
-  };
-  publish(current);
-
   let players: Player[] = [];
   let characters: Character[] = [];
   let places: Named[] = [];
@@ -358,7 +351,6 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
     update(next) {
       const before = current;
       current = next;
-      publish(next);
       const another = campaignOf(before) !== campaignOf(next);
       const otherMode = modeOf(before) !== modeOf(next);
       // What is on screen was the other campaign's, or the other mode's search: nothing of it stays.

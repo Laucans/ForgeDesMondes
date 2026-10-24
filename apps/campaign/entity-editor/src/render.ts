@@ -128,8 +128,8 @@ export function prompt(entity: Entity, canPropose: boolean): string {
     '<div class="panel__head"><h2 id="entity-prompt-title">Aide à la création</h2><span class="small muted">Seul le texte transcrit part vers le fournisseur IA</span></div>' +
     `<p class="small muted">Racontez le personnage à voix haute : l’IA propose un background, un comportement pour l’interpréter${pj ? '' : ' et un statblock crédible'}. La fiche est modifiée et la version précédente reste dans l’historique.</p>` +
     '<div class="row"><div class="kit-micbutton kit-micbutton--compact" id="entity-prompt-mic-box" data-state="idle">' +
-    `<button type="button" class="kit-micbutton__btn" id="entity-prompt-mic" aria-pressed="false" aria-label="Raconter au micro"><span class="kit-micbutton__ring"></span>${MIC}${PAUSE}</button>` +
-    '<div class="kit-micbutton__text"><span class="kit-micbutton__label">Raconter au micro</span>' +
+    `<button type="button" class="kit-micbutton__btn" id="entity-prompt-mic" aria-pressed="false" aria-label="Raconter le prompt initial"><span class="kit-micbutton__ring"></span>${MIC}${PAUSE}</button>` +
+    '<div class="kit-micbutton__text"><span class="kit-micbutton__label">Raconter le prompt initial</span>' +
     '<span class="kit-micbutton__status" aria-live="polite"><span class="kit-micbutton__state"></span> <span class="kit-micbutton__timer">00:00</span></span></div></div></div>' +
     textarea({ id: 'entity-prompt-text', label: 'Prompt initial', value: entity.prompt, rows: 3, placeholder: 'Ex. : un gobelin marchand, nerveux, qui doit de l’argent à des gens dangereux…', hint: canPropose ? '' : 'Enregistrez la fiche pour demander une proposition à l’IA.' }) +
     buttons(false, button({ id: 'entity-propose', label: pj ? 'Proposer background et comportement' : 'Proposer background, comportement et statblock', variant: 'primary', writes: PROPOSE_CHARACTER, disabled: !canPropose })) +
@@ -171,7 +171,7 @@ export function sheet(entity: Entity): string {
     `<div class="mf-entity__abilities" id="entity-abilities">${ABILITIES.map((k) => input({ id: `entity-stat-${k}`, label: `${k} ${signed(entity.stats[k])}`, type: 'number', value: entity.stats[k], min: 1, max: 30 })).join('')}</div>` +
     `<div class="mf-entity__grid">${input({ id: 'entity-ca', label: 'CA', type: 'number', value: entity.ca })}${input({ id: 'entity-pv', label: 'PV max', type: 'number', value: entity.pvMax })}</div>` +
     `<h3 id="entity-features-title">Sorts et capacités</h3><ul class="mf-entity__features" id="entity-features">${features(entity)}</ul>` +
-    `<div class="mf-entity__grid" id="entity-feature-add">${input({ id: 'entity-feature-name', label: 'Intitulé', value: '', placeholder: 'Boule de feu' })}${input({ id: 'entity-feature-text', label: 'Effet', value: '', placeholder: 'Sphère de 6 m, 8d6 dégâts de feu…', wide: true })}</div>` +
+    `<div class="mf-entity__grid" id="entity-feature-add">${input({ id: 'entity-feature-name', label: 'Nom', value: '', placeholder: 'Boule de feu' })}${input({ id: 'entity-feature-text', label: 'Description', value: '', placeholder: 'Sphère de 6 m, 8d6 dégâts de feu…', wide: true })}</div>` +
     buttons(true, button({ id: 'entity-feature-submit', label: 'Ajouter le sort ou la capacité', variant: 'secondary' })) +
     (pj ? '' : `<div id="entity-statblock">${statblock(entity)}</div>`)
   );
