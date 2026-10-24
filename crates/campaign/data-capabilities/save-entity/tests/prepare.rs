@@ -525,3 +525,80 @@ fn every_field_a_save_writes_is_one_its_manifest_touches() {
         }
     }
 }
+
+/// Morlox's second save, a note, from `source` (absent when `None`): what it
+/// writes, over the row his creation left.
+fn noted_from(source: Option<Value>) -> Result<Prepared, Refusal> {
+    let first = new(morlox()).expect("saved");
+    let base = after(&Row::new(), &first);
+    let mut wire = row(json!({
+        "campaign": VALOMBRE,
+        "entity": { "id": MORLOX, "notes": "Doit 40 po à Vesna." },
+    }));
+    if let Some(source) = source {
+        wire.insert("source".into(), source);
+    }
+    prepare(&wire, &base, fresh("f2", LATER))
+}
+
+#[test]
+fn a_save_that_names_no_source_is_the_dm_s_as_in_version_1() {
+    for source in [None, Some(Value::Null)] {
+        let Prepared { payload, .. } = noted_from(source.clone()).expect("saved");
+        assert_eq!(payload["source"], "dm", "{source:?}");
+        assert_eq!(payload["versionNumber"], 2, "{source:?}");
+    }
+    // A new element too.
+    assert_eq!(new(morlox()).expect("saved").payload["source"], "dm");
+}
+
+#[test]
+fn a_save_from_the_brief_the_ai_or_the_dm_writes_that_source_on_the_one_version_it_adds() {
+    let dm = noted_from(None).expect("saved").payload;
+    for source in ["brief", "ia", "dm"] {
+        let Prepared { payload, .. } = noted_from(Some(json!(source))).expect(source);
+        assert_eq!(payload["source"], source);
+        assert_eq!(payload["versionNumber"], 2, "{source}");
+        assert_eq!(
+            payload["diff"],
+            json!([{ "field": "notes", "old": null, "new": "Doit 40 po à Vesna." }]),
+            "{source}"
+        );
+        // Nothing but the source tells it from the DM's save.
+        let mut same = payload.clone();
+        same.insert("source".into(), json!("dm"));
+        assert_eq!(same, dm, "{source}");
+    }
+}
+
+#[test]
+fn a_source_a_save_may_not_name_is_refused_before_anything_is_written() {
+    for source in [
+        json!("restauration"),
+        json!("dndbeyond"),
+        json!("import"),
+        json!("DM"),
+        json!(""),
+        json!(1),
+        json!(true),
+        json!(["dm"]),
+        json!({ "source": "dm" }),
+    ] {
+        assert_eq!(
+            noted_from(Some(source.clone())),
+            Err(Refusal::NotASource),
+            "{source}"
+        );
+        // A new element as well.
+        let wire = row(json!({ "campaign": VALOMBRE, "entity": morlox(), "source": source }));
+        assert_eq!(
+            prepare(&wire, &Row::new(), fresh("f1", NOW)),
+            Err(Refusal::NotASource),
+            "{source}"
+        );
+    }
+    assert_eq!(
+        Refusal::NotASource.to_string(),
+        "la source est dm, brief ou ia"
+    );
+}

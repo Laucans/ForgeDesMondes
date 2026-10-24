@@ -30,11 +30,13 @@ ignored = [
     "aggregate-sound",
     "aggregate-sound-playback",
     "aggregate-suggestion",
+    "analyze-brief",
     "change-hit-points",
     "close-window",
     "create-battlemap-instance",
     "create-campaign",
     "create-entities-from-note",
+    "create-from-brief",
     "create-session",
     "end-combat",
     "export-campaign",
@@ -44,11 +46,13 @@ ignored = [
     "get-campaign",
     "get-diffusion",
     "get-entity",
+    "get-last-brief",
     "get-session",
     "get-settings",
     "import-character",
     "list-campaigns",
     "list-characters",
+    "list-entities-to-create",
     "list-entity-versions",
     "list-events",
     "list-imported-notes",
@@ -112,11 +116,13 @@ aggregate-session = { path = "../../session/aggregates/Session" }
 aggregate-sound = { path = "../../soundbox/aggregates/Sound" }
 aggregate-sound-playback = { path = "../../soundbox/aggregates/SoundPlayback" }
 aggregate-suggestion = { path = "../../live/aggregates/Suggestion" }
+analyze-brief = { path = "../../ai/data-capabilities/analyze-brief" }
 change-hit-points = { path = "../../table/data-capabilities/change-hit-points" }
 close-window = { path = "../../live/data-capabilities/close-window" }
 create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }
 create-campaign = { path = "../../campaign/data-capabilities/create-campaign" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
+create-from-brief = { path = "../../ai/data-capabilities/create-from-brief" }
 create-session = { path = "../../session/data-capabilities/create-session" }
 end-combat = { path = "../../table/data-capabilities/end-combat" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
@@ -126,11 +132,13 @@ get-battlemap-instance = { path = "../../table/capabilities/get-battlemap-instan
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-diffusion = { path = "../../live/capabilities/get-diffusion" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
+get-last-brief = { path = "../../session/capabilities/get-last-brief" }
 get-session = { path = "../../session/capabilities/get-session" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
 import-character = { path = "../../dndbeyond/data-capabilities/import-character" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
+list-entities-to-create = { path = "../../campaign/capabilities/list-entities-to-create" }
 list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
 list-events = { path = "../../campaign/capabilities/list-events" }
 list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes" }

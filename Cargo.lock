@@ -171,6 +171,7 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "platform-scratch-db",
  "serde_json",
  "tokio",
 ]
@@ -208,6 +209,27 @@ version = "0.1.0"
 dependencies = [
  "ports-llm",
  "serde_json",
+]
+
+[[package]]
+name = "analyze-brief"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "aggregate-session",
+ "ai-provider",
+ "async-trait",
+ "base64 0.22.1",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "platform-scratch-db",
+ "ports-llm",
+ "ports-speech-to-text",
+ "save-entity",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -502,6 +524,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-from-brief"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "aggregate-session",
+ "ai-provider",
+ "async-trait",
+ "base64 0.22.1",
+ "harness-dataguard",
+ "ports-llm",
+ "ports-speech-to-text",
+ "save-entity",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
 name = "create-session"
 version = "0.1.0"
 dependencies = [
@@ -566,11 +606,13 @@ dependencies = [
  "aggregate-sound",
  "aggregate-sound-playback",
  "aggregate-suggestion",
+ "analyze-brief",
  "change-hit-points",
  "close-window",
  "create-battlemap-instance",
  "create-campaign",
  "create-entities-from-note",
+ "create-from-brief",
  "create-session",
  "end-combat",
  "export-campaign",
@@ -580,12 +622,14 @@ dependencies = [
  "get-campaign",
  "get-diffusion",
  "get-entity",
+ "get-last-brief",
  "get-session",
  "get-settings",
  "harness-dataguard",
  "import-character",
  "list-campaigns",
  "list-characters",
+ "list-entities-to-create",
  "list-entity-versions",
  "list-events",
  "list-imported-notes",
@@ -831,6 +875,13 @@ name = "get-entity"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-last-brief"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
@@ -1245,6 +1296,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-entities-to-create"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "list-entity-versions"
 version = "0.1.0"
 dependencies = [
@@ -1535,6 +1593,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-normalization",
+]
+
+[[package]]
+name = "platform-scratch-db"
+version = "0.1.0"
+dependencies = [
+ "harness-dataguard",
+ "tokio",
 ]
 
 [[package]]

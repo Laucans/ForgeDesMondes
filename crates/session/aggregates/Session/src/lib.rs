@@ -40,6 +40,11 @@
 //! by the session and the PC ([`presence_of`]), which takes their one link
 //! row out of `session_present_character` in the transaction that applies
 //! it ([`Absences`]): the PCs that remain are the ones offered.
+//!
+//! An entry « à créer » created is a row of its own, `Session/<its id>`,
+//! whose status, element and refinement are written into `entity_to_create`
+//! in the transaction that applies it ([`Entries`]): the to-create list,
+//! which reads the table, then no longer offers it.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -50,12 +55,14 @@ use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
 mod absences;
+mod entries;
 mod order;
 mod presences;
 mod scenes;
 mod sessions;
 
 pub use absences::{Absences, presence_of};
+pub use entries::Entries;
 pub use order::{SceneOrder, order_id, session_of};
 pub use presences::{ADDED_AT, PRESENT_SESSION_ID, Presences, presence_id};
 pub use scenes::{
@@ -168,14 +175,15 @@ impl Judge for Session {
 }
 
 /// What the aggregate plugs into the engine: its judge, and its sessions,
-/// scenes, scene orders and PCs ticked present later written in the
-/// transaction that applies them.
+/// scenes, scene orders, PCs ticked present later and entries created
+/// written in the transaction that applies them.
 #[must_use]
 pub fn plugin() -> Plugin {
     Plugin::new()
         .judge(AGGREGATE, Session)
         // A PC unticked: its one link row out.
         .project_pg(AGGREGATE, Absences)
+        .project_pg(AGGREGATE, Entries)
         .project_pg(AGGREGATE, Sessions)
         .project_pg(AGGREGATE, Scenes)
         .project_pg(AGGREGATE, SceneOrder)

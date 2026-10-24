@@ -395,6 +395,84 @@ async fn rows_are_inserted_once_and_a_second_load_inserts_none() {
     s.drop().await;
 }
 
+const PAIRS: &str = "CREATE TABLE pair (
+    a integer NOT NULL,
+    b integer NOT NULL,
+    label text NOT NULL DEFAULT 'default',
+    PRIMARY KEY (a, b)
+);";
+
+fn pairs(rows: serde_json::Value) -> data::Table {
+    data::Table {
+        name: "pair",
+        key: "a,b",
+        columns: &["a", "b"],
+        rows: rows.as_array().expect("rows").clone(),
+    }
+}
+
+#[tokio::test]
+async fn a_key_of_several_columns_tells_rows_apart_by_the_whole_of_it() {
+    let mut s = Scratch::new("pairs").await;
+    s.file("01_pairs.sql", PAIRS);
+    data::migrate(&mut s.client, &s.dir).await.expect("applied");
+    // Rows that share a column are not rows that share a key.
+    let rows =
+        json!([{ "a": 1, "b": 1 }, { "a": 1, "b": 2 }, { "a": 2, "b": 1 }, { "a": 1, "b": 1 }]);
+
+    let first = data::insert_missing(&mut s.client, &[pairs(rows.clone())])
+        .await
+        .expect("inserted");
+    assert_eq!(first, 3, "the pair listed twice is one");
+    let second = data::insert_missing(&mut s.client, &[pairs(rows)])
+        .await
+        .expect("nothing to insert");
+    assert_eq!(second, 0);
+    // A pair the table holds under another label is left as it is; a new one goes in.
+    s.client
+        .batch_execute("UPDATE pair SET label = 'kept' WHERE a = 1 AND b = 2")
+        .await
+        .expect("an update");
+    let third = data::insert_missing(
+        &mut s.client,
+        &[pairs(json!([{ "a": 1, "b": 2 }, { "a": 2, "b": 2 }]))],
+    )
+    .await
+    .expect("one is missing");
+    assert_eq!(third, 1);
+
+    let labels: Vec<(i32, i32, String)> = s
+        .client
+        .query("SELECT a, b, label FROM pair ORDER BY a, b", &[])
+        .await
+        .expect("a read")
+        .iter()
+        .map(|row| (row.get(0), row.get(1), row.get(2)))
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            (1, 1, "default".to_string()),
+            (1, 2, "kept".to_string()),
+            (2, 1, "default".to_string()),
+            (2, 2, "default".to_string()),
+        ]
+    );
+
+    for key in ["a,", ",b", "a b,b", "a;b"] {
+        let table = data::Table {
+            key,
+            ..pairs(json!([{ "a": 3, "b": 3 }]))
+        };
+        let refused = data::insert_missing(&mut s.client, &[table]).await;
+        assert!(
+            matches!(refused, Err(Error::Identifier(_))),
+            "{key:?}: {refused:?}"
+        );
+    }
+    s.drop().await;
+}
+
 #[tokio::test]
 async fn a_column_the_table_is_not_given_takes_its_default() {
     let mut s = Scratch::new("default").await;

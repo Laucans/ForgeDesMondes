@@ -1,0 +1,10 @@
+[package]
+name = "get-last-brief"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability session.getLastBrief: a session's last oral brief and what its analysis found — transcript, scenes, recognised elements, elements to create — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"

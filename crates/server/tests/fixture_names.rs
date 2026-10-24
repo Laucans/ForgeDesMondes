@@ -19,7 +19,7 @@ use ports_llm::fake::FakeLlm;
 use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Value, json};
-use server::{Config, Names, app, fixtures, plant, renaming, shared};
+use server::{Config, Names, app, fixtures, id as uuid_of, plant, renaming, shared};
 use tower::ServiceExt;
 
 fn url() -> String {
@@ -98,6 +98,32 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
     data::insert_missing(&mut client, &plan.tables)
         .await
         .expect("the fixtures are inserted");
+    // A restart plans the same rows and loads none of them twice.
+    let again = fixtures(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures"))
+        .expect("the fixtures");
+    assert_eq!(
+        data::insert_missing(&mut client, &again.tables)
+            .await
+            .expect("the fixtures are planned again"),
+        0
+    );
+    // The DM took Kael off the second session and ticked him again since: the
+    // row is no longer the fixture's, and the load leaves it alone.
+    client
+        .batch_execute(&format!(
+            "UPDATE session_present_character SET added_at = now() \
+             WHERE session_id = '{}' AND character_id = '{}'",
+            uuid_of("session", "s2"),
+            uuid_of("entity", "kael"),
+        ))
+        .await
+        .expect("an update");
+    assert_eq!(
+        data::insert_missing(&mut client, &again.tables)
+            .await
+            .expect("a presence the DM changed is not loaded again"),
+        0
+    );
     let names = plan.names;
 
     // The engine over memory, its Capabilities reading the scratch database,
@@ -180,6 +206,68 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
         assert_eq!(media(&library, kind), media(&described, kind), "{library}");
     }
     assert_eq!(library["illustrations"].as_array().map(Vec::len), Some(5));
+
+    // The sessions, the last brief and the to-create list, by their slugs.
+    let sessions = read(&renamed, "session.listSessions", campaign.clone()).await;
+    let described = fixture("session.listSessions.json");
+    let summary = |sessions: &Value| -> Vec<(String, Value, Value, Value)> {
+        sessions
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(|s| {
+                (
+                    s["id"].to_string(),
+                    s["order"].clone(),
+                    s["title"].clone(),
+                    s["present"].clone(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(summary(&sessions).len(), 4, "{sessions}");
+    assert_eq!(
+        summary(&sessions),
+        summary(&described),
+        "in order: {sessions}"
+    );
+    assert_eq!(sessions[3]["status"], "prep", "{sessions}");
+    assert_eq!(sessions[0]["status"], "closed", "{sessions}");
+
+    let listed = read(&renamed, "campaign.listEntitiesToCreate", campaign.clone()).await;
+    let listed = listed["items"].clone();
+    let described = fixture("campaign.listEntitiesToCreate.json");
+    let entry = |list: &Value, id: &str| -> Value {
+        list.as_array()
+            .expect("a list")
+            .iter()
+            .find(|e| e["id"] == id)
+            .unwrap_or_else(|| panic!("{id} in {list}"))
+            .clone()
+    };
+    assert_eq!(listed.as_array().map(Vec::len), Some(3), "{listed}");
+    for id in ["tc-odric", "tc-vesna", "tc-gue"] {
+        let (got, want) = (entry(&listed, id), entry(&described, id));
+        for key in ["type", "name", "session", "excerpt", "status", "entity"] {
+            assert_eq!(got[key], want[key], "{id}.{key}: {got}");
+        }
+    }
+
+    let brief = read(&renamed, "session.getLastBrief", json!({ "session": "s4" })).await;
+    let described = fixture("session.getLastBrief.json");
+    assert_eq!(brief["session"], "s4", "{brief}");
+    assert_eq!(brief["transcript"], described["transcript"], "{brief}");
+    assert_eq!(brief["duration"], "04:12", "{brief}");
+    assert_eq!(brief["lastRun"], described["lastRun"], "{brief}");
+    // The brief's scenes and the elements it recognised are other aggregates' rows, not loaded.
+    assert_eq!(brief["result"]["scenes"], json!([]), "{brief}");
+    let missing = brief["result"]["missing"].as_array().expect("a list");
+    let missing: BTreeSet<&str> = missing.iter().filter_map(|m| m["id"].as_str()).collect();
+    assert_eq!(
+        missing,
+        BTreeSet::from(["tc-odric", "tc-gue"]),
+        "the created entry is no longer missing: {brief}"
+    );
 
     // Without the names, a slug names no row: the store knows uuids only.
     assert_eq!(

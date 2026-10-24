@@ -496,3 +496,55 @@ async fn a_save_the_tables_could_never_hold_is_refused_unprocessable_and_never_q
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn a_save_from_the_brief_or_the_ai_adds_a_version_of_that_source_and_any_other_is_refused() {
+    let s = served().await;
+    let (id, result) = s.save(morlox()).await;
+    applied(&result);
+    assert_eq!(s.row(&id).await["source"], "dm");
+    // The brief updates the NPC's notes; the AI fills its background, a
+    // field an AI proposal may fill (`proposal-fills-sheet-fields`).
+    for (number, source, field, value) in [
+        (2, "brief", "notes", "Vu au marché de Brume."),
+        (3, "ia", "background", "Né au marché."),
+    ] {
+        let (again, result) = s
+            .save(json!({ "source": source, "entity": { "id": id, field: value } }))
+            .await;
+        applied(&result);
+        assert_eq!(again, id);
+        let row = s.row(&id).await;
+        assert_eq!(row["source"], source);
+        assert_eq!(row["versionNumber"], number, "{source}");
+        let version = s.last(&id);
+        assert_eq!(version.number, number, "{source}");
+        assert_eq!(changed(&version.diff), [field], "{source}");
+    }
+    for source in [
+        json!("restauration"),
+        json!("dndbeyond"),
+        json!("joueur"),
+        json!(2),
+    ] {
+        let payload = json!({ "source": source, "entity": { "id": id, "notes": "Effacé." } });
+        match s.submitted("dm", payload, None).await {
+            Err(Error::Refused(refusal)) => {
+                assert_eq!(refusal.kind, RefusalKind::Unprocessable, "{source}");
+                assert_eq!(refusal.message, "la source est dm, brief ou ia");
+            }
+            other => panic!("{source}: {other:?}"),
+        }
+    }
+    assert!(
+        s.engine
+            .run_once()
+            .await
+            .expect("the applier ran")
+            .is_empty()
+    );
+    let row = s.row(&id).await;
+    assert_eq!(row["versionNumber"], 3);
+    assert_eq!(row["notes"], "Vu au marché de Brume.");
+    assert_eq!(s.history.of(&id).len(), 3);
+}
