@@ -41,7 +41,7 @@ fn r12_existing_npcs_updated_missing_ones_to_create() {
                 .join(" ");
             let versions = |s: &Server| -> Result<Vec<Value>, String> {
                 Ok(items(
-                    &s.read("campaign.listEntityVersions", json!({ "id": known }))?,
+                    &s.read("campaign.listEntityVersions", json!({ "entity": known }))?,
                     "versions",
                 ))
             };
