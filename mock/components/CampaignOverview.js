@@ -453,6 +453,12 @@
       const imports = Array.isArray(fixture) ? fixture : fixture && fixture.imports || [];
       return { imports: [...imports].sort((x, y) => String(y.date).localeCompare(String(x.date))), proposals: server.noteProposals || [] };
     },
+    // campaign.listEntitiesToCreate (crates/campaign/capabilities/list-entities-to-create):
+    // the to-create list, answered as `{ items }`; the fixture is the bare list of entries.
+    "campaign.listEntitiesToCreate": async (server) => {
+      const fixture = await server.load("campaign.listEntitiesToCreate");
+      return { items: Array.isArray(fixture) ? fixture : fixture && fixture.items || [] };
+    },
     // soundbox.listSounds (crates/soundbox/capabilities/list-sounds): the
     // campaign's sounds with their effective gain — the own volume times the
     // master volume, both percents (EffectiveVolume@1) — and whether one plays

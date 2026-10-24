@@ -49,6 +49,7 @@ ignored = [
     "get-settings",
     "list-campaigns",
     "list-characters",
+    "list-entities-to-create",
     "list-entity-versions",
     "list-events",
     "list-imported-notes",
@@ -129,6 +130,7 @@ get-session = { path = "../../session/capabilities/get-session" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
+list-entities-to-create = { path = "../../campaign/capabilities/list-entities-to-create" }
 list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
 list-events = { path = "../../campaign/capabilities/list-events" }
 list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes" }

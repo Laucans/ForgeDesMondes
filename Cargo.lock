@@ -586,6 +586,7 @@ dependencies = [
  "harness-dataguard",
  "list-campaigns",
  "list-characters",
+ "list-entities-to-create",
  "list-entity-versions",
  "list-events",
  "list-imported-notes",
@@ -1229,6 +1230,13 @@ dependencies = [
 
 [[package]]
 name = "list-characters"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-entities-to-create"
 version = "0.1.0"
 dependencies = [
  "serde_json",
