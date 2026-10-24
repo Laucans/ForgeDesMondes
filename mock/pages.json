@@ -134,7 +134,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "c057ed30a70d40e5"
+      "builtFrom": "02a63f67dfa9e3cb"
     },
     {
       "name": "CampaignOverview",
@@ -154,7 +154,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "f16877bab718da8f"
+      "builtFrom": "d32abde502184ced"
     },
     {
       "name": "SessionList",
@@ -176,7 +176,7 @@
         "campaign": "string — id de la campagne dont on liste les séances"
       },
       "source": "apps/session/session-list",
-      "builtFrom": "c331eec293017d04"
+      "builtFrom": "9cb4a428d3226e80"
     },
     {
       "name": "CampaignElements",
@@ -205,7 +205,7 @@
         "campaign": "string — id de la campagne, remplacé par ?campaign= dans l’adresse"
       },
       "source": "apps/campaign/campaign-elements",
-      "builtFrom": "c1276aa8d20090c7"
+      "builtFrom": "0c16942a70f49575"
     },
     {
       "name": "NoteImport",
@@ -226,7 +226,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "4020a0376bdb9893"
+      "builtFrom": "85725c15e15d7341"
     },
     {
       "name": "ToCreateList",
@@ -271,7 +271,7 @@
         "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse ; « new:pj », « new:pnj », « new:lieu » ou « new:evenement » ouvre une fiche à créer"
       },
       "source": "apps/campaign/entity-editor",
-      "builtFrom": "891734cb342c6f1d"
+      "builtFrom": "3822d02d27370bf3"
     },
     {
       "name": "VersionHistory",
@@ -292,7 +292,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "a6a6ef577487d115"
+      "builtFrom": "23759202260d1c1b"
     },
     {
       "name": "PreviousSummary",
@@ -310,7 +310,7 @@
       "actions": [],
       "props": {},
       "source": "apps/session/previous-summary",
-      "builtFrom": "24d4345ba53c60e5"
+      "builtFrom": "a59f48bad46743cb"
     },
     {
       "name": "OralBrief",
@@ -356,7 +356,7 @@
       ],
       "props": {},
       "source": "apps/session/scene-board",
-      "builtFrom": "872f6e5c5be6683c"
+      "builtFrom": "d59bbd0c577daac8"
     },
     {
       "name": "Battlemap",
@@ -398,7 +398,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "33bc433a10c38ea1"
+      "builtFrom": "13e0db9b62222d87"
     },
     {
       "name": "MediaLibrary",
@@ -426,7 +426,7 @@
         "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
       },
       "source": "apps/media/media-library",
-      "builtFrom": "7bb70a368f1670fd"
+      "builtFrom": "3a736c23afedd793"
     },
     {
       "name": "GridSettings",
@@ -446,7 +446,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "f616f137c4a5ba86"
+      "builtFrom": "8e1b872b0e8e4fca"
     },
     {
       "name": "SoundLibrary",
@@ -468,7 +468,7 @@
         "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
       },
       "source": "apps/soundbox/sound-library",
-      "builtFrom": "883f3afe9c9e3c74"
+      "builtFrom": "3dfb32c1251f1410"
     },
     {
       "name": "LiveSessionBar",
@@ -496,7 +496,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "8773b2566f2eb9d0"
+      "builtFrom": "41ac54baba9265dc"
     },
     {
       "name": "ElementsPanel",
@@ -564,7 +564,7 @@
       ],
       "props": {},
       "source": "apps/soundbox/live-soundbox",
-      "builtFrom": "d9849f3c4279ba4b"
+      "builtFrom": "ffb41a73edb552c9"
     },
     {
       "name": "SuggestionPill",
@@ -607,7 +607,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "14e06ab64dddb861"
+      "builtFrom": "886afb77696fb847"
     }
   ]
 }
