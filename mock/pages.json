@@ -505,7 +505,9 @@
         "live.showOnPlayerView",
         "live.showWindowOnPlayerView"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/live/elements-panel",
+      "builtFrom": "2567e9a41b7f2b12"
     },
     {
       "name": "TableSheet",
