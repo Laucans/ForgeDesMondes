@@ -8,7 +8,7 @@ export interface Shell {
   command(body: unknown): Promise<unknown>;
   commandResult(commandId: string): Promise<unknown>;
   /** The screen's context: the sheet on show is `entity`, the campaign a new sheet joins is `campaign`. */
-  context?: { get(name: string): unknown; set(name: string, value: unknown): void };
+  context?: { get(name: string): unknown; set(name: string, value: unknown): void; on?(listener: (name: string) => void): () => void };
 }
 
 /** How a command is followed until it settles: the server applies it on its own clock. */
@@ -92,3 +92,16 @@ export type Outcome = { kind: 'none' } | { kind: 'busy'; text: string } | { kind
 
 /** A request to open a sheet: an element of the campaign, or a new one of a kind. */
 export type Target = { id: string } | { fresh: Kind };
+
+/** What the rail asks over the page's bus: an element by its id, or a new one of a kind. */
+export interface OpenRequest {
+  id?: string;
+  new?: string;
+}
+
+/** What the sheet answers once it shows an element; `id` is null for one not saved yet. */
+export interface Opened {
+  id: string | null;
+  name: string;
+  kind: Kind;
+}

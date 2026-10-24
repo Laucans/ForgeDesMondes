@@ -42,6 +42,7 @@ interface Sent {
   target: { aggregate: string; id?: string };
   payload: Record<string, unknown> & { entity?: Record<string, unknown> };
   idempotencyKey: string;
+  caller: { by: string; from: string; roles: string[] };
 }
 
 interface Options {
@@ -55,6 +56,10 @@ interface Options {
   unreadableAfterCommand?: boolean;
   /** Changes the server's sheets before the first read. */
   seed?: (store: Sheet[]) => void;
+  /** The address of the page; the sheet reads `?id=` / `?new=` from it and writes the open sheet back. */
+  url?: string;
+  /** A context value another Micro-UI publishes while the first lists are being read. */
+  publishDuringFirstLists?: [name: string, value: unknown];
 }
 
 const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 5 };
@@ -89,13 +94,17 @@ function fakeShell(options: Options = {}) {
       }
     });
   const context = new Map<string, unknown>(Object.entries(options.context ?? { campaign: 'cendres-valombre' }));
+  const listeners = new Set<(name: string) => void>();
   const shell: Shell = {
     async capability(id, _sha256, variables) {
       reads.push({ id, variables });
       log.push(`read ${id}${variables && 'id' in variables ? ` ${String(variables.id)}` : ''}`);
       if (options.unreadable || (options.unreadableAfterCommand && sent.length > 0)) throw new Error('down');
       if (id === 'campaign.getEntity') return { asOf: 1, data: answer(store.find((s) => s.id === variables?.id)) };
-      if (id === 'campaign.listPlayers') return { asOf: 1, data: players };
+      if (id === 'campaign.listPlayers') {
+        if (options.publishDuringFirstLists && reads.filter((r) => r.id === id).length === 1) shell.context?.set(...options.publishDuringFirstLists);
+        return { asOf: 1, data: players };
+      }
       if (id === 'media.listMedia') return { asOf: 1, data: media };
       throw new Error(`unknown ${id}`);
     },
@@ -115,6 +124,11 @@ function fakeShell(options: Options = {}) {
       set: (name, value) => {
         contextSets.push([name, value]);
         context.set(name, value);
+        for (const listener of [...listeners]) listener(name);
+      },
+      on: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
       },
     },
   };
@@ -127,7 +141,7 @@ const settle = async (): Promise<void> => {
 };
 
 async function sheet(entity = 'morlox', options?: Options, dictation?: { transcript(): string }) {
-  const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="EntityEditor"></div></body></html>');
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="EntityEditor"></div></body></html>', { url: options?.url });
   const { document } = dom.window;
   const host = document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
@@ -226,6 +240,7 @@ test('explicit-save-only: typing writes nothing; the save button writes the shee
   assert.ok(!('campaign' in command.payload));
   assert.ok(!('modifiers' in (command?.payload.entity ?? {})));
   assert.match(command?.idempotencyKey ?? '', /^EntityEditor:campaign\.saveEntity:morlox:/);
+  assert.deepEqual(command?.caller.roles, ['role:approver']);
   assert.match(s.$('#entity-status').textContent ?? '', /Fiche enregistrée/);
   // Saved: the sheet is not modified any more, so the rail opens another at once.
   s.mounted.update({ entity: 'gaspard' });
@@ -347,6 +362,7 @@ test('the AI proposal: ai.proposeCharacter is triggered with the prompt, the she
   await s.click('#entity-propose');
   const [command] = s.sent;
   assert.equal(command?.dataCapability, 'ai.proposeCharacter@1');
+  assert.deepEqual(command?.caller.roles, ['role:approver']);
   assert.deepEqual(command?.target, { aggregate: 'Entity', id: 'morlox' });
   assert.deepEqual(command?.payload, { prompt: 'Un gobelin marchand, nerveux.' });
   assert.equal(s.value('#entity-background'), 'Chassé de sa tribu.');
@@ -601,4 +617,154 @@ test('a proposal applied whose sheet cannot be read again says so, and does not 
   await s.click('#entity-propose');
   assert.match(s.$('#entity-status').textContent ?? '', /a abouti, mais la fiche n’a pas pu être relue/);
   assert.equal(s.$<HTMLButtonElement>('#entity-save').disabled, false);
+});
+
+/** What the sheet answers on the page's bus, and the address it writes. */
+const busOf = (s: Awaited<ReturnType<typeof sheet>>) => {
+  const opened: Array<{ id: string | null; name: string; kind: string }> = [];
+  s.document.addEventListener('fdm:entity-opened', (e) => opened.push((e as CustomEvent<(typeof opened)[number]>).detail));
+  const ask = async (name: string, detail?: unknown): Promise<void> => {
+    s.document.dispatchEvent(new s.dom.window.CustomEvent(name, { detail }));
+    await settle();
+  };
+  return { opened, ask };
+};
+
+test('the page\'s bus: the rail asks for a sheet by its id or for a new one, and the sheet opens in place', async () => {
+  const s = await sheet('morlox');
+  const bus = busOf(s);
+  await bus.ask('fdm:open-entity', { id: 'gaspard' });
+  assert.equal(s.$('#entity-title').textContent, 'Gaspard Grosmollet');
+  await bus.ask('fdm:open-entity', { new: 'lieu' });
+  assert.equal(s.value('#entity-name'), '');
+  assert.equal(s.$('#entity-save').textContent, 'Enregistrer la fiche');
+  // A request naming neither asks for nothing.
+  await bus.ask('fdm:open-entity', {});
+  await bus.ask('fdm:open-entity');
+  assert.equal(s.value('#entity-name'), '');
+});
+
+test('the page\'s bus: a modified sheet answers the rail with the bar, then opens what the DM chose', async () => {
+  const s = await sheet('morlox');
+  const bus = busOf(s);
+  await s.type('#entity-description', 'Changée.');
+  await bus.ask('fdm:open-entity', { id: 'gaspard' });
+  assert.equal(s.barShown(), true);
+  assert.equal(s.value('#entity-name'), 'Morlox');
+  await s.click('#entity-unsaved-discard');
+  assert.equal(s.$('#entity-title').textContent, 'Gaspard Grosmollet');
+});
+
+test('the page\'s bus: the sheet on show is announced when it opens and when the rail asks (entity-query)', async () => {
+  const s = await sheet('morlox');
+  const bus = busOf(s);
+  await bus.ask('fdm:open-entity', { id: 'gaspard' });
+  assert.deepEqual(bus.opened.map((o) => o.id), ['gaspard']);
+  assert.equal(bus.opened[0]?.name, 'Gaspard Grosmollet');
+  await bus.ask('fdm:entity-query');
+  assert.deepEqual(bus.opened.map((o) => o.id), ['gaspard', 'gaspard']);
+});
+
+test('the address names the open sheet, in the same document: ?id= for a saved one, ?new= for one to create, the rest of the query stays', async () => {
+  const s = await sheet('morlox', { url: 'http://localhost/screens/fiche-entite?id=morlox&campaign=cendres-valombre#haut' });
+  const view = s.dom.window;
+  const bus = busOf(s);
+  await bus.ask('fdm:open-entity', { id: 'gaspard' });
+  assert.equal(view.location.search, '?campaign=cendres-valombre&id=gaspard');
+  assert.equal(view.location.pathname, '/screens/fiche-entite');
+  assert.equal(view.location.hash, '#haut');
+  await bus.ask('fdm:open-entity', { new: 'pnj' });
+  assert.equal(view.location.search, '?campaign=cendres-valombre&new=pnj');
+});
+
+test('a sheet created takes its id into the address once saved', async () => {
+  const s = await sheet('new:pnj', { url: 'http://localhost/screens/fiche-entite?new=pnj', context: { campaign: 'cendres-valombre' } });
+  const bus = busOf(s);
+  await s.type('#entity-name', 'Zorbak');
+  await s.click('#entity-save');
+  assert.equal(bus.opened.length, 1);
+  assert.match(s.dom.window.location.search, /^\?id=[0-9a-f-]{36}$/);
+  assert.equal(bus.opened[0]?.id, new URLSearchParams(s.dom.window.location.search).get('id'));
+});
+
+test('with no prop, the first sheet is the address\'s: ?id= for an element, ?new= for one to create; the prop wins over the address', async () => {
+  const byId = await sheet('', { url: 'http://localhost/screens/fiche-entite?id=gaspard' });
+  assert.equal(byId.$('#entity-title').textContent, 'Gaspard Grosmollet');
+  const fresh = await sheet('', { url: 'http://localhost/screens/fiche-entite?new=lieu' });
+  assert.equal(fresh.value('#entity-name'), '');
+  const both = await sheet('morlox', { url: 'http://localhost/screens/fiche-entite?id=gaspard' });
+  assert.equal(both.$('#entity-title').textContent, 'Morlox');
+  const none = await sheet('', { url: 'http://localhost/screens/fiche-entite' });
+  assert.match(none.$('#entity-status').textContent ?? '', /Aucune fiche/);
+  // An empty ?id= names nothing: the ?new= beside it does.
+  const empty = await sheet('', { url: 'http://localhost/screens/fiche-entite?id=&new=lieu' });
+  assert.equal(empty.value('#entity-name'), '');
+  assert.doesNotMatch(empty.$('#entity-status').textContent ?? '', /Aucune fiche/);
+});
+
+test('a sheet that left the page stops answering the bus', async () => {
+  const s = await sheet('morlox');
+  const bus = busOf(s);
+  s.host.remove();
+  await bus.ask('fdm:open-entity', { id: 'gaspard' });
+  await bus.ask('fdm:entity-query');
+  assert.deepEqual(bus.opened, []);
+  assert.equal(s.host.querySelector<HTMLInputElement>('#entity-name')?.value, 'Morlox');
+});
+
+test('a campaign published after the sheet opened reaches its lists: the players and the media are read again for it', async () => {
+  const s = await sheet('new:pnj', { context: {} });
+  const listed = () => s.reads.filter((r) => r.id === 'campaign.listPlayers' || r.id === 'media.listMedia');
+  assert.deepEqual(listed().map((r) => r.variables), [{}, {}]);
+  // Typed, the change not yet told to the sheet: the lists' repaint keeps it all the same.
+  s.$<HTMLInputElement>('#entity-name').value = 'Zorbak';
+  s.shell.context?.set('campaign', 'cendres-valombre');
+  await settle();
+  assert.deepEqual(listed().map((r) => r.variables), [{}, {}, { campaign: 'cendres-valombre' }, { campaign: 'cendres-valombre' }]);
+  // What the DM typed meanwhile stays.
+  assert.equal(s.value('#entity-name'), 'Zorbak');
+  // Another name of the context, or the same campaign again, reads nothing.
+  s.shell.context?.set('entity', 'x');
+  s.shell.context?.set('campaign', 'cendres-valombre');
+  await settle();
+  assert.equal(listed().length, 4);
+});
+
+test('a campaign published while the first lists are read is read for as well: the rail and the sheet mount in no set order', async () => {
+  const s = await sheet('new:pnj', { context: {}, publishDuringFirstLists: ['campaign', 'cendres-valombre'] });
+  const listed = s.reads.filter((r) => r.id === 'campaign.listPlayers' || r.id === 'media.listMedia');
+  assert.deepEqual(listed.map((r) => r.variables), [{}, {}, { campaign: 'cendres-valombre' }, { campaign: 'cendres-valombre' }]);
+});
+
+test('a sheet that left the page stops following the context', async () => {
+  const s = await sheet('new:pnj', { context: {} });
+  s.host.remove();
+  s.shell.context?.set('campaign', 'cendres-valombre');
+  await settle();
+  assert.equal(s.reads.filter((r) => r.id === 'campaign.listPlayers').length, 1);
+});
+
+test('a campaign published while a command runs is read all the same; the sheet stays locked until the command ends', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const s = await sheet('new:pnj', { context: {}, gate });
+  await s.type('#entity-name', 'Zorbak');
+  s.shell.context?.set('campaign', 'cendres-valombre');
+  await s.click('#entity-save');
+  s.shell.context?.set('campaign', 'autre');
+  await settle();
+  assert.equal(s.$<HTMLInputElement>('#entity-name').disabled, true);
+  assert.deepEqual(s.reads.filter((r) => r.id === 'campaign.listPlayers').map((r) => r.variables), [{}, { campaign: 'cendres-valombre' }, { campaign: 'autre' }]);
+  release();
+  await settle();
+  assert.equal(s.$<HTMLInputElement>('#entity-name').disabled, false);
+});
+
+test('a sheet renamed and saved is announced under its new name when the rail asks', async () => {
+  const s = await sheet('morlox');
+  const bus = busOf(s);
+  await s.type('#entity-name', 'Morlox l’Ancien');
+  await s.click('#entity-save');
+  await bus.ask('fdm:entity-query');
+  assert.deepEqual(bus.opened.map((o) => o.name), ['Morlox l’Ancien']);
 });
