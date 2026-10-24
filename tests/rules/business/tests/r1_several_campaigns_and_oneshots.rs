@@ -10,7 +10,9 @@ use common::*;
 fn r1_several_campaigns_and_oneshots() {
     // The oneshot's single session is counted from the Session aggregate, so
     // the rule waits for the units that create and list sessions, not only
-    // for the aggregate's table.
+    // for the aggregate's table. The count itself reaches `campaign.listCampaigns`
+    // with the home that shows it: no manifest names that evolution of an
+    // existing Capability, the rule's component does.
     rule(
         "R1",
         &[
@@ -18,6 +20,7 @@ fn r1_several_campaigns_and_oneshots() {
             "aggregate:Session",
             "capability:session.listSessions",
             "data-capability:session.createSession",
+            "micro-ui:CampaignList",
         ],
         |s| {
             // No credential is sent: a read that is answered asks for no account.

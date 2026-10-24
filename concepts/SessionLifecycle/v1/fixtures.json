@@ -1,0 +1,159 @@
+{
+  "concept": "SessionLifecycle",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a session in preparation is labelled En préparation and takes journal lines",
+      "input": {
+        "status": "prep"
+      },
+      "output": {
+        "label": "En préparation",
+        "acceptsJournalLine": true,
+        "transitionAllowed": null
+      }
+    },
+    {
+      "name": "a live session is labelled En direct and takes journal lines",
+      "input": {
+        "status": "live"
+      },
+      "output": {
+        "label": "En direct",
+        "acceptsJournalLine": true,
+        "transitionAllowed": null
+      }
+    },
+    {
+      "name": "a closed session is labelled Jouée and takes no journal line",
+      "input": {
+        "status": "closed"
+      },
+      "output": {
+        "label": "Jouée",
+        "acceptsJournalLine": false,
+        "transitionAllowed": null
+      }
+    },
+    {
+      "name": "a null next status asks about the status alone",
+      "input": {
+        "status": "live",
+        "nextStatus": null
+      },
+      "output": {
+        "label": "En direct",
+        "acceptsJournalLine": true,
+        "transitionAllowed": null
+      }
+    },
+    {
+      "name": "prep to live is allowed",
+      "input": {
+        "status": "prep",
+        "nextStatus": "live"
+      },
+      "output": {
+        "label": "En préparation",
+        "acceptsJournalLine": true,
+        "transitionAllowed": true
+      }
+    },
+    {
+      "name": "live to closed is allowed",
+      "input": {
+        "status": "live",
+        "nextStatus": "closed"
+      },
+      "output": {
+        "label": "En direct",
+        "acceptsJournalLine": true,
+        "transitionAllowed": true
+      }
+    },
+    {
+      "name": "closed to live is refused",
+      "input": {
+        "status": "closed",
+        "nextStatus": "live"
+      },
+      "output": {
+        "label": "Jouée",
+        "acceptsJournalLine": false,
+        "transitionAllowed": false
+      }
+    },
+    {
+      "name": "live to prep is refused",
+      "input": {
+        "status": "live",
+        "nextStatus": "prep"
+      },
+      "output": {
+        "label": "En direct",
+        "acceptsJournalLine": true,
+        "transitionAllowed": false
+      }
+    },
+    {
+      "name": "closed to prep is refused",
+      "input": {
+        "status": "closed",
+        "nextStatus": "prep"
+      },
+      "output": {
+        "label": "Jouée",
+        "acceptsJournalLine": false,
+        "transitionAllowed": false
+      }
+    },
+    {
+      "name": "prep to closed is refused: live cannot be skipped",
+      "input": {
+        "status": "prep",
+        "nextStatus": "closed"
+      },
+      "output": {
+        "label": "En préparation",
+        "acceptsJournalLine": true,
+        "transitionAllowed": false
+      }
+    },
+    {
+      "name": "prep to prep is refused: a status is not a move",
+      "input": {
+        "status": "prep",
+        "nextStatus": "prep"
+      },
+      "output": {
+        "label": "En préparation",
+        "acceptsJournalLine": true,
+        "transitionAllowed": false
+      }
+    },
+    {
+      "name": "live to live is refused: a status is not a move",
+      "input": {
+        "status": "live",
+        "nextStatus": "live"
+      },
+      "output": {
+        "label": "En direct",
+        "acceptsJournalLine": true,
+        "transitionAllowed": false
+      }
+    },
+    {
+      "name": "closed to closed is refused: a status is not a move",
+      "input": {
+        "status": "closed",
+        "nextStatus": "closed"
+      },
+      "output": {
+        "label": "Jouée",
+        "acceptsJournalLine": false,
+        "transitionAllowed": false
+      }
+    }
+  ]
+}

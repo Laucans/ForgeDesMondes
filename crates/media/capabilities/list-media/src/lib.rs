@@ -170,16 +170,17 @@ fn ratio(width: &Value, height: &Value) -> Value {
 pub const VARIABLES: &[&str] = &[];
 
 /// The answer to a read, as the registry serves it: the rows of [`SQL`] and
-/// the request's variables. It reads `campaignId` from the request: [`SQL`]
-/// selects every row, the answer picks; a variable absent is the empty text,
-/// which names nothing.
+/// the request's variables. It reads the campaign from `campaign`, and from
+/// `campaignId` — the name of version 1 — only when `campaign` is absent or
+/// not a string: [`SQL`] selects every row, the answer picks; no campaign
+/// given is the empty text, which names nothing.
 #[must_use]
 pub fn answer(rows: &Value, variables: &BTreeMap<String, Value>) -> Value {
+    let text = |name: &str| variables.get(name).and_then(Value::as_str);
     answer_rows(
         rows,
-        variables
-            .get("campaignId")
-            .and_then(Value::as_str)
+        text("campaign")
+            .or_else(|| text("campaignId"))
             .unwrap_or_default(),
     )
 }
@@ -400,14 +401,69 @@ mod tests {
         }
     }
 
+    fn library() -> Value {
+        json!([
+            battlemap_row("bm-1", CAMPAIGN, None),
+            media("ill-1", CAMPAIGN, "illustration", None),
+            battlemap_row("bm-other", "c-autre", None),
+        ])
+    }
+
+    fn asked(variables: &[(&str, Value)]) -> Value {
+        let variables = variables
+            .iter()
+            .map(|(name, value)| ((*name).to_string(), value.clone()))
+            .collect();
+        answer(&library(), &variables)
+    }
+
     #[test]
-    fn the_registry_s_answer_reads_its_variable_from_the_request() {
-        let rows = json!([battlemap_row("bm-1", CAMPAIGN, None)]);
-        let variables = BTreeMap::from([("campaignId".to_string(), json!(CAMPAIGN))]);
-        let answered = answer(&rows, &variables);
+    fn the_campaign_is_read_from_campaign() {
+        let answered = asked(&[("campaign", json!(CAMPAIGN))]);
         assert_ne!(answered, Value::Null);
-        assert_eq!(answered, answer_rows(&rows, CAMPAIGN));
-        assert_ne!(answer(&rows, &BTreeMap::new()), answered);
+        assert_eq!(answered, answer_rows(&library(), CAMPAIGN));
+        assert_eq!(ids(&answered["battlemaps"]), ["bm-1"]);
+        assert_eq!(ids(&answered["illustrations"]), ["ill-1"]);
+    }
+
+    #[test]
+    fn campaign_id_of_version_1_still_lists_the_same_library() {
+        assert_eq!(
+            asked(&[("campaignId", json!(CAMPAIGN))]),
+            asked(&[("campaign", json!(CAMPAIGN))])
+        );
+        assert_ne!(
+            asked(&[("campaignId", json!(CAMPAIGN))]),
+            asked(&[("campaignId", json!("c-autre"))])
+        );
+    }
+
+    #[test]
+    fn campaign_wins_over_campaign_id() {
+        let answered = asked(&[
+            ("campaign", json!("c-autre")),
+            ("campaignId", json!(CAMPAIGN)),
+        ]);
+        assert_eq!(ids(&answered["battlemaps"]), ["bm-other"]);
+        assert_eq!(answered, answer_rows(&library(), "c-autre"));
+    }
+
+    #[test]
+    fn a_campaign_that_is_not_a_string_falls_back_to_campaign_id() {
+        for not_text in [json!(null), json!(7), json!({}), json!([CAMPAIGN])] {
+            let answered = asked(&[("campaign", not_text), ("campaignId", json!(CAMPAIGN))]);
+            assert_eq!(ids(&answered["battlemaps"]), ["bm-1"]);
+        }
+    }
+
+    #[test]
+    fn neither_variable_is_the_empty_answer() {
+        let empty = json!({ "cover": null, "battlemaps": [], "illustrations": [] });
+        assert_eq!(asked(&[]), empty);
+        assert_eq!(
+            asked(&[("campaign", json!(7)), ("campaignId", json!(7))]),
+            empty
+        );
     }
 
     #[test]

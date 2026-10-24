@@ -2,8 +2,10 @@
 //! binds it, over the in-memory store: a command that breaks one is
 //! rejected under its id, and the row stays as it was. The DataCapabilities
 //! here are test-only — no other DataCapability of the product writes a
-//! campaign yet — but for `campaign.exportCampaign`, the product's own, its
-//! manifest copied as it declares itself.
+//! campaign yet — but for `campaign.exportCampaign` and
+//! `campaign.createCampaign`, the product's own, their manifests copied as
+//! they declare themselves; a creation's payload is written here as its
+//! `Prepare` would make it, or not.
 
 use std::sync::Arc;
 
@@ -28,8 +30,15 @@ const EXPORT: &str = r#"{"dataCapability":"campaign.exportCampaign","owner":"dat
 /// An export that would create its campaign rather than stamp it.
 const EXPORT_AS_INSERT: &str = r#"{"dataCapability":"campaign.exportCampaign","owner":"dataguard","version":2,"effect":"insert","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
 
+/// The product's creation, as its `data-capability.json` declares it.
+const CREATE_CAMPAIGN: &str = r#"{"dataCapability":"campaign.createCampaign","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"Campaign","id":"$id"},"touches":["Campaign.id","Campaign.name","Campaign.kind","Campaign.pitch","Campaign.art","Campaign.glyph","Campaign.createdAt","Campaign.soundMasterVolume"],"payload":{"name":"string","type":"string"},"mode":"overwrite","invariants":["oneshot-single-session","master-volume-range"],"permissions":[],"callableBy":["*"],"idempotencyKey":"optional"}"#;
+/// A creation that would write over a campaign rather than add one.
+const CREATE_CAMPAIGN_AS_UPDATE: &str = r#"{"dataCapability":"campaign.createCampaign","owner":"dataguard","version":2,"effect":"update","target":{"aggregate":"Campaign","id":"$id"},"mode":"overwrite","callableBy":["*"]}"#;
+
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const COPY: &str = "c1000000-0000-4000-8000-000000000002";
+const LE_BAL: &str = "c1000000-0000-4000-8000-000000000003";
+const ITS_SESSION: &str = "d1000000-0000-4000-8000-000000000003";
 
 /// The engine as the server plants this aggregate — its manifest and its
 /// plugin — over the in-memory store.
@@ -48,7 +57,7 @@ async fn plant() -> harness_dataguard::Result<Engine> {
 /// The engine as the server plants it, with the test-only DataCapabilities.
 async fn engine() -> Engine {
     let mut engine = plant().await.expect("the in-memory engine");
-    for manifest in [CREATE, UPDATE, DELETE, EXPORT] {
+    for manifest in [CREATE, UPDATE, DELETE, EXPORT, CREATE_CAMPAIGN] {
         engine = engine.with_data_capability(DataCapability::parse(manifest).expect("contract F"));
     }
     engine
@@ -432,4 +441,150 @@ async fn a_deleted_campaign_is_not_judged_by_its_invariants() {
     // Nor one the engine never held, whose row it knows by its id alone: no
     // kind for oneshot-single-session to judge, and none needed to delete it.
     applied(&written(&engine, "test.deleteCampaign", json!({ "id": COPY })).await);
+}
+
+/// Le Bal, a oneshot, as `campaign.createCampaign` prepares it: with its one
+/// session, of this campaign, at position 1, in prep, the microphone off.
+fn le_bal() -> Value {
+    json!({
+        "id": LE_BAL,
+        "name": "Le Bal",
+        "kind": "oneshot",
+        "pitch": null,
+        "art": null,
+        "glyph": null,
+        "createdAt": "2026-10-21T09:00:00.123Z",
+        "soundMasterVolume": 1.0,
+        "sessionId": ITS_SESSION,
+        "sessionCampaignId": LE_BAL,
+        "sessionPosition": 1,
+        "sessionTitle": "Le Bal",
+        "sessionStatus": "prep",
+        "microphoneOn": false,
+    })
+}
+
+/// What a creation writes of a oneshot's session.
+const SESSION: [&str; 6] = [
+    "sessionId",
+    "sessionCampaignId",
+    "sessionPosition",
+    "sessionTitle",
+    "sessionStatus",
+    "microphoneOn",
+];
+
+/// Le Bal as a campagne: with no session.
+fn le_bal_campagne() -> Value {
+    let mut campagne = with(le_bal(), "kind", json!("campagne"));
+    for field in SESSION {
+        campagne = without(campagne, field);
+    }
+    campagne
+}
+
+#[tokio::test]
+async fn oneshot_single_session_lets_a_created_oneshot_with_its_one_session_through() {
+    let engine = engine().await;
+    applied(&written(&engine, "campaign.createCampaign@1", le_bal()).await);
+}
+
+#[tokio::test]
+async fn oneshot_single_session_lets_a_created_campagne_with_no_session_through() {
+    let engine = engine().await;
+    applied(&written(&engine, "campaign.createCampaign@1", le_bal_campagne()).await);
+}
+
+#[tokio::test]
+async fn oneshot_single_session_rejects_a_created_oneshot_without_its_one_session_as_it_starts() {
+    let engine = engine().await;
+    let mut payloads: Vec<Value> = SESSION
+        .iter()
+        .map(|field| without(le_bal(), field))
+        .collect();
+    payloads.extend([
+        with(le_bal(), "sessionId", json!("")),
+        with(le_bal(), "sessionId", json!(7)),
+        with(le_bal(), "sessionCampaignId", json!(VALOMBRE)),
+        with(le_bal(), "sessionPosition", json!(2)),
+        with(le_bal(), "sessionPosition", json!("1")),
+        with(le_bal(), "sessionTitle", json!("")),
+        with(le_bal(), "sessionStatus", json!("live")),
+        with(le_bal(), "sessionStatus", json!("closed")),
+        with(le_bal(), "microphoneOn", json!(true)),
+        with(le_bal(), "microphoneOn", json!("false")),
+    ]);
+    for payload in payloads {
+        rejected_by(
+            &written(&engine, "campaign.createCampaign@1", payload).await,
+            "oneshot-single-session",
+        );
+    }
+    // Nothing was written: Le Bal can still be created, whole.
+    applied(&written(&engine, "campaign.createCampaign@1", le_bal()).await);
+}
+
+#[tokio::test]
+async fn oneshot_single_session_lets_a_session_s_campaign_named_in_any_case_through() {
+    let engine = engine().await;
+    applied(
+        &written(
+            &engine,
+            "campaign.createCampaign@1",
+            with(le_bal(), "sessionCampaignId", json!(LE_BAL.to_uppercase())),
+        )
+        .await,
+    );
+}
+
+#[tokio::test]
+async fn oneshot_single_session_rejects_a_created_campagne_carrying_a_session() {
+    let engine = engine().await;
+    for field in SESSION {
+        rejected_by(
+            &written(
+                &engine,
+                "campaign.createCampaign@1",
+                with(le_bal_campagne(), field, le_bal()[field].clone()),
+            )
+            .await,
+            "oneshot-single-session",
+        );
+    }
+}
+
+#[tokio::test]
+async fn oneshot_single_session_rejects_a_creation_that_writes_over_a_campaign() {
+    let engine = engine().await.with_data_capability(
+        DataCapability::parse(CREATE_CAMPAIGN_AS_UPDATE).expect("contract F"),
+    );
+    applied(&written(&engine, "test.createCampaign", le_bal_campagne()).await);
+    rejected_by(
+        &written(&engine, "campaign.createCampaign@2", le_bal_campagne()).await,
+        "oneshot-single-session",
+    );
+}
+
+#[tokio::test]
+async fn master_volume_range_rejects_a_creation_out_of_range() {
+    let engine = engine().await;
+    rejected_by(
+        &written(
+            &engine,
+            "campaign.createCampaign@1",
+            with(le_bal(), "soundMasterVolume", json!(1.5)),
+        )
+        .await,
+        "master-volume-range",
+    );
+}
+
+#[tokio::test]
+async fn oneshot_single_session_rejects_a_creation_over_a_campaign_that_exists() {
+    let engine = engine().await;
+    applied(&written(&engine, "test.createCampaign", le_bal_campagne()).await);
+    rejected_by(
+        &written(&engine, "campaign.createCampaign@1", le_bal()).await,
+        "oneshot-single-session",
+    );
 }

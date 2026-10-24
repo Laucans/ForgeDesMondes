@@ -55,6 +55,7 @@
     },
     {
       "path": "pages/medias.html",
+      "screen": "medias",
       "title": "Médias et réglage de battlemap",
       "objective": "Le DM téléverse ses battlemaps et illustrations et règle la grille hexagonale de chaque carte avec un aperçu en direct",
       "components": [
@@ -129,7 +130,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "1512f9260769bf0f"
+      "builtFrom": "471fe7b339298217"
     },
     {
       "name": "CampaignOverview",
@@ -149,7 +150,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "e5a6dc75caf88a4d"
+      "builtFrom": "24b73bb67d82f925"
     },
     {
       "name": "SessionList",
@@ -167,7 +168,11 @@
       "actions": [
         "session.createSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on liste les séances"
+      },
+      "source": "apps/session/session-list",
+      "builtFrom": "77fe9d1d495cae10"
     },
     {
       "name": "CampaignElements",
@@ -214,7 +219,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "f1c323f6fd2cc499"
+      "builtFrom": "87b9643f70193ee1"
     },
     {
       "name": "ToCreateList",
@@ -278,7 +283,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "7601d0af0351c0a9"
+      "builtFrom": "5b27cad61cdbcb31"
     },
     {
       "name": "PreviousSummary",
@@ -296,7 +301,7 @@
       "actions": [],
       "props": {},
       "source": "apps/session/previous-summary",
-      "builtFrom": "e14a6d83decedf0f"
+      "builtFrom": "038d583b3812e217"
     },
     {
       "name": "OralBrief",
@@ -401,7 +406,13 @@
         "media.setMediaPlace",
         "session.addPlaceToSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on montre les médias, remplacé par ?id= dans l’adresse",
+        "session": "string — id de la séance en préparation, vide quand aucune n'est choisie : sans elle, aucune fiche n'est rattachée à une séance",
+        "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
+      },
+      "source": "apps/media/media-library",
+      "builtFrom": "d047f62d744eae1f"
     },
     {
       "name": "GridSettings",
@@ -421,7 +432,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "d41ebd763e253038"
+      "builtFrom": "af4eaba9db067b46"
     },
     {
       "name": "SoundLibrary",
@@ -467,7 +478,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "222183ad31cd3b2e"
+      "builtFrom": "644580f0f80ca1c4"
     },
     {
       "name": "ElementsPanel",

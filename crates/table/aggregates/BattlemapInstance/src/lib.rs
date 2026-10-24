@@ -463,9 +463,32 @@ fn single_position_source(state: &BTreeMap<String, Value>, _entry: &Entry) -> bo
 mod tests {
     use std::collections::BTreeMap;
 
+    use harness_dataguard::command::Entry;
     use serde_json::{Value, json};
 
-    use super::{CHECKS, COMBAT, DERIVED, ENTRY, INSTANCE, ORDER, TOKEN, modifier};
+    use super::{
+        CHECKS, COMBAT, DERIVED, ENTRY, INSTANCE, ORDER, TOKEN, dead_derived, modifier,
+        writes_derived,
+    };
+
+    /// An update writing `payload` and touching `touches`.
+    fn writing(payload: &Value, touches: &[&str]) -> Entry {
+        serde_json::from_value(json!({
+            "command": "c1",
+            "data_capability": "test.write@1",
+            "by": "dm",
+            "partition": "BattlemapInstance/a1",
+            "position": 1,
+            "based_on": { "version": 0 },
+            "payload": payload,
+            "effect": "update",
+            "touches": touches,
+            "mode": "overwrite",
+            "projection": { "confirmed": {}, "pending_ahead": [] },
+            "state": "queued",
+        }))
+        .expect("an entry")
+    }
 
     fn aggregate() -> Value {
         serde_json::from_str(include_str!("../aggregate.json")).expect("contract I")
@@ -531,5 +554,44 @@ mod tests {
         platform_conformance::check("AbilityModifier@1", |input| {
             computed[&input.to_string()].clone()
         });
+    }
+
+    #[test]
+    fn writes_derived_tells_the_invariant_whose_derived_field_the_command_writes() {
+        // By the payload, and by a touch.
+        let by_payload = writing(&json!({ "dead": true }), &[]);
+        let by_touch = writing(&json!({}), &["BattlemapInstance.skipped"]);
+        for entry in [&by_payload, &by_touch] {
+            assert!(writes_derived(entry, "dead-derived"));
+            // Another invariant's derived fields are not written.
+            assert!(!writes_derived(entry, "players-see-band-only"));
+        }
+        // A field of the aggregate that is not derived.
+        assert!(!writes_derived(
+            &writing(&json!({ "name": "Morlox" }), &[]),
+            "dead-derived"
+        ));
+    }
+
+    #[test]
+    fn dead_derived_holds_only_when_the_command_writes_neither_death_nor_skip() {
+        let state = BTreeMap::new();
+        assert!(dead_derived(
+            &state,
+            &writing(&json!({ "hpCurrent": 0 }), &[])
+        ));
+        assert!(!dead_derived(
+            &state,
+            &writing(&json!({ "dead": true }), &[])
+        ));
+        assert!(!dead_derived(
+            &state,
+            &writing(&json!({}), &["BattlemapInstance.skipped"])
+        ));
+        // The band is another invariant's.
+        assert!(dead_derived(
+            &state,
+            &writing(&json!({ "healthBand": "indemne" }), &[])
+        ));
     }
 }

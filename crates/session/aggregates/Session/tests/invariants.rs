@@ -1,14 +1,16 @@
 //! The Session aggregate's invariants, judged by the DataGuard as `plant()`
 //! binds it, over the in-memory store: a command that takes a session back
 //! in its lifecycle, closes it with its microphone on, adds a journal line
-//! once it is closed, ranks a scene below 1, stores the roster or the media
-//! of a session, creates an element from a brief, marks an entry « creee »
-//! without its element, or writes audio is rejected under the invariant's
-//! id, and the row stays as it was. The DataCapabilities here are test-only:
-//! no DataCapability of the product writes a session yet.
+//! once it is closed, ranks a scene below 1, orders a scene twice or off its
+//! order's own row, stores the roster or the media of a session, creates an
+//! element from a brief, marks an entry « creee » without its element, or
+//! writes audio is rejected under the invariant's id, and the row stays as
+//! it was. The DataCapabilities here are test-only, each writing any field
+//! of a session's rows.
 
 use std::sync::Arc;
 
+use aggregate_session::order_id;
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::api::Submission;
 use harness_dataguard::command::{CommandResult, State};
@@ -34,8 +36,9 @@ const REMOVE: &str = r#"{"dataCapability":"test.removeSession","owner":"dataguar
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 /// Valombre's session 1.
 const SEANCE: &str = "51000000-0000-4000-8000-000000000001";
-/// Its tavern scene.
+/// Its tavern scene, and its road scene.
 const ARRIVEE: &str = "5c000000-0000-4000-8000-000000000001";
+const ROUTE: &str = "5c000000-0000-4000-8000-000000000002";
 /// Valombre's PC.
 const ELOWEN: &str = "e1000000-0000-4000-8000-000000000001";
 /// Valombre's battlemap, at the Taverne.
@@ -125,6 +128,29 @@ async fn written(engine: &Engine, data_capability: &str, payload: Value) -> Comm
                 // The critical fields' review is not what these tests judge.
                 roles: vec!["role:approver".to_string()],
             },
+        })
+        .await
+        .expect("queued");
+    let mut applied = engine.run_once().await.expect("the applier ran");
+    assert_eq!(applied.len(), 1, "{applied:?}");
+    applied.remove(0)
+}
+
+/// What the single applier made of session 1's scene order `order`,
+/// written on the order's own row.
+async fn reordered(engine: &Engine, order: Value) -> CommandResult {
+    engine
+        .submit(Submission {
+            data_capability: "test.updateSession".to_string(),
+            payload: [("scenePosition".to_string(), order)].into_iter().collect(),
+            target_id: order_id(SEANCE),
+            caller: Caller {
+                by: "dm".to_string(),
+                from: "session.prep".to_string(),
+                permissions: Vec::new(),
+                roles: Vec::new(),
+            },
+            ..Submission::default()
         })
         .await
         .expect("queued");
@@ -402,6 +428,37 @@ async fn scene_order_contiguous_ranks_a_scene_from_one() {
 }
 
 #[tokio::test]
+async fn scene_order_contiguous_takes_a_session_s_order_naming_each_scene_once() {
+    let engine = session("prep").await;
+    // The order of session 1's scenes, each once, on its own row: the
+    // ranks 1 to n follow.
+    applied(&reordered(&engine, json!([ROUTE, ARRIVEE])).await);
+    // An empty order, or one naming a scene twice, ranks no scene 1 to n.
+    for order in [json!([]), json!([ARRIVEE, ROUTE, ARRIVEE])] {
+        rejected_by(
+            &reordered(&engine, order).await,
+            &["scene-order-contiguous"],
+        );
+    }
+    // Ranks in place of ids are no column's values either.
+    rejected_by(
+        &reordered(&engine, json!([2, 1])).await,
+        &["scene-order-contiguous", "text-only-no-audio"],
+    );
+    // An order anywhere but on its own row — the session's, a scene's —
+    // would be replayed by the next write of that row.
+    for row in [
+        json!({ "sessionId": SEANCE, "scenePosition": [ROUTE, ARRIVEE] }),
+        json!({ "sceneId": ARRIVEE, "sceneSessionId": SEANCE, "scenePosition": [ARRIVEE] }),
+    ] {
+        rejected_by(
+            &written(&engine, "test.updateSession", row).await,
+            &["scene-order-contiguous"],
+        );
+    }
+}
+
+#[tokio::test]
 async fn present_only_pj_offers_the_roster_the_view_computes_never_a_stored_one() {
     let engine = session("prep").await;
     // A PC checked present is a presence, which the roster reads.
@@ -581,6 +638,17 @@ async fn text_only_no_audio_rejects_audio_or_anything_but_a_column_s_value() {
             &["text-only-no-audio"],
         );
     }
+    // A list is a session's scene order alone, of its scenes' ids.
+    for payload in [json!({ "sessionId": SEANCE, "sceneTitle": [ARRIVEE] })] {
+        rejected_by(
+            &written(&engine, "test.updateSession", payload).await,
+            &["text-only-no-audio"],
+        );
+    }
+    rejected_by(
+        &reordered(&engine, json!(["la-taverne"])).await,
+        &["text-only-no-audio"],
+    );
     // The brief as its transcribed text: kept.
     applied(
         &written(
@@ -596,6 +664,88 @@ async fn text_only_no_audio_rejects_audio_or_anything_but_a_column_s_value() {
             }),
         )
         .await,
+    );
+}
+
+/// The tavern scene of session 1, linking `links` under `entityId`.
+fn arrivee(links: Value) -> Value {
+    json!({
+        "sceneId": ARRIVEE,
+        "sceneSessionId": SEANCE,
+        "sceneTitle": "L'arrivée",
+        "entityId": links,
+    })
+}
+
+#[tokio::test]
+async fn text_only_no_audio_admits_one_list_the_ids_a_scene_links() {
+    let engine = session("prep").await;
+    for payload in [
+        // A list of anything but ids, even under `entityId`: a text, hex
+        // digits too few for a uuid, a number, a list.
+        arrivee(json!(["UklGRiQAAABXQVZF"])),
+        arrivee(json!(["e1000000"])),
+        arrivee(json!([42])),
+        arrivee(json!([[TAVERNE]])),
+        // A list of ids under any other field.
+        with(arrivee(json!([])), "sceneTitle", json!([TAVERNE])),
+    ] {
+        rejected_by(
+            &written(&engine, "test.updateSession", payload).await,
+            &["text-only-no-audio"],
+        );
+    }
+    // The ids of the elements it links, in either case: kept.
+    applied(
+        &written(
+            &engine,
+            "test.updateSession",
+            arrivee(json!([TAVERNE, ELOWEN.to_uppercase()])),
+        )
+        .await,
+    );
+}
+
+#[tokio::test]
+async fn text_only_no_audio_admits_one_list_the_ids_of_the_pcs_a_session_ticks_present() {
+    let engine = session("prep").await;
+    // A session created with its PCs present: its row, under a fresh id.
+    let created = |id: &str, present: Value| {
+        let mut row = seance();
+        row["sessionId"] = json!(id);
+        row["sessionPresentCharacterCharacterId"] = present;
+        row
+    };
+    // A list of anything but ids: a slug, a number.
+    for (id, present) in [
+        ("51000000-0000-4000-8000-000000000002", json!(["elowen"])),
+        ("51000000-0000-4000-8000-000000000003", json!([42])),
+    ] {
+        rejected_by(
+            &written(&engine, "test.createSession", created(id, present)).await,
+            &["text-only-no-audio"],
+        );
+    }
+    // The ids of the PCs its creation ticks: kept.
+    applied(
+        &written(
+            &engine,
+            "test.createSession",
+            created("51000000-0000-4000-8000-000000000004", json!([ELOWEN])),
+        )
+        .await,
+    );
+    // The same list on a session already created: only a creation writes
+    // it into the tables, so any other write carrying it is rejected rather
+    // than kept by the engine alone.
+    rejected_by(
+        &written(
+            &engine,
+            "test.updateSession",
+            json!({ "sessionId": SEANCE, "sessionPresentCharacterCharacterId": [ELOWEN] }),
+        )
+        .await,
+        &["text-only-no-audio"],
     );
 }
 
