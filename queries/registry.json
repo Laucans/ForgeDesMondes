@@ -125,6 +125,25 @@
       ]
     },
     {
+      "query": "ListEntitiesToCreate",
+      "capability": "campaign.listEntitiesToCreate",
+      "file": "crates/campaign/queries/list-entities-to-create.graphql",
+      "sha256": "f3a68d1c057c779d487dbc8fddc45da64ab92b46880a76bb80e1b9d6e27fbfab",
+      "fields": [
+        "entity_to_create.id",
+        "entity_to_create.campaignId",
+        "entity_to_create.sessionId",
+        "entity_to_create.type",
+        "entity_to_create.name",
+        "entity_to_create.excerpt",
+        "entity_to_create.createdEntityId",
+        "entity_to_create.createdAt",
+        "session.id",
+        "session.title",
+        "session.position"
+      ]
+    },
+    {
       "query": "ListEntityVersions",
       "capability": "campaign.listEntityVersions",
       "file": "crates/campaign/queries/list-entity-versions.graphql",

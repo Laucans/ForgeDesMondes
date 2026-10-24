@@ -1,0 +1,19 @@
+# fields: entity_to_create.id, entity_to_create.campaignId, entity_to_create.sessionId, entity_to_create.type, entity_to_create.name, entity_to_create.excerpt, entity_to_create.createdEntityId, entity_to_create.createdAt, session.id, session.title, session.position
+# A campaign's to-create list: the elements its briefs mentioned and the
+# campaign does not hold yet, each with the session it came from and the
+# element created from it, if any. An entry is created if and only if
+# createdEntityId is set; the stored status is not read.
+query ListEntitiesToCreate($campaign: ID!) {
+  entitiesToCreate(campaign: $campaign) {
+    id
+    campaignId
+    sessionId
+    sessionTitle
+    sessionPosition
+    type
+    name
+    excerpt
+    createdEntityId
+    createdAt
+  }
+}
