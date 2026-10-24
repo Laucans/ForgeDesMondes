@@ -1,0 +1,11 @@
+{
+  "microUi": "ToCreateList",
+  "system": "ai",
+  "description": "Les PNJ, lieux et événements issus des briefs, à créer depuis le brief ou après une description affinée à l’oral ou à l’écrit ; la proposition de l’IA (background, comportement, fiche de stats) s’affiche une fois l’élément créé",
+  "needs": ["campaign.listEntitiesToCreate", "campaign.getEntity"],
+  "actions": ["ai.createFromBrief"],
+  "props": {
+    "campaign": "string — id de la campagne dont on liste les éléments à créer",
+    "session": "string — id de la séance d’origine, vide pour toute la campagne"
+  }
+}

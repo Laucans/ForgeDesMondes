@@ -669,7 +669,9 @@
     // One element's sheet: a character, a place or an event of `entities`.
     "campaign.getEntity": async (server2, { id }) => {
       const entities = await server2.load("entities");
-      return [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+      const entity = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
+      if (!entity?.stats) return entity;
+      return { ...entity, modifiers: Object.fromEntries(Object.entries(entity.stats).map(([ability, score]) => [ability, typeof score === "number" ? Math.floor((score - 10) / 2) : null])) };
     }
   };
 
@@ -1394,32 +1396,42 @@
       server2.noteProposals = [];
       return void 0;
     },
-    // ai.createFromBrief (crates/ai/data-capabilities/create-from-brief): an
-    // entry « à créer » made an element of its type, from the brief's excerpt
-    // and, refined, the DM's sentences — the mock's AI proposes what the
-    // fixture ToCreateList gives it, `fromBrief` or `refined`. The element has
-    // its first version; the entry turns created, naming it, and keeps the
-    // refinement. One already created is refused (`to-create-leaves-once-created`).
-    "ai.createFromBrief": async (server2, { payload, targetId }) => {
-      const id = targetId || payload.entry || payload.id;
+    // ai.createFromBrief (crates/ai/data-capabilities/create-from-brief): the
+    // to-create entry becomes an element of the campaign, from its excerpt alone
+    // or from the excerpt and the DM's refinement (the fixture ToCreateList
+    // gives the AI's proposal for each); the entry is created once its element
+    // is set (`to-create-leaves-once-created`), and an entry already created is
+    // refused. An NPC gets its background, behaviour and sheet. The element has
+    // its first version, and the entry keeps the refinement it was made from.
+    "ai.createFromBrief": async (server2, { payload }) => {
       const entries = await server2.load("campaign.listEntitiesToCreate");
-      const item2 = entries.find((candidate) => candidate.id === id);
-      if (!item2) return ["not-found"];
-      if (item2.status === "created" || item2.entity) return ["to-create-leaves-once-created"];
-      const refinement = String(payload.refinement || "").trim();
-      const refined = Boolean(refinement || payload.audio || payload.refined);
-      const proposals = (await server2.load("ToCreateList")).proposals || {};
-      const proposal = (proposals[id] || {})[refined ? "refined" : "fromBrief"] || { description: item2.excerpt };
-      const element = { id: server2.uuid(), kind: item2.type, name: item2.name, description: proposal.description || item2.excerpt };
-      const block = proposal.statblock;
-      if (item2.type === "pnj") {
-        const vital = (label) => parseInt((block?.vitals || []).find((v) => v.label === label)?.value, 10) || null;
-        Object.assign(element, { prompt: [item2.excerpt, refinement].filter(Boolean).join("\n\n"), background: proposal.background || "", behavior: proposal.behavior || "", stats: block?.abilities || {}, ca: vital("CA"), pvMax: vital("PV"), features: block?.features || [], color: "accent" });
-      }
-      (await server2.load(LISTS[item2.type]) || []).push(element);
+      const entry = (Array.isArray(entries) ? entries : entries?.items || []).find((candidate) => candidate.id === payload.entry);
+      if (!entry) return ["not-found"];
+      if (entry.status === "created") return ["to-create-leaves-once-created"];
+      const given = (await server2.load("ToCreateList")).proposals?.[entry.id] || {};
+      const refined = typeof payload.refinement === "string" && payload.refinement.trim() !== "";
+      const proposal = (refined ? given.refined : given.fromBrief) || { description: entry.excerpt };
+      const { statblock, ...text2 } = proposal;
+      const kind = { pnj: "pnj", lieu: "lieu", "\xE9v\xE9nement": "evenement" }[entry.type];
+      const entities = await server2.load("entities");
+      const list = { pnj: entities.characters, lieu: entities.places, evenement: entities.events }[kind];
+      const id = `${entry.id.replace(/^tc-/, "")}-${server2.uuid().slice(0, 8)}`;
+      const figure = (value) => Number.isNaN(parseInt(value, 10)) ? null : parseInt(value, 10);
+      const vital = (label) => statblock?.vitals?.find((v) => v.label === label)?.value;
+      list.push({
+        id,
+        name: entry.name,
+        aliases: [],
+        kind,
+        notes: "",
+        ...text2,
+        ...statblock ? { type: statblock.type, stats: statblock.abilities, ca: figure(vital("CA")), pvMax: figure(vital("PV")), speed: vital("Vitesse"), features: statblock.features } : {}
+      });
       const history = await server2.load("campaign.listEntityVersions") || {};
-      history[element.id] = { name: element.name, versions: [{ v: 1, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Cr\xE9\xE9 depuis le brief", seen: true, changes: [] }] };
-      Object.assign(item2, { status: "created", entity: element.id, refinement: refinement || null });
+      history[id] = { name: entry.name, versions: [{ v: 1, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Cr\xE9\xE9 depuis le brief", seen: true, changes: [] }] };
+      entry.status = "created";
+      entry.entity = id;
+      entry.refinement = refined ? payload.refinement.trim() : null;
       return void 0;
     },
     // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
