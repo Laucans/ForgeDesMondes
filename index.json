@@ -14,8 +14,8 @@
     "milestone/24-oral-brief-scenes-updated-npcs-and-the-to-create-list": "8a18e976543701f101ba87028e6d3d632590a2e0",
     "milestone/25-battlemap-instances-tokens-hit-points-and-combat": "24240292f1833fdc6ead6cb28403549f49622845",
     "milestone/26-diffusion-to-the-player-view-battlemap-and-illustrations": "80786b6a06a4ebc6e121302ad81eee96bb283822",
-    "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "c27ba884e860f7202ee0e6bb1e43c56fbb13a3ba",
-    "milestone/29-dm-view-elements-panel-and-table-sheet": "5b0a338120e22410c3082d9191e34a67e351fea2",
+    "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "125e42681fcd444fc116b1fe8883819c4d9e436c",
+    "milestone/29-dm-view-elements-panel-and-table-sheet": "5c1253c72210545357ab2bee89e7c2a5f6fbabcc",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
   },
@@ -305,6 +305,22 @@
       "sha": "22d39c4dc83e32f2d618fad0c7be8f9a463076a6",
       "at": "2026-10-24T16:00:26Z",
       "dir": "main_agent/20261024T160026Z-22d39c4",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/29-dm-view-elements-panel-and-table-sheet",
+      "sha": "5c1253c72210545357ab2bee89e7c2a5f6fbabcc",
+      "at": "2026-10-24T16:09:01Z",
+      "dir": "milestone/29-dm-view-elements-panel-and-table-sheet/20261024T160901Z-5c1253c",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/28-closing-a-session-journal-summary-and-preparation-screen",
+      "sha": "125e42681fcd444fc116b1fe8883819c4d9e436c",
+      "at": "2026-10-24T16:09:01Z",
+      "dir": "milestone/28-closing-a-session-journal-summary-and-preparation-screen/20261024T160901Z-125e426",
       "schema": true,
       "model": true
     }
