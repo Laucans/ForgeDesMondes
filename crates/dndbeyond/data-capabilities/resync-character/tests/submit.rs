@@ -6,7 +6,7 @@
 //! linked to nothing, or a sheet D&D Beyond does not give, is refused and
 //! nothing is queued. The tables it reaches are `tests/postgres.rs`.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use harness_dataguard::Error;
 use harness_dataguard::aggregate::Aggregate;
@@ -18,8 +18,10 @@ use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::plugins::{RefusalKind, Shared};
 use harness_dataguard::postgres::SystemClock;
 use harness_dataguard::store::{RandomIds, Store};
-use ports_character_sheets::SharedCharacterSheets;
 use ports_character_sheets::fake::FakeCharacterSheets;
+use ports_character_sheets::{
+    CharacterId, CharacterSheet, CharacterSheets, CharacterSheetsError, SharedCharacterSheets,
+};
 use serde_json::{Map, Value, json};
 
 mod support;
@@ -55,19 +57,29 @@ enum Status {
 /// The engine as the server plants this DataCapability and its aggregate,
 /// with the character-sheets port's fake, whose characters a clone shares.
 struct Served {
-    engine: Engine,
+    engine: Arc<Engine>,
     store: Arc<MemoryStore>,
     sheets: FakeCharacterSheets,
 }
 
-async fn served() -> Served {
-    let sheets = FakeCharacterSheets::new()
+/// The characters the fake knows.
+fn sheets() -> FakeCharacterSheets {
+    FakeCharacterSheets::new()
         .with_sheet(elowen())
         .with_private(id(PRIVATE))
-        .with_changed_shape(id(CHANGED));
+        .with_changed_shape(id(CHANGED))
+}
+
+async fn served() -> Served {
+    let sheets = sheets();
+    serving(sheets.clone(), sheets).await
+}
+
+/// The engine sharing `port`, over the characters of `sheets`.
+async fn serving(port: impl CharacterSheets + 'static, sheets: FakeCharacterSheets) -> Served {
     let store = Arc::new(MemoryStore::default());
     let mut shared = Shared::default();
-    shared.insert(Arc::new(SharedCharacterSheets::new(sheets.clone())));
+    shared.insert(Arc::new(SharedCharacterSheets::new(port)));
     let engine = Engine::new(
         store.clone(),
         Arc::new(MemoryNotifier::default()),
@@ -85,7 +97,7 @@ async fn served() -> Served {
     .with_shared(shared);
     engine.load().await.expect("the units fit");
     let served = Served {
-        engine,
+        engine: Arc::new(engine),
         store,
         sheets,
     };
@@ -98,62 +110,14 @@ async fn served() -> Served {
 
 impl Served {
     /// The DM's `body`: what became of it, and the answer.
-    async fn submit(&self, mut body: Value) -> (Status, Value) {
-        body["caller"] =
-            json!({ "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] });
-        let submission: Submission = serde_json::from_value(body).expect("a submission");
-        match self.engine.submit(submission).await {
-            Ok(submitted) => (
-                Status::Accepted,
-                serde_json::to_value(submitted).expect("JSON"),
-            ),
-            Err(Error::Refused(refusal)) => (
-                match refusal.kind {
-                    RefusalKind::NotFound => Status::NotFound,
-                    RefusalKind::Unprocessable => Status::Unprocessable,
-                },
-                json!({ "error": refusal.message }),
-            ),
-            Err(e) => panic!("{e}"),
-        }
+    async fn submit(&self, body: Value) -> (Status, Value) {
+        submitted(&self.engine, body).await
     }
 
-    /// The PC `pc`, named `name`, linked to the character `linked`, at its
-    /// version 1: aliases, notes, a cropped portrait and a token colour the
-    /// DM set, its statblock as D&D Beyond gave it before the level-up.
+    /// The PC `pc`, named `name`, linked to the character `linked`, planted
+    /// at its version 1 and applied.
     async fn plant(&self, pc: &str, name: &str, linked: Option<u64>) {
-        let sheet = json!({
-            "type": "pj", "name": name, "notes": "Cherche son frère Aerin.",
-            "strength": 12, "dexterity": 18, "constitution": 14, "intelligence": 10,
-            "wisdom": 15, "charisma": 9, "armorClass": 16, "hpMax": 44,
-            "actions": actions(), "spells": spells(),
-            "portraitMediaId": "d1000000-0000-4000-8000-000000000001",
-            "tokenCrop": { "zoom": 140, "x": 50, "y": 32 }, "tokenColor": "success",
-            "dndbeyondId": linked.map(|n| n.to_string()),
-            "dndbeyondSyncedAt": linked.map(|_| "2026-09-26T18:12:00Z"),
-        });
-        let mut snapshot = sheet.clone();
-        snapshot["aliases"] = json!([format!("{name} l'ancien")]);
-        let mut payload = sheet;
-        for (field, value) in [
-            ("entityId", json!(pc)),
-            ("entityCampaignId", json!(VALOMBRE)),
-            ("entityCreatedAt", json!("2026-09-26T18:12:00Z")),
-            ("updatedAt", json!("2026-09-26T18:12:00Z")),
-            ("alias", json!([format!("{name} l'ancien")])),
-            ("characterEntityId", json!(pc)),
-            ("entityVersionEntityId", json!(pc)),
-            ("entityVersionId", json!(format!("{}f", &pc[..35]))),
-            ("versionNumber", json!(1)),
-            ("source", json!("dm")),
-            ("snapshot", snapshot),
-            ("diff", json!([])),
-        ] {
-            payload[field] = value;
-        }
-        let (status, answer) = self
-            .submit(json!({ "dataCapability": "test.plantEntity@1", "payload": payload }))
-            .await;
+        let (status, answer) = submitted(&self.engine, planted(pc, name, linked)).await;
         assert_eq!(status, Status::Accepted, "{answer}");
         applied(&self.settled().await);
     }
@@ -181,6 +145,89 @@ impl Served {
             .expect("the row")
             .into_iter()
             .collect()
+    }
+}
+
+/// The plant of the PC `pc`, named `name`, linked to the character `linked`,
+/// at its version 1: aliases, notes, a cropped portrait and a token colour
+/// the DM set, its statblock as D&D Beyond gave it before the level-up.
+fn planted(pc: &str, name: &str, linked: Option<u64>) -> Value {
+    let sheet = json!({
+        "type": "pj", "name": name, "notes": "Cherche son frère Aerin.",
+        "strength": 12, "dexterity": 18, "constitution": 14, "intelligence": 10,
+        "wisdom": 15, "charisma": 9, "armorClass": 16, "hpMax": 44,
+        "actions": actions(), "spells": spells(),
+        "portraitMediaId": "d1000000-0000-4000-8000-000000000001",
+        "tokenCrop": { "zoom": 140, "x": 50, "y": 32 }, "tokenColor": "success",
+        "dndbeyondId": linked.map(|n| n.to_string()),
+        "dndbeyondSyncedAt": linked.map(|_| "2026-09-26T18:12:00Z"),
+    });
+    let mut snapshot = sheet.clone();
+    snapshot["aliases"] = json!([format!("{name} l'ancien")]);
+    let mut payload = sheet;
+    for (field, value) in [
+        ("entityId", json!(pc)),
+        ("entityCampaignId", json!(VALOMBRE)),
+        ("entityCreatedAt", json!("2026-09-26T18:12:00Z")),
+        ("updatedAt", json!("2026-09-26T18:12:00Z")),
+        ("alias", json!([format!("{name} l'ancien")])),
+        ("characterEntityId", json!(pc)),
+        ("entityVersionEntityId", json!(pc)),
+        ("entityVersionId", json!(format!("{}f", &pc[..35]))),
+        ("versionNumber", json!(1)),
+        ("source", json!("dm")),
+        ("snapshot", snapshot),
+        ("diff", json!([])),
+    ] {
+        payload[field] = value;
+    }
+    json!({ "dataCapability": "test.plantEntity@1", "payload": payload })
+}
+
+/// The DM's `body` submitted to `engine`: what became of it, and the answer.
+async fn submitted(engine: &Engine, mut body: Value) -> (Status, Value) {
+    body["caller"] =
+        json!({ "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] });
+    let submission: Submission = serde_json::from_value(body).expect("a submission");
+    match engine.submit(submission).await {
+        Ok(submitted) => (
+            Status::Accepted,
+            serde_json::to_value(submitted).expect("JSON"),
+        ),
+        Err(Error::Refused(refusal)) => (
+            match refusal.kind {
+                RefusalKind::NotFound => Status::NotFound,
+                RefusalKind::Unprocessable => Status::Unprocessable,
+            },
+            json!({ "error": refusal.message }),
+        ),
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// The DM's notes saved while D&D Beyond answers.
+const SAVED_NOTES: &str = "A retrouvé Aerin.";
+
+/// The fake, as slow as D&D Beyond: while it fetches, the DM saves Elowen
+/// — her version 2, new notes — through the engine it is given.
+struct SavedWhileFetching {
+    sheets: FakeCharacterSheets,
+    engine: Arc<OnceLock<Arc<Engine>>>,
+}
+
+impl CharacterSheets for SavedWhileFetching {
+    async fn fetch(&self, id: CharacterId) -> Result<CharacterSheet, CharacterSheetsError> {
+        if let Some(engine) = self.engine.get() {
+            let mut save = planted(ELOWEN_PC, "Elowen Ventargent", Some(ELOWEN));
+            let payload = &mut save["payload"];
+            payload["notes"] = json!(SAVED_NOTES);
+            payload["snapshot"]["notes"] = json!(SAVED_NOTES);
+            payload["entityVersionId"] = json!("f1000000-0000-4000-8000-000000000002");
+            payload["versionNumber"] = json!(2);
+            let (status, answer) = submitted(engine, save).await;
+            assert_eq!(status, Status::Accepted, "{answer}");
+        }
+        self.sheets.fetch(id).await
     }
 }
 
@@ -244,6 +291,37 @@ async fn a_resync_after_a_level_up_updates_stats_hp_and_spells_and_leaves_the_lo
     assert_eq!(after["versionNumber"], json!(2));
     assert_eq!(after["source"], json!("dndbeyond"));
     assert_eq!(after["entityVersionEntityId"], json!(ELOWEN_PC));
+    assert_eq!(
+        changed(&after),
+        ["dndbeyondSyncedAt", "hpMax", "spells", "wisdom"]
+    );
+}
+
+#[tokio::test]
+async fn a_save_queued_during_the_fetch_is_the_row_the_resync_versions_after() {
+    let sheets = sheets();
+    let engine = Arc::new(OnceLock::new());
+    let port = SavedWhileFetching {
+        sheets: sheets.clone(),
+        engine: engine.clone(),
+    };
+    let s = serving(port, sheets).await;
+    assert!(engine.set(s.engine.clone()).is_ok(), "set once");
+    let _ = s.sheets.clone().with_sheet(levelled_up());
+    let (status, answer) = s.resync(json!({}), Some(ELOWEN_PC)).await;
+    assert_eq!(status, Status::Accepted, "{answer}");
+    let settled = s.settled().await;
+    assert_eq!(settled.len(), 2, "the save, then the resync: {settled:?}");
+    assert!(
+        settled.iter().all(|result| result.status == State::Applied),
+        "{settled:?}"
+    );
+    let after = s.row(ELOWEN_PC).await;
+    // Numbered, snapshotted and diffed after the save, not the row before it.
+    assert_eq!(after["versionNumber"], json!(3));
+    assert_eq!(after["source"], json!("dndbeyond"));
+    assert_eq!(after["notes"], json!(SAVED_NOTES));
+    assert_eq!(after["snapshot"]["notes"], json!(SAVED_NOTES));
     assert_eq!(
         changed(&after),
         ["dndbeyondSyncedAt", "hpMax", "spells", "wisdom"]

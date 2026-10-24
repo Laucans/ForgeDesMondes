@@ -81,6 +81,8 @@ pub enum Refusal {
     /// A value the tables could never hold: an AC or HP max beyond a
     /// `smallint`, or the character U+0000.
     Unwritable(&'static str),
+    /// The Entity aggregate settled no version after the row's.
+    Unversioned,
 }
 
 impl fmt::Display for Refusal {
@@ -98,6 +100,7 @@ impl fmt::Display for Refusal {
                 fields.join(", ")
             ),
             Self::Unwritable(field) => write!(f, "{field} ne tient pas dans la fiche"),
+            Self::Unversioned => f.write_str("la nouvelle version de la fiche n'a pu être établie"),
         }
     }
 }
@@ -125,10 +128,11 @@ pub fn plugin() -> Plugin {
         .needs::<SharedCharacterSheets>()
 }
 
-/// A resync made what it writes, before anything is queued: the PC's row as
-/// the queue leaves it, its character's sheet fetched by its link, a fresh
-/// version id and now. What names nothing — an element, a character — is
-/// refused as not found, any other refusal as unprocessable.
+/// A resync made what it writes, before anything is queued: its character's
+/// sheet fetched by the PC's link, then the PC's row as the queue leaves it
+/// once the fetch is back, a fresh version id and now. What names nothing —
+/// an element, a character — is refused as not found, any other refusal as
+/// unprocessable.
 struct Resyncing;
 
 /// Why a resync is refused when the port is not shared: the engine refuses
@@ -156,12 +160,15 @@ impl engine::Prepare for Resyncing {
         }
         // One partition per element, whatever the case the caller wrote it in.
         let id = id.to_lowercase();
-        let base = context.row(&format!("Entity/{id}")).await?;
-        let character = linked(&base).map_err(refused)?;
+        let partition = format!("Entity/{id}");
+        let character = linked(&context.row(&partition).await?).map_err(refused)?;
         let sheet = sheets
             .fetch(character)
             .await
             .map_err(|e| refused(Refusal::Sheets(e)))?;
+        // Read again once the fetch is back: a save queued meanwhile is the
+        // row the version follows, and nothing is awaited from here on.
+        let base = context.row(&partition).await?;
         let version = context.ids.fresh();
         let now = aggregate_entity::timestamp(context.now_millis);
         let resync = Resync {
@@ -305,7 +312,7 @@ fn nul(value: &Value) -> bool {
 /// [`Refusal`] for a row a resync cannot write — no element, one linked to
 /// nothing —, a sheet of another character than the one the PC is linked to,
 /// a statblock StatBlock@1 does not hold complete, a value the tables could
-/// never hold.
+/// never hold, a version the aggregate could not settle.
 pub fn prepare(base: &Row, sheet: &CharacterSheet, resync: Resync<'_>) -> Result<Row, Refusal> {
     // The port answers the character it was asked for: a sheet of another
     // would write a stranger's statblock on this PC.
@@ -331,9 +338,9 @@ pub fn prepare(base: &Row, sheet: &CharacterSheet, resync: Resync<'_>) -> Result
     }
     let mut after = base.clone();
     after.extend(payload.iter().map(|(k, v)| (k.clone(), v.clone())));
-    Ok(settled(last_version(base).as_ref(), &after)
-        .expect("the row after carries the new version's id")
-        .stamped(&payload))
+    settled(last_version(base).as_ref(), &after)
+        .map(|version| version.stamped(&payload))
+        .ok_or(Refusal::Unversioned)
 }
 
 /// The version `base` carries: the element's last, as the queue leaves it —
