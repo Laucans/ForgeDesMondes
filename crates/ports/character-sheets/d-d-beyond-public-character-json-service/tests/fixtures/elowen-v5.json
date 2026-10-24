@@ -1,0 +1,238 @@
+{
+  "id": 112847390,
+  "success": true,
+  "message": "Character successfully received.",
+  "pagination": null,
+  "data": {
+    "id": 112847390,
+    "name": "Elowen Ventargent",
+    "readonlyUrl": "/characters/112847390",
+    "baseHitPoints": 40,
+    "bonusHitPoints": null,
+    "overrideHitPoints": null,
+    "removedHitPoints": 0,
+    "temporaryHitPoints": 0,
+    "stats": [
+      { "id": 1, "name": null, "value": 12 },
+      { "id": 2, "name": null, "value": 16 },
+      { "id": 3, "name": null, "value": 14 },
+      { "id": 4, "name": null, "value": 10 },
+      { "id": 5, "name": null, "value": 13 },
+      { "id": 6, "name": null, "value": 9 }
+    ],
+    "bonusStats": [
+      { "id": 1, "name": null, "value": null },
+      { "id": 2, "name": null, "value": null },
+      { "id": 3, "name": null, "value": null },
+      { "id": 4, "name": null, "value": null },
+      { "id": 5, "name": null, "value": null },
+      { "id": 6, "name": null, "value": null }
+    ],
+    "overrideStats": [
+      { "id": 1, "name": null, "value": null },
+      { "id": 2, "name": null, "value": null },
+      { "id": 3, "name": null, "value": null },
+      { "id": 4, "name": null, "value": null },
+      { "id": 5, "name": null, "value": null },
+      { "id": 6, "name": null, "value": null }
+    ],
+    "race": {
+      "isSubRace": true,
+      "baseRaceName": "Elf",
+      "fullName": "Wood Elf",
+      "description": "<p>Elves are a magical people of otherworldly grace.</p>"
+    },
+    "classes": [
+      {
+        "level": 6,
+        "isStartingClass": true,
+        "definition": { "id": 5, "name": "Ranger", "hitDice": 10 },
+        "subclassDefinition": { "id": 100, "name": "Hunter" }
+      }
+    ],
+    "inventory": [
+      {
+        "id": 9001,
+        "equipped": true,
+        "isAttuned": false,
+        "definition": {
+          "id": 2101,
+          "name": "Studded Leather Armor",
+          "filterType": "Armor",
+          "armorClass": 12,
+          "armorTypeId": 1,
+          "canAttune": false
+        }
+      },
+      {
+        "id": 9002,
+        "equipped": true,
+        "isAttuned": true,
+        "definition": {
+          "id": 2102,
+          "name": "Cloak of Protection",
+          "filterType": "Wondrous item",
+          "armorClass": null,
+          "armorTypeId": null,
+          "canAttune": true
+        }
+      },
+      {
+        "id": 9003,
+        "equipped": true,
+        "isAttuned": false,
+        "definition": {
+          "id": 2103,
+          "name": "Ring of Protection",
+          "filterType": "Ring",
+          "armorClass": null,
+          "armorTypeId": null,
+          "canAttune": true
+        }
+      },
+      {
+        "id": 9004,
+        "equipped": false,
+        "isAttuned": false,
+        "definition": {
+          "id": 2104,
+          "name": "Gauntlets of Ogre Power",
+          "filterType": "Wondrous item",
+          "armorClass": null,
+          "armorTypeId": null,
+          "canAttune": true
+        }
+      },
+      {
+        "id": 9005,
+        "equipped": false,
+        "isAttuned": false,
+        "definition": {
+          "id": 2105,
+          "name": "Chain Mail",
+          "filterType": "Armor",
+          "armorClass": 16,
+          "armorTypeId": 3,
+          "canAttune": false
+        }
+      },
+      {
+        "id": 9006,
+        "equipped": true,
+        "isAttuned": false,
+        "definition": {
+          "id": 2106,
+          "name": "Longbow",
+          "filterType": "Weapon",
+          "armorClass": null,
+          "armorTypeId": null,
+          "canAttune": false
+        }
+      }
+    ],
+    "modifiers": {
+      "race": [
+        { "type": "bonus", "subType": "dexterity-score", "value": null, "fixedValue": 2, "componentId": 1, "friendlySubtypeName": "Dexterity Score" },
+        { "type": "bonus", "subType": "wisdom-score", "value": null, "fixedValue": 1, "componentId": 2, "friendlySubtypeName": "Wisdom Score" },
+        { "type": "language", "subType": "elvish", "value": null, "fixedValue": null, "componentId": 3, "friendlySubtypeName": "Elvish" },
+        { "type": "set", "subType": "darkvision", "value": 60, "fixedValue": 60, "componentId": 4, "friendlySubtypeName": "Darkvision" }
+      ],
+      "class": [
+        { "type": "bonus", "subType": "wisdom-score", "value": null, "fixedValue": 2, "componentId": 5, "friendlySubtypeName": "Wisdom Score" }
+      ],
+      "background": [],
+      "item": [
+        { "type": "bonus", "subType": "armor-class", "value": null, "fixedValue": 1, "componentId": 2102, "friendlySubtypeName": "Armor Class" },
+        { "type": "bonus", "subType": "armor-class", "value": null, "fixedValue": 1, "componentId": 2103, "friendlySubtypeName": "Armor Class" },
+        { "type": "set", "subType": "strength-score", "value": 19, "fixedValue": 19, "componentId": 2104, "friendlySubtypeName": "Strength Score" }
+      ],
+      "feat": [],
+      "condition": null
+    },
+    "classSpells": [
+      {
+        "characterClassId": 7001,
+        "spells": [
+          {
+            "prepared": true,
+            "alwaysPrepared": true,
+            "definition": {
+              "id": 2299,
+              "name": "Hunter's Mark",
+              "level": 1,
+              "description": "<p>You choose a creature you can see within range and mystically mark it as your quarry. Until the spell ends, you deal an extra <strong>1d6</strong> damage to the target&nbsp;whenever you hit it with a weapon attack.</p>\n<p>&quot;Marked&quot; creatures cannot hide &amp; vanish.</p>"
+            }
+          },
+          {
+            "prepared": true,
+            "alwaysPrepared": false,
+            "definition": {
+              "id": 2300,
+              "name": "Pass without Trace",
+              "level": 2,
+              "description": "<p>A veil of shadows and silence radiates from you, masking you and your companions from detection.</p>"
+            }
+          },
+          {
+            "prepared": false,
+            "alwaysPrepared": false,
+            "definition": {
+              "id": 2301,
+              "name": "Animal Friendship",
+              "level": 1,
+              "description": "<p>This spell lets you convince a beast that you mean it no harm.</p>"
+            }
+          }
+        ]
+      }
+    ],
+    "spells": {
+      "race": [
+        {
+          "definition": {
+            "id": 2400,
+            "name": "Druidcraft",
+            "level": 0,
+            "description": "<p>Whispering to the spirits of nature, you create one of several effects.</p>"
+          }
+        }
+      ],
+      "class": [
+        {
+          "definition": {
+            "id": 2299,
+            "name": "Hunter's Mark",
+            "level": 1,
+            "description": "<p>A second listing of the same spell.</p>"
+          }
+        }
+      ],
+      "background": null,
+      "item": [],
+      "feat": []
+    },
+    "actions": {
+      "race": [],
+      "class": [
+        {
+          "name": "Favored Enemy",
+          "snippet": "You always have the <em>Hunter's Mark</em> spell prepared.",
+          "description": "<p>Long description of the favored enemy.</p>"
+        },
+        {
+          "name": "Extra Attack",
+          "snippet": null,
+          "description": "<p>You can attack twice, instead of once, whenever you take the Attack action on your turn.</p><ul><li>Twice</li><li>Not three times</li></ul>"
+        },
+        {
+          "name": "Natural Explorer",
+          "snippet": "  ",
+          "description": null
+        }
+      ],
+      "background": null,
+      "item": null,
+      "feat": []
+    }
+  }
+}

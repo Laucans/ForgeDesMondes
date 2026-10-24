@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "message": "Character not found",
+  "data": { "errorCode": "404" }
+}

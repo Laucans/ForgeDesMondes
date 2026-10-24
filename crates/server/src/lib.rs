@@ -14,15 +14,17 @@
 //! - `PORTS`: how the ports of ports.json are wired — only `fake`, the
 //!   default: every built port on its fake, no secret read, nothing reached
 //!   outside — the `llm` port's fake is [`llm`], the `speech-to-text`
-//!   port's [`speech_to_text`];
+//!   port's [`speech_to_text`], the `character-sheets` port's
+//!   [`character_sheets`];
 //! - `FIXTURES_DIR`: when set and not empty, the folder of the mock-up's
 //!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]) and
 //!   loaded into the store by the Data layer ([`data::insert_missing`]) —
 //!   once: a restart loads nothing twice.
 //!
 //! What it shares with the units ([`shared`]) is the ports their `Prepare`s
-//! declare they need: the `llm` port and the `speech-to-text` port, one of
-//! each, which the units and [`app`]'s journal route reach alike.
+//! declare they need: the `llm` port, the `speech-to-text` port and the
+//! `character-sheets` port, one of each, which the units and [`app`]'s journal
+//! route reach alike.
 //!
 //! The server adds one read path of its own, and no write path: a read is
 //! served when the engine's registry holds its persisted query, a write only
@@ -38,11 +40,12 @@
 //! describes, inserted as the tables' own constraints and triggers judge them.
 //! Their rows go by their slugs on the wire, as the mock-up names them, and by
 //! a uuid in the store: [`renaming`] turns one into the other around the
-//! reads.
+//! reads and the commands.
 
 mod applier;
 mod fixtures;
 mod names;
+mod proposing;
 
 use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -62,10 +65,13 @@ use dataguard_server::engine::tokio_postgres;
 use dataguard_server::{MEMORY, Planted};
 pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
 pub use names::{Names, renaming};
+use ports_character_sheets::fake::FakeCharacterSheets;
+use ports_character_sheets::{CharacterId, SharedCharacterSheets};
 use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, SharedLlm};
 use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
+pub use proposing::Proposing;
 use serde_json::{Value, json};
 
 /// Where the server listens when `PORT` is unset: the rules' runtime's port.
@@ -174,30 +180,63 @@ impl Config {
 /// The `llm` port as `ports` wires it: its fake, whose home server answers
 /// its model list at the opencode provider's URL the fixtures describe
 /// (`AiSettings.json` in `fixtures`) — so a save of that URL detects it, as
-/// the real endpoint would make it. Without that fixture, only the cloud
-/// host and the binaries are recognised.
-pub fn llm(ports: Ports, fixtures: Option<&Path>) -> FakeLlm {
+/// the real endpoint would make it — and which answers a character's prompt
+/// with the proposal the fixtures give for it (`EntityEditor.json`,
+/// [`characters`]). Without those fixtures, only the cloud host and the
+/// binaries are recognised, and a prompt is answered the canned sentence.
+pub fn llm(ports: Ports, fixtures: Option<&Path>) -> Proposing {
     match ports {
         Ports::Fake => {
-            let fake = FakeLlm::new();
-            let settings = fixtures
-                .and_then(|dir| std::fs::read_to_string(dir.join("AiSettings.json")).ok())
-                .and_then(|text| serde_json::from_str::<Value>(&text).ok());
-            let Some(settings) = settings else {
-                return fake;
+            let proposing = |fake| characters(fake, fixture(fixtures, "EntityEditor.json"));
+            let Some(settings) = fixture(fixtures, "AiSettings.json") else {
+                return proposing(FakeLlm::new());
             };
             let home = &settings["providers"]["opencode"];
             let Some(url) = home["url"].as_str() else {
-                return fake;
+                return proposing(FakeLlm::new());
             };
             let models: Vec<Value> = ["generationModel", "summaryModel"]
                 .iter()
                 .filter_map(|model| home[*model].as_str())
                 .map(|id| json!({ "id": id, "object": "model" }))
                 .collect();
-            fake.with_endpoint(url, json!({ "object": "list", "data": models }))
+            proposing(
+                FakeLlm::new().with_endpoint(url, json!({ "object": "list", "data": models })),
+            )
         }
     }
+}
+
+/// The fixture `file` of `fixtures`, when it is there and JSON.
+fn fixture(fixtures: Option<&Path>, file: &str) -> Option<Value> {
+    fixtures
+        .and_then(|dir| std::fs::read_to_string(dir.join(file)).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+}
+
+/// `fake` answering the proposals of `editor` (`EntityEditor.json`): each
+/// one of `proposals` to the prompt that holds the dictation of the same
+/// name, then the `default` one to any other prompt.
+fn characters(fake: FakeLlm, editor: Option<Value>) -> Proposing {
+    let fake = Proposing::new(fake);
+    let Some(editor) = editor else {
+        return fake;
+    };
+    let Some(proposals) = editor["proposals"].as_object() else {
+        return fake;
+    };
+    let dictated = proposals.iter().filter_map(|(name, proposal)| {
+        let dictation = editor["dictations"][name].as_str()?;
+        Some((dictation.to_owned(), proposal.clone()))
+    });
+    let fallback = proposals
+        .get("default")
+        .map(|proposal| (String::new(), proposal.clone()));
+    dictated
+        .chain(fallback)
+        .fold(fake, |fake, (holding, proposal)| {
+            fake.with_proposal(holding, proposal)
+        })
 }
 
 /// The `speech-to-text` port as `ports` wires it: its fake, which hears in
@@ -208,23 +247,72 @@ pub fn llm(ports: Ports, fixtures: Option<&Path>) -> FakeLlm {
 pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> FakeSpeechToText {
     match ports {
         Ports::Fake => {
-            let draft = fixtures
-                .and_then(|dir| std::fs::read_to_string(dir.join("NoteImport.json")).ok())
-                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            let draft = fixture(fixtures, "NoteImport.json")
                 .and_then(|notes| notes["draft"].as_str().map(str::to_owned));
             FakeSpeechToText::new(draft.unwrap_or_default())
         }
     }
 }
 
-/// What the server shares with its units: the `llm` port and the
-/// `speech-to-text` port, the ones their `Prepare`s declare they need. The
-/// engine refuses to start while a need has nobody to fill it.
+/// The `character-sheets` port as `ports` wires it: its fake, which knows the
+/// characters of the mock-up's `entities.json` that have a D&D Beyond link and
+/// the level-ups `EntityEditor.json` (`ddbResync`) plans for them — so an
+/// import reads the sheet the mock-up shows and a resync finds elowen's
+/// level-up. Every level-up is already played when the fake is handed over: a
+/// fetch answers D&D Beyond's side after it, while the tables keep the
+/// fixtures' sheet as last synchronised. Without either fixture, or when they
+/// do not describe a sheet, it knows no character.
+pub fn character_sheets(ports: Ports, fixtures: Option<&Path>) -> FakeCharacterSheets {
+    match ports {
+        Ports::Fake => {
+            let json = |name: &str| {
+                fixtures
+                    .and_then(|dir| std::fs::read_to_string(dir.join(name)).ok())
+                    .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            };
+            json("entities.json")
+                .zip(json("EntityEditor.json"))
+                .and_then(|(entities, editor)| {
+                    FakeCharacterSheets::from_fixtures(&entities, &editor)
+                        .inspect_err(|e| {
+                            eprintln!("server: the character-sheets fake knows no character: {e}");
+                        })
+                        .ok()
+                        .inspect(|fake| play_level_ups(fake, &entities))
+                })
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// Plays on `fake` the level-up of every character of `entities`
+/// (`entities.json`) that has a D&D Beyond link: the one `ddbResync` plans for
+/// it, or the default, an empty patch.
+fn play_level_ups(fake: &FakeCharacterSheets, entities: &Value) {
+    let linked = entities["characters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|character| character["ddb"]["url"].as_str())
+        .filter_map(|url| CharacterId::parse(url).ok());
+    for id in linked {
+        fake.level_up(id);
+    }
+}
+
+/// What the server shares with its units: the `llm` port, the `speech-to-text`
+/// port and the `character-sheets` port, the ones their `Prepare`s declare
+/// they need. The engine refuses to start while a need has nobody to fill it.
 #[must_use]
-pub fn shared(llm: &SharedLlm, speech: &SharedSpeechToText) -> Shared {
+pub fn shared(
+    llm: &SharedLlm,
+    speech: &SharedSpeechToText,
+    sheets: &SharedCharacterSheets,
+) -> Shared {
     let mut shared = Shared::default();
     shared.insert(Arc::new(llm.clone()));
     shared.insert(Arc::new(speech.clone()));
+    shared.insert(Arc::new(sheets.clone()));
     shared
 }
 
@@ -362,6 +450,7 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
+    use ports_character_sheets::{CharacterSheets, CharacterSheetsError};
     use ports_speech_to_text::SpeechToText;
     use serde_json::{Value, json};
     use tower::ServiceExt;
@@ -480,7 +569,7 @@ mod tests {
     }
 
     /// The provider the fake's connection test reaches at `url`.
-    async fn reached(llm: &FakeLlm, url: &str) -> Option<ports_llm::Provider> {
+    async fn reached(llm: &impl Llm, url: &str) -> Option<ports_llm::Provider> {
         let config = ports_llm::ProviderConfig::Api {
             url: url.to_string(),
             api_type: None,
@@ -502,6 +591,60 @@ mod tests {
             Some(ports_llm::Provider::OpencodeServer)
         );
         assert_eq!(reached(&llm, "https://inconnu.example.org").await, None);
+    }
+
+    /// What the fake answers a character's `prompt`.
+    async fn proposed(llm: &impl Llm, prompt: &str) -> String {
+        let config = ports_llm::ProviderConfig::Binary {
+            binary: ports_llm::Binary::ClaudeCode,
+            models: ports_llm::Models {
+                generation: "g".to_string(),
+                summary: "s".to_string(),
+            },
+        };
+        let request = ports_llm::GenerateRequest::new(ports_llm::TextKind::Prompt, prompt);
+        llm.generate(&config, &request)
+            .await
+            .expect("an answer")
+            .text
+    }
+
+    #[tokio::test]
+    async fn the_fake_llm_answers_a_characters_prompt_with_the_fixtures_proposal() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let editor: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixtures.join("EntityEditor.json")).expect("the fixture"),
+        )
+        .expect("JSON");
+        let llm = llm(Ports::Fake, Some(&fixtures));
+        for (dictation, proposal) in [("morlox", "morlox"), ("default", "default")] {
+            let prompt = format!(
+                "Prompt initial : {}",
+                editor["dictations"][dictation]
+                    .as_str()
+                    .expect("a dictation")
+            );
+            let answer: Value =
+                serde_json::from_str(&proposed(&llm, &prompt).await).expect("one JSON object");
+            assert_eq!(answer, editor["proposals"][proposal], "{dictation}");
+        }
+        let anyone: Value =
+            serde_json::from_str(&proposed(&llm, "Un druide").await).expect("one JSON object");
+        assert_eq!(anyone, editor["proposals"]["default"]);
+    }
+
+    #[tokio::test]
+    async fn without_the_fixture_the_fake_llm_proposes_no_character() {
+        let dir = folder(
+            "no-entity-editor",
+            &[("EntityEditor.json", r#"{"dictations": {}}"#)],
+        );
+        let without_proposals = llm(Ports::Fake, Some(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+        for fake in [without_proposals, llm(Ports::Fake, None)] {
+            let answer = proposed(&fake, "Un druide").await;
+            assert!(answer.starts_with("Réponse simulée de "), "{answer}");
+        }
     }
 
     #[tokio::test]
@@ -540,13 +683,119 @@ mod tests {
         }
     }
 
+    /// The character `elowen` of the mock-up's `entities.json` has on D&D Beyond.
+    const ELOWEN: u64 = 112_847_390;
+
+    /// The character `brannoc` has on D&D Beyond, and no `ddbResync` of his own.
+    const BRANNOC: u64 = 112_850_214;
+
+    /// The fake over the mock-up's fixtures, as the server starts with
+    /// `FIXTURES_DIR=mock/fixtures`.
+    fn fixtures_fake() -> FakeCharacterSheets {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        character_sheets(Ports::Fake, Some(&fixtures))
+    }
+
+    #[tokio::test]
+    async fn the_fake_character_sheets_answer_elowens_sheet_after_her_level_up() {
+        let id = CharacterId::new(ELOWEN).expect("an id");
+        let sheet = fixtures_fake().fetch(id).await.expect("elowen is known");
+        assert_eq!(sheet.id, id);
+        // `ddbResync.elowen.patch`: pvMax 52, SAG 16, two spells more.
+        assert_eq!(sheet.statblock.hp_max, 52);
+        assert_eq!(sheet.statblock.wisdom, 16);
+        let spells: Vec<&str> = sheet
+            .statblock
+            .spells
+            .iter()
+            .map(|spell| spell.name.as_str())
+            .collect();
+        assert!(spells.contains(&"Explorateur né amélioré"), "{spells:?}");
+        assert!(
+            spells.contains(&"Communication avec les animaux"),
+            "{spells:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_character_without_a_resync_of_its_own_carries_its_fixture_values() {
+        // brannoc has a D&D Beyond link and no `ddbResync` entry: the default
+        // level-up, an empty patch, leaves the sheet as the fixtures draw it.
+        let id = CharacterId::new(BRANNOC).expect("an id");
+        let sheet = fixtures_fake().fetch(id).await.expect("brannoc is known");
+        assert_eq!(sheet.statblock.hp_max, 48);
+        assert_eq!(sheet.statblock.wisdom, 17);
+        assert!(
+            !sheet
+                .statblock
+                .spells
+                .iter()
+                .any(|spell| spell.name == "Communication avec les animaux")
+        );
+    }
+
+    #[tokio::test]
+    async fn without_both_fixtures_the_fake_character_sheets_know_no_character() {
+        let id = CharacterId::new(ELOWEN).expect("an id");
+        let entities = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures/entities.json"),
+        )
+        .expect("the fixture");
+        let only_entities = folder("only-entities", &[("entities.json", &entities)]);
+        let neither = folder("neither", &[("other.json", "{}")]);
+        let broken = folder(
+            "broken-editor",
+            &[("entities.json", &entities), ("EntityEditor.json", "{")],
+        );
+        let wiring = |dir: Option<&Path>| character_sheets(Ports::Fake, dir);
+        let fakes = [
+            wiring(Some(&only_entities)),
+            wiring(Some(&neither)),
+            wiring(Some(&broken)),
+            wiring(None),
+        ];
+        for dir in [&only_entities, &neither, &broken] {
+            std::fs::remove_dir_all(dir).ok();
+        }
+        for fake in fakes {
+            assert_eq!(fake.fetch(id).await, Err(CharacterSheetsError::NotFound));
+        }
+    }
+
+    #[tokio::test]
+    async fn shared_carries_the_character_sheets_port_beside_llm_and_speech_to_text() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let llm = SharedLlm::new(FakeLlm::new());
+        let speech = SharedSpeechToText::new(FakeSpeechToText::new(String::new()));
+        let fake = character_sheets(Ports::Fake, Some(&fixtures));
+        let sheets = SharedCharacterSheets::new(fake.clone());
+        let shared = shared(&llm, &speech, &sheets);
+        assert!(shared.get::<SharedLlm>().is_some(), "llm");
+        assert!(
+            shared.get::<SharedSpeechToText>().is_some(),
+            "speech-to-text"
+        );
+        // What a unit's Prepare reads from the map is that very port.
+        let handed = shared
+            .get::<SharedCharacterSheets>()
+            .expect("the character-sheets port");
+        let id = CharacterId::new(ELOWEN).expect("an id");
+        let sheet = handed.fetch(id).await.expect("elowen is known");
+        // A change made on the fake after the handover is what the port answers.
+        let mut changed = sheet.clone();
+        changed.statblock.hp_max += 1;
+        let _ = fake.clone().with_sheet(changed.clone());
+        assert_eq!(handed.fetch(id).await, Ok(changed));
+    }
+
     /// The engine over memory, as the binary plants it with the ports on
     /// their fakes.
     async fn memory() -> Planted {
         let config = config(&[("DATABASE_URL", MEMORY)]).expect("a valid configuration");
         let llm = SharedLlm::new(FakeLlm::new());
         let speech = SharedSpeechToText::new(FakeSpeechToText::new(String::new()));
-        plant(&config, shared(&llm, &speech))
+        let sheets = SharedCharacterSheets::new(FakeCharacterSheets::new());
+        plant(&config, shared(&llm, &speech, &sheets))
             .await
             .expect("the in-memory engine")
     }
@@ -792,7 +1041,7 @@ mod tests {
         assert_eq!(empty, json!({ "asOf": 0, "data": { "requests": [] } }));
 
         // The cloud host is recognised by its URL alone: the test reaches it.
-        reached(&llm, "https://api.anthropic.com/v1").await;
+        reached(llm.as_ref(), "https://api.anthropic.com/v1").await;
         // No persisted query: a hash, whatever it is, changes nothing.
         let (status, listed) = provider_requests_of(
             llm.clone(),

@@ -26,6 +26,12 @@ const mounted = compose(current, (resolved) => mount(host, { ...resolved, entity
 
 // A sheet saved elsewhere on the page: its new version, as the server would list it.
 Mock.on('entity-updated', async (u) => {
+  // The editor's AI or D&D Beyond change is a version the server holds already: only read it again.
+  if (u.versioned) {
+    server.bump();
+    mounted.update({ ...current });
+    return;
+  }
   const all = await server.load('campaign.listEntityVersions');
   const entities = await server.load('entities');
   const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === u.id);
