@@ -983,6 +983,63 @@ async fn an_element_the_dm_removed_from_its_scene_is_never_linked_again() {
 }
 
 #[tokio::test]
+async fn a_link_of_an_entry_naming_an_element_but_not_created_is_refused() {
+    let served = Served::new(echoed).await;
+    let mut named = entry("pnj", "Frère Odric", EXCERPT);
+    named["createdEntityId"] = json!(element_id(ODRIC));
+    written(&served.store, &format!("Session/{ODRIC}"), named).await;
+    let (kind, message) = refused(link(&served, ODRIC, SCENE).await);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("entrée créée"), "{message}");
+}
+
+#[tokio::test]
+async fn a_creation_made_again_whose_scene_holds_its_element_owes_no_link() {
+    let served = Served::new(echoed).await;
+    let element = element_id(ODRIC);
+    // « creee », its save rejected, its element already in the scene.
+    let mut stale = entry("pnj", "Frère Odric", EXCERPT);
+    stale["entityToCreateStatus"] = json!(CREEE);
+    stale["createdEntityId"] = json!(element);
+    written(&served.store, &format!("Session/{ODRIC}"), stale).await;
+    let mut scene = served.row(&format!("Session/{SCENE}")).await;
+    scene.insert("entityId".to_owned(), json!([GASPARD, element]));
+    written(&served.store, &format!("Session/{SCENE}"), json!(scene)).await;
+    let answer = served
+        .create(json!({ "entry": ODRIC }))
+        .await
+        .expect("queued");
+    assert_eq!(follow_ups(&answer), [format!("Entity/{element}")]);
+    served.applied().await;
+    assert_eq!(served.element(ODRIC).await["name"], "Frère Odric");
+    // The DM takes it out of the scene: no link was owed, none is made.
+    let mut scene = served.row(&format!("Session/{SCENE}")).await;
+    scene.insert("entityId".to_owned(), json!([GASPARD]));
+    written(&served.store, &format!("Session/{SCENE}"), json!(scene)).await;
+    let (kind, message) = refused(link(&served, ODRIC, SCENE).await);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("une fois"), "{message}");
+}
+
+#[tokio::test]
+async fn a_command_naming_its_entry_by_target_only_creates_it() {
+    let served = Served::new(echoed).await;
+    let submission: Submission = serde_json::from_value(json!({
+        "dataCapability": "ai.createFromBrief@1",
+        "payload": {},
+        "targetId": ODRIC,
+        "caller": caller(),
+    }))
+    .expect("a submission");
+    let answer = served.engine.submit(submission).await.expect("queued");
+    assert_eq!(answer.partition, format!("Session/{ODRIC}"));
+    served.applied().await;
+    assert_eq!(served.element(ODRIC).await["name"], "Frère Odric");
+    let entry = served.row(&format!("Session/{ODRIC}")).await;
+    assert_eq!(entry["entityToCreateStatus"], CREEE);
+}
+
+#[tokio::test]
 async fn a_link_of_an_entry_created_elsewhere_is_refused() {
     // « creee » with its element, by no creation of this engine: no link
     // is owed.
