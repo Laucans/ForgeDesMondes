@@ -65,8 +65,8 @@ use dataguard_server::engine::tokio_postgres;
 use dataguard_server::{MEMORY, Planted};
 pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, id};
 pub use names::{Names, renaming};
-use ports_character_sheets::SharedCharacterSheets;
 use ports_character_sheets::fake::FakeCharacterSheets;
+use ports_character_sheets::{CharacterId, SharedCharacterSheets};
 use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, SharedLlm};
 use ports_speech_to_text::SharedSpeechToText;
@@ -258,8 +258,10 @@ pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> FakeSpeechToText
 /// characters of the mock-up's `entities.json` that have a D&D Beyond link and
 /// the level-ups `EntityEditor.json` (`ddbResync`) plans for them — so an
 /// import reads the sheet the mock-up shows and a resync finds elowen's
-/// level-up. Without either fixture, or when they do not describe a sheet, it
-/// knows no character.
+/// level-up. Every level-up is already played when the fake is handed over: a
+/// fetch answers D&D Beyond's side after it, while the tables keep the
+/// fixtures' sheet as last synchronised. Without either fixture, or when they
+/// do not describe a sheet, it knows no character.
 pub fn character_sheets(ports: Ports, fixtures: Option<&Path>) -> FakeCharacterSheets {
     match ports {
         Ports::Fake => {
@@ -276,9 +278,25 @@ pub fn character_sheets(ports: Ports, fixtures: Option<&Path>) -> FakeCharacterS
                             eprintln!("server: the character-sheets fake knows no character: {e}");
                         })
                         .ok()
+                        .inspect(|fake| play_level_ups(fake, &entities))
                 })
                 .unwrap_or_default()
         }
+    }
+}
+
+/// Plays on `fake` the level-up of every character of `entities`
+/// (`entities.json`) that has a D&D Beyond link: the one `ddbResync` plans for
+/// it, or the default, an empty patch.
+fn play_level_ups(fake: &FakeCharacterSheets, entities: &Value) {
+    let linked = entities["characters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|character| character["ddb"]["url"].as_str())
+        .filter_map(|url| CharacterId::parse(url).ok());
+    for id in linked {
+        fake.level_up(id);
     }
 }
 
@@ -432,7 +450,7 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
-    use ports_character_sheets::{CharacterId, CharacterSheets, CharacterSheetsError};
+    use ports_character_sheets::{CharacterSheets, CharacterSheetsError};
     use ports_speech_to_text::SpeechToText;
     use serde_json::{Value, json};
     use tower::ServiceExt;
@@ -668,17 +686,52 @@ mod tests {
     /// The character `elowen` of the mock-up's `entities.json` has on D&D Beyond.
     const ELOWEN: u64 = 112_847_390;
 
-    #[tokio::test]
-    async fn the_fake_character_sheets_know_the_fixtures_characters_and_elowens_level_up() {
+    /// The character `brannoc` has on D&D Beyond, and no `ddbResync` of his own.
+    const BRANNOC: u64 = 112_850_214;
+
+    /// The fake over the mock-up's fixtures, as the server starts with
+    /// `FIXTURES_DIR=mock/fixtures`.
+    fn fixtures_fake() -> FakeCharacterSheets {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
-        let fake = character_sheets(Ports::Fake, Some(&fixtures));
+        character_sheets(Ports::Fake, Some(&fixtures))
+    }
+
+    #[tokio::test]
+    async fn the_fake_character_sheets_answer_elowens_sheet_after_her_level_up() {
         let id = CharacterId::new(ELOWEN).expect("an id");
-        let before = fake.fetch(id).await.expect("elowen is known");
-        assert_eq!(before.id, id);
-        // `ddbResync.elowen` is what the fake plays: her level-up is planned.
-        assert!(fake.level_up(id), "a level-up is planned for elowen");
-        let after = fake.fetch(id).await.expect("elowen, levelled up");
-        assert_ne!(after.class_and_level, before.class_and_level);
+        let sheet = fixtures_fake().fetch(id).await.expect("elowen is known");
+        assert_eq!(sheet.id, id);
+        // `ddbResync.elowen.patch`: pvMax 52, SAG 16, two spells more.
+        assert_eq!(sheet.statblock.hp_max, 52);
+        assert_eq!(sheet.statblock.wisdom, 16);
+        let spells: Vec<&str> = sheet
+            .statblock
+            .spells
+            .iter()
+            .map(|spell| spell.name.as_str())
+            .collect();
+        assert!(spells.contains(&"Explorateur né amélioré"), "{spells:?}");
+        assert!(
+            spells.contains(&"Communication avec les animaux"),
+            "{spells:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_character_without_a_resync_of_its_own_carries_its_fixture_values() {
+        // brannoc has a D&D Beyond link and no `ddbResync` entry: the default
+        // level-up, an empty patch, leaves the sheet as the fixtures draw it.
+        let id = CharacterId::new(BRANNOC).expect("an id");
+        let sheet = fixtures_fake().fetch(id).await.expect("brannoc is known");
+        assert_eq!(sheet.statblock.hp_max, 48);
+        assert_eq!(sheet.statblock.wisdom, 17);
+        assert!(
+            !sheet
+                .statblock
+                .spells
+                .iter()
+                .any(|spell| spell.name == "Communication avec les animaux")
+        );
     }
 
     #[tokio::test]
@@ -727,10 +780,12 @@ mod tests {
             .get::<SharedCharacterSheets>()
             .expect("the character-sheets port");
         let id = CharacterId::new(ELOWEN).expect("an id");
-        assert!(handed.fetch(id).await.is_ok());
-        assert!(fake.level_up(id));
-        let levelled = fake.fetch(id).await.expect("levelled up");
-        assert_eq!(handed.fetch(id).await, Ok(levelled));
+        let sheet = handed.fetch(id).await.expect("elowen is known");
+        // A change made on the fake after the handover is what the port answers.
+        let mut changed = sheet.clone();
+        changed.statblock.hp_max += 1;
+        let _ = fake.clone().with_sheet(changed.clone());
+        assert_eq!(handed.fetch(id).await, Ok(changed));
     }
 
     /// The engine over memory, as the binary plants it with the ports on
