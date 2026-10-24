@@ -848,7 +848,7 @@
           "type": "text",
           "technical": [
             "CHECK entity_version_source : 'dm', 'ia', 'dndbeyond', 'brief' ou 'restauration'.",
-            "Trigger entity_version_added : 'dndbeyond' et 'ia' ne changent que les champs de leur périmètre, lus dans diff."
+            "Trigger entity_version_added : 'dndbeyond' et 'ia' ne changent que les champs de leur périmètre, lus dans diff ; 'dndbeyond' dès la deuxième version de l'élément seulement — une importation qui crée le PJ l'écrit entier (crates/data/migrations/0013_entity_dndbeyond_creation.sql)."
           ]
         },
         {

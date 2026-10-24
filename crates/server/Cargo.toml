@@ -19,6 +19,7 @@ dataguard-registry = { path = "../dataguard/registry" }
 # The one Capability the registry cannot answer (hostless: it reads the llm
 # port's journal, not rows), served by this server's own route.
 list-provider-requests = { path = "../ai/capabilities/list-provider-requests" }
+ports-character-sheets = { path = "../ports/character-sheets" }
 ports-llm = { path = "../ports/llm" }
 ports-speech-to-text = { path = "../ports/speech-to-text" }
 serde_json = "1"

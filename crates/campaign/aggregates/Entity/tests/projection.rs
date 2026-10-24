@@ -9,17 +9,19 @@
 //! scratch database of its own, migrated as the server migrates it, dropped
 //! when it ends.
 
+use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use aggregate_entity::History;
+use async_trait::async_trait;
 use harness_dataguard::aggregate::Aggregate;
 use harness_dataguard::api::Submission;
 use harness_dataguard::command::{CommandResult, State};
 use harness_dataguard::engine::Engine;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::MemoryNotifier;
-use harness_dataguard::plugins::Plugins;
+use harness_dataguard::plugins::{Context, Plugin, Plugins, Prepare, Prepared, Refusal};
 use harness_dataguard::postgres::{PgStore, SystemClock};
 use harness_dataguard::store::RandomIds;
 use harness_dataguard::tokio_postgres::{self, Client, NoTls};
@@ -105,11 +107,23 @@ impl Scratch {
 
     /// The same, its messages sent through `notifier`.
     async fn telling(&self, notifier: Arc<MemoryNotifier>) -> (Engine, Arc<History>) {
+        self.planting(notifier, Plugin::new(), &[]).await
+    }
+
+    /// The same, with a test's own `plugin` and DataCapabilities beside the
+    /// product's.
+    async fn planting(
+        &self,
+        notifier: Arc<MemoryNotifier>,
+        plugin: Plugin,
+        manifests: &[&str],
+    ) -> (Engine, Arc<History>) {
         let history = Arc::new(History::default());
         let plugins: Plugins = [
             aggregate_entity::keeping(history.clone()),
             save_entity::plugin(),
             restore_entity_version::plugin(),
+            plugin,
         ]
         .into_iter()
         .collect();
@@ -127,6 +141,9 @@ impl Scratch {
             )
             .with_ids(Arc::new(RandomIds))
             .with_plugins(plugins);
+        let engine = manifests.iter().fold(engine, |engine, manifest| {
+            engine.with_data_capability(DataCapability::parse(manifest).expect("contract F"))
+        });
         engine.load().await.expect("the units fit");
         (engine, history)
     }
@@ -817,5 +834,359 @@ async fn without_the_tables_a_start_reads_nothing_and_a_save_fails_the_step_unre
         .await;
     assert!(rows.is_empty(), "{rows:?}");
     drop(history);
+    s.drop().await;
+}
+
+/// Morlox, Valombre's NPC, as the mock-up's fixtures load him straight into
+/// the tables (`crates/server/src/fixtures.rs`): his row, his sheet, his
+/// aliases — in another order than his snapshot's — and his version 1, which
+/// the engine never wrote.
+const MORLOX: &str = "e1000000-0000-4000-8000-000000000003";
+/// His version 1.
+const MORLOX_1: &str = "f1000000-0000-4000-8000-000000000003";
+/// La Taverne du Sanglier, a place of the fixtures: no sheet, no alias.
+const TAVERNE: &str = "e1000000-0000-4000-8000-000000000002";
+
+/// Morlox's version 1 snapshot, the fixtures' nulls left out.
+fn morlox_snapshot() -> Value {
+    json!({
+        "type": "pnj", "name": "Morlox",
+        "description": "Gobelin marchand du marché noir de Valombre.",
+        "notes": "Doit 40 po à Vesna.",
+        "aliases": ["le gobelin", "le marchand", "Morlo"],
+        "initialPrompt": "Un gobelin marchand, nerveux.",
+        "background": "Chassé de sa tribu.",
+        "behavior": "Parle vite.",
+        "strength": 8, "dexterity": 14, "constitution": 10,
+        "intelligence": 13, "wisdom": 9, "charisma": 12,
+        "armorClass": 13, "hpMax": 18,
+        "actions": [{ "name": "Dague", "text": "+4 pour toucher." }],
+        "tokenColor": "secondary",
+        "spells": [],
+    })
+}
+
+impl Scratch {
+    /// Morlox and the Taverne, as the fixtures load them.
+    async fn fixtures(&self) {
+        let snapshot = morlox_snapshot();
+        let diff: Vec<Value> = snapshot
+            .as_object()
+            .expect("an object")
+            .iter()
+            .map(|(field, new)| json!({ "field": field, "old": null, "new": new }))
+            .collect();
+        let at = "2026-08-20T10:00:00.000003Z";
+        self.client
+            .batch_execute(&format!(
+                "INSERT INTO entity (id, campaign_id, type, name, description, notes, created_at, updated_at)
+                    VALUES ('{MORLOX}', '{VALOMBRE}', 'pnj', 'Morlox', {description}, {notes}, '{at}', '{at}'),
+                        ('{TAVERNE}', '{VALOMBRE}', 'lieu', 'La Taverne du Sanglier', NULL, NULL, '{at}', '{at}');
+                 INSERT INTO character (entity_id, initial_prompt, background, behavior, strength, dexterity,
+                        constitution, intelligence, wisdom, charisma, armor_class, hp_max, actions, token_color)
+                    VALUES ('{MORLOX}', {prompt}, {background}, {behavior}, 8, 14, 10, 13, 9, 12, 13, 18,
+                        '{actions}', 'secondary');
+                 INSERT INTO entity_alias (entity_id, alias)
+                    VALUES ('{MORLOX}', 'Morlo'), ('{MORLOX}', 'le marchand'), ('{MORLOX}', 'le gobelin');
+                 INSERT INTO entity_version (id, entity_id, version_number, source, snapshot, diff, created_at)
+                    VALUES ('{MORLOX_1}', '{MORLOX}', 1, 'dm', '{snapshot}', '{diff}', '{at}'),
+                        ('f1000000-0000-4000-8000-000000000002', '{TAVERNE}', 1, 'dm',
+                         '{{\"type\": \"lieu\", \"name\": \"La Taverne du Sanglier\", \"aliases\": []}}', '[]', '{at}');",
+                description = text(&snapshot["description"]),
+                notes = text(&snapshot["notes"]),
+                prompt = text(&snapshot["initialPrompt"]),
+                background = text(&snapshot["background"]),
+                behavior = text(&snapshot["behavior"]),
+                actions = snapshot["actions"],
+                diff = Value::Array(diff),
+            ))
+            .await
+            .expect("the fixtures");
+    }
+}
+
+/// `value`, a string, as an SQL literal.
+fn text(value: &Value) -> String {
+    format!(
+        "'{}'",
+        value.as_str().expect("a string").replace('\'', "''")
+    )
+}
+
+/// A read of the row `read` names, refused once read: nothing is queued.
+const PEEK: &str = r#"{"dataCapability":"test.peekEntity","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Entity","id":"$entityId"},"mode":"overwrite","callableBy":["*"]}"#;
+
+/// A `Prepare` keeping what `Context::row` answers it.
+#[derive(Clone, Default)]
+struct Peek(Arc<Mutex<Vec<BTreeMap<String, Value>>>>);
+
+#[async_trait]
+impl Prepare for Peek {
+    async fn prepare(
+        &self,
+        context: &Context<'_>,
+        payload: &BTreeMap<String, Value>,
+        _target_id: Option<&str>,
+    ) -> Result<Prepared, Refusal> {
+        let partition = payload["read"].as_str().expect("a partition");
+        let row = context.row(partition).await?;
+        self.0.lock().expect("the rows read").push(row);
+        Err(Refusal::unprocessable("read"))
+    }
+}
+
+impl Peek {
+    /// An engine over `s` reading through this `Prepare`.
+    async fn over(&self, s: &Scratch) -> Engine {
+        s.planting(
+            Arc::default(),
+            Plugin::new().prepare("test.peekEntity", self.clone()),
+            &[PEEK],
+        )
+        .await
+        .0
+    }
+
+    /// The row of `partition`, as a `Prepare` reads it.
+    async fn row(&self, engine: &Engine, partition: &str) -> BTreeMap<String, Value> {
+        let refused = submit_raw(
+            engine,
+            json!({
+                "dataCapability": "test.peekEntity",
+                "payload": { "entityId": MORLOX, "read": partition },
+            }),
+        )
+        .await;
+        assert!(refused.is_err(), "nothing is queued");
+        self.0.lock().expect("the rows read").pop().expect("read")
+    }
+}
+
+/// Submits `body` as the DM: the engine's answer, a refusal kept.
+async fn submit_raw(engine: &Engine, mut body: Value) -> harness_dataguard::Result<Value> {
+    body["caller"] =
+        json!({ "by": "dm", "from": "campaign.EntityEditor", "roles": ["role:approver"] });
+    let submission: Submission = serde_json::from_value(body).expect("a submission");
+    let answer = engine.submit(submission).await?;
+    Ok(serde_json::to_value(answer).expect("JSON"))
+}
+
+#[tokio::test]
+async fn a_prepare_reads_an_element_only_the_tables_hold_as_the_engine_row_it_writes() {
+    let s = Scratch::new("hydrate").await;
+    s.fixtures().await;
+    let peek = Peek::default();
+    let engine = peek.over(&s).await;
+
+    let morlox = peek.row(&engine, &format!("Entity/{MORLOX}")).await;
+    let expected = json!({
+        "entityId": MORLOX, "entityCampaignId": VALOMBRE, "type": "pnj", "name": "Morlox",
+        "description": "Gobelin marchand du marché noir de Valombre.",
+        "notes": "Doit 40 po à Vesna.",
+        "entityCreatedAt": "2026-08-20T10:00:00.000003Z",
+        "updatedAt": "2026-08-20T10:00:00.000003Z",
+        // In his snapshot's order, not the table's.
+        "alias": ["le gobelin", "le marchand", "Morlo"],
+        "characterEntityId": MORLOX,
+        "initialPrompt": "Un gobelin marchand, nerveux.",
+        "background": "Chassé de sa tribu.", "behavior": "Parle vite.",
+        "strength": 8, "dexterity": 14, "constitution": 10,
+        "intelligence": 13, "wisdom": 9, "charisma": 12,
+        "armorClass": 13, "hpMax": 18, "spells": [],
+        "actions": [{ "name": "Dague", "text": "+4 pour toucher." }],
+        "tokenColor": "secondary",
+        "entityVersionId": MORLOX_1, "versionNumber": 1, "snapshot": morlox_snapshot(),
+    });
+    assert_eq!(
+        json!(morlox),
+        expected,
+        "no null: a field he has not is absent"
+    );
+
+    // A place: no sheet, no alias.
+    let taverne = peek.row(&engine, &format!("Entity/{TAVERNE}")).await;
+    assert_eq!(
+        json!(taverne),
+        json!({
+            "entityId": TAVERNE, "entityCampaignId": VALOMBRE, "type": "lieu",
+            "name": "La Taverne du Sanglier",
+            "entityCreatedAt": "2026-08-20T10:00:00.000003Z",
+            "updatedAt": "2026-08-20T10:00:00.000003Z",
+            "alias": [],
+            "entityVersionId": "f1000000-0000-4000-8000-000000000002", "versionNumber": 1,
+            "snapshot": { "type": "lieu", "name": "La Taverne du Sanglier", "aliases": [] },
+        })
+    );
+    // An element the tables do not hold, another aggregate's row: none.
+    assert!(
+        peek.row(&engine, &format!("Entity/{}", new_id()))
+            .await
+            .is_empty()
+    );
+    assert!(
+        peek.row(&engine, &format!("Campaign/{MORLOX}"))
+            .await
+            .is_empty()
+    );
+    drop(engine);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_text_that_is_no_uuid_or_tables_not_migrated_hydrate_nothing_without_an_sql_error() {
+    let s = Scratch::new("hydrate_none").await;
+    s.fixtures().await;
+    let peek = Peek::default();
+    let engine = peek.over(&s).await;
+    for id in [
+        "morlox",
+        "",
+        "e1000000-0000-4000-8000-00000000000g",
+        "e1000000-0000-4000-8000-0000000000033",
+        "e1000000x0000-4000-8000-000000000003",
+        "e1000000-0000x4000-8000-000000000003",
+        "e1000000-0000-4000x8000-000000000003",
+        "e1000000-0000-4000-8000x000000000003",
+        "e1000000-0000-4000-8000-00000000003'",
+        // In capitals, a second partition of the same element.
+        "E1000000-0000-4000-8000-000000000003",
+        "e1000000-0000-4000-8000-00000000000F",
+    ] {
+        let row = peek.row(&engine, &format!("Entity/{id}")).await;
+        assert!(row.is_empty(), "{id}: {row:?}");
+    }
+    drop(engine);
+    s.drop().await;
+
+    let s = Scratch::bare("hydrate_bare").await;
+    let peek = Peek::default();
+    let engine = peek.over(&s).await;
+    assert!(
+        peek.row(&engine, &format!("Entity/{MORLOX}"))
+            .await
+            .is_empty()
+    );
+    drop(engine);
+    s.drop().await;
+}
+
+#[tokio::test]
+async fn a_save_of_an_element_only_the_tables_hold_applies_and_versions_its_change_alone() {
+    let s = Scratch::new("fixture_save").await;
+    s.fixtures().await;
+    let (engine, history) = s.serve().await;
+    // The editor names him and his new description, not his campaign: his
+    // row is the tables'.
+    let (id, result) = save(
+        &engine,
+        json!({ "entity": { "id": MORLOX, "description": "Gobelin marchand, ruiné." } }),
+    )
+    .await;
+    assert_eq!(id, MORLOX);
+    applied(&result);
+    assert_eq!(
+        s.rows(&format!(
+            "SELECT campaign_id, type, name, description, notes FROM entity WHERE id = '{MORLOX}'"
+        ))
+        .await,
+        [json!({
+            "campaign_id": VALOMBRE, "type": "pnj", "name": "Morlox",
+            "description": "Gobelin marchand, ruiné.", "notes": "Doit 40 po à Vesna.",
+        })]
+    );
+    assert_eq!(
+        s.rows(&format!(
+            "SELECT hp_max, token_color, actions FROM character WHERE entity_id = '{MORLOX}'"
+        ))
+        .await,
+        [
+            json!({ "hp_max": 18, "token_color": "secondary", "actions": [{ "name": "Dague", "text": "+4 pour toucher." }] })
+        ]
+    );
+    let versions = s.rows(&versions_of(MORLOX)).await;
+    assert_eq!(versions.len(), 2, "{versions:?}");
+    assert_eq!(versions[0]["id"], MORLOX_1, "version 1 is never modified");
+    assert_eq!(versions[0]["snapshot"], morlox_snapshot());
+    assert_eq!(versions[1]["version_number"], 2);
+    assert_eq!(versions[1]["source"], "dm");
+    assert_eq!(
+        versions[1]["diff"],
+        json!([{
+            "field": "description",
+            "old": "Gobelin marchand du marché noir de Valombre.",
+            "new": "Gobelin marchand, ruiné.",
+        }])
+    );
+    // The engine's history and its own row agree with the tables.
+    let kept = history.of(MORLOX);
+    assert_eq!(kept.len(), 2);
+    assert_eq!(json!(kept[1].diff), versions[1]["diff"]);
+    let row = s
+        .rows(&format!(
+            "SELECT fields FROM dataguard_rows WHERE partition = 'Entity/{MORLOX}'"
+        ))
+        .await;
+    assert_eq!(row[0]["fields"]["versionNumber"], 2);
+    assert_eq!(row[0]["fields"]["diff"], versions[1]["diff"]);
+    drop(engine);
+    s.drop().await;
+}
+
+/// A PC imported from D&D Beyond on an empty row, its whole sheet and its
+/// first version: what dndbeyond.importCharacter writes.
+const IMPORT: &str = r#"{"dataCapability":"test.importCharacter","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"Entity","id":"$entityId"},"mode":"overwrite","callableBy":["*"]}"#;
+
+#[tokio::test]
+async fn an_import_from_dndbeyond_creates_its_pc_in_the_tables_under_dndbeyond_resync_scope() {
+    let s = Scratch::new("import").await;
+    let (engine, _) = s.serve().await;
+    let engine = engine.with_data_capability(DataCapability::parse(IMPORT).expect("contract F"));
+    let thorin = new_id();
+    let (_, result) = command(
+        &engine,
+        json!({
+            "dataCapability": "test.importCharacter",
+            "payload": {
+                "entityId": thorin, "entityCampaignId": VALOMBRE, "type": "pj",
+                "name": "Thorin Brisepierre", "entityCreatedAt": "2026-10-24T10:00:00.000Z",
+                "characterEntityId": thorin, "playerId": CLAIRE,
+                "strength": 16, "dexterity": 10, "constitution": 16,
+                "intelligence": 9, "wisdom": 13, "charisma": 11,
+                "armorClass": 18, "hpMax": 44,
+                "spells": [{ "name": "Bénédiction" }],
+                "actions": [{ "name": "Marteau de guerre", "text": "+6 au toucher" }],
+                "tokenColor": "#8a5a2b",
+                "dndbeyondId": "112850214", "dndbeyondSyncedAt": "2026-10-24T10:00:00.000Z",
+                "entityVersionId": new_id(), "versionNumber": 1, "source": "dndbeyond",
+                "snapshot": {}, "diff": [],
+            },
+        }),
+    )
+    .await;
+    applied(&result);
+    assert!(result.violations.is_empty(), "{result:?}");
+    let versions = s.rows(&versions_of(&thorin)).await;
+    assert_eq!(versions.len(), 1, "{versions:?}");
+    assert_eq!(versions[0]["source"], "dndbeyond");
+    // The tables hold his whole creation: his name and type among the
+    // changes, outside a resync's scope.
+    let fields: Vec<&str> = versions[0]["diff"]
+        .as_array()
+        .expect("a diff")
+        .iter()
+        .filter_map(|change| change["field"].as_str())
+        .collect();
+    assert!(
+        fields.contains(&"name") && fields.contains(&"type"),
+        "{fields:?}"
+    );
+    assert_eq!(
+        s.rows(&format!(
+            "SELECT dndbeyond_id, hp_max FROM character WHERE entity_id = '{thorin}'"
+        ))
+        .await,
+        [json!({ "dndbeyond_id": "112850214", "hp_max": 44 })]
+    );
+    drop(engine);
     s.drop().await;
 }

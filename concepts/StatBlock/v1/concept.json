@@ -1,0 +1,31 @@
+{
+  "concept": "StatBlock",
+  "version": 1,
+  "kind": "derived",
+  "definition": "What a complete, playable statblock is on a character sheet, whoever filled it (the DM, an AI proposal, a D&D Beyond import or resync). The rules edition is D&D 2024 (SRD 5.2). A statblock is made of ten fields: the six ability scores `strength`, `dexterity`, `constitution`, `intelligence`, `wisdom` and `charisma` (STR, DEX, CON, INT, WIS, CHA), each an integer from 1 to 30; `armorClass` and `hpMax`, each an integer greater than 0; `actions`, the abilities and attacks of the sheet; and `spells`, its spells. `actions` and `spells` are lists of `{ name, description }`, both strings that are not blank once the white space around them is trimmed. A field is sound when it follows its rule. It is unsound when it is absent, null, of another type (a score given as a string, a fractional number, a boolean), outside its range, or, for a list, not a list or holding an entry that is not a sound `{ name, description }`. `actions` must hold at least one entry: a sheet with no action cannot be played. `spells` may be empty, since not every character casts, but each entry it holds must be sound. The statblock is complete when all ten fields are sound; `complete` is then true and `incomplete` is empty. Otherwise `complete` is false and `incomplete` names every unsound field, once each, in the fixed order strength, dexterity, constitution, intelligence, wisdom, charisma, armorClass, hpMax, actions, spells. The same input always gives the same answer, whoever wrote the sheet: a proposal and an import are held to one meaning. A modifier is never part of a statblock: it is not stored apart from its score and comes from AbilityModifier@1, so a field other than the ten is ignored. The Concept judges the shape and the range of a statblock, never whether its figures suit a creature.",
+  "output": {
+    "complete": {
+      "type": "boolean",
+      "rule": "true exactly when all ten fields are sound, that is when `incomplete` is empty"
+    },
+    "incomplete": {
+      "type": "array",
+      "items": "field name",
+      "rule": "the name of every unsound field, once each, in the order strength, dexterity, constitution, intelligence, wisdom, charisma, armorClass, hpMax, actions, spells; a score is unsound unless an integer from 1 to 30, armorClass and hpMax unless an integer greater than 0, actions unless a list of at least one { name, description } of non-blank strings, spells unless a list (possibly empty) of such entries"
+    }
+  },
+  "inputs": [
+    "entity.strength",
+    "entity.dexterity",
+    "entity.constitution",
+    "entity.intelligence",
+    "entity.wisdom",
+    "entity.charisma",
+    "entity.armorClass",
+    "entity.hpMax",
+    "entity.actions",
+    "entity.spells"
+  ],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}

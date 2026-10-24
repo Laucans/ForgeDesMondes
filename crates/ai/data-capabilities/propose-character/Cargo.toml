@@ -1,0 +1,29 @@
+[package]
+name = "propose-character"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability ai.proposeCharacter: from a PC's or an NPC's typed or dictated initial prompt, the active provider (llm port) proposes a background, a behaviour and a StatBlock@1 statblock, applied at once to the sheet on its Entity partition and versioned with source `ia` (EntityVersion@1); a dictation is transcribed locally (speech-to-text port), only text reaches the provider."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target aggregate: how an element's dates are written, and its versions settled.
+aggregate-entity = { path = "../../../campaign/aggregates/Entity" }
+# The provider the AI settings make active.
+ai-provider = { path = "../../provider" }
+# The engine's `Prepare` is an async trait.
+async-trait = "0.1"
+base64 = "0.22"
+ports-llm = { path = "../../../ports/llm" }
+ports-speech-to-text = { path = "../../../ports/speech-to-text" }
+serde_json = "1"
+
+[dev-dependencies]
+# The Concept `statblock` is held to (StatBlock@1).
+platform-conformance = { path = "../../../platform/conformance" }
+# The sheet a proposal fills is one a save made, and undone by a restoration.
+save-entity = { path = "../../../campaign/data-capabilities/save-entity" }
+restore-entity-version = { path = "../../../campaign/data-capabilities/restore-entity-version" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

@@ -324,9 +324,13 @@ fn changed_outside<'a>(entry: &'a Entry, scope: &[&str]) -> impl Iterator<Item =
 
 /// A D&D Beyond resync changes the scores, the AC, the HP max, the spells and
 /// the actions, and nothing else: the aliases, the notes, the token and the
-/// portrait stay as they are.
+/// portrait stay as they are. A resync is a write on an element that exists
+/// when it is queued — linked to D&D Beyond or not: an import that creates
+/// its PC, on an empty row, writes it whole.
 fn dndbeyond_resync_scope(_state: &BTreeMap<String, Value>, entry: &Entry) -> bool {
-    source(entry) != Some("dndbeyond") || changed_outside(entry, &RESYNC).next().is_none()
+    source(entry) != Some("dndbeyond")
+        || entry.projection.confirmed.is_empty()
+        || changed_outside(entry, &RESYNC).next().is_none()
 }
 
 /// An AI proposal fills the background, the behaviour, the scores, the AC,

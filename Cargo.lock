@@ -523,6 +523,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-from-brief"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "aggregate-session",
+ "ai-provider",
+ "async-trait",
+ "base64 0.22.1",
+ "harness-dataguard",
+ "ports-llm",
+ "ports-speech-to-text",
+ "save-entity",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
 name = "create-session"
 version = "0.1.0"
 dependencies = [
@@ -593,6 +611,7 @@ dependencies = [
  "create-battlemap-instance",
  "create-campaign",
  "create-entities-from-note",
+ "create-from-brief",
  "create-session",
  "end-combat",
  "export-campaign",
@@ -606,6 +625,7 @@ dependencies = [
  "get-session",
  "get-settings",
  "harness-dataguard",
+ "import-character",
  "list-campaigns",
  "list-characters",
  "list-entities-to-create",
@@ -623,6 +643,7 @@ dependencies = [
  "next-turn",
  "place-tokens",
  "play-sound",
+ "propose-character",
  "remove-participant",
  "remove-present-character",
  "remove-sound",
@@ -633,6 +654,7 @@ dependencies = [
  "reset-battlemap",
  "resize-window",
  "restore-entity-version",
+ "resync-character",
  "save-entity",
  "save-grid-settings",
  "save-settings",
@@ -1147,6 +1169,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "import-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "ports-character-sheets",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1578,6 +1615,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ports-character-sheets"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "ports-character-sheets-dndbeyond"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "ports-character-sheets",
+ "reqwest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ports-llm"
 version = "0.1.0"
 dependencies = [
@@ -1661,6 +1719,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "propose-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "ai-provider",
+ "async-trait",
+ "base64 0.22.1",
+ "harness-dataguard",
+ "platform-conformance",
+ "ports-llm",
+ "ports-speech-to-text",
+ "restore-entity-version",
+ "save-entity",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1937,6 +2013,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "resync-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-entity",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "ports-character-sheets",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2200,6 +2290,7 @@ dependencies = [
  "dataguard-registry",
  "dataguard-server",
  "list-provider-requests",
+ "ports-character-sheets",
  "ports-llm",
  "ports-speech-to-text",
  "serde_json",
