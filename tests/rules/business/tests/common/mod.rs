@@ -180,9 +180,11 @@ pub fn new_session(s: &Server, campaign: &str, present: &[&str]) -> Result<Strin
         .ok_or_else(|| format!("the session {title} is not listed"))
 }
 
+/// Finds an item by its `title` (sessions, scenes, media) or its `name`
+/// (sounds) and answers its id.
 pub fn by_name_or_title(list: &[Value], title: &str) -> Option<String> {
     list.iter()
-        .find(|v| text(v, "title") == title)
+        .find(|v| text(v, "title") == title || text(v, "name") == title)
         .map(|v| text(v, "id").to_string())
 }
 
