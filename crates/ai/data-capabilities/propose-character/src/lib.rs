@@ -408,9 +408,8 @@ fn object(answer: &str) -> Option<Map<String, Value>> {
 /// the integer it is: providers differ in how they write one.
 fn integral(value: &Value) -> Value {
     match value.as_f64() {
-        Some(number)
-            if value.as_i64().is_none() && number.fract() == 0.0 && number.abs() < 1e15 =>
-        {
+        // A cast saturates: a number beyond `i64` is refused as any too large.
+        Some(number) if value.as_i64().is_none() && number.fract() == 0.0 => {
             Value::from(number as i64)
         }
         _ => value.clone(),

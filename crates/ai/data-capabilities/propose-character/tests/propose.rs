@@ -582,6 +582,17 @@ fn an_integer_written_with_a_fraction_of_zero_is_taken_as_that_integer() {
     assert!(proposal.statblock["armorClass"].is_i64());
     assert!(proposal.statblock["hpMax"].is_i64());
     assert!(proposal.statblock["strength"].is_i64());
+    let mut huge = answer.clone();
+    huge["pvMax"] = json!(1e300);
+    assert_eq!(
+        proposed(&huge.to_string()),
+        Err(Refusal::Unwritable("hpMax"))
+    );
+    huge["stats"]["CON"] = json!(1e15);
+    assert_eq!(
+        proposed(&huge.to_string()),
+        Err(Refusal::Incomplete(vec!["constitution"]))
+    );
     answer["stats"]["DEX"] = json!(16.5);
     assert_eq!(
         proposed(&answer.to_string()),
