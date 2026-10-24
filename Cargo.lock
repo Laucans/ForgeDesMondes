@@ -3,6 +3,42 @@
 version = 4
 
 [[package]]
+name = "add-place-to-session"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "add-present-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "add-scene"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
@@ -102,6 +138,8 @@ dependencies = [
 name = "aggregate-session"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
  "tokio",
@@ -379,6 +417,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "create-campaign"
+version = "0.1.0"
+dependencies = [
+ "aggregate-campaign",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "create-entities-from-note"
 version = "0.1.0"
 dependencies = [
@@ -392,6 +442,18 @@ dependencies = [
  "save-entity",
  "serde_json",
  "sha2",
+ "tokio",
+]
+
+[[package]]
+name = "create-session"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
  "tokio",
 ]
 
@@ -431,6 +493,9 @@ dependencies = [
 name = "dataguard-registry"
 version = "0.1.0"
 dependencies = [
+ "add-place-to-session",
+ "add-present-character",
+ "add-scene",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
  "aggregate-campaign",
@@ -444,13 +509,16 @@ dependencies = [
  "aggregate-sound-playback",
  "aggregate-suggestion",
  "close-window",
+ "create-campaign",
  "create-entities-from-note",
+ "create-session",
  "export-campaign",
  "extract-from-notes",
  "get-battlemap",
  "get-campaign",
  "get-diffusion",
  "get-entity",
+ "get-session",
  "get-settings",
  "harness-dataguard",
  "list-campaigns",
@@ -461,7 +529,11 @@ dependencies = [
  "list-media",
  "list-places",
  "list-players",
+ "list-scenes",
+ "list-sessions",
  "move-window",
+ "remove-present-character",
+ "reorder-scenes",
  "resize-window",
  "restore-entity-version",
  "save-entity",
@@ -651,6 +723,14 @@ dependencies = [
 
 [[package]]
 name = "get-entity"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-session"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
@@ -1098,6 +1178,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-scenes"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "list-sessions"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1465,6 +1560,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "remove-present-character"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "reorder-scenes"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

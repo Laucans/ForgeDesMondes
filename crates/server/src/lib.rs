@@ -677,14 +677,14 @@ mod tests {
         let (status, body) = answer(
             Method::POST,
             "/commands",
-            Some(json!({ "dataCapability": "campaign.createCampaign", "payload": {} })),
+            Some(json!({ "dataCapability": "nothing.registered", "payload": {} })),
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
         assert!(
             body["error"]
                 .as_str()
-                .is_some_and(|e| e.contains("no DataCapability named campaign.createCampaign")),
+                .is_some_and(|e| e.contains("no DataCapability named nothing.registered")),
             "{body}"
         );
     }

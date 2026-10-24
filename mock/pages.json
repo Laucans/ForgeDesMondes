@@ -55,6 +55,7 @@
     },
     {
       "path": "pages/medias.html",
+      "screen": "medias",
       "title": "Médias et réglage de battlemap",
       "objective": "Le DM téléverse ses battlemaps et illustrations et règle la grille hexagonale de chaque carte avec un aperçu en direct",
       "components": [
@@ -130,7 +131,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "c28266f4448bc67f"
+      "builtFrom": "f2e87b9b125bff39"
     },
     {
       "name": "CampaignOverview",
@@ -150,7 +151,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "dfefaf2e77bf0add"
+      "builtFrom": "02dcad12babda4d7"
     },
     {
       "name": "SessionList",
@@ -168,7 +169,11 @@
       "actions": [
         "session.createSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on liste les séances"
+      },
+      "source": "apps/session/session-list",
+      "builtFrom": "9ad1f3afddf36ce2"
     },
     {
       "name": "CampaignElements",
@@ -215,7 +220,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "de2fd45503869fd9"
+      "builtFrom": "5945bc1902469893"
     },
     {
       "name": "ToCreateList",
@@ -279,7 +284,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "40425d3b02777f09"
+      "builtFrom": "914c622306802b03"
     },
     {
       "name": "PreviousSummary",
@@ -381,7 +386,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "855c2a6f71e5a2ec"
+      "builtFrom": "fa8c310d97f1e64c"
     },
     {
       "name": "MediaLibrary",
@@ -403,7 +408,13 @@
         "media.setMediaPlace",
         "session.addPlaceToSession"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne dont on montre les médias, remplacé par ?id= dans l’adresse",
+        "session": "string — id de la séance en préparation, vide quand aucune n'est choisie : sans elle, aucune fiche n'est rattachée à une séance",
+        "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
+      },
+      "source": "apps/media/media-library",
+      "builtFrom": "1d2f5c2f5aa753b1"
     },
     {
       "name": "GridSettings",
@@ -423,7 +434,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "8ffd87cc53425a30"
+      "builtFrom": "af8bfbd31dd7eb60"
     },
     {
       "name": "SoundLibrary",
@@ -570,7 +581,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "5c589b8294d35ac3"
+      "builtFrom": "4c6e6d0e85b3b43d"
     }
   ]
 }

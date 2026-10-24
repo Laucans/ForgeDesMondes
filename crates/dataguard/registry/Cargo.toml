@@ -13,6 +13,9 @@ build = "build.rs"
 # machete does not read.
 [package.metadata.cargo-machete]
 ignored = [
+    "add-place-to-session",
+    "add-present-character",
+    "add-scene",
     "aggregate-ai-settings",
     "aggregate-battlemap-instance",
     "aggregate-campaign",
@@ -26,13 +29,16 @@ ignored = [
     "aggregate-sound-playback",
     "aggregate-suggestion",
     "close-window",
+    "create-campaign",
     "create-entities-from-note",
+    "create-session",
     "export-campaign",
     "extract-from-notes",
     "get-battlemap",
     "get-campaign",
     "get-diffusion",
     "get-entity",
+    "get-session",
     "get-settings",
     "list-campaigns",
     "list-characters",
@@ -42,7 +48,11 @@ ignored = [
     "list-media",
     "list-places",
     "list-players",
+    "list-scenes",
+    "list-sessions",
     "move-window",
+    "remove-present-character",
+    "reorder-scenes",
     "resize-window",
     "restore-entity-version",
     "save-entity",
@@ -58,6 +68,9 @@ ignored = [
 
 [dependencies]
 harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v5", features = ["postgres", "uuid"] }
+add-place-to-session = { path = "../../session/data-capabilities/add-place-to-session" }
+add-present-character = { path = "../../session/data-capabilities/add-present-character" }
+add-scene = { path = "../../session/data-capabilities/add-scene" }
 aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
 aggregate-battlemap-instance = { path = "../../table/aggregates/BattlemapInstance" }
 aggregate-campaign = { path = "../../campaign/aggregates/Campaign" }
@@ -71,13 +84,16 @@ aggregate-sound = { path = "../../soundbox/aggregates/Sound" }
 aggregate-sound-playback = { path = "../../soundbox/aggregates/SoundPlayback" }
 aggregate-suggestion = { path = "../../live/aggregates/Suggestion" }
 close-window = { path = "../../live/data-capabilities/close-window" }
+create-campaign = { path = "../../campaign/data-capabilities/create-campaign" }
 create-entities-from-note = { path = "../../campaign/data-capabilities/create-entities-from-note" }
+create-session = { path = "../../session/data-capabilities/create-session" }
 export-campaign = { path = "../../campaign/data-capabilities/export-campaign" }
 extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 get-battlemap = { path = "../../media/capabilities/get-battlemap" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-diffusion = { path = "../../live/capabilities/get-diffusion" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
+get-session = { path = "../../session/capabilities/get-session" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
@@ -87,7 +103,11 @@ list-imported-notes = { path = "../../campaign/capabilities/list-imported-notes"
 list-media = { path = "../../media/capabilities/list-media" }
 list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
+list-scenes = { path = "../../session/capabilities/list-scenes" }
+list-sessions = { path = "../../session/capabilities/list-sessions" }
 move-window = { path = "../../live/data-capabilities/move-window" }
+remove-present-character = { path = "../../session/data-capabilities/remove-present-character" }
+reorder-scenes = { path = "../../session/data-capabilities/reorder-scenes" }
 resize-window = { path = "../../live/data-capabilities/resize-window" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }

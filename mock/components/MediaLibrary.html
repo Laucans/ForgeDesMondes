@@ -1,19 +1,29 @@
 <section class="panel mf-media" id="media-library" aria-labelledby="media-title">
   <div class="panel__head">
     <h2 id="media-title">Bibliothèque de médias</h2>
-    <span class="small muted" id="media-count"></span>
+    <span class="small muted" id="media-count" data-reads="media.listMedia session.listScenes campaign.listPlaces"></span>
   </div>
   <form class="mf-media__upload" id="media-upload" onsubmit="return false">
     <div id="media-upload-drop"></div>
-    <div class="stack" id="media-upload-fields"></div>
+    <div class="stack" id="media-upload-fields" data-reads="campaign.listPlaces">
+      <button type="button" class="primary" id="media-upload-submit" data-writes="media.uploadMedia">Ajouter à la campagne</button>
+    </div>
   </form>
+  <div class="mf-media__message" id="media-message" aria-live="polite"></div>
   <section id="media-battlemaps" aria-labelledby="media-battlemaps-title" class="stack">
     <h3 id="media-battlemaps-title">Battlemaps</h3>
     <ul class="mf-media__grid" id="media-battlemaps-list" data-reads="media.listMedia session.listScenes campaign.listPlaces"></ul>
   </section>
   <section id="media-illustrations" aria-labelledby="media-illustrations-title" class="stack">
     <h3 id="media-illustrations-title">Illustrations</h3>
-    <ul class="mf-media__grid" id="media-illustrations-list" data-reads="media.listMedia session.listScenes campaign.listPlaces"></ul>
+    <ul class="mf-media__grid" id="media-illustrations-list" data-reads="media.listMedia session.listScenes campaign.listPlaces">
+      <li class="mf-media__item" id="media-sample" data-id="sample">
+        <b>Carte d’un lieu</b>
+        <select id="media-place-sample" data-writes="media.setMediaPlace"></select>
+        <small id="media-session-sample"><span class="chip chip--lieu">Associé à la séance 4</span></small>
+        <button type="button" class="ghost" data-action="add-place:sample" data-writes="session.addPlaceToSession">Ajouter le lieu à la séance</button>
+      </li>
+    </ul>
   </section>
 </section>
 <style>
@@ -27,84 +37,11 @@
   @media (max-width: 900px) { .mf-media__upload { grid-template-columns: minmax(0, 1fr); } }
 </style>
 <script>
+// The Micro-UI's real code (apps/media/media-library), bundled by mock/build.sh: it fills this card on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  let media, ents, session, selected = null, file = null;
-  let sessionPlaces = new Set();
-  const placeName = id => (ents.places.find(x => x.id === id) || { name: id }).name;
-  const placeOptions = () => [{ value: '', label: 'Aucun lieu' }].concat(ents.places.map(x => ({ value: x.id, label: x.name })));
-
-  function placeLink(m) {
-    if (!m.place) return '<small class="muted" id="media-session-' + esc(m.id) + '">Sans lieu : non rattaché à la séance</small>';
-    const label = 'Séance ' + session.order + ' — ' + session.title;
-    if (sessionPlaces.has(m.place)) return '<small id="media-session-' + esc(m.id) + '"><span class="chip chip--lieu">Associé à la séance ' + session.order + '</span> via ' + esc(placeName(m.place)) + '</small>';
-    return '<small class="muted" id="media-session-' + esc(m.id) + '">Lieu hors de la séance ' + session.order + '</small>' +
-      Mock.kitHTML('Button', { small: true, items: [{ label: 'Ajouter le lieu à la séance', action: 'add-place:' + m.place, variant: 'ghost', title: label, 'data-writes': 'session.addPlaceToSession' }] });
-  }
-  function item(m, kind) {
-    const isMap = kind === 'battlemap';
-    return `<li class="mf-media__item${m.id === selected ? ' is-selected' : ''}" id="media-${esc(m.id)}" data-id="${esc(m.id)}"><div class="mf-media__thumb">${Mock.art({ art: m.art || 'forest', glyph: m.glyph || '⬡', title: m.title })}</div>` +
-      `<b>${esc(m.title)}</b><small>${esc(m.file)} · ${esc(m.size)}${isMap ? ' · grille ' + (m.grid.orient === 'pointy' ? 'pointe' : 'côté plat') + ' ' + m.grid.size + ' px' : ' · ratio ' + String(m.ratio).replace('.', ',')}</small>` +
-      '<div data-writes="media.setMediaPlace" style="display: contents">' + Mock.kitHTML('Select', { id: 'media-place-' + m.id, label: 'Lieu', value: m.place || '', options: placeOptions(), wide: true }) + '</div>' + placeLink(m) +
-      (isMap ? Mock.kitHTML('Button', { small: true, items: [{ label: 'Régler la grille', action: 'grid:' + m.id, variant: m.id === selected ? 'primary' : 'secondary' }] }) : '') + '</li>';
-  }
-  function render() {
-    $('#media-battlemaps-list').innerHTML = media.battlemaps.map(m => item(m, 'battlemap')).join('');
-    $('#media-illustrations-list').innerHTML = media.illustrations.map(m => item(m, 'illustration')).join('');
-    $('#media-count').textContent = media.battlemaps.length + ' battlemaps · ' + media.illustrations.length + ' illustrations';
-    Mock.mount(root);
-  }
-
-  root.addEventListener('kit:file', e => { file = e.detail; $('#media-upload-title').value = e.detail.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' '); });
-  root.addEventListener('kit:change', e => {
-    const li = e.target.closest('li[data-id]');
-    if (!li) return;
-    const m = media.battlemaps.concat(media.illustrations).find(x => x.id === li.dataset.id);
-    const place = e.detail.value || null;
-    Mock.command('media.setMediaPlace', { media: m.id, place }, { label: place ? 'Rattacher « ' + m.title + ' » au lieu « ' + placeName(place) + ' »' : 'Détacher « ' + m.title + ' » de son lieu' })
-      .then(() => { m.place = place; render(); });
-  });
-  root.addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    const a = b.dataset.action || '';
-    if (a.startsWith('add-place:')) {
-      const pl = a.slice(10);
-      Mock.command('session.addPlaceToSession', { session: session.id, place: pl }, { label: 'Ajouter « ' + placeName(pl) + ' » à la séance ' + session.order + ' (les médias de ce lieu y sont associés)' })
-        .then(() => { sessionPlaces.add(pl); render(); });
-    }
-    if (a.startsWith('grid:')) { selected = a.slice(5); render(); Mock.emit('grid-edit', { id: selected }); }
-    if (b.id === 'media-upload-sample') $('#media-upload-drop [data-kit]').filedrop.simulate({ name: 'cave-du-sanglier.jpg', size: 2306867 });
-    if (b.id === 'media-upload-submit') {
-      const kind = root.querySelector('input[name="media-kind"]:checked').value;
-      const title = $('#media-upload-title').value.trim() || 'Sans titre';
-      const place = ($('#media-upload-place').closest('.kit-select').value || null);
-      Mock.command('media.uploadMedia', { kind, title, place }, { label: 'Téléverser « ' + title + ' » (' + (kind === 'battlemap' ? 'battlemap' : 'illustration') + ')' }).then(() => {
-        const base = { id: 'media-' + Date.now(), title, file: file ? file.name : 'cave-du-sanglier.jpg', size: '2,2 Mo', uploadedAt: '2026-10-14', place };
-        if (kind === 'battlemap') {
-          media.battlemaps.push(Object.assign(base, { art: 'night', glyph: '⬡', width: 900, height: 600, grid: { size: 32, ox: 0, oy: 0, orient: 'pointy', color: 'text', opacity: 45 },
-            terrain: [{ tag: 'rect', class: 'hm-land', x: 0, y: 0, width: 900, height: 600 }, { tag: 'rect', class: 'bm-floor', x: 120, y: 90, width: 660, height: 420 }, { tag: 'rect', class: 'bm-wall', x: 120, y: 90, width: 660, height: 420 }] }));
-          selected = base.id;
-          Mock.emit('grid-edit', { id: base.id, map: media.battlemaps[media.battlemaps.length - 1] });
-        } else media.illustrations.push(Object.assign(base, { art: 'dusk', glyph: title.charAt(0).toUpperCase(), ratio: 1.5 }));
-        render();
-      });
-    }
-  });
-
-  Mock.fixture(['fixtures/media.json', 'fixtures/SceneBoard.json', 'fixtures/entities.json']).then(([m, sb, e]) => {
-    media = m; ents = e; session = sb.session;
-    sessionPlaces = new Set(sb.scenes.flatMap(sc => sc.places));
-    selected = m.battlemaps[0].id;
-    $('#media-upload-drop').innerHTML = Mock.kitHTML('FileDrop', { id: 'media-upload-zone', title: 'Déposez une image ou', hint: 'Battlemap préconstruite ou illustration, jusqu’à 25 Mo', types: ['JPG', 'PNG', 'WEBP'], wide: true }) +
-      '<button type="button" class="chip" id="media-upload-sample">Utiliser l’exemple : cave-du-sanglier.jpg</button>';
-    $('#media-upload-fields').innerHTML = Mock.kitHTML('Radio', { id: 'media-upload-kind', legend: 'Type', name: 'media-kind', options: [{ label: 'Battlemap', hint: 'grille hexagonale', value: 'battlemap', checked: true }, { label: 'Illustration', hint: 'scène ou fenêtre', value: 'illustration' }] }) +
-      Mock.kitHTML('Select', { id: 'media-upload-place', label: 'Lieu (facultatif)', options: placeOptions(), wide: true }) +
-      Mock.kitHTML('Input', { id: 'media-upload-title', label: 'Titre', placeholder: 'La cave du Sanglier', wide: true }) +
-      Mock.kitHTML('Button', { items: [{ id: 'media-upload-submit', label: 'Ajouter à la campagne', variant: 'primary', 'data-writes': 'media.uploadMedia' }] });
-    render();
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/MediaLibrary.js';
+  root.appendChild(bundle);
 })();
 </script>
