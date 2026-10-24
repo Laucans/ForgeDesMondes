@@ -1385,6 +1385,34 @@
       server2.noteProposals = [];
       return void 0;
     },
+    // ai.createFromBrief (crates/ai/data-capabilities/create-from-brief): an
+    // entry « à créer » made an element of its type, from the brief's excerpt
+    // and, refined, the DM's sentences — the mock's AI proposes what the
+    // fixture ToCreateList gives it, `fromBrief` or `refined`. The element has
+    // its first version; the entry turns created, naming it, and keeps the
+    // refinement. One already created is refused (`to-create-leaves-once-created`).
+    "ai.createFromBrief": async (server2, { payload, targetId }) => {
+      const id = targetId || payload.entry || payload.id;
+      const entries = await server2.load("campaign.listEntitiesToCreate");
+      const item2 = entries.find((candidate) => candidate.id === id);
+      if (!item2) return ["not-found"];
+      if (item2.status === "created" || item2.entity) return ["to-create-leaves-once-created"];
+      const refinement = String(payload.refinement || "").trim();
+      const refined = Boolean(refinement || payload.audio || payload.refined);
+      const proposals = (await server2.load("ToCreateList")).proposals || {};
+      const proposal = (proposals[id] || {})[refined ? "refined" : "fromBrief"] || { description: item2.excerpt };
+      const element = { id: server2.uuid(), kind: item2.type, name: item2.name, description: proposal.description || item2.excerpt };
+      const block = proposal.statblock;
+      if (item2.type === "pnj") {
+        const vital = (label) => parseInt((block?.vitals || []).find((v) => v.label === label)?.value, 10) || null;
+        Object.assign(element, { prompt: [item2.excerpt, refinement].filter(Boolean).join("\n\n"), background: proposal.background || "", behavior: proposal.behavior || "", stats: block?.abilities || {}, ca: vital("CA"), pvMax: vital("PV"), features: block?.features || [], color: "accent" });
+      }
+      (await server2.load(LISTS[item2.type]) || []).push(element);
+      const history = await server2.load("campaign.listEntityVersions") || {};
+      history[element.id] = { name: element.name, versions: [{ v: 1, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Cr\xE9\xE9 depuis le brief", seen: true, changes: [] }] };
+      Object.assign(item2, { status: "created", entity: element.id, refinement: refinement || null });
+      return void 0;
+    },
     // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
     // DM's explicit save of an element, its sheet and its aliases, which adds a
     // version (EntityVersion@1, source `dm`) whose changes are the fields that
