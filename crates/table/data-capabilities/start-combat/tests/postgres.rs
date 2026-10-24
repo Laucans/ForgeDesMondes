@@ -698,3 +698,53 @@ async fn an_entry_of_null_is_a_start_not_a_seat() {
     assert_eq!(started.then.len(), 3);
     scratch.drop().await;
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn an_instance_only_the_engine_holds_starts_a_combat() {
+    let scratch = Scratch::new("engine_only").await;
+    let engine = scratch.serve(start_combat::plugin()).await;
+    scratch.plant(&engine).await;
+    // The engine's rows name the instance, the tables do not.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "DELETE FROM battlemap_instance WHERE id = '{INSTANCE}'"
+        ))
+        .await
+        .expect("the tables forget the instance");
+
+    let started = start(&engine, r105()).await.expect("started");
+    assert_eq!(started.partition, partition(&combat_id(INSTANCE, 0)));
+    scratch.drop().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn an_instance_only_the_tables_hold_starts_a_combat() {
+    let scratch = Scratch::new("tables_only").await;
+    let engine = scratch.serve(start_combat::plugin()).await;
+    // The tokens are the engine's rows, the instance is the tables' alone.
+    for token in [
+        token(T_ELOWEN, ELOWEN, "Elowen", true),
+        token(T_BANDIT, BANDIT, "Bandit 1", true),
+        token(T_VESNA, VESNA, "Chef bandit 1", false),
+    ] {
+        submit(&engine, "test.dropToken", token, None)
+            .await
+            .expect("a token");
+    }
+    applied(&engine).await;
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id)
+             VALUES ('{INSTANCE}', '{GUE}', '{SEANCE}', '{ARRIVEE}')
+             ON CONFLICT (id) DO NOTHING"
+        ))
+        .await
+        .expect("the tables hold the instance");
+    assert_eq!(scratch.row(&partition(INSTANCE)).await, None);
+
+    let started = start(&engine, r105()).await.expect("started");
+    assert_eq!(started.partition, partition(&combat_id(INSTANCE, 0)));
+    scratch.drop().await;
+}
