@@ -12,6 +12,9 @@
 // is read again, shows « Mis à jour » and the way to the diff.
 
 import {
+  BUS_OPEN,
+  BUS_OPENED,
+  BUS_QUERY,
   CAMPAIGN_CONTEXT,
   ENTITY_CONTEXT,
   EVENT_HISTORY,
@@ -21,6 +24,7 @@ import {
   IMPORT_CHARACTER,
   LIST_MEDIA,
   LIST_PLAYERS,
+  NEW_PREFIX,
   PROPOSE_CHARACTER,
   RESYNC_CHARACTER,
   SAVE_ENTITY,
@@ -54,7 +58,7 @@ import {
 } from './model.ts';
 import { ddb as ddbHtml, diffView, features as featuresHtml, head as headHtml, identity, kept, MIC_TEXTS, type MicState, notice as noticeHtml, prompt as promptHtml, sheet as sheetHtml, skeleton, statblock, table as tableHtml, token as tokenHtml } from './render.ts';
 import { STYLE } from './style.ts';
-import { ABILITIES, type Change, type Dictation, type Entity, type Media, type Outcome, type Player, type Shell, type Target, type Timing } from './types.ts';
+import { ABILITIES, type Change, type Dictation, type Entity, type Media, type Opened, type OpenRequest, type Outcome, type Player, type Shell, type Target, type Timing } from './types.ts';
 
 export type { Dictation, Shell, Timing } from './types.ts';
 
@@ -127,6 +131,26 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   const tell = (name: string, detail: unknown): void => {
     const view = doc.defaultView;
     if (view) host.dispatchEvent(new view.CustomEvent(name, { bubbles: true, detail }));
+  };
+
+  /** The sheet on show, as the page's bus words it (`fdm:entity-opened`): the rail follows, and the address names the sheet. */
+  let opened: Opened | null = null;
+  const announce = (detail: Opened): void => {
+    opened = detail;
+    tell(EVENT_OPENED, detail);
+    const view = doc.defaultView;
+    if (!view) return;
+    doc.dispatchEvent(new view.CustomEvent(BUS_OPENED, { detail }));
+    try {
+      // The address, same document: no reload, whatever else it carries stays.
+      const url = new URL(view.location.href);
+      url.searchParams.delete('id');
+      url.searchParams.delete('new');
+      url.searchParams.set(detail.id === null ? 'new' : 'id', detail.id ?? detail.kind);
+      view.history.replaceState(null, '', url);
+    } catch {
+      // A page in a frame without access to its history keeps its address.
+    }
   };
 
   const say = (outcome: Outcome): void => {
@@ -333,7 +357,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     say({ kind: 'none' });
     paintAll();
     shell.context?.set(ENTITY_CONTEXT, targetProp(wanted));
-    tell(EVENT_OPENED, { id: entity.id === '' ? null : entity.id, name: entity.name, kind: entity.kind });
+    announce({ id: entity.id === '' ? null : entity.id, name: entity.name, kind: entity.kind });
     return true;
   }
 
@@ -417,7 +441,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       busy = false;
       paintAll();
       shell.context?.set(ENTITY_CONTEXT, id);
-      if (creating) tell(EVENT_OPENED, { id, name: stored.name, kind: stored.kind });
+      if (creating) announce({ id, name: stored.name, kind: stored.kind });
       say({ kind: 'ok', text: 'Fiche enregistrée.' });
       return true;
     } catch {
@@ -563,7 +587,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       if (label) label.textContent = MIC_TEXTS[next];
       if (timer) timer.textContent = clock();
       button.setAttribute('aria-pressed', String(next === 'recording'));
-      button.setAttribute('aria-label', `Raconter le prompt initial — ${MIC_TEXTS[next]}`);
+      button.setAttribute('aria-label', `Raconter au micro — ${MIC_TEXTS[next]}`);
     };
     stopMic.stop = stopTimers;
     button.addEventListener('click', () => {
@@ -640,7 +664,29 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     } else if (clicked.id === 'entity-notice-diff' && stored !== null) tell(EVENT_HISTORY, { id: stored.id });
   });
 
-  const first = parseTarget(props.entity);
+  // The page's bus: the rail asks for a sheet, or for the one on show.
+  const view = doc.defaultView;
+  if (view) {
+    const listen = (name: string, handle: (detail: OpenRequest) => void): void => {
+      const listener = (event: Event): void => {
+        // A sheet that left the page stops listening.
+        if (!host.isConnected) return doc.removeEventListener(name, listener);
+        handle((event as CustomEvent<OpenRequest | null>).detail ?? {});
+      };
+      doc.addEventListener(name, listener);
+    };
+    listen(BUS_OPEN, (asked) => {
+      const wanted = parseTarget(asked.new ? `${NEW_PREFIX}${asked.new}` : asked.id);
+      if (wanted !== null) request(wanted);
+    });
+    listen(BUS_QUERY, () => {
+      if (opened !== null) doc.dispatchEvent(new view.CustomEvent(BUS_OPENED, { detail: opened }));
+    });
+  }
+
+  // The first sheet: the screen's prop, else the address's (`?id=`, or `?new=` for a sheet to create).
+  const query = new URLSearchParams(view?.location.search ?? '');
+  const first = parseTarget(props.entity) ?? parseTarget(query.get('id') ?? (query.get('new') ? `${NEW_PREFIX}${query.get('new')}` : null));
   if (first === null) say({ kind: 'error', text: 'Aucune fiche choisie.' });
   else void open(first);
 

@@ -92,3 +92,16 @@ export type Outcome = { kind: 'none' } | { kind: 'busy'; text: string } | { kind
 
 /** A request to open a sheet: an element of the campaign, or a new one of a kind. */
 export type Target = { id: string } | { fresh: Kind };
+
+/** What the rail asks over the page's bus: an element by its id, or a new one of a kind. */
+export interface OpenRequest {
+  id?: string;
+  new?: string;
+}
+
+/** What the sheet answers once it shows an element; `id` is null for one not saved yet. */
+export interface Opened {
+  id: string | null;
+  name: string;
+  kind: Kind;
+}

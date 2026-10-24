@@ -8,6 +8,8 @@ export interface Shell {
   capability(id: string, sha256: string | undefined, variables?: Record<string, unknown>): Promise<{ asOf: number; data: unknown }>;
   /** Told each time the data moved; answers how to stop. The shell's client has it, a bare fake need not. */
   onDataVersion?(listener: (dataVersion: number) => void): () => void;
+  /** The screen's context: the campaign shown is `campaign`, which the sheet beside the rail follows. */
+  context?: { set(name: string, value: unknown): void };
 }
 
 /** What the sheet is asked to open: an element by its id, or a new one of a kind (`pnj`, `lieu`, `evenement`). */

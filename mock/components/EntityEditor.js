@@ -102,6 +102,7 @@
   var PROPOSE_CHARACTER = "ai.proposeCharacter";
   var IMPORT_CHARACTER = "dndbeyond.importCharacter";
   var RESYNC_CHARACTER = "dndbeyond.resyncCharacter";
+  var APPROVER = "role:approver";
   var DATA_CAPABILITY_VERSION = 1;
   var ENTITY_AGGREGATE = "Entity";
   var ENTITY_CONTEXT = "entity";
@@ -110,6 +111,9 @@
   var EVENT_OPENED = "entity-editor:opened";
   var EVENT_UPDATED = "entity-editor:updated";
   var EVENT_HISTORY = "entity-editor:history";
+  var BUS_OPEN = "fdm:open-entity";
+  var BUS_QUERY = "fdm:entity-query";
+  var BUS_OPENED = "fdm:entity-opened";
 
   // apps/campaign/entity-editor/src/types.ts
   var ABILITIES = ["FOR", "DEX", "CON", "INT", "SAG", "CHA"];
@@ -136,10 +140,10 @@
     const letters = words.length === 0 ? [] : words.length === 1 ? [...words[0] ?? ""].slice(0, 2) : [...words[0] ?? ""].slice(0, 1).concat([...words[1] ?? ""].slice(0, 1));
     return letters.join("").toUpperCase().slice(0, 2);
   }
+  var hasPortrait = (entity) => entity.portraitMedia === void 0 ? entity.portrait : entity.portraitMedia !== null;
   function tokenHasImage(entity) {
-    const portrait = entity.portraitMedia === void 0 ? entity.portrait : entity.portraitMedia !== null;
     const token2 = entity.tokenMedia === void 0 ? entity.tokenImage : entity.tokenMedia !== null;
-    return portrait || token2;
+    return hasPortrait(entity) || token2;
   }
   var colorName = (color) => /^[a-z][a-z-]*$/.test(color) ? color : DEFAULT_COLOR;
   function scores(value) {
@@ -231,7 +235,7 @@
       payload,
       target,
       idempotencyKey,
-      caller: { by: "dm", from: "EntityEditor", roles: [] }
+      caller: { by: "dm", from: "EntityEditor", roles: [APPROVER] }
     };
   }
   var entityTarget = (id) => id === "" ? { aggregate: ENTITY_AGGREGATE } : { aggregate: ENTITY_AGGREGATE, id };
@@ -264,7 +268,7 @@
       sent.ca = entity.ca;
       sent.pvMax = entity.pvMax;
       sent.features = entity.features;
-      sent.crop = entity.crop;
+      sent.crop = hasPortrait(entity) ? entity.crop : null;
       sent.color = entity.color;
       if (entity.portraitMedia !== void 0) sent.portrait = entity.portraitMedia;
       if (entity.tokenMedia !== void 0) sent.token = entity.tokenMedia;
@@ -379,7 +383,7 @@
   }
   function prompt(entity, canPropose) {
     const pj = entity.kind === "pj";
-    return `<div class="panel__head"><h2 id="entity-prompt-title">Aide \xE0 la cr\xE9ation</h2><span class="small muted">Seul le texte transcrit part vers le fournisseur IA</span></div><p class="small muted">Racontez le personnage \xE0 voix haute : l\u2019IA propose un background, un comportement pour l\u2019interpr\xE9ter${pj ? "" : " et un statblock cr\xE9dible"}. La fiche est modifi\xE9e et la version pr\xE9c\xE9dente reste dans l\u2019historique.</p><div class="row"><div class="kit-micbutton kit-micbutton--compact" id="entity-prompt-mic-box" data-state="idle"><button type="button" class="kit-micbutton__btn" id="entity-prompt-mic" aria-pressed="false" aria-label="Raconter le prompt initial"><span class="kit-micbutton__ring"></span>${MIC}${PAUSE}</button><div class="kit-micbutton__text"><span class="kit-micbutton__label">Raconter le prompt initial</span><span class="kit-micbutton__status" aria-live="polite"><span class="kit-micbutton__state"></span> <span class="kit-micbutton__timer">00:00</span></span></div></div></div>` + textarea({ id: "entity-prompt-text", label: "Prompt initial", value: entity.prompt, rows: 3, placeholder: "Ex. : un gobelin marchand, nerveux, qui doit de l\u2019argent \xE0 des gens dangereux\u2026", hint: canPropose ? "" : "Enregistrez la fiche pour demander une proposition \xE0 l\u2019IA." }) + buttons(false, button({ id: "entity-propose", label: pj ? "Proposer background et comportement" : "Proposer background, comportement et statblock", variant: "primary", writes: PROPOSE_CHARACTER, disabled: !canPropose })) + textarea({ id: "entity-background", label: "Background", value: entity.background, rows: 4 }) + textarea({ id: "entity-behavior", label: "Comportement, pour l\u2019interpr\xE9ter", value: entity.behavior, rows: 3 });
+    return `<div class="panel__head"><h2 id="entity-prompt-title">Aide \xE0 la cr\xE9ation</h2><span class="small muted">Seul le texte transcrit part vers le fournisseur IA</span></div><p class="small muted">Racontez le personnage \xE0 voix haute : l\u2019IA propose un background, un comportement pour l\u2019interpr\xE9ter${pj ? "" : " et un statblock cr\xE9dible"}. La fiche est modifi\xE9e et la version pr\xE9c\xE9dente reste dans l\u2019historique.</p><div class="row"><div class="kit-micbutton kit-micbutton--compact" id="entity-prompt-mic-box" data-state="idle"><button type="button" class="kit-micbutton__btn" id="entity-prompt-mic" aria-pressed="false" aria-label="Raconter au micro"><span class="kit-micbutton__ring"></span>${MIC}${PAUSE}</button><div class="kit-micbutton__text"><span class="kit-micbutton__label">Raconter au micro</span><span class="kit-micbutton__status" aria-live="polite"><span class="kit-micbutton__state"></span> <span class="kit-micbutton__timer">00:00</span></span></div></div></div>` + textarea({ id: "entity-prompt-text", label: "Prompt initial", value: entity.prompt, rows: 3, placeholder: "Ex. : un gobelin marchand, nerveux, qui doit de l\u2019argent \xE0 des gens dangereux\u2026", hint: canPropose ? "" : "Enregistrez la fiche pour demander une proposition \xE0 l\u2019IA." }) + buttons(false, button({ id: "entity-propose", label: pj ? "Proposer background et comportement" : "Proposer background, comportement et statblock", variant: "primary", writes: PROPOSE_CHARACTER, disabled: !canPropose })) + textarea({ id: "entity-background", label: "Background", value: entity.background, rows: 4 }) + textarea({ id: "entity-behavior", label: "Comportement, pour l\u2019interpr\xE9ter", value: entity.behavior, rows: 3 });
   }
   var features = (entity) => entity.features.map((f, i) => `<li data-feature="${i}"><span><b>${esc(f.name)}.</b> ${esc(f.text)}</span><button type="button" class="icon-btn" data-remove-feature="${i}" aria-label="Retirer ${esc(f.name)}">\xD7</button></li>`).join("");
   function statblock(entity) {
@@ -395,7 +399,7 @@
   }
   function sheet(entity) {
     const pj = entity.kind === "pj";
-    return `<div class="panel__head"><h2 id="entity-sheet-title">Fiche</h2><span class="small muted">${pj ? "Mise \xE0 jour par D&amp;D Beyond" : "Sert \xE0 l\u2019initiative et aux PV en combat"}</span></div><div class="mf-entity__abilities" id="entity-abilities">${ABILITIES.map((k) => input({ id: `entity-stat-${k}`, label: `${k} ${signed(entity.stats[k])}`, type: "number", value: entity.stats[k], min: 1, max: 30 })).join("")}</div><div class="mf-entity__grid">${input({ id: "entity-ca", label: "CA", type: "number", value: entity.ca })}${input({ id: "entity-pv", label: "PV max", type: "number", value: entity.pvMax })}</div><h3 id="entity-features-title">Sorts et capacit\xE9s</h3><ul class="mf-entity__features" id="entity-features">${features(entity)}</ul><div class="mf-entity__grid" id="entity-feature-add">${input({ id: "entity-feature-name", label: "Nom", value: "", placeholder: "Boule de feu" })}${input({ id: "entity-feature-text", label: "Description", value: "", placeholder: "Sph\xE8re de 6 m, 8d6 d\xE9g\xE2ts de feu\u2026", wide: true })}</div>` + buttons(true, button({ id: "entity-feature-submit", label: "Ajouter le sort ou la capacit\xE9", variant: "secondary" })) + (pj ? "" : `<div id="entity-statblock">${statblock(entity)}</div>`);
+    return `<div class="panel__head"><h2 id="entity-sheet-title">Fiche</h2><span class="small muted">${pj ? "Mise \xE0 jour par D&amp;D Beyond" : "Sert \xE0 l\u2019initiative et aux PV en combat"}</span></div><div class="mf-entity__abilities" id="entity-abilities">${ABILITIES.map((k) => input({ id: `entity-stat-${k}`, label: `${k} ${signed(entity.stats[k])}`, type: "number", value: entity.stats[k], min: 1, max: 30 })).join("")}</div><div class="mf-entity__grid">${input({ id: "entity-ca", label: "CA", type: "number", value: entity.ca })}${input({ id: "entity-pv", label: "PV max", type: "number", value: entity.pvMax })}</div><h3 id="entity-features-title">Sorts et capacit\xE9s</h3><ul class="mf-entity__features" id="entity-features">${features(entity)}</ul><div class="mf-entity__grid" id="entity-feature-add">${input({ id: "entity-feature-name", label: "Intitul\xE9", value: "", placeholder: "Boule de feu" })}${input({ id: "entity-feature-text", label: "Effet", value: "", placeholder: "Sph\xE8re de 6 m, 8d6 d\xE9g\xE2ts de feu\u2026", wide: true })}</div>` + buttons(true, button({ id: "entity-feature-submit", label: "Ajouter le sort ou la capacit\xE9", variant: "secondary" })) + (pj ? "" : `<div id="entity-statblock">${statblock(entity)}</div>`);
   }
   function diffView(title, changes) {
     const rows = changes.map(
@@ -537,8 +541,24 @@
     const isNew = () => stored !== null && stored.id === "";
     const dirty = () => draft !== null && stored !== null && isDirty(draft, stored);
     const tell = (name, detail) => {
-      const view = doc.defaultView;
-      if (view) host2.dispatchEvent(new view.CustomEvent(name, { bubbles: true, detail }));
+      const view2 = doc.defaultView;
+      if (view2) host2.dispatchEvent(new view2.CustomEvent(name, { bubbles: true, detail }));
+    };
+    let opened2 = null;
+    const announce = (detail) => {
+      opened2 = detail;
+      tell(EVENT_OPENED, detail);
+      const view2 = doc.defaultView;
+      if (!view2) return;
+      doc.dispatchEvent(new view2.CustomEvent(BUS_OPENED, { detail }));
+      try {
+        const url = new URL(view2.location.href);
+        url.searchParams.delete("id");
+        url.searchParams.delete("new");
+        url.searchParams.set(detail.id === null ? "new" : "id", detail.id ?? detail.kind);
+        view2.history.replaceState(null, "", url);
+      } catch {
+      }
     };
     const say = (outcome) => {
       part("entity-status").innerHTML = outcome.kind === "none" ? "" : `<p class="${outcome.kind === "busy" ? "" : `is-${outcome.kind}`}">${outcome.text.replace(/[&<>]/g, (c) => `&#${c.charCodeAt(0)};`)}</p>`;
@@ -713,7 +733,7 @@
       say({ kind: "none" });
       paintAll();
       shell2.context?.set(ENTITY_CONTEXT, targetProp(wanted));
-      tell(EVENT_OPENED, { id: entity.id === "" ? null : entity.id, name: entity.name, kind: entity.kind });
+      announce({ id: entity.id === "" ? null : entity.id, name: entity.name, kind: entity.kind });
       return true;
     }
     const showBar = () => {
@@ -785,7 +805,7 @@
         busy = false;
         paintAll();
         shell2.context?.set(ENTITY_CONTEXT, id);
-        if (creating) tell(EVENT_OPENED, { id, name: stored.name, kind: stored.kind });
+        if (creating) announce({ id, name: stored.name, kind: stored.kind });
         say({ kind: "ok", text: "Fiche enregistr\xE9e." });
         return true;
       } catch {
@@ -914,7 +934,7 @@
         if (label) label.textContent = MIC_TEXTS[next];
         if (timer) timer.textContent = clock();
         button2.setAttribute("aria-pressed", String(next === "recording"));
-        button2.setAttribute("aria-label", `Raconter le prompt initial \u2014 ${MIC_TEXTS[next]}`);
+        button2.setAttribute("aria-label", `Raconter au micro \u2014 ${MIC_TEXTS[next]}`);
       };
       stopMic.stop = stopTimers;
       button2.addEventListener("click", () => {
@@ -983,7 +1003,25 @@ ${heard}`;
         paintLive();
       } else if (clicked.id === "entity-notice-diff" && stored !== null) tell(EVENT_HISTORY, { id: stored.id });
     });
-    const first = parseTarget(props2.entity);
+    const view = doc.defaultView;
+    if (view) {
+      const listen = (name, handle) => {
+        const listener = (event) => {
+          if (!host2.isConnected) return doc.removeEventListener(name, listener);
+          handle(event.detail ?? {});
+        };
+        doc.addEventListener(name, listener);
+      };
+      listen(BUS_OPEN, (asked) => {
+        const wanted = parseTarget(asked.new ? `${NEW_PREFIX}${asked.new}` : asked.id);
+        if (wanted !== null) request(wanted);
+      });
+      listen(BUS_QUERY, () => {
+        if (opened2 !== null) doc.dispatchEvent(new view.CustomEvent(BUS_OPENED, { detail: opened2 }));
+      });
+    }
+    const query = new URLSearchParams(view?.location.search ?? "");
+    const first = parseTarget(props2.entity) ?? parseTarget(query.get("id") ?? (query.get("new") ? `${NEW_PREFIX}${query.get("new")}` : null));
     if (first === null) say({ kind: "error", text: "Aucune fiche choisie." });
     else void open(first);
     return {
@@ -1161,8 +1199,8 @@ ${heard}`;
     // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
     // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
     "campaign.listEntityVersions": async (server2, { entity }) => {
-      const history2 = (await server2.load("campaign.listEntityVersions"))[entity];
-      if (history2) return history2;
+      const history = (await server2.load("campaign.listEntityVersions"))[entity];
+      if (history) return history;
       const entities = await server2.load("entities");
       const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === entity);
       return known ? { name: known.name, versions: [] } : null;
@@ -1210,8 +1248,8 @@ ${heard}`;
   };
   var changedBy = async (server2, element, patch, origin, source, changes) => {
     Object.assign(element, patch);
-    const history2 = await server2.load("campaign.listEntityVersions") || {};
-    const entry = history2[element.id] || (history2[element.id] = { name: element.name, versions: [] });
+    const history = await server2.load("campaign.listEntityVersions") || {};
+    const entry = history[element.id] || (history[element.id] = { name: element.name, versions: [] });
     const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
     entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin, source, restoredFrom: null, seen: false, changes });
   };
@@ -1741,22 +1779,22 @@ ${heard}`;
       return void 0;
     },
     "campaign.restoreEntityVersion": async (server2, { payload, targetId }) => {
-      const history2 = (await server2.load("campaign.listEntityVersions"))[targetId];
-      const target = history2 && history2.versions.find((v) => v.v === payload.version);
+      const history = (await server2.load("campaign.listEntityVersions"))[targetId];
+      const target = history && history.versions.find((v) => v.v === payload.version);
       if (!target) return ["not-found"];
-      const sheet2 = (upTo) => history2.versions.slice().sort((a, b) => a.v - b.v).filter((v) => v.v <= upTo).reduce((fields, v) => {
+      const sheet2 = (upTo) => history.versions.slice().sort((a, b) => a.v - b.v).filter((v) => v.v <= upTo).reduce((fields, v) => {
         for (const c of v.changes) fields[c.field] = c.new;
         return fields;
       }, {});
-      const before = sheet2(history2.versions[0].v);
+      const before = sheet2(history.versions[0].v);
       let after = sheet2(target.v);
       if (Array.isArray(payload.changes)) {
-        const undone = (history2.versions.find((v) => v.v === payload.version + 1) || { changes: [] }).changes;
+        const undone = (history.versions.find((v) => v.v === payload.version + 1) || { changes: [] }).changes;
         after = { ...before };
         for (const i of payload.changes) if (undone[i]) after[undone[i].field] = undone[i].old;
       }
       const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].sort().filter((field) => (before[field] ?? "") !== (after[field] ?? "")).map((field) => ({ field, old: before[field] ?? "", new: after[field] ?? "" }));
-      history2.versions.unshift({ v: history2.versions[0].v + 1, date: (/* @__PURE__ */ new Date()).toISOString(), origin: "manuelle", source: "restauration", restoredFrom: target.v, changes });
+      history.versions.unshift({ v: history.versions[0].v + 1, date: (/* @__PURE__ */ new Date()).toISOString(), origin: "manuelle", source: "restauration", restoredFrom: target.v, changes });
       return void 0;
     },
     // campaign.exportCampaign (crates/dataguard/data-capabilities/export-campaign):
@@ -1959,8 +1997,8 @@ ${heard}`;
       const at = list.indexOf(before);
       if (at >= 0) list[at] = after;
       else list.push(after);
-      const history2 = await server2.load("campaign.listEntityVersions") || {};
-      const entry = history2[id] || (history2[id] = { name: after.name, versions: [] });
+      const history = await server2.load("campaign.listEntityVersions") || {};
+      const entry = history[id] || (history[id] = { name: after.name, versions: [] });
       entry.name = after.name;
       const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
@@ -2294,11 +2332,6 @@ ${heard}`;
   var opened = null;
   host.addEventListener("entity-editor:opened", (e) => {
     opened = e.detail;
-    Mock.emit("entity-opened", opened);
-    try {
-      history.replaceState(null, "", opened.id ? `?id=${encodeURIComponent(opened.id)}` : `?new=${opened.kind}`);
-    } catch (err) {
-    }
   });
   host.addEventListener("entity-editor:updated", (e) => Mock.emit("entity-updated", { id: e.detail.id, versioned: true }));
   host.addEventListener("entity-editor:history", (e) => Mock.emit("open-versions", { id: e.detail.id }));
@@ -2306,10 +2339,6 @@ ${heard}`;
     shell.context.set("campaign", campaign.id);
     const dictation = { transcript: () => opened && editor.dictations[opened.id] || editor.dictations.default };
     const first = param("id") || (param("new") ? `new:${param("new")}` : null) || props.entity || editor.defaultEntity;
-    const mounted = compose({ ...props, entity: first }, (resolved) => mount(host, resolved, shell, void 0, dictation));
-    Mock.on("open-entity", (req) => mounted.update({ entity: req.new ? `new:${req.new}` : req.id }));
-    Mock.on("entity-query", () => {
-      if (opened) Mock.emit("entity-opened", opened);
-    });
+    compose({ ...props, entity: first }, (resolved) => mount(host, resolved, shell, void 0, dictation));
   });
 })();
