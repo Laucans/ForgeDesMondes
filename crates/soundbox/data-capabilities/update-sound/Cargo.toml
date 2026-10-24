@@ -1,0 +1,24 @@
+[package]
+name = "update-sound"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.updateSound: an existing sound of the library edited on its Sound partition — the fields the edit names alone, its tags normalised (SoundTag@1), its volume given in percent and stored as a fraction of 1 — and projected onto its sound row's name, file_path, tags and volume."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+# Its PostgreSQL client is the engine's re-export, never a driver of this crate.
+harness-dataguard = { workspace = true }
+# The engine's `Prepare` and `ProjectPg` are async traits.
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# Its target aggregate's judge, which the engine runs beside it.
+aggregate-sound = { path = "../../aggregates/Sound" }
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+# The Concept the tags are held to (SoundTag@1).
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

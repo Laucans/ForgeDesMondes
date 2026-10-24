@@ -1,0 +1,27 @@
+[package]
+name = "remove-sound"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability soundbox.removeSound: a sound of the library removed on its Sound partition — a soft delete, the engine's tombstone keeping the sound as it was, its row taken out of `sound` and its playbacks with it (SoundPlayback.soundId, onDelete cascade)."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+# Its PostgreSQL client is the engine's re-export, never a driver of this crate.
+harness-dataguard = { workspace = true }
+# The engine's `Prepare` and `ProjectPg` are async traits.
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# Its target aggregate's judge, which the engine runs beside it.
+aggregate-sound = { path = "../../aggregates/Sound" }
+# The units a removal follows in the product: a sound added, then played —
+# what its tests remove, and the playback the cascade takes.
+add-sound = { path = "../add-sound" }
+aggregate-sound-playback = { path = "../../aggregates/SoundPlayback" }
+play-sound = { path = "../play-sound" }
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

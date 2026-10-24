@@ -1,0 +1,27 @@
+{
+  "dataCapability": "soundbox.updateSound",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Sound",
+    "id": "$id"
+  },
+  "touches": [
+    "Sound.name",
+    "Sound.filePath",
+    "Sound.tags",
+    "Sound.volume"
+  ],
+  "payload": {
+    "name": "string — the sound's new name, trimmed; absent, unchanged; blank, refused",
+    "file": "string — the sound file's new path, trimmed; absent, unchanged; blank, refused",
+    "tags": "string[] — the sound's new tags, normalised per SoundTag@1: trimmed, lowercased, blanks and duplicates dropped, order kept; absent, unchanged; null, no tag; anything but a list of texts is rejected by tags-normalized",
+    "volume": "number — the sound's own volume in percent, 0 to 100, stored as a fraction of 1 to the whole percent; absent, unchanged; out of range or no number, rejected by sound-volume-range, never clamped"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": ["sound-volume-range", "tags-normalized"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
