@@ -16,8 +16,10 @@
 //! only where it is linked directly. `session_media_view` answers the same
 //! question for a whole session; a scene needs it split by scene, which the
 //! view does not keep, so the rule is applied per scene. `toCreate` lists the
-//! entries of the 'to create' list not yet created. A scene's `battlemap` (the
-//! instance on the map) is `null` until the battlemap milestone produces it.
+//! entries of the 'to create' list not yet created. A scene's `battlemap` is the
+//! id of its battlemap instance (`battlemap_instance.scene_id`), the most
+//! recently created one when there are several, an instance whose partition
+//! is tombstoned left out; `null` when the scene has none.
 
 use std::collections::BTreeMap;
 
@@ -31,7 +33,8 @@ pub const CAPABILITY: &str = "session.listScenes";
 /// lists nothing instead of failing), by rank, each with the ids of its
 /// elements by kind in their display order, its media (the direct links and
 /// the media of its places, each once, by upload) and its entries still to create, as JSON
-/// arrays (empty when it has none). `session_id` is selected too, so that
+/// arrays (empty when it has none), and the id of its most recent live
+/// battlemap instance (`NULL` when it has none). `session_id` is selected too, so that
 /// [`answer`] keeps only the session's own scenes whoever ran the statement.
 pub const SQL: &str = r"SELECT sc.id::text AS id,
     sc.session_id::text AS session_id,
@@ -59,6 +62,7 @@ pub const SQL: &str = r"SELECT sc.id::text AS id,
         (SELECT jsonb_agg(t.id::text ORDER BY t.created_at, t.id) FROM entity_to_create t WHERE t.scene_id = sc.id AND t.status = 'a_creer'),
         '[]'::jsonb
     ) AS to_create,
+    (SELECT bi.id::text FROM battlemap_instance bi WHERE bi.scene_id = sc.id AND NOT EXISTS (SELECT 1 FROM dataguard_rows r WHERE r.partition = 'BattlemapInstance/' || bi.id::text AND r.tombstoned) ORDER BY bi.created_at DESC, bi.id DESC LIMIT 1) AS battlemap,
     sc.notes
 FROM scene sc
 WHERE sc.session_id::text = $1
@@ -95,7 +99,9 @@ pub fn answer_rows(rows: &Value, session: &str) -> Value {
                         "events": ids(row, "events"),
                         "media": ids(row, "media"),
                         "toCreate": ids(row, "to_create"),
-                        "battlemap": Value::Null,
+                        "battlemap": row["battlemap"]
+                            .as_str()
+                            .map_or(Value::Null, |id| json!(id)),
                         "notes": row["notes"],
                     })
                 })
@@ -149,6 +155,7 @@ mod tests {
             "events": scene["events"],
             "media": scene["media"],
             "to_create": scene["toCreate"],
+            "battlemap": scene["battlemap"],
             "notes": scene["notes"],
         })
     }
@@ -187,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn each_scene_matches_the_fixture_but_for_its_battlemap() {
+    fn each_scene_matches_the_fixture() {
         let listed = answer_rows(&rows_of_the_session(), S4);
         for (got, expected) in listed
             .as_array()
@@ -204,6 +211,7 @@ mod tests {
                 "events",
                 "media",
                 "toCreate",
+                "battlemap",
                 "notes",
             ] {
                 assert_eq!(got[field], expected[field], "{field} of {}", got["id"]);
@@ -233,9 +241,22 @@ mod tests {
     }
 
     #[test]
-    fn a_battlemap_instance_is_null_until_its_milestone() {
+    fn a_battlemap_instance_is_answered_as_is() {
         let mut rows = rows_of_the_session();
-        rows[2]["battlemap"] = json!("bmi-gue-s4");
+        rows[0]["battlemap"] = json!("bmi-gue-s4");
+        let listed = answer_rows(&rows, S4);
+        assert_eq!(listed[0]["battlemap"], json!("bmi-gue-s4"));
+        assert_eq!(listed[1]["battlemap"], Value::Null);
+    }
+
+    #[test]
+    fn a_scene_with_no_battlemap_instance_answers_null() {
+        let rows = json!([
+            { "id": "a", "session_id": S4, "position": 1, "title": "A" },
+            { "id": "b", "session_id": S4, "position": 2, "title": "B", "battlemap": null },
+            { "id": "c", "session_id": S4, "position": 3, "title": "C", "battlemap": 7 },
+            { "id": "d", "session_id": S4, "position": 4, "title": "D", "battlemap": ["x"] },
+        ]);
         let listed = answer_rows(&rows, S4);
         for scene in listed.as_array().expect("an array") {
             assert_eq!(scene["battlemap"], Value::Null, "{scene}");
@@ -337,7 +358,8 @@ mod tests {
                 "characters",
                 "events",
                 "media",
-                "toCreate"
+                "toCreate",
+                "battlemap"
             ]
         );
         for (field, selected) in [
@@ -351,12 +373,31 @@ mod tests {
             ("events", "AS events"),
             ("media", "AS media"),
             ("toCreate", "AS to_create"),
+            ("battlemap", "AS battlemap"),
         ] {
             assert!(
                 SQL.contains(selected),
                 "the query names {field}, the SQL does not select it"
             );
         }
+    }
+
+    #[test]
+    fn the_battlemap_is_the_latest_live_instance_of_the_scene() {
+        assert!(
+            SQL.contains("FROM battlemap_instance bi WHERE bi.scene_id = sc.id"),
+            "{SQL}"
+        );
+        assert!(
+            SQL.contains(
+                "NOT EXISTS (SELECT 1 FROM dataguard_rows r WHERE r.partition = 'BattlemapInstance/' || bi.id::text AND r.tombstoned)"
+            ),
+            "{SQL}"
+        );
+        assert!(
+            SQL.contains("ORDER BY bi.created_at DESC, bi.id DESC LIMIT 1"),
+            "{SQL}"
+        );
     }
 
     #[test]

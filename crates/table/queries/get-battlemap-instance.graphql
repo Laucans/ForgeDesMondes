@@ -1,0 +1,50 @@
+# fields: battlemapInstance.id, battlemapInstance.battlemapMediaId, battlemapInstance.sessionId, battlemapInstance.sceneId, token.id, token.characterId, token.number, token.name, token.q, token.r, token.visible, token.hpCurrent, token.hpMax, token.conditions, entity.type, character.tokenColor, character.portraitMediaId, character.tokenCrop, combat.id, combat.round, combat.currentEntryId, combat.endedAt, initiativeEntry.id, initiativeEntry.tokenId, initiativeEntry.initiative, initiativeOrderView.entryId, initiativeOrderView.orderIndex, initiativeOrderView.shownToPlayers, initiativeOrderView.skipped
+# The battlemap screens' read: one instance of a battlemap, its tokens with the
+# sheet each stands for (kind, token colour, portrait and crop), and its open
+# combat with the carousel's order. The band, the death and the initial are not
+# read: they are derived from the hit points and the name (HealthBand@1,
+# dead-derived). The Capability keeps what the view it is asked for may show
+# (crates/table/capabilities/get-battlemap-instance).
+query GetBattlemapInstance($instance: ID!) {
+  battlemapInstance(id: $instance) {
+    id
+    battlemapMediaId
+    sessionId
+    sceneId
+    tokens {
+      id
+      characterId
+      number
+      name
+      q
+      r
+      visible
+      hpCurrent
+      hpMax
+      conditions
+      character {
+        tokenColor
+        portraitMediaId
+        tokenCrop
+        entity {
+          type
+        }
+      }
+    }
+    combat(open: true) {
+      id
+      round
+      currentEntryId
+      entries {
+        id
+        tokenId
+        initiative
+        order {
+          orderIndex
+          shownToPlayers
+          skipped
+        }
+      }
+    }
+  }
+}

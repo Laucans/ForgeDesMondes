@@ -1,0 +1,43 @@
+{
+  "dataCapability": "table.placeTokens",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": [
+    "BattlemapInstance.tokenId",
+    "BattlemapInstance.tokenInstanceId",
+    "BattlemapInstance.characterId",
+    "BattlemapInstance.number",
+    "BattlemapInstance.name",
+    "BattlemapInstance.q",
+    "BattlemapInstance.r",
+    "BattlemapInstance.visible",
+    "BattlemapInstance.hpCurrent",
+    "BattlemapInstance.hpMax",
+    "BattlemapInstance.conditions"
+  ],
+  "payload": {
+    "instance": "uuid — the battlemap instance the character is dropped on, when the command names no target",
+    "character": "uuid — the PC or NPC dropped, a character of the instance's campaign",
+    "q": "integer — the axial column of the hex it is dropped on",
+    "r": "integer — the axial row of the hex it is dropped on",
+    "count": "integer — optional, 1 by default: the tokens dropped at once (« × n »), from 1 to 12; a PC is dropped once"
+  },
+  "mode": "confirm_on_stale",
+  "invariants": [
+    "instance-isolated",
+    "token-roster",
+    "multi-drop-numbering",
+    "pj-hp-not-tracked",
+    "players-see-band-only",
+    "state-persisted-reset",
+    "single-position-source"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

@@ -1,0 +1,19 @@
+{
+  "dataCapability": "table.endCombat",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": ["BattlemapInstance.endedAt", "BattlemapInstance.currentEntryId"],
+  "payload": {
+    "instance": "uuid — the battlemap instance whose open combat ends, when the command names no target; never written. Nothing else is sent: the command lands on the open combat's own row and writes its endedAt, now, and its currentEntryId, null — no turn is anyone's. Its tokens, their HP and their conditions, and its entries, stay as they are; a new combat may start once it ended (one-active-combat). An instance with no open combat is refused"
+  },
+  "mode": "overwrite",
+  "invariants": ["instance-isolated", "next-turn", "one-active-combat"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

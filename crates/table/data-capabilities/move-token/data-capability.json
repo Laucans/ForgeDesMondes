@@ -1,0 +1,22 @@
+{
+  "dataCapability": "table.moveToken",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "BattlemapInstance",
+    "id": "$instance"
+  },
+  "touches": ["BattlemapInstance.q", "BattlemapInstance.r"],
+  "payload": {
+    "instance": "uuid — the battlemap instance the token stands on, when the command names no target; never written",
+    "token": "uuid — the token moved, a token of that instance (instance-isolated); never written, the move lands on the token's own row",
+    "q": "integer — the axial column of the hex it is dropped on (HexGrid@1)",
+    "r": "integer — the axial row of the hex it is dropped on (HexGrid@1)"
+  },
+  "mode": "overwrite",
+  "invariants": ["instance-isolated", "single-position-source", "state-persisted-reset"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
