@@ -238,9 +238,9 @@ impl engine::Prepare for Importing {
             version: &version,
             now: &now,
         };
+        // The partition is the one the payload's `entityId` names.
         Ok(engine::Prepared {
             payload: prepare(&found.base, &sheet, import).map_err(refused)?,
-            target_id: Some(found.entity),
             ..engine::Prepared::default()
         })
     }
