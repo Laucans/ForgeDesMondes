@@ -1002,11 +1002,6 @@ async fn a_prepare_reads_an_element_only_the_tables_hold_as_the_engine_row_it_wr
         expected,
         "no null: a field he has not is absent"
     );
-    // His id in capitals is the same element.
-    let capitals = peek
-        .row(&engine, &format!("Entity/{}", MORLOX.to_uppercase()))
-        .await;
-    assert_eq!(json!(capitals), expected);
 
     // A place: no sheet, no alias.
     let taverne = peek.row(&engine, &format!("Entity/{TAVERNE}")).await;
@@ -1033,6 +1028,7 @@ async fn a_prepare_reads_an_element_only_the_tables_hold_as_the_engine_row_it_wr
             .await
             .is_empty()
     );
+    drop(engine);
     s.drop().await;
 }
 
@@ -1052,10 +1048,14 @@ async fn a_text_that_is_no_uuid_or_tables_not_migrated_hydrate_nothing_without_a
         "e1000000-0000-4000x8000-000000000003",
         "e1000000-0000-4000-8000x000000000003",
         "e1000000-0000-4000-8000-00000000003'",
+        // In capitals, a second partition of the same element.
+        "E1000000-0000-4000-8000-000000000003",
+        "e1000000-0000-4000-8000-00000000000F",
     ] {
         let row = peek.row(&engine, &format!("Entity/{id}")).await;
         assert!(row.is_empty(), "{id}: {row:?}");
     }
+    drop(engine);
     s.drop().await;
 
     let s = Scratch::bare("hydrate_bare").await;
@@ -1066,6 +1066,7 @@ async fn a_text_that_is_no_uuid_or_tables_not_migrated_hydrate_nothing_without_a
             .await
             .is_empty()
     );
+    drop(engine);
     s.drop().await;
 }
 
@@ -1127,6 +1128,7 @@ async fn a_save_of_an_element_only_the_tables_hold_applies_and_versions_its_chan
         .await;
     assert_eq!(row[0]["fields"]["versionNumber"], 2);
     assert_eq!(row[0]["fields"]["diff"], versions[1]["diff"]);
+    drop(engine);
     s.drop().await;
 }
 
@@ -1185,5 +1187,6 @@ async fn an_import_from_dndbeyond_creates_its_pc_in_the_tables_under_dndbeyond_r
         .await,
         [json!({ "dndbeyond_id": "112850214", "hp_max": 44 })]
     );
+    drop(engine);
     s.drop().await;
 }

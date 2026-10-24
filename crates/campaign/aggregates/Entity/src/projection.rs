@@ -413,7 +413,8 @@ impl ProjectPg for Tables {
         partition: &str,
         client: &Client,
     ) -> Result<Option<Row>, ProjectionError> {
-        // A text that is no uuid names no element: never cast in the SQL.
+        // A text that is no uuid names no element: never cast in the SQL. One
+        // in capitals would be a second partition of the same element.
         let Some(id) = partition.strip_prefix("Entity/").filter(|id| is_uuid(id)) else {
             return Ok(None);
         };
@@ -433,11 +434,12 @@ impl ProjectPg for Tables {
     }
 }
 
-/// Whether `text` is a uuid as PostgreSQL reads one: 8-4-4-4-12 hex digits.
+/// Whether `text` is a uuid as PostgreSQL writes one: 8-4-4-4-12 hex digits,
+/// in lower case.
 fn is_uuid(text: &str) -> bool {
     text.len() == 36
         && text.char_indices().all(|(i, c)| match i {
             8 | 13 | 18 | 23 => c == '-',
-            _ => c.is_ascii_hexdigit(),
+            _ => c.is_ascii_digit() || ('a'..='f').contains(&c),
         })
 }
