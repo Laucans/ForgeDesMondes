@@ -23,15 +23,21 @@ fn r23_map_state_kept() {
             "data-capability:session.addScene",
             "data-capability:session.createSession",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
-            let map = fresh_instance(s, &["elowen"])?;
+            let (map, cast) = fresh_instance(s, &["elowen", "bandit"])?;
             let initial = s.read("table.getBattlemapInstance", json!({ "instance": map }))?;
-            place(s, &map, "elowen", (1, 1), 1)?;
-            place(s, &map, "bandit", (5, 5), 2)?;
+            place(s, &map, cast.id("elowen"), (1, 1), 1)?;
+            place(s, &map, cast.id("bandit"), (5, 5), 2)?;
             let all = tokens(s, &map, "dm")?;
-            let pj = of_character(&all, "elowen")[0].clone();
-            let bandits = of_character(&all, "bandit");
+            let pj = of_character(&all, cast.id("elowen"))[0].clone();
+            let bandits = of_character(&all, cast.id("bandit"));
             apply(
                 s,
                 "table.moveToken",
@@ -53,7 +59,7 @@ fn r23_map_state_kept() {
             apply(
                 s,
                 "table.startCombat",
-                json!({ "initiative": { "elowen": 15 }, "rolls": { text(&bandits[0], "id"): 9, text(&bandits[1], "id"): 4 } }),
+                json!({ "initiative": { cast.id("elowen"): 15 }, "rolls": { text(&bandits[0], "id"): 9, text(&bandits[1], "id"): 4 } }),
                 Some(&map),
             )?;
             let kept = s.read(

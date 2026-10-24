@@ -21,14 +21,20 @@ fn r21_hit_points_states_death_and_visibility() {
             "data-capability:session.addScene",
             "data-capability:session.createSession",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "capability:campaign.listCampaigns",
+            "capability:campaign.listCharacters",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
-            let map = fresh_instance(s, &["elowen"])?;
-            place(s, &map, "elowen", (1, 1), 1)?;
-            place(s, &map, "bandit", (5, 5), 2)?;
+            let (map, cast) = fresh_instance(s, &["elowen", "bandit"])?;
+            place(s, &map, cast.id("elowen"), (1, 1), 1)?;
+            place(s, &map, cast.id("bandit"), (5, 5), 2)?;
             let all = tokens(s, &map, "dm")?;
-            let pj = of_character(&all, "elowen")[0].clone();
-            let bandits = of_character(&all, "bandit");
+            let pj = of_character(&all, cast.id("elowen"))[0].clone();
+            let bandits = of_character(&all, cast.id("bandit"));
             let (first, second) = (bandits[0].clone(), bandits[1].clone());
             let reread = |s: &Server, id: &Value| -> Result<Value, String> {
                 let list = tokens(s, &map, "dm")?;
@@ -52,7 +58,7 @@ fn r21_hit_points_states_death_and_visibility() {
             apply(
                 s,
                 "table.startCombat",
-                json!({ "initiative": { "elowen": 15 }, "rolls": { text(&first, "id"): 10, text(&second, "id"): 5 } }),
+                json!({ "initiative": { cast.id("elowen"): 15 }, "rolls": { text(&first, "id"): 10, text(&second, "id"): 5 } }),
                 Some(&map),
             )?;
             let max = second["hpMax"].as_i64().ok_or("a NPC has no PV")?;
