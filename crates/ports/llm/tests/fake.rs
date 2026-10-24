@@ -581,13 +581,13 @@ async fn the_brief_of_the_mock_up_names_its_characters_places_and_events_plainly
 
 #[tokio::test]
 async fn an_element_named_twice_in_a_scene_is_one_with_both_sentences_for_excerpt() {
-    let answer = brief_answer("Morlox arrive. Il pleut. Morlox repart !").await;
+    let answer = brief_answer("Morlox arrive. Il pleut. Morlox repart ! Morlox, Morlox.").await;
     assert_eq!(
         answer,
         json!({"scenes": [{
             "title": "Morlox arrive",
-            "notes": "Morlox arrive. Il pleut. Morlox repart !",
-            "elements": [{"type": "pnj", "name": "Morlox", "excerpt": "Morlox arrive Morlox repart"}],
+            "notes": "Morlox arrive. Il pleut. Morlox repart ! Morlox, Morlox.",
+            "elements": [{"type": "pnj", "name": "Morlox", "excerpt": "Morlox arrive Morlox repart Morlox, Morlox"}],
         }]})
     );
 }
@@ -640,6 +640,9 @@ async fn a_nickname_joins_the_name_it_follows_with_its_article_or_without() {
             vec!["Gaspard", "Rouge"],
         ),
         ("Puis Gaspard,", vec!["Gaspard"]),
+        // What follows the marker is an article and a name, or nothing.
+        ("Puis Gaspard, dit vieux Rouge.", vec!["Gaspard", "Rouge"]),
+        ("Puis Gaspard, dit le, Rouge.", vec!["Gaspard", "Rouge"]),
     ] {
         let answer = brief_answer(text).await;
         let found: Vec<String> = elements_of(&answer)

@@ -564,3 +564,31 @@ async fn a_brief_of_a_session_the_tables_do_not_hold_is_rejected_whole() {
     assert!(scratch.rows("SELECT id FROM oral_brief").await.is_empty());
     scratch.drop().await;
 }
+
+#[tokio::test]
+async fn a_table_that_fails_fails_the_step_and_rejects_nothing() {
+    let scratch = Scratch::new("fails").await;
+    let engine = scratch.serve().await;
+    let entry = "5c000000-0000-4000-8000-00000000000f";
+    submit(
+        &engine,
+        "test.addRow",
+        json!({
+            "entityToCreateId": entry, "entityToCreateCampaignId": VALOMBRE,
+            "type": "lieu", "name": "Le gué", "excerpt": "au gué",
+            "entityToCreateStatus": "a_creer", "createdAt": "2026-10-24T09:00:00.000Z",
+        }),
+        Some(entry),
+    )
+    .await;
+    scratch
+        .client
+        .batch_execute("DROP TABLE entity_to_create")
+        .await
+        .expect("the table gone");
+    match engine.run_once().await {
+        Err(harness_dataguard::Error::Store(_)) => {}
+        other => panic!("the store's failure, not the command's: {other:?}"),
+    }
+    scratch.drop().await;
+}

@@ -340,9 +340,10 @@ impl<'a> Word<'a> {
         core.chars().count() > 1 && core.chars().next().is_some_and(char::is_uppercase)
     }
 
-    /// An abbreviation (*PV*, *PNJ*): two letters or more, none lowercase.
+    /// An abbreviation (*PV*, *PNJ*), of a capitalised word — two letters
+    /// or more: none lowercase.
     fn is_acronym(&self) -> bool {
-        self.text.chars().count() > 1 && !self.text.chars().any(char::is_lowercase)
+        !self.text.chars().any(char::is_lowercase)
     }
 
     /// Whether the word may be part of a name, as `reading` reads it.
