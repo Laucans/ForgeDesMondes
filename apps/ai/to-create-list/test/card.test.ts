@@ -140,7 +140,7 @@ test('every part names the unit it shows or triggers, by identifier', async () =
 test('« Créer depuis le brief » sends the entry with no refinement, and the entry reads « Créé »', async () => {
   const s = await screen();
   await s.click(s.button(ODRIC, 'Créer depuis le brief'));
-  assert.deepEqual(s.sent, [{ dataCapability: 'ai.createFromBrief@1', payload: { entry: 'tc-odric' }, target: { aggregate: 'Session', id: 's4' }, caller: { by: 'dm', from: 'ToCreateList', roles: [] } }]);
+  assert.deepEqual(s.sent, [{ dataCapability: 'ai.createFromBrief@1', payload: { entry: 'tc-odric' }, target: { aggregate: 'Session', id: 's4' }, caller: { by: 'dm', from: 'ToCreateList', roles: ['role:approver'] } }]);
   assert.ok(s.item(ODRIC).textContent?.includes('Créé'));
   assert.equal(s.item(ODRIC).textContent?.includes('À créer'), false);
   assert.equal(s.count(), '1 à créer · 2 créée(s)');

@@ -10,3 +10,6 @@ export const DATA_CAPABILITY_VERSION = 1;
 
 /** The aggregate `ai.createFromBrief` targets: the session the entry came from. */
 export const SESSION_AGGREGATE = 'Session';
+
+/** The role every command of the list carries: the DM approving their own act (creating an Entity writes critical fields, which the DataGuard parks without it). */
+export const APPROVER = 'role:approver';

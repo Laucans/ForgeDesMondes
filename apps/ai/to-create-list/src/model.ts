@@ -2,7 +2,7 @@
 // them, the proposal as the created element holds it, the commands the screen
 // becomes.
 
-import { DATA_CAPABILITY_VERSION, SESSION_AGGREGATE } from './ids.ts';
+import { APPROVER, DATA_CAPABILITY_VERSION, SESSION_AGGREGATE } from './ids.ts';
 import type { Ability, Item, Proposal } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -77,7 +77,7 @@ export function commandBody(dataCapability: string, item: Item, refinement: stri
     dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
     payload: { entry: item.id, ...(refinement === null ? {} : { refinement }) },
     ...(item.session === null ? {} : { target: { aggregate: SESSION_AGGREGATE, id: item.session } }),
-    caller: { by: 'dm', from: 'ToCreateList', roles: [] },
+    caller: { by: 'dm', from: 'ToCreateList', roles: [APPROVER] },
   };
 }
 

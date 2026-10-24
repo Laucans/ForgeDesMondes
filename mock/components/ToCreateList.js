@@ -100,6 +100,7 @@
   var CREATE_FROM_BRIEF = "ai.createFromBrief";
   var DATA_CAPABILITY_VERSION = 1;
   var SESSION_AGGREGATE = "Session";
+  var APPROVER = "role:approver";
 
   // apps/ai/to-create-list/src/model.ts
   var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -154,7 +155,7 @@
       dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
       payload: { entry: item.id, ...refinement === null ? {} : { refinement } },
       ...item.session === null ? {} : { target: { aggregate: SESSION_AGGREGATE, id: item.session } },
-      caller: { by: "dm", from: "ToCreateList", roles: [] }
+      caller: { by: "dm", from: "ToCreateList", roles: [APPROVER] }
     };
   }
   var VIOLATIONS = {
