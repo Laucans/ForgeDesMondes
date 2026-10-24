@@ -3,13 +3,17 @@ name = "aggregate-diffusion"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Aggregate Diffusion: what the players' screen shows of a session — its invariants judged as code (base-coherent, window-proportional, window-fields-together, single-diffusion-source)."
+description = "Aggregate Diffusion: what the players' screen shows of a session — its invariants judged as code (base-coherent, window-proportional, window-fields-together, single-diffusion-source), its table (diffusion) written in the transaction that applies it."
 publish = false
 
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+# Its PostgreSQL client is the engine's re-export, never a driver of this crate.
 [dependencies]
 harness-dataguard = { workspace = true }
+async-trait = "0.1"
 serde_json = "1"
 
 [dev-dependencies]
+# The migrations' applier the server runs: the table the projection writes.
+data = { path = "../../../data" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

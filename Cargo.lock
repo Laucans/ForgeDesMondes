@@ -105,6 +105,8 @@ dependencies = [
 name = "aggregate-diffusion"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "data",
  "harness-dataguard",
  "serde_json",
  "tokio",
@@ -390,6 +392,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "close-window"
+version = "0.1.0"
+dependencies = [
+ "aggregate-diffusion",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -553,6 +567,7 @@ dependencies = [
  "aggregate-sound-playback",
  "aggregate-suggestion",
  "change-hit-points",
+ "close-window",
  "create-battlemap-instance",
  "create-campaign",
  "create-entities-from-note",
@@ -563,6 +578,7 @@ dependencies = [
  "get-battlemap",
  "get-battlemap-instance",
  "get-campaign",
+ "get-diffusion",
  "get-entity",
  "get-session",
  "get-settings",
@@ -579,6 +595,7 @@ dependencies = [
  "list-sessions",
  "list-sounds",
  "move-token",
+ "move-window",
  "next-turn",
  "place-tokens",
  "play-sound",
@@ -590,6 +607,7 @@ dependencies = [
  "reorder-initiative",
  "reorder-scenes",
  "reset-battlemap",
+ "resize-window",
  "restore-entity-version",
  "save-entity",
  "save-grid-settings",
@@ -599,6 +617,9 @@ dependencies = [
  "set-sound-volume",
  "set-token-condition",
  "set-token-visibility",
+ "show-cover",
+ "show-on-player-view",
+ "show-window-on-player-view",
  "start-combat",
  "stop-all",
  "test-connection",
@@ -790,6 +811,16 @@ name = "get-campaign"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "get-diffusion"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1351,6 +1382,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "move-window"
+version = "0.1.0"
+dependencies = [
+ "aggregate-diffusion",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "next-turn"
 version = "0.1.0"
 dependencies = [
@@ -1844,6 +1887,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "resize-window"
+version = "0.1.0"
+dependencies = [
+ "aggregate-diffusion",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "restore-entity-version"
 version = "0.1.0"
 dependencies = [
@@ -2213,6 +2268,42 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "show-cover"
+version = "0.1.0"
+dependencies = [
+ "aggregate-diffusion",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "show-on-player-view"
+version = "0.1.0"
+dependencies = [
+ "aggregate-diffusion",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "show-window-on-player-view"
+version = "0.1.0"
+dependencies = [
+ "aggregate-diffusion",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "signal-hook-registry"

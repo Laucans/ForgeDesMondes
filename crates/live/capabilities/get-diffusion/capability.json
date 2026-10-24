@@ -1,0 +1,9 @@
+{
+  "capability": "live.getDiffusion",
+  "system": "live",
+  "version": "1.0.0",
+  "description": "What the live session's player view shows, the one answer both player views read — the projected one and the DM's piloted tab: the base ({ kind: 'cover' | 'illustration' | 'battlemap', id } — the cover's media, the illustration's media or the battlemap instance), the floating window ({ media, x, y, w, h } — x, y and w stored as fractions of the screen's width, h derived from the illustration's proportions, never stored — or null when none is open) and the framing ({ zoom, panX, panY }, null while the session has no diffusion row). View 'dm' and view 'player' answer the same values; neither carries a token, a hit point figure or a note. A session with no diffusion row shows its campaign's cover, with no window.",
+  "input": { "campaign": "string, optional — the campaign whose live session is read; the live session otherwise", "view": "'dm' | 'player'" },
+  "output": "{ base: { kind: 'cover' | 'illustration' | 'battlemap', id: string }, window: { media: string, x: number, y: number, w: number, h: number } | null, view: { zoom: number, panX: number, panY: number } | null }",
+  "reads": ["queries/getDiffusion.graphql"]
+}
