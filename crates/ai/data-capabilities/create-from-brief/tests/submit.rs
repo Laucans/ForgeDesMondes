@@ -22,7 +22,7 @@ use harness_dataguard::command::{CommandResult, Entry, State};
 use harness_dataguard::engine::Engine;
 use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
-use harness_dataguard::plugins::{RefusalKind, Shared};
+use harness_dataguard::plugins::{self, Context, Plugin, Prepare, Prepared, RefusalKind, Shared};
 use harness_dataguard::postgres::SystemClock;
 use harness_dataguard::queue::Hold;
 use harness_dataguard::reads::Rows;
@@ -272,6 +272,22 @@ impl Store for Gated {
     }
 }
 
+/// A save of an element that refuses every save: the Entity aggregate's
+/// DataCapability, its `Prepare` refusing.
+struct RefusedSave;
+
+#[async_trait]
+impl Prepare for RefusedSave {
+    async fn prepare(
+        &self,
+        _context: &Context<'_>,
+        _payload: &Fields,
+        _target_id: Option<&str>,
+    ) -> Result<Prepared, plugins::Refusal> {
+        Err(plugins::Refusal::unprocessable("save refused"))
+    }
+}
+
 /// The tables, as a fake: the rows each query answers, by the table it
 /// reads and the id it is asked for.
 #[derive(Default)]
@@ -346,19 +362,26 @@ impl Served {
 
     /// [`Served::new`], the Prepare reading `tables` when there are some.
     async fn reading(answer: fn(&str) -> Option<String>, tables: Option<Tables>) -> Served {
-        Self::built(answer, tables, None).await
+        Self::built(answer, tables, None, save_entity::plugin()).await
     }
 
     /// [`Served::new`], its store's reads behind `gate`, which the
     /// provider's first answer arms.
     async fn gated(answer: fn(&str) -> Option<String>, gate: Arc<Gate>) -> Served {
-        Self::built(answer, None, Some(gate)).await
+        Self::built(answer, None, Some(gate), save_entity::plugin()).await
+    }
+
+    /// [`Served::new`], every element's save refused.
+    async fn refusing_saves(answer: fn(&str) -> Option<String>) -> Served {
+        let save = Plugin::new().prepare(create_from_brief::SAVE_ENTITY, RefusedSave);
+        Self::built(answer, None, None, save).await
     }
 
     async fn built(
         answer: fn(&str) -> Option<String>,
         tables: Option<Tables>,
         gate: Option<Arc<Gate>>,
+        save: Plugin,
     ) -> Served {
         let store = Arc::new(MemoryStore::default());
         for (partition, row) in [
@@ -426,7 +449,7 @@ impl Served {
                     aggregate_session::plugin(),
                     aggregate_entity::plugin(),
                     create_from_brief::plugin(),
-                    save_entity::plugin(),
+                    save,
                 ]
                 .into_iter()
                 .collect(),
@@ -1037,6 +1060,28 @@ async fn a_command_naming_its_entry_by_target_only_creates_it() {
     assert_eq!(served.element(ODRIC).await["name"], "Frère Odric");
     let entry = served.row(&format!("Session/{ODRIC}")).await;
     assert_eq!(entry["entityToCreateStatus"], CREEE);
+}
+
+#[tokio::test]
+async fn a_link_whose_element_was_never_saved_is_refused_and_no_row_names_it() {
+    // The element's save is refused: the creation's link is still owed, but
+    // the element it would name is neither saved nor queued.
+    let served = Served::refusing_saves(echoed).await;
+    let answer = served
+        .create(json!({ "entry": ODRIC }))
+        .await
+        .expect("the stamp queued");
+    assert!(
+        matches!(answer.then.as_slice(), [FollowUp::Refused { .. }]),
+        "{:?}",
+        answer.then
+    );
+    let (kind, message) = refused(link(&served, ODRIC, SCENE).await);
+    assert_eq!(kind, RefusalKind::Unprocessable);
+    assert!(message.contains("entrée créée"), "{message}");
+    assert_eq!(served.applied().await, 1, "the stamp alone");
+    let scene = served.row(&format!("Session/{SCENE}")).await;
+    assert_eq!(scene["entityId"], json!([GASPARD]));
 }
 
 #[tokio::test]

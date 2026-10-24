@@ -135,7 +135,8 @@ pub enum Refusal {
     AlreadyCreated,
     /// The entry is being created by another submission.
     InCreation,
-    /// A link names an entry not « creee », or another scene than its own.
+    /// A link names an entry not « creee », another scene than its own, or
+    /// an element neither saved nor queued.
     NotLinkable,
     /// A link that is not the creation's own follow-up, or whose scene
     /// already holds the element.
@@ -420,9 +421,12 @@ fn uuid_of(id: Option<&str>) -> Option<String> {
 /// The scene's link of the entry `entry`: the scene `scene` — the entry's
 /// own — as the tables and the queue leave it, written again with the
 /// entry's element after its last link. Its follow-up is submitted once the
-/// entry « creee » is queued, so the entry reads « creee » here; any other
-/// link — the scene already holding the element, or no creation owing it —
-/// is refused.
+/// entry « creee » and the element's save are queued, so both read so here;
+/// any other link — the scene already holding the element, no creation
+/// owing it, or an element neither saved nor queued — is refused. A save
+/// queued then rejected leaves a link the Session aggregate refuses whole
+/// when it applies (`scene-links-same-campaign`): no row names an element
+/// that is not.
 async fn link(
     context: &Context<'_>,
     creating: &Creating,
@@ -440,6 +444,9 @@ async fn link(
     }
     if links(&row).contains(&element) || !creating.link(&entry.id, context.now_millis) {
         return Err(refused(Refusal::NotFirstLink));
+    }
+    if !exists(context, &element).await? {
+        return Err(refused(Refusal::NotLinkable));
     }
     let (scene, row) = linked(&row, &element).ok_or_else(|| refused(Refusal::NoScene))?;
     Ok(plugins::Prepared {
