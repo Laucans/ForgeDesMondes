@@ -1,0 +1,320 @@
+{
+  "concept": "TokenAppearance",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a dedicated token image is shown",
+      "input": {
+        "token_media_id": "media-token-1",
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "Elowen"
+      },
+      "output": {
+        "source": "token_image",
+        "media_id": "media-token-1",
+        "crop": null,
+        "color": null,
+        "initial": null
+      }
+    },
+    {
+      "name": "a token image wins over a cropped portrait: the crop is not answered",
+      "input": {
+        "token_media_id": "media-token-1",
+        "portrait_media_id": "media-portrait-1",
+        "token_crop": {
+          "x": 0.2,
+          "y": 0.1,
+          "size": 0.5
+        },
+        "token_color": "#2f7d5b",
+        "name": "Elowen"
+      },
+      "output": {
+        "source": "token_image",
+        "media_id": "media-token-1",
+        "crop": null,
+        "color": null,
+        "initial": null
+      }
+    },
+    {
+      "name": "a token image wins over an uncropped portrait",
+      "input": {
+        "token_media_id": "media-token-1",
+        "portrait_media_id": "media-portrait-1",
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "Elowen"
+      },
+      "output": {
+        "source": "token_image",
+        "media_id": "media-token-1",
+        "crop": null,
+        "color": null,
+        "initial": null
+      }
+    },
+    {
+      "name": "a token image is shown whatever the colour",
+      "input": {
+        "token_media_id": "media-token-2",
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#a33",
+        "name": "Brann"
+      },
+      "output": {
+        "source": "token_image",
+        "media_id": "media-token-2",
+        "crop": null,
+        "color": null,
+        "initial": null
+      }
+    },
+    {
+      "name": "a cropped portrait shows its crop",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": "media-portrait-1",
+        "token_crop": {
+          "x": 0.2,
+          "y": 0.1,
+          "size": 0.5
+        },
+        "token_color": "#2f7d5b",
+        "name": "Elowen"
+      },
+      "output": {
+        "source": "portrait",
+        "media_id": "media-portrait-1",
+        "crop": {
+          "x": 0.2,
+          "y": 0.1,
+          "size": 0.5
+        },
+        "color": null,
+        "initial": null
+      }
+    },
+    {
+      "name": "the crop is answered as given, whatever its shape",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": "media-portrait-1",
+        "token_crop": {
+          "zoom": 140,
+          "x": 50,
+          "y": 32
+        },
+        "token_color": "#2f7d5b",
+        "name": "Elowen"
+      },
+      "output": {
+        "source": "portrait",
+        "media_id": "media-portrait-1",
+        "crop": {
+          "zoom": 140,
+          "x": 50,
+          "y": 32
+        },
+        "color": null,
+        "initial": null
+      }
+    },
+    {
+      "name": "a portrait never cropped is shown whole: no crop",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": "media-portrait-2",
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "Brann"
+      },
+      "output": {
+        "source": "portrait",
+        "media_id": "media-portrait-2",
+        "crop": null,
+        "color": null,
+        "initial": null
+      }
+    },
+    {
+      "name": "a cropped portrait is shown, not the disc, whatever the colour",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": "media-portrait-2",
+        "token_crop": {
+          "x": 0.2,
+          "y": 0.1,
+          "size": 0.5
+        },
+        "token_color": "#a33",
+        "name": "Brann"
+      },
+      "output": {
+        "source": "portrait",
+        "media_id": "media-portrait-2",
+        "crop": {
+          "x": 0.2,
+          "y": 0.1,
+          "size": 0.5
+        },
+        "color": null,
+        "initial": null
+      }
+    },
+    {
+      "name": "neither image nor portrait: a disc of the colour with the initial",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "Elowen"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#2f7d5b",
+        "initial": "E"
+      }
+    },
+    {
+      "name": "a disc takes the colour of the sheet",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#a33",
+        "name": "Brann"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#a33",
+        "initial": "B"
+      }
+    },
+    {
+      "name": "fields absent rather than null mean the same as null",
+      "input": {
+        "token_color": "#555",
+        "name": "Mira"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#555",
+        "initial": "M"
+      }
+    },
+    {
+      "name": "a lowercase name gives a capital initial",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "ondine"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#2f7d5b",
+        "initial": "O"
+      }
+    },
+    {
+      "name": "an accented lowercase name keeps the accent on the capital",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "élowen"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#2f7d5b",
+        "initial": "É"
+      }
+    },
+    {
+      "name": "an accented capital stays as it is",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "Éowyn"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#2f7d5b",
+        "initial": "É"
+      }
+    },
+    {
+      "name": "another accented letter",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "ñandú"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#2f7d5b",
+        "initial": "Ñ"
+      }
+    },
+    {
+      "name": "the white space before the name is trimmed",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "  \tthéodred"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#2f7d5b",
+        "initial": "T"
+      }
+    },
+    {
+      "name": "only the first character of the name is the initial",
+      "input": {
+        "token_media_id": null,
+        "portrait_media_id": null,
+        "token_crop": null,
+        "token_color": "#2f7d5b",
+        "name": "La Rôdeuse"
+      },
+      "output": {
+        "source": "disc",
+        "media_id": null,
+        "crop": null,
+        "color": "#2f7d5b",
+        "initial": "L"
+      }
+    }
+  ]
+}
