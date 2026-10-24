@@ -264,6 +264,16 @@ async fn a_resync_names_its_pc_by_the_payload_when_the_target_does_not() {
 }
 
 #[tokio::test]
+async fn a_pc_named_in_capitals_is_resynchronised_on_its_own_partition() {
+    let s = served().await;
+    let (status, answer) = s.resync(json!({}), Some(&ELOWEN_PC.to_uppercase())).await;
+    assert_eq!(status, Status::Accepted, "{answer}");
+    assert_eq!(answer["partition"], json!(format!("Entity/{ELOWEN_PC}")));
+    applied(&s.settled().await);
+    assert_eq!(s.row(ELOWEN_PC).await["versionNumber"], json!(2));
+}
+
+#[tokio::test]
 async fn what_the_payload_carries_besides_the_pc_is_never_written() {
     let s = served().await;
     let before = s.row(ELOWEN_PC).await;

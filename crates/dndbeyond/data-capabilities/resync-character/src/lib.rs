@@ -104,10 +104,12 @@ impl fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
-/// What a resync is given besides the row and the sheet: the new version's
-/// id, and the time.
+/// What a resync is given besides the row and the sheet: the PC's id, the
+/// new version's id, and the time.
 #[derive(Clone, Copy, Debug)]
-pub struct Fresh<'a> {
+pub struct Resync<'a> {
+    /// The PC's id, in lowercase as the tables write one.
+    pub entity: &'a str,
     /// The id of the version the resync adds.
     pub version: &'a str,
     /// Now, RFC 3339.
@@ -152,6 +154,8 @@ impl engine::Prepare for Resyncing {
         if !is_uuid(id) {
             return Err(refused(Refusal::NotAnId));
         }
+        // One partition per element, whatever the case the caller wrote it in.
+        let id = id.to_lowercase();
         let base = context.row(&format!("Entity/{id}")).await?;
         let character = linked(&base).map_err(refused)?;
         let sheet = sheets
@@ -160,15 +164,16 @@ impl engine::Prepare for Resyncing {
             .map_err(|e| refused(Refusal::Sheets(e)))?;
         let version = context.ids.fresh();
         let now = aggregate_entity::timestamp(context.now_millis);
-        let fresh = Fresh {
+        let resync = Resync {
+            entity: &id,
             version: &version,
             now: &now,
         };
         Ok(engine::Prepared {
-            payload: prepare(&base, &sheet, fresh).map_err(refused)?,
+            payload: prepare(&base, &sheet, resync).map_err(refused)?,
             // The payload it writes does not name the element: the
             // partition is the one read.
-            target_id: Some(id.to_owned()),
+            target_id: Some(id),
             ..engine::Prepared::default()
         })
     }
@@ -290,10 +295,10 @@ fn nul(value: &Value) -> bool {
     }
 }
 
-/// The command a resync of `sheet` submits on the PC whose row is `base`, as
-/// the commands queued ahead of it will leave it: the statblock and the sync
-/// date — nothing the DM set locally —, then the version it adds after the
-/// row's, of source `dndbeyond`.
+/// The command a resync of `sheet` submits on the PC `resync.entity`, whose
+/// row is `base` as the commands queued ahead of it will leave it: the
+/// statblock and the sync date — nothing the DM set locally —, then the
+/// version it adds after the row's, of source `dndbeyond`.
 ///
 /// # Errors
 ///
@@ -301,7 +306,7 @@ fn nul(value: &Value) -> bool {
 /// nothing —, a sheet of another character than the one the PC is linked to,
 /// a statblock StatBlock@1 does not hold complete, a value the tables could
 /// never hold.
-pub fn prepare(base: &Row, sheet: &CharacterSheet, fresh: Fresh<'_>) -> Result<Row, Refusal> {
+pub fn prepare(base: &Row, sheet: &CharacterSheet, resync: Resync<'_>) -> Result<Row, Refusal> {
     // The port answers the character it was asked for: a sheet of another
     // would write a stranger's statblock on this PC.
     let character = linked(base)?;
@@ -313,14 +318,11 @@ pub fn prepare(base: &Row, sheet: &CharacterSheet, fresh: Fresh<'_>) -> Result<R
     }
     let mut payload = statblock_of(sheet)?;
     for (field, value) in [
-        ("dndbeyondSyncedAt", Value::from(fresh.now)),
-        ("updatedAt", fresh.now.into()),
-        (
-            "entityVersionEntityId",
-            base.get("entityId").cloned().unwrap_or(Value::Null),
-        ),
-        ("entityVersionId", fresh.version.into()),
-        ("entityVersionCreatedAt", fresh.now.into()),
+        ("dndbeyondSyncedAt", Value::from(resync.now)),
+        ("updatedAt", resync.now.into()),
+        ("entityVersionEntityId", resync.entity.into()),
+        ("entityVersionId", resync.version.into()),
+        ("entityVersionCreatedAt", resync.now.into()),
         ("source", SOURCE.into()),
         // A resync restores nothing, whatever the last version did.
         ("restoredFromVersionId", Value::Null),

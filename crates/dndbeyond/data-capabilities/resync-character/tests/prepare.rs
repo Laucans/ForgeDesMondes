@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use ports_character_sheets::{CharacterSheetsError, Entry};
-use resync_character::{Fresh, Refusal, Row, linked, prepare, statblock_of};
+use resync_character::{Refusal, Resync, Row, linked, prepare, statblock_of};
 use serde_json::{Value, json};
 
 mod support;
@@ -15,8 +15,9 @@ const ELOWEN_PC: &str = "e1000000-0000-4000-8000-000000000001";
 const LONG_AGO: &str = "2026-09-26T18:12:00Z";
 const NOW: &str = "2026-10-24T09:00:00.000Z";
 
-fn fresh() -> Fresh<'static> {
-    Fresh {
+fn fresh() -> Resync<'static> {
+    Resync {
+        entity: ELOWEN_PC,
         version: "f1000000-0000-4000-8000-000000000002",
         now: NOW,
     }
@@ -271,4 +272,12 @@ fn a_value_the_tables_cannot_hold_is_refused() {
         statblock_of(&sheet),
         Err(Refusal::Unwritable("actions ou spells"))
     );
+}
+
+#[test]
+fn the_version_belongs_to_the_pc_resynchronised_whatever_its_row_names() {
+    let mut base = elowen_row();
+    base.remove("entityId");
+    let payload = prepare(&base, &levelled_up(), fresh()).expect("prepared");
+    assert_eq!(payload["entityVersionEntityId"], json!(ELOWEN_PC));
 }

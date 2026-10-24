@@ -849,9 +849,10 @@ export const COMMANDS = {
     const { stats, pvMax } = resync.patch;
     const spells = resync.changes.find((c) => c.field === 'Sorts et capacités');
     const names = (line) => line.split(',').map((name) => name.trim()).filter(Boolean);
-    const gained = spells ? names(spells.new).filter((name) => !names(spells.old).includes(name)) : [];
+    const known = (element.features || []).map((f) => f.name);
+    const gained = spells ? names(spells.new).filter((name) => !names(spells.old).includes(name) && !known.includes(name)) : [];
     const features = gained.length ? { features: [...(element.features || []), ...gained.map((name) => ({ name, text: 'Ajouté à la fiche D&D Beyond lors de la montée de niveau.' }))] } : {};
-    await changedBy(server, element, { ...(stats ? { stats: { ...element.stats, ...stats } } : {}), ...(pvMax ? { pvMax } : {}), ...features, ddb: { ...element.ddb, syncedAt: new Date().toISOString().slice(0, 19) } }, 'dndbeyond', 'Resynchronisation D&D Beyond', resync.changes.filter((c) => c.field === 'PV max' || c.field === 'Sorts et capacités' || (stats && c.field in stats)));
+    await changedBy(server, element, { ...(stats ? { stats: { ...element.stats, ...stats } } : {}), ...(pvMax ? { pvMax } : {}), ...features, ddb: { ...element.ddb, syncedAt: new Date().toISOString().slice(0, 19) } }, 'dndbeyond', 'Resynchronisation D&D Beyond', resync.changes.filter((c) => c.field === 'PV max' || (c.field === 'Sorts et capacités' && gained.length) || (stats && c.field in stats)));
     return undefined;
   },
   // dndbeyond.importCharacter (crates/dndbeyond/data-capabilities/import-character): a D&D
