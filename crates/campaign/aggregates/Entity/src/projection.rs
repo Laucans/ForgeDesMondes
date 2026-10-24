@@ -21,6 +21,11 @@
 //! own; then the index of names and aliases starts from every element the
 //! tables hold, the fixtures' among them, and the history from every version
 //! they number. Tables not migrated yet hold none.
+//!
+//! An element the tables hold and the engine never wrote — the mock-up's
+//! fixtures, loaded straight into them — is the engine's row as the tables
+//! hold it ([`Tables`]' `hydrate`): what a `Prepare` and the judge read of
+//! it, so a save of it is one of an element that exists.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -169,6 +174,44 @@ const ELEMENTS: &str = "SELECT jsonb_build_object(
         'alias', coalesce((SELECT jsonb_agg(a.alias) FROM entity_alias a WHERE a.entity_id = e.id), '[]')
     )::text
     FROM entity e";
+
+/// The element `$1` names — a uuid — as the engine's row holds it, under the
+/// keys [`UPSERT_ENTITY`], [`UPSERT_CHARACTER`] and [`ADD_ALIASES`] read: its
+/// `entity` row, its sheet, its aliases — in the order its last version's
+/// snapshot gives them, so a save leaving them as they are does not diff
+/// them — and its last version. A time is written in UTC to the microsecond
+/// the tables keep, a D&D Beyond sync as the last snapshot wrote it when it
+/// is the same instant. A field the tables leave empty is a null.
+const ELEMENT: &str = "SELECT jsonb_build_object(
+        'entityId', e.id, 'entityCampaignId', e.campaign_id, 'type', e.type, 'name', e.name,
+        'description', e.description, 'notes', e.notes,
+        'entityCreatedAt', to_char(e.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),
+        'updatedAt', to_char(e.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),
+        'alias', coalesce((SELECT jsonb_agg(a.alias ORDER BY array_position(
+                ARRAY(SELECT jsonb_array_elements_text(CASE jsonb_typeof(v.snapshot -> 'aliases')
+                    WHEN 'array' THEN v.snapshot -> 'aliases' ELSE '[]' END)), a.alias),
+                a.alias, a.id)
+            FROM entity_alias a WHERE a.entity_id = e.id), '[]'),
+        'characterEntityId', c.entity_id, 'playerId', c.player_id,
+        'initialPrompt', c.initial_prompt, 'background', c.background, 'behavior', c.behavior,
+        'strength', c.strength, 'dexterity', c.dexterity, 'constitution', c.constitution,
+        'intelligence', c.intelligence, 'wisdom', c.wisdom, 'charisma', c.charisma,
+        'armorClass', c.armor_class, 'hpMax', c.hp_max, 'spells', c.spells, 'actions', c.actions,
+        'portraitMediaId', c.portrait_media_id, 'tokenMediaId', c.token_media_id,
+        'tokenCrop', c.token_crop, 'tokenColor', c.token_color, 'dndbeyondId', c.dndbeyond_id,
+        'dndbeyondSyncedAt', coalesce(
+            CASE WHEN pg_input_is_valid(v.snapshot ->> 'dndbeyondSyncedAt', 'timestamptz') THEN
+                CASE WHEN (v.snapshot ->> 'dndbeyondSyncedAt')::timestamptz = c.dndbeyond_synced_at
+                    THEN v.snapshot -> 'dndbeyondSyncedAt' END
+            END,
+            to_jsonb(to_char(c.dndbeyond_synced_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'))),
+        'entityVersionId', v.id, 'versionNumber', v.version_number, 'snapshot', v.snapshot
+    )::text
+    FROM entity e
+        LEFT JOIN character c ON c.entity_id = e.id
+        LEFT JOIN LATERAL (SELECT id, version_number, snapshot FROM entity_version
+            WHERE entity_id = e.id ORDER BY version_number DESC LIMIT 1) v ON true
+    WHERE e.id = $1::text::uuid";
 
 /// Every version the tables hold, oldest first: what [`History`] starts
 /// from.
@@ -364,4 +407,37 @@ impl ProjectPg for Tables {
         }
         Ok(())
     }
+
+    async fn hydrate(
+        &self,
+        partition: &str,
+        client: &Client,
+    ) -> Result<Option<Row>, ProjectionError> {
+        // A text that is no uuid names no element: never cast in the SQL.
+        let Some(id) = partition.strip_prefix("Entity/").filter(|id| is_uuid(id)) else {
+            return Ok(None);
+        };
+        if !Link::Client(client).holds("entity_version").await? {
+            return Ok(None);
+        }
+        let Some(element) = client.query_opt(ELEMENT, &[&id]).await? else {
+            return Ok(None);
+        };
+        let Ok(Value::Object(row)) = serde_json::from_str(element.get::<_, &str>(0)) else {
+            return Ok(None);
+        };
+        // An absent field and a null are the same: the row holds neither.
+        Ok(Some(
+            row.into_iter().filter(|(_, v)| !v.is_null()).collect(),
+        ))
+    }
+}
+
+/// Whether `text` is a uuid as PostgreSQL reads one: 8-4-4-4-12 hex digits.
+fn is_uuid(text: &str) -> bool {
+    text.len() == 36
+        && text.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
 }
