@@ -580,6 +580,7 @@ dependencies = [
  "get-campaign",
  "get-diffusion",
  "get-entity",
+ "get-last-brief",
  "get-session",
  "get-settings",
  "harness-dataguard",
@@ -829,6 +830,13 @@ name = "get-entity"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-last-brief"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
