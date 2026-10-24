@@ -251,7 +251,7 @@
       "query": "GetLiveSession",
       "capability": "session.getLiveSession",
       "file": "crates/session/queries/getLiveSession.graphql",
-      "sha256": "6207c65f5d6edef8c8f5893edde6d193ad230bd427e26d18bb0507d764a8d054",
+      "sha256": "7cc41a0620841781675c22c36b81ee1139901741b1f084914ac50388e104b36e",
       "fields": [
         "session.id",
         "session.position",

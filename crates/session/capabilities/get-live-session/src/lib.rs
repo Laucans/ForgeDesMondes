@@ -13,8 +13,10 @@
 //!
 //! A PC ticked later is a row of the present list like the others, so the next
 //! read lists it (`present-only-pj`). A closed session never listens: its
-//! microphone is off whatever the stored flag says. An id no session holds has
-//! no answer: `null`, never an error that tells how the store is made.
+//! microphone is off whatever the stored flag says. Without an `id` the answer
+//! is the running session — the live one that started last. An id no session
+//! holds, or no running session, has no answer: `null`, never an error that
+//! tells how the store is made.
 //!
 //! It implements `SessionLifecycle@1` (`concepts/SessionLifecycle/v1`): the
 //! label of a status is derived here, at read time, by [`lifecycle`] — one
@@ -30,7 +32,8 @@ pub const CAPABILITY: &str = "session.getLiveSession";
 
 /// What the persisted query `getLiveSession.graphql` selects: the session
 /// bound to `$1` (compared as text, so that an id which is not a uuid finds
-/// nothing instead of failing), its date as `YYYY-MM-DD` text, the time it
+/// nothing instead of failing) or, when no id is given (`$1` is null), the
+/// live session that started last, its date as `YYYY-MM-DD` text, the time it
 /// started as `HH:MM` in UTC, its microphone flag, and the PCs ticked present
 /// in the order they were ticked.
 pub const SQL: &str = r#"SELECT s.id::text AS id,
@@ -46,7 +49,9 @@ pub const SQL: &str = r#"SELECT s.id::text AS id,
         '[]'::jsonb
     ) AS present
 FROM session s
-WHERE s.id::text = $1"#;
+WHERE s.id::text = $1 OR ($1::text IS NULL AND s.status = 'live')
+ORDER BY s.started_at DESC NULLS LAST, s.id
+LIMIT 1"#;
 
 /// The request's variables [`SQL`] binds, in the order of its `$1`, `$2`…:
 /// what the registry hands the query.
@@ -54,7 +59,8 @@ pub const VARIABLES: &[&str] = &["id"];
 
 /// The answer to a read, as the registry serves it: the session `rows` — an
 /// array of the objects [`SQL`] selects, one at most, already bound to the
-/// request's `id` — as the live bar reads it. No row is no session: `null`.
+/// request's `id` (or, with none, to the running session) — as the live bar
+/// reads it. No row is no session: `null`.
 #[must_use]
 pub fn answer(rows: &Value, _variables: &BTreeMap<String, Value>) -> Value {
     answer_rows(rows)
@@ -257,6 +263,15 @@ mod tests {
     }
 
     #[test]
+    fn without_an_id_the_sql_falls_back_on_the_live_session_that_started_last() {
+        assert!(
+            SQL.contains("$1::text IS NULL AND s.status = 'live'"),
+            "{SQL}"
+        );
+        assert!(SQL.contains("ORDER BY s.started_at DESC"), "{SQL}");
+    }
+
+    #[test]
     fn the_query_only_reads() {
         let sql = SQL.to_ascii_lowercase();
         assert!(sql.trim_start().starts_with("select"));
@@ -291,6 +306,7 @@ mod tests {
     #[test]
     fn the_sql_binds_one_session_and_orders_the_pcs_as_they_were_ticked() {
         assert!(SQL.contains("WHERE s.id::text = $1"), "{SQL}");
+        assert!(SQL.contains("LIMIT 1"), "{SQL}");
         assert!(SQL.contains("session_present_character"), "{SQL}");
         assert!(SQL.contains("ORDER BY p.added_at"), "{SQL}");
         assert!(!SQL.contains(';'), "a second statement in {SQL}");
