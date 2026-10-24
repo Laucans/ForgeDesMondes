@@ -743,12 +743,23 @@
       const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === entity);
       return known ? { name: known.name, versions: [] } : null;
     },
-    // One element's sheet: a character, a place or an event of `entities`.
+    // campaign.getEntity (crates/campaign/capabilities/get-entity): one element's sheet, as the
+    // Capability answers it — the lists `campaign.saveEntity` writes, so a save is read back. A PC or
+    // an NPC has its stats with their modifier computed from the score (AbilityModifier@1), its token
+    // (`tokenImage`: a dedicated image) and its D&D Beyond link; a place or an event has its kind
+    // (`lieu`, `evenement`), aliases, description and notes alone. An unknown element is `null`.
     "campaign.getEntity": async (server, { id }) => {
-      const entities = await server.load("entities");
-      const entity = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === id);
-      if (!entity?.stats) return entity;
-      return { ...entity, modifiers: Object.fromEntries(Object.entries(entity.stats).map(([ability, score]) => [ability, typeof score === "number" ? Math.floor((score - 10) / 2) : null])) };
+      const lists = [["campaign.listCharacters", null], ["campaign.listPlaces", "lieu"], ["campaign.listEvents", "evenement"]];
+      for (const [name, kind] of lists) {
+        const found = (await server.load(name) || []).find((e) => e.id === id);
+        if (!found) continue;
+        const base = { id: found.id, name: found.name, aliases: found.aliases || [], kind: kind || found.kind, description: found.description || "", notes: found.notes || "" };
+        if (kind) return base;
+        const modifiers = Object.fromEntries(Object.entries(found.stats).map(([ability, score]) => [ability, Math.floor((score - 10) / 2)]));
+        const initials = found.initials || found.name.split(/\s+/).map((w) => w.charAt(0)).join("").slice(0, 2).toUpperCase();
+        return { ...base, player: found.kind === "pj" ? found.player || null : null, prompt: found.prompt || "", background: found.background || "", behavior: found.behavior || "", stats: found.stats, modifiers, ca: found.ca, pvMax: found.pvMax, features: found.features || [], color: found.color || "accent", initials, portrait: Boolean(found.portrait), tokenImage: Boolean(found.token || found.tokenImage), crop: found.crop || null, ddb: found.ddb && found.ddb.url ? found.ddb : null };
+      }
+      return null;
     }
   };
 
@@ -767,6 +778,20 @@
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
   var SAVED_BY = { dm: "manuelle", brief: "ia", ia: "ia" };
+  var elementOf = async (server, id) => {
+    for (const name of new Set(Object.values(LISTS))) {
+      const element = (await server.load(name) || []).find((e) => e.id === id);
+      if (element) return { element };
+    }
+    return {};
+  };
+  var changedBy = async (server, element, patch, origin, source, changes) => {
+    Object.assign(element, patch);
+    const history = await server.load("campaign.listEntityVersions") || {};
+    const entry = history[element.id] || (history[element.id] = { name: element.name, versions: [] });
+    const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+    entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin, source, restoredFrom: null, seen: false, changes });
+  };
   var onScreen = (fraction, kept) => typeof fraction === "number" && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept;
   async function onWindow(server, change) {
     const row = await diffusionRow(server);
@@ -1581,6 +1606,62 @@
       const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
       entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: SAVED_BY[source], source, seen: source === "dm", changes });
+      return void 0;
+    },
+    // ai.proposeCharacter (crates/ai/data-capabilities/propose-character): the
+    // initial prompt told or typed gives the character's background and behaviour and, for an NPC,
+    // a statblock — the proposals of fixtures/EntityEditor.json, the fake llm's answers. It applies
+    // at once and is a version like any other (source ia), unseen until the DM looks. A prompt with
+    // no text, or an element the lists do not hold, is refused.
+    "ai.proposeCharacter": async (server, { payload, targetId }) => {
+      const { element } = await elementOf(server, targetId);
+      if (!element || !String(payload.prompt ?? "").trim()) return ["not-found"];
+      const { proposals } = await server.load("EntityEditor");
+      const proposal = proposals[element.id] || proposals.default;
+      const patch = { prompt: payload.prompt, background: proposal.background, behavior: proposal.behavior };
+      if (element.kind === "pnj") Object.assign(patch, { stats: { ...proposal.stats }, ca: proposal.ca, pvMax: proposal.pvMax, features: proposal.features.map((f) => ({ ...f })) });
+      await changedBy(server, element, patch, "ia", "Prompt initial", element.kind === "pnj" ? proposal.changes : proposal.changes.slice(0, 1));
+      return void 0;
+    },
+    // dndbeyond.resyncCharacter (crates/dndbeyond/data-capabilities/resync-character): the stats,
+    // hit points and spells of a PC linked to D&D Beyond are read again — the patch of
+    // fixtures/EntityEditor.json, and the spells its « Sorts et capacités » line adds, as the
+    // character-sheets fake plays the level-up — whose changes the history keeps; the aliases, the
+    // notes and the token are left as they are (`dndbeyond-resync-scope`). A sheet with no link is
+    // refused.
+    "dndbeyond.resyncCharacter": async (server, { targetId }) => {
+      const { element } = await elementOf(server, targetId);
+      if (!element || !element.ddb || !element.ddb.url) return ["not-found"];
+      const { ddbResync } = await server.load("EntityEditor");
+      const resync = ddbResync[element.id] || ddbResync.default;
+      const { stats, pvMax } = resync.patch;
+      const spells = resync.changes.find((c) => c.field === "Sorts et capacit\xE9s");
+      const names = (line) => line.split(",").map((name) => name.trim()).filter(Boolean);
+      const known = (element.features || []).map((f) => f.name);
+      const gained = spells ? names(spells.new).filter((name) => !names(spells.old).includes(name) && !known.includes(name)) : [];
+      const features = gained.length ? { features: [...element.features || [], ...gained.map((name) => ({ name, text: "Ajout\xE9 \xE0 la fiche D&D Beyond lors de la mont\xE9e de niveau." }))] } : {};
+      await changedBy(server, element, { ...stats ? { stats: { ...element.stats, ...stats } } : {}, ...pvMax ? { pvMax } : {}, ...features, ddb: { ...element.ddb, syncedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) } }, "dndbeyond", "Resynchronisation D&D Beyond", resync.changes.filter((c) => c.field === "PV max" || c.field === "Sorts et capacit\xE9s" && gained.length || stats && c.field in stats));
+      return void 0;
+    },
+    // dndbeyond.importCharacter (crates/dndbeyond/data-capabilities/import-character): a D&D
+    // Beyond URL (or a bare id) imports the PC of the campaign linked to that character — the
+    // character-sheets fake knows the ones the fixtures link, as they were last synchronised —
+    // its statblock and sync date alone, its name, aliases, notes and token left as the DM made
+    // them (`dndbeyond-resync-scope`), as a version of source dndbeyond. A PC targeted is filled
+    // only if it is that one; a URL of another host, or of a character the fake does not know,
+    // is refused and nothing is written.
+    "dndbeyond.importCharacter": async (server, { payload, targetId }) => {
+      const url = String(payload.url ?? "").trim();
+      const [, host2, path] = /^https?:\/\/([^/]+)\/(.*)$/.exec(url) || [];
+      const match = host2 && ["www.dndbeyond.com", "dndbeyond.com"].includes(host2.toLowerCase()) ? /^(?:profile\/[^/?#]+\/)?characters\/(\d+)(?:[/?#]|$)/.exec(path) : null;
+      const digits = match ? match[1] : /^\d+$/.test(url) ? url : null;
+      const ddbId = digits && BigInt(digits) > 0n ? String(BigInt(digits)) : null;
+      if (!ddbId) return ["not-found"];
+      const characters = await server.load("campaign.listCharacters") || [];
+      const linked = characters.find((e) => e.kind === "pj" && e.ddb && String(e.ddb.url ?? "").replace(/\/+$/, "").endsWith(`/characters/${ddbId}`));
+      if (!linked) return ["not-found"];
+      if (targetId && targetId !== linked.id) return ["already-imported"];
+      await changedBy(server, linked, { ddb: { ...linked.ddb, syncedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) } }, "dndbeyond", "Import D&D Beyond", []);
       return void 0;
     },
     // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a

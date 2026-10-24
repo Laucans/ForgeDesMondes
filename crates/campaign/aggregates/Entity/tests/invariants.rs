@@ -37,6 +37,8 @@ const CLAIRE: &str = "b1000000-0000-4000-8000-000000000001";
 const ELOWEN: &str = "e1000000-0000-4000-8000-000000000001";
 const TAVERNE: &str = "e1000000-0000-4000-8000-000000000002";
 const PORTRAIT: &str = "d1000000-0000-4000-8000-000000000001";
+/// A PC imported from D&D Beyond.
+const THORIN: &str = "e1000000-0000-4000-8000-000000000004";
 /// When an element was made: a whole element holds it (every-change-versioned).
 const CREATED: &str = "2026-10-17T10:00:00Z";
 
@@ -505,6 +507,89 @@ async fn dndbeyond_resync_scope_changes_stats_ac_hp_spells_and_actions_alone() {
                     "notes": "Cache une lettre de sa sœur.", "tokenColor": "#2f7d5b",
                 }),
             ),
+        )
+        .await,
+    );
+}
+
+/// Thorin, a PC imported from D&D Beyond: what the import writes on an empty
+/// row, version 1.
+fn thorin() -> Value {
+    version(
+        json!({
+            "entityId": THORIN,
+            "entityCampaignId": VALOMBRE,
+            "entityCreatedAt": CREATED,
+            "type": "pj",
+            "name": "Thorin Brisepierre",
+            "characterEntityId": THORIN,
+            "playerId": CLAIRE,
+            "strength": 16, "dexterity": 10, "constitution": 16,
+            "intelligence": 9, "wisdom": 13, "charisma": 11,
+            "armorClass": 18,
+            "hpMax": 44,
+            "spells": [{ "name": "Bénédiction" }],
+            "actions": [{ "name": "Marteau de guerre", "text": "+6 au toucher, 1d8+3" }],
+            "tokenColor": "#8a5a2b",
+            "dndbeyondId": "112850214",
+            "dndbeyondSyncedAt": "2026-10-17T10:00:00Z",
+        }),
+        1,
+        "dndbeyond",
+    )
+}
+
+/// A resync of Thorin, version 2 from D&D Beyond, writing `fields`.
+fn resync(fields: Value) -> Value {
+    let mut save = version(json!({ "entityId": THORIN }), 2, "dndbeyond");
+    for (field, value) in fields.as_object().expect("an object") {
+        save[field] = value.clone();
+    }
+    save
+}
+
+#[tokio::test]
+async fn dndbeyond_resync_scope_lets_an_import_create_its_pc_whole() {
+    let engine = engine().await;
+    let created = written(&engine, "test.createEntity", thorin()).await;
+    applied(&created);
+    assert!(created.violations.is_empty(), "{created:?}");
+}
+
+#[tokio::test]
+async fn dndbeyond_resync_scope_holds_a_pc_linked_to_dndbeyond_to_its_sheet_numbers() {
+    let engine = engine().await;
+    applied(&written(&engine, "test.createEntity", thorin()).await);
+    for (field, value) in [
+        ("name", json!("Thorin le Rouge")),
+        ("alias", json!(["le nain"])),
+        ("notes", json!("Effacées par la resynchro.")),
+        ("tokenColor", json!("#000")),
+        ("portraitMediaId", json!(PORTRAIT)),
+    ] {
+        rejected_by(
+            &written(
+                &engine,
+                "test.saveEntity",
+                resync(json!({ field: value, "hpMax": 52 })),
+            )
+            .await,
+            "dndbeyond-resync-scope",
+        );
+    }
+    // A level up: the scores, the AC, the HP max, the spells, the actions.
+    applied(
+        &written(
+            &engine,
+            "test.saveEntity",
+            resync(json!({
+                "strength": 17, "dexterity": 10, "constitution": 16,
+                "intelligence": 9, "wisdom": 14, "charisma": 11,
+                "armorClass": 19, "hpMax": 52,
+                "spells": [{ "name": "Bénédiction" }, { "name": "Arme spirituelle" }],
+                "actions": [{ "name": "Marteau de guerre", "text": "+7 au toucher, 1d8+3" }],
+                "dndbeyondSyncedAt": "2026-10-24T10:00:00Z",
+            })),
         )
         .await,
     );

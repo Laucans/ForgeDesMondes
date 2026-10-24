@@ -45,6 +45,25 @@ const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'pro
 // (which also reads the DM's brief).
 const SAVED_BY = { dm: 'manuelle', brief: 'ia', ia: 'ia' };
 
+// The element `id` among the lists a save writes.
+const elementOf = async (server, id) => {
+  for (const name of new Set(Object.values(LISTS))) {
+    const element = ((await server.load(name)) || []).find((e) => e.id === id);
+    if (element) return { element };
+  }
+  return {};
+};
+
+// A change by the AI or D&D Beyond: the fields set on the element, and a version of the history
+// (EntityVersion@1) the DM has not seen.
+const changedBy = async (server, element, patch, origin, source, changes) => {
+  Object.assign(element, patch);
+  const history = (await server.load('campaign.listEntityVersions')) || {};
+  const entry = history[element.id] || (history[element.id] = { name: element.name, versions: [] });
+  const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+  entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin, source, restoredFrom: null, seen: false, changes });
+};
+
 // A position on the screen, in fractions of it: from 0 to 1 — `kept` when
 // what is asked is no number, which the server refuses.
 const onScreen = (fraction, kept) => (typeof fraction === 'number' && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept);
@@ -863,6 +882,64 @@ export const COMMANDS = {
       .map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
     const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
     entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: SAVED_BY[source], source, seen: source === 'dm', changes });
+    return undefined;
+  },
+  // ai.proposeCharacter (crates/ai/data-capabilities/propose-character): the
+  // initial prompt told or typed gives the character's background and behaviour and, for an NPC,
+  // a statblock — the proposals of fixtures/EntityEditor.json, the fake llm's answers. It applies
+  // at once and is a version like any other (source ia), unseen until the DM looks. A prompt with
+  // no text, or an element the lists do not hold, is refused.
+  'ai.proposeCharacter': async (server, { payload, targetId }) => {
+    const { element } = await elementOf(server, targetId);
+    if (!element || !String(payload.prompt ?? '').trim()) return ['not-found'];
+    const { proposals } = await server.load('EntityEditor');
+    const proposal = proposals[element.id] || proposals.default;
+    const patch = { prompt: payload.prompt, background: proposal.background, behavior: proposal.behavior };
+    if (element.kind === 'pnj') Object.assign(patch, { stats: { ...proposal.stats }, ca: proposal.ca, pvMax: proposal.pvMax, features: proposal.features.map((f) => ({ ...f })) });
+    await changedBy(server, element, patch, 'ia', 'Prompt initial', element.kind === 'pnj' ? proposal.changes : proposal.changes.slice(0, 1));
+    return undefined;
+  },
+  // dndbeyond.resyncCharacter (crates/dndbeyond/data-capabilities/resync-character): the stats,
+  // hit points and spells of a PC linked to D&D Beyond are read again — the patch of
+  // fixtures/EntityEditor.json, and the spells its « Sorts et capacités » line adds, as the
+  // character-sheets fake plays the level-up — whose changes the history keeps; the aliases, the
+  // notes and the token are left as they are (`dndbeyond-resync-scope`). A sheet with no link is
+  // refused.
+  'dndbeyond.resyncCharacter': async (server, { targetId }) => {
+    const { element } = await elementOf(server, targetId);
+    if (!element || !element.ddb || !element.ddb.url) return ['not-found'];
+    const { ddbResync } = await server.load('EntityEditor');
+    const resync = ddbResync[element.id] || ddbResync.default;
+    const { stats, pvMax } = resync.patch;
+    const spells = resync.changes.find((c) => c.field === 'Sorts et capacités');
+    const names = (line) => line.split(',').map((name) => name.trim()).filter(Boolean);
+    const known = (element.features || []).map((f) => f.name);
+    const gained = spells ? names(spells.new).filter((name) => !names(spells.old).includes(name) && !known.includes(name)) : [];
+    const features = gained.length ? { features: [...(element.features || []), ...gained.map((name) => ({ name, text: 'Ajouté à la fiche D&D Beyond lors de la montée de niveau.' }))] } : {};
+    await changedBy(server, element, { ...(stats ? { stats: { ...element.stats, ...stats } } : {}), ...(pvMax ? { pvMax } : {}), ...features, ddb: { ...element.ddb, syncedAt: new Date().toISOString().slice(0, 19) } }, 'dndbeyond', 'Resynchronisation D&D Beyond', resync.changes.filter((c) => c.field === 'PV max' || (c.field === 'Sorts et capacités' && gained.length) || (stats && c.field in stats)));
+    return undefined;
+  },
+  // dndbeyond.importCharacter (crates/dndbeyond/data-capabilities/import-character): a D&D
+  // Beyond URL (or a bare id) imports the PC of the campaign linked to that character — the
+  // character-sheets fake knows the ones the fixtures link, as they were last synchronised —
+  // its statblock and sync date alone, its name, aliases, notes and token left as the DM made
+  // them (`dndbeyond-resync-scope`), as a version of source dndbeyond. A PC targeted is filled
+  // only if it is that one; a URL of another host, or of a character the fake does not know,
+  // is refused and nothing is written.
+  'dndbeyond.importCharacter': async (server, { payload, targetId }) => {
+    // CharacterId::parse: a bare id, or a character's URL on dndbeyond.com — its host in any
+    // case, its path as written.
+    const url = String(payload.url ?? '').trim();
+    const [, host, path] = /^https?:\/\/([^/]+)\/(.*)$/.exec(url) || [];
+    const match = host && ['www.dndbeyond.com', 'dndbeyond.com'].includes(host.toLowerCase()) ? /^(?:profile\/[^/?#]+\/)?characters\/(\d+)(?:[/?#]|$)/.exec(path) : null;
+    const digits = match ? match[1] : /^\d+$/.test(url) ? url : null;
+    const ddbId = digits && BigInt(digits) > 0n ? String(BigInt(digits)) : null;
+    if (!ddbId) return ['not-found'];
+    const characters = (await server.load('campaign.listCharacters')) || [];
+    const linked = characters.find((e) => e.kind === 'pj' && e.ddb && String(e.ddb.url ?? '').replace(/\/+$/, '').endsWith(`/characters/${ddbId}`));
+    if (!linked) return ['not-found'];
+    if (targetId && targetId !== linked.id) return ['already-imported'];
+    await changedBy(server, linked, { ddb: { ...linked.ddb, syncedAt: new Date().toISOString().slice(0, 19) } }, 'dndbeyond', 'Import D&D Beyond', []);
     return undefined;
   },
   // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a

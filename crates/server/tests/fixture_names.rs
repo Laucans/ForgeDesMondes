@@ -12,6 +12,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use dataguard_server::MEMORY;
 use dataguard_server::engine::tokio_postgres::{self, Client, NoTls};
+use ports_character_sheets::SharedCharacterSheets;
+use ports_character_sheets::fake::FakeCharacterSheets;
 use ports_llm::SharedLlm;
 use ports_llm::fake::FakeLlm;
 use ports_speech_to_text::SharedSpeechToText;
@@ -108,7 +110,8 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
     .expect("a valid configuration");
     let llm = SharedLlm::new(FakeLlm::new());
     let speech = SharedSpeechToText::new(FakeSpeechToText::new(String::new()));
-    let planted = plant(&config, shared(&llm, &speech))
+    let sheets = SharedCharacterSheets::new(FakeCharacterSheets::new());
+    let planted = plant(&config, shared(&llm, &speech, &sheets))
         .await
         .expect("the in-memory engine");
     let served = app(&planted, Arc::new(llm));
