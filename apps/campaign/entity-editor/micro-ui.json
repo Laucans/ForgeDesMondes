@@ -1,0 +1,10 @@
+{
+  "microUi": "EntityEditor",
+  "system": "campaign",
+  "description": "La fiche d’un personnage, d’un lieu ou d’un événement : identité, alias, prompt initial dicté, fiche de stats, token, notes et D&D Beyond ; s’ouvre sur place depuis le rail, avec une barre de confirmation si la fiche est modifiée et non enregistrée",
+  "needs": ["campaign.getEntity", "campaign.listPlayers", "media.listMedia"],
+  "actions": ["campaign.saveEntity", "ai.proposeCharacter", "dndbeyond.importCharacter", "dndbeyond.resyncCharacter"],
+  "props": {
+    "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse ; « new:pj », « new:pnj », « new:lieu » ou « new:evenement » ouvre une fiche à créer"
+  }
+}

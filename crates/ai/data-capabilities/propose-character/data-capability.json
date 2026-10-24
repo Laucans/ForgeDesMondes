@@ -1,0 +1,48 @@
+{
+  "dataCapability": "ai.proposeCharacter",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Entity",
+    "id": "$entityId"
+  },
+  "touches": [
+    "Entity.initialPrompt",
+    "Entity.background",
+    "Entity.behavior",
+    "Entity.strength",
+    "Entity.dexterity",
+    "Entity.constitution",
+    "Entity.intelligence",
+    "Entity.wisdom",
+    "Entity.charisma",
+    "Entity.armorClass",
+    "Entity.hpMax",
+    "Entity.actions",
+    "Entity.updatedAt",
+    "Entity.entityVersionId",
+    "Entity.entityVersionEntityId",
+    "Entity.versionNumber",
+    "Entity.source",
+    "Entity.snapshot",
+    "Entity.diff",
+    "Entity.restoredFromVersionId",
+    "Entity.entityVersionCreatedAt"
+  ],
+  "payload": {
+    "entityId": "uuid — the PC or NPC the proposal fills, when the command's target does not name it",
+    "prompt": "string — the initial prompt, typed; kept as the sheet's initial prompt",
+    "audio": "string — base64 of the dictated prompt, read only when no prompt is typed: transcribed locally through the speech-to-text port, the transcript taken as the prompt; the audio is neither sent nor stored. With neither, the sheet's own initial prompt is used"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "proposal-fills-sheet-fields",
+    "every-change-versioned",
+    "dex-modifier-derived"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "ports": ["llm", "speech-to-text"],
+  "idempotencyKey": "optional"
+}

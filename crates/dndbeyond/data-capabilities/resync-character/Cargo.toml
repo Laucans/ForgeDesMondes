@@ -1,0 +1,24 @@
+[package]
+name = "resync-character"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability dndbeyond.resyncCharacter: a PC already linked to D&D Beyond fetched again through the character-sheets port after a level-up — its StatBlock@1 statblock (scores, AC, HP max, actions, spells) and its sync date rewritten, its aliases, notes, token and portrait left the DM's — on its Entity partition, versioned with source `dndbeyond` (EntityVersion@1)."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target aggregate: how an element's dates are written, and its versions settled.
+aggregate-entity = { path = "../../../campaign/aggregates/Entity" }
+# The engine's `Prepare` is an async trait.
+async-trait = "0.1"
+ports-character-sheets = { path = "../../../ports/character-sheets" }
+serde_json = "1"
+
+[dev-dependencies]
+# The migrations' applier the server runs: the tables its PostgreSQL tests write.
+data = { path = "../../../data" }
+# The Concept `statblock` is held to (StatBlock@1).
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

@@ -482,7 +482,7 @@
     "CampaignElements": {
       "kind": "micro-ui",
       "producer": 22,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "CampaignList": {
@@ -530,7 +530,7 @@
     "EntityEditor": {
       "kind": "micro-ui",
       "producer": 22,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "EntityVersion@1": {
@@ -740,7 +740,7 @@
     "ai.proposeCharacter": {
       "kind": "data-capability",
       "producer": 22,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "ai.saveSettings": {
@@ -854,13 +854,13 @@
     "dndbeyond.importCharacter": {
       "kind": "data-capability",
       "producer": 22,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "dndbeyond.resyncCharacter": {
       "kind": "data-capability",
       "producer": 22,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "live.closeWindow": {

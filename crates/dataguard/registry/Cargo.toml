@@ -50,6 +50,7 @@ ignored = [
     "get-session",
     "get-session-journal",
     "get-settings",
+    "import-character",
     "list-campaigns",
     "list-characters",
     "list-entity-versions",
@@ -66,6 +67,7 @@ ignored = [
     "next-turn",
     "place-tokens",
     "play-sound",
+    "propose-character",
     "remove-participant",
     "remove-present-character",
     "remove-sound",
@@ -76,6 +78,7 @@ ignored = [
     "reset-battlemap",
     "resize-window",
     "restore-entity-version",
+    "resync-character",
     "save-entity",
     "save-grid-settings",
     "save-settings",
@@ -133,6 +136,7 @@ get-previous-session-summary = { path = "../../session/capabilities/get-previous
 get-session = { path = "../../session/capabilities/get-session" }
 get-session-journal = { path = "../../session/capabilities/get-session-journal" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
+import-character = { path = "../../dndbeyond/data-capabilities/import-character" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
 list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }
@@ -149,6 +153,7 @@ move-window = { path = "../../live/data-capabilities/move-window" }
 next-turn = { path = "../../table/data-capabilities/next-turn" }
 place-tokens = { path = "../../table/data-capabilities/place-tokens" }
 play-sound = { path = "../../soundbox/data-capabilities/play-sound" }
+propose-character = { path = "../../ai/data-capabilities/propose-character" }
 remove-participant = { path = "../../table/data-capabilities/remove-participant" }
 remove-present-character = { path = "../../session/data-capabilities/remove-present-character" }
 remove-sound = { path = "../../soundbox/data-capabilities/remove-sound" }
@@ -159,6 +164,7 @@ reorder-scenes = { path = "../../session/data-capabilities/reorder-scenes" }
 reset-battlemap = { path = "../../table/data-capabilities/reset-battlemap" }
 resize-window = { path = "../../live/data-capabilities/resize-window" }
 restore-entity-version = { path = "../../campaign/data-capabilities/restore-entity-version" }
+resync-character = { path = "../../dndbeyond/data-capabilities/resync-character" }
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 save-settings = { path = "../../ai/data-capabilities/save-settings" }

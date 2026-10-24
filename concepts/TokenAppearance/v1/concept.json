@@ -1,0 +1,42 @@
+{
+  "concept": "TokenAppearance",
+  "version": 1,
+  "kind": "derived",
+  "definition": "What a character's token shows. Three sources, tried in this order, the first that exists winning: (1) a dedicated token image, when `token_media_id` is given: the token shows that image; (2) the portrait, when `portrait_media_id` is given: the token shows the portrait, framed by `token_crop` when the DM cropped it, whole when no crop was made; (3) neither: the token is a disc of `token_color` carrying the initial of the `name`. A dedicated image therefore replaces the portrait's crop, and the portrait's crop replaces the disc; the disc is what a character has before anyone gives it an image, so every character has a recognisable token without extra work from the DM. The crop is the portrait's: it is answered as it was given, unchanged, and only with the portrait source; a token image has no crop and a disc has none. The initial is the first character of the name once the white space before it is trimmed, in capitals, together with the accent it carries (the name is written with precomposed letters, « é » and not « e » followed by a combining mark): « élowen » gives « É », « ondine » gives « O », « Ñandú » gives « Ñ ». A media id is a non-empty string; a media id, a crop and a colour are opaque: the Concept chooses which one is shown and never reads inside it. `token_media_id`, `portrait_media_id` and `token_crop` are absent or null when the character has none; a blank `name` and a character with no `token_color` are outside the Concept. The instance number a token carries on a map is not part of its appearance. Every field of the output is always answered; the ones that do not belong to the chosen source are null, so the same character shows the same token wherever it is drawn.",
+  "output": {
+    "source": {
+      "type": "string",
+      "enum": ["token_image", "portrait", "disc"],
+      "rule": "token_image when `token_media_id` is given; otherwise portrait when `portrait_media_id` is given; otherwise disc"
+    },
+    "media_id": {
+      "type": "string",
+      "nullable": true,
+      "rule": "`token_media_id` for token_image, `portrait_media_id` for portrait, null for disc"
+    },
+    "crop": {
+      "type": "object",
+      "nullable": true,
+      "rule": "`token_crop` as given, only for portrait; null when the portrait was never cropped, and always null for token_image and disc"
+    },
+    "color": {
+      "type": "string",
+      "nullable": true,
+      "rule": "`token_color` as given for disc, null otherwise"
+    },
+    "initial": {
+      "type": "string",
+      "nullable": true,
+      "rule": "for disc, the first character of the trimmed name (with its accent), in capitals; null otherwise"
+    }
+  },
+  "inputs": [
+    "character.token_media_id",
+    "character.portrait_media_id",
+    "character.token_crop",
+    "character.token_color",
+    "entity.name"
+  ],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}

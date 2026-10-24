@@ -1,0 +1,1104 @@
+{
+  "concept": "StatBlock",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a complete statblock: six scores, AC, HP max, one action, no spell",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": true,
+        "incomplete": []
+      }
+    },
+    {
+      "name": "a complete statblock of a caster: spells with a name and a description",
+      "input": {
+        "strength": 8,
+        "dexterity": 14,
+        "constitution": 14,
+        "intelligence": 18,
+        "wisdom": 12,
+        "charisma": 10,
+        "armorClass": 12,
+        "hpMax": 38,
+        "actions": [
+          {
+            "name": "Bâton",
+            "description": "Attaque au corps à corps : +2 pour toucher. Touché : 3 (1d6) dégâts contondants."
+          }
+        ],
+        "spells": [
+          {
+            "name": "Projectile magique",
+            "description": "Trois fléchettes de force, 1d4 + 1 dégâts chacune, qui touchent automatiquement."
+          },
+          {
+            "name": "Bouclier",
+            "description": "Réaction : +5 à la CA jusqu’au début de votre prochain tour."
+          }
+        ]
+      },
+      "output": {
+        "complete": true,
+        "incomplete": []
+      }
+    },
+    {
+      "name": "the lowest figures are complete: every score 1, AC 1, HP max 1",
+      "input": {
+        "strength": 1,
+        "dexterity": 1,
+        "constitution": 1,
+        "intelligence": 1,
+        "wisdom": 1,
+        "charisma": 1,
+        "armorClass": 1,
+        "hpMax": 1,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": true,
+        "incomplete": []
+      }
+    },
+    {
+      "name": "the highest scores are complete: every score 30",
+      "input": {
+        "strength": 30,
+        "dexterity": 30,
+        "constitution": 30,
+        "intelligence": 30,
+        "wisdom": 30,
+        "charisma": 30,
+        "armorClass": 25,
+        "hpMax": 546,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": true,
+        "incomplete": []
+      }
+    },
+    {
+      "name": "a field other than the ten is ignored: a stored modifier changes nothing",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": [],
+        "dexterityModifier": 2,
+        "name": "Elowen"
+      },
+      "output": {
+        "complete": true,
+        "incomplete": []
+      }
+    },
+    {
+      "name": "a score missing: no charisma",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "charisma"
+        ]
+      }
+    },
+    {
+      "name": "a score null is as missing as an absent one",
+      "input": {
+        "strength": null,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "strength"
+        ]
+      }
+    },
+    {
+      "name": "a score of 0 is below the range",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 0,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "wisdom"
+        ]
+      }
+    },
+    {
+      "name": "a score of 31 is above the range",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 31,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "constitution"
+        ]
+      }
+    },
+    {
+      "name": "a negative score is below the range",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": -3,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "intelligence"
+        ]
+      }
+    },
+    {
+      "name": "a fractional score is not an integer",
+      "input": {
+        "strength": 10,
+        "dexterity": 10.5,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "dexterity"
+        ]
+      }
+    },
+    {
+      "name": "a score given as a string is not an integer",
+      "input": {
+        "strength": "10",
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "strength"
+        ]
+      }
+    },
+    {
+      "name": "a score given as a boolean is not an integer",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": true,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "charisma"
+        ]
+      }
+    },
+    {
+      "name": "armour class 0 is not positive",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 0,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "armorClass"
+        ]
+      }
+    },
+    {
+      "name": "armour class absent",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "armorClass"
+        ]
+      }
+    },
+    {
+      "name": "HP max 0 is not positive",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 0,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "hpMax"
+        ]
+      }
+    },
+    {
+      "name": "HP max negative is not positive",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": -5,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "hpMax"
+        ]
+      }
+    },
+    {
+      "name": "HP max fractional is not an integer",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27.5,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "hpMax"
+        ]
+      }
+    },
+    {
+      "name": "no action: an empty list cannot be played",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "actions absent",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "actions not a list",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": "Rapière",
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "an action with no description",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière"
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "an action with a blank name",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "   ",
+            "description": "Attaque au corps à corps."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "an action with a blank description",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "   "
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "one sound action does not excuse an unsound one",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque."
+          },
+          {
+            "name": "Coup",
+            "description": ""
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "an action that is a bare string, not { name, description }",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          "Rapière"
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "spells absent",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ]
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "spells"
+        ]
+      }
+    },
+    {
+      "name": "spells null",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": null
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "spells"
+        ]
+      }
+    },
+    {
+      "name": "spells not a list",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": "Bouclier"
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "spells"
+        ]
+      }
+    },
+    {
+      "name": "a spell with no description",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": [
+          {
+            "name": "Bouclier"
+          }
+        ]
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "spells"
+        ]
+      }
+    },
+    {
+      "name": "a spell with a blank name",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": [
+          {
+            "name": "",
+            "description": "Réaction : +5 à la CA."
+          }
+        ]
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "spells"
+        ]
+      }
+    },
+    {
+      "name": "armour class given as a string is not an integer",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": "15",
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "armorClass"
+        ]
+      }
+    },
+    {
+      "name": "HP max null is as missing as an absent one",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": null,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "hpMax"
+        ]
+      }
+    },
+    {
+      "name": "HP max given as a boolean is not an integer",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": true,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "hpMax"
+        ]
+      }
+    },
+    {
+      "name": "an action whose name is not a string",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": 5,
+            "description": "Attaque."
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "an action whose description is null",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": null
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "a blank made of a tab and a newline is blank",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "\t\n"
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "a null entry in the spells",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": [
+          {
+            "name": "Bouclier",
+            "description": "Réaction : +5 à la CA."
+          },
+          null
+        ]
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "spells"
+        ]
+      }
+    },
+    {
+      "name": "only the second spell is unsound, and it is still named",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 7 (1d8 + 3) dégâts perforants."
+          }
+        ],
+        "spells": [
+          {
+            "name": "Bouclier",
+            "description": "Réaction : +5 à la CA."
+          },
+          {
+            "name": "Armure du mage",
+            "description": ""
+          }
+        ]
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "spells"
+        ]
+      }
+    },
+    {
+      "name": "only the second action is unsound, and it is still named",
+      "input": {
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 13,
+        "charisma": 11,
+        "armorClass": 15,
+        "hpMax": 27,
+        "actions": [
+          {
+            "name": "Rapière",
+            "description": "Attaque."
+          },
+          {
+            "name": "Coup"
+          }
+        ],
+        "spells": []
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "actions"
+        ]
+      }
+    },
+    {
+      "name": "several unsound fields are all named, once each, in the fixed order",
+      "input": {
+        "strength": 31,
+        "dexterity": 14,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 0,
+        "charisma": 11,
+        "armorClass": 0,
+        "hpMax": 0,
+        "actions": [],
+        "spells": [
+          {
+            "name": "Bouclier"
+          }
+        ]
+      },
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "strength",
+          "wisdom",
+          "armorClass",
+          "hpMax",
+          "actions",
+          "spells"
+        ]
+      }
+    },
+    {
+      "name": "an empty statblock: every field is named",
+      "input": {},
+      "output": {
+        "complete": false,
+        "incomplete": [
+          "strength",
+          "dexterity",
+          "constitution",
+          "intelligence",
+          "wisdom",
+          "charisma",
+          "armorClass",
+          "hpMax",
+          "actions",
+          "spells"
+        ]
+      }
+    }
+  ]
+}
