@@ -18,8 +18,8 @@
 //! - A PC is present once: ticked again, by this command or by the
 //!   session's creation, the first row stays, its `added_at` with it.
 //!
-//! A presence's tombstone writes nothing here: unticking a PC is another
-//! command's to write.
+//! A presence's tombstone writes nothing here: unticking a PC is
+//! [`crate::Absences`]'s to write.
 
 use async_trait::async_trait;
 use harness_dataguard::plugins::{ProjectPg, ProjectionError};

@@ -26,6 +26,8 @@ use serde_json::{Value, json};
 
 /// A presence written whole on the row the submission names, test-only.
 const TICK: &str = r#"{"dataCapability":"test.tick","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"Session"},"mode":"overwrite","callableBy":["*"]}"#;
+/// A presence's row tombstoned, test-only: the PC unticked.
+const UNTICK: &str = r#"{"dataCapability":"test.untick","owner":"dataguard","version":1,"effect":"delete","target":{"aggregate":"Session"},"mode":"overwrite","callableBy":["*"]}"#;
 
 /// A campagne with its session, and another campaign.
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
@@ -167,7 +169,8 @@ impl Scratch {
         .with_rows(Arc::new(ReadOnly::new(connect(&self.url).await)))
         .with_aggregate(Aggregate::parse(aggregate_session::DOCUMENT).expect("contract I"))
         .with_plugins(plugins())
-        .with_data_capability(DataCapability::parse(TICK).expect("contract F"));
+        .with_data_capability(DataCapability::parse(TICK).expect("contract F"))
+        .with_data_capability(DataCapability::parse(UNTICK).expect("contract F"));
         engine.load().await.expect("the engine loads");
         engine
     }
@@ -322,5 +325,44 @@ async fn a_pc_present_already_keeps_its_one_row_and_when_it_was_ticked() {
     let result = applied(&engine).await;
     assert_eq!(result.status, State::Applied, "{result:?}");
     assert_eq!(scratch.present().await, before);
+    scratch.drop().await;
+}
+
+/// Unticks `character` at `session`, by the DM, who approves: their
+/// presence's row tombstoned.
+async fn untick(engine: &Engine, session: &str, character: &str) {
+    let submission: Submission = serde_json::from_value(json!({
+        "dataCapability": "test.untick",
+        "targetId": presence_id(session, character),
+        "caller": { "by": "dm", "from": "SceneBoard", "roles": ["role:approver"] },
+    }))
+    .expect("a submission");
+    engine.submit(submission).await.expect("queued");
+}
+
+#[tokio::test]
+async fn a_pc_ticked_then_unticked_leaves_the_roster_and_ticked_again_is_back_on_it() {
+    let scratch = Scratch::new("again").await;
+    let engine = scratch.serve().await;
+    let before = scratch.present().await;
+    let roster = || {
+        scratch.rows(
+            "SELECT character_id::text AS character FROM session_roster_view
+             WHERE via = 'present' ORDER BY character_id",
+        )
+    };
+    tick(&engine, SEANCE, KAEL).await;
+    assert_eq!(applied(&engine).await.status, State::Applied);
+    untick(&engine, SEANCE, KAEL).await;
+    assert_eq!(applied(&engine).await.status, State::Applied);
+    assert_eq!(scratch.present().await, before);
+    assert_eq!(roster().await, [json!({ "character": ELOWEN })]);
+    // Ticked again on the row its tombstone left: present once more.
+    tick(&engine, SEANCE, KAEL).await;
+    assert_eq!(applied(&engine).await.status, State::Applied);
+    assert_eq!(
+        roster().await,
+        [json!({ "character": ELOWEN }), json!({ "character": KAEL })]
+    );
     scratch.drop().await;
 }
