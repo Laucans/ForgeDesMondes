@@ -248,6 +248,24 @@
       ]
     },
     {
+      "query": "GetLiveSession",
+      "capability": "session.getLiveSession",
+      "file": "crates/session/queries/getLiveSession.graphql",
+      "sha256": "7cc41a0620841781675c22c36b81ee1139901741b1f084914ac50388e104b36e",
+      "fields": [
+        "session.id",
+        "session.position",
+        "session.title",
+        "session.plannedOn",
+        "session.status",
+        "session.startedAt",
+        "session.microphoneOn",
+        "sessionPresentCharacter.sessionId",
+        "sessionPresentCharacter.characterId",
+        "sessionPresentCharacter.addedAt"
+      ]
+    },
+    {
       "query": "GetPreviousSessionSummary",
       "capability": "session.getPreviousSessionSummary",
       "file": "crates/session/queries/getPreviousSessionSummary.graphql",
