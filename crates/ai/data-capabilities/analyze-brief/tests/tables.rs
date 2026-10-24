@@ -391,6 +391,56 @@ async fn a_brief_is_kept_its_scenes_follow_the_last_its_unknowns_wait_and_morlox
 }
 
 #[tokio::test]
+async fn an_element_or_a_media_the_engine_tombstoned_is_not_recognised() {
+    let scratch = Scratch::new("gone").await;
+    let engine = scratch.serve().await;
+    // The tavern and the counter deleted: their rows stay, tombstoned.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES
+                 ('Entity/{TAVERNE}', true), ('Media/{COMPTOIR}', true)"
+        ))
+        .await
+        .expect("tombstoned");
+    let answer = submit(
+        &engine,
+        "ai.analyzeBrief",
+        // In uppercase, the session is the same.
+        json!({ "session": SEANCE.to_uppercase(), "text": "On commence à la Taverne, au Comptoir." }),
+        None,
+    )
+    .await;
+    let results = applied(&engine).await;
+    assert!(
+        results.iter().all(|r| r.status == State::Applied),
+        "{results:?}"
+    );
+    assert_eq!(answer.then.len(), 3, "a scene and two entries");
+    assert!(scratch.rows("SELECT * FROM scene_entity").await.is_empty());
+    assert!(scratch.rows("SELECT * FROM scene_media").await.is_empty());
+    assert_eq!(
+        scratch
+            .rows("SELECT type, name FROM entity_to_create ORDER BY name")
+            .await,
+        [
+            json!({ "type": "pnj", "name": "Comptoir" }),
+            json!({ "type": "lieu", "name": "La Taverne" }),
+        ]
+    );
+    assert_eq!(
+        scratch
+            .rows(&format!(
+                "SELECT id FROM scene WHERE session_id = '{SEANCE}'"
+            ))
+            .await
+            .len(),
+        3
+    );
+    scratch.drop().await;
+}
+
+#[tokio::test]
 async fn a_media_of_another_campaign_is_never_linked_and_a_row_is_written_once() {
     let scratch = Scratch::new("media").await;
     let engine = scratch.serve().await;

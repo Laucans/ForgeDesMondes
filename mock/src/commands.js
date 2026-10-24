@@ -835,7 +835,7 @@ export const COMMANDS = {
   'campaign.saveEntity': async (server, { payload }) => {
     // Version 2: the save names where it comes from, the DM's when it does not.
     const source = payload.source ?? 'dm';
-    if (!(source in SOURCES)) return ['not-a-source'];
+    if (!Object.hasOwn(SOURCES, source)) return ['not-a-source'];
     const given = payload.entity || payload;
     const lists = await Promise.all(Object.values(LISTS).filter((v, i, all) => all.indexOf(v) === i).map(async (name) => [name, (await server.load(name)) || []]));
     const all = lists.flatMap(([name, list]) => list.map((element) => ({ name, element })));
@@ -872,7 +872,7 @@ export const COMMANDS = {
       .filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null))
       .map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
     const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: source === 'dm' ? 'dm' : 'ia', source: SOURCES[source], seen: true, changes });
+    entry.versions.unshift({ v, date: new Date().toISOString().slice(0, 19), origin: source === 'dm' ? 'dm' : 'ia', source: SOURCES[source], seen: source === 'dm', changes });
     return undefined;
   },
   // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a

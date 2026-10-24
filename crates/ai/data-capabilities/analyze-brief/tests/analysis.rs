@@ -97,6 +97,18 @@ fn the_answer_is_read_through_prose_or_a_code_fence_around_it() {
 }
 
 #[test]
+fn braces_in_the_prose_around_the_answer_are_skipped() {
+    let answer = "Voici l’analyse {brief} : {\"scenes\":[{\"title\":\"Le gué\"}]} et {fin}.";
+    assert_eq!(
+        read_answer(answer),
+        Some(vec![scene("Le gué", "", Vec::new())])
+    );
+    // An object before it that holds no list of scenes is no answer.
+    let answer = "{\"scenes\": \"aucune\"} puis {\"scenes\":[]}";
+    assert_eq!(read_answer(answer), Some(Vec::new()));
+}
+
+#[test]
 fn an_answer_that_is_no_list_of_scenes_is_none() {
     for answer in [
         "Réponse simulée",

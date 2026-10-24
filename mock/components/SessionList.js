@@ -1389,7 +1389,7 @@
     // are kept: a DEX modifier given is never written.
     "campaign.saveEntity": async (server, { payload: payload2 }) => {
       const source = payload2.source ?? "dm";
-      if (!(source in SOURCES)) return ["not-a-source"];
+      if (!Object.hasOwn(SOURCES, source)) return ["not-a-source"];
       const given = payload2.entity || payload2;
       const lists = await Promise.all(Object.values(LISTS).filter((v2, i, all2) => all2.indexOf(v2) === i).map(async (name) => [name, await server.load(name) || []]));
       const all = lists.flatMap(([name, list2]) => list2.map((element) => ({ name, element })));
@@ -1424,7 +1424,7 @@
       entry.name = after.name;
       const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: source === "dm" ? "dm" : "ia", source: SOURCES[source], seen: true, changes });
+      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: source === "dm" ? "dm" : "ia", source: SOURCES[source], seen: source === "dm", changes });
       return void 0;
     },
     // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a

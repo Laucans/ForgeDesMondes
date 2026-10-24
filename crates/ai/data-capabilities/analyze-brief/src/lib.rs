@@ -178,7 +178,7 @@ impl Prepare for Analyse {
             let row = context.row(&format!("Entity/{}", update.entity)).await?;
             if row.is_empty() {
                 warnings.push(format!(
-                    "« {} » n'est pas mis à jour : l'élément n'est pas encore enregistré",
+                    "« {} » est lié à sa scène mais n'est pas mis à jour : sa fiche n'a jamais été enregistrée",
                     update.name
                 ));
                 continue;
@@ -257,16 +257,23 @@ const SESSION: &str = "SELECT campaign_id::text AS campaign FROM session
     WHERE id::text = lower($1::text)";
 
 /// The elements of the campaign `$1` names, with their type, their name and
-/// their aliases as written, in the order of their ids.
+/// their aliases as written, in the order of their ids — none the engine
+/// tombstoned.
 const KNOWN: &str = "SELECT e.id::text AS id, e.type, e.name,
         coalesce((SELECT jsonb_agg(a.alias ORDER BY a.alias, a.id)
             FROM entity_alias a WHERE a.entity_id = e.id), '[]') AS aliases
     FROM entity e WHERE e.campaign_id::text = lower($1::text)
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+            WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned)
     ORDER BY e.id";
 
-/// The media of the campaign `$1` names, with their titles.
+/// The media of the campaign `$1` names, with their titles — none the
+/// engine tombstoned.
 const MEDIA: &str = "SELECT m.id::text AS id, m.title FROM media m
-    WHERE m.campaign_id::text = lower($1::text) ORDER BY m.id";
+    WHERE m.campaign_id::text = lower($1::text)
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+            WHERE r.partition = 'Media/' || m.id::text AND r.tombstoned)
+    ORDER BY m.id";
 
 /// The entries of the campaign `$1` names that wait to be created.
 const WAITING: &str = "SELECT t.type, t.name FROM entity_to_create t
@@ -364,12 +371,13 @@ impl fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
-/// The session `wire` names by its uuid.
+/// The session `wire` names by its uuid, lowercase as its partition and the
+/// tables write it.
 fn session_of(wire: &Row) -> Result<String, Refusal> {
     wire.get("session")
         .and_then(Value::as_str)
         .filter(|id| uuid(id))
-        .map(str::to_owned)
+        .map(str::to_lowercase)
         .ok_or(Refusal::NoSession)
 }
 
@@ -524,13 +532,22 @@ pub fn vocabulary(known: &[Known]) -> Vocabulary {
     }
 }
 
-/// The scenes of a Brief answer, `None` when it is not the object the port
-/// documents. Prose or a code fence around the object is skipped; a scene
-/// that is no object, and an element with no name, are dropped.
+/// The scenes of a Brief answer, `None` when it holds no object the port
+/// documents. Prose or a code fence around the object is skipped, braces in
+/// that prose too: the object is the first one, from a `{`, that holds a
+/// list of scenes. A scene that is no object, and an element with no name,
+/// are dropped.
 #[must_use]
 pub fn read_answer(answer: &str) -> Option<Vec<Scene>> {
-    let object = answer.get(answer.find('{')?..=answer.rfind('}')?)?;
-    let answer: Value = serde_json::from_str(object).ok()?;
+    let answer = answer
+        .match_indices('{')
+        .filter_map(|(at, _)| {
+            serde_json::Deserializer::from_str(&answer[at..])
+                .into_iter::<Value>()
+                .next()?
+                .ok()
+        })
+        .find(|object| object.get("scenes").is_some_and(Value::is_array))?;
     let text = |item: &Value, field: &str| {
         item.get(field)
             .and_then(Value::as_str)
@@ -995,6 +1012,11 @@ mod tests {
         let id = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d";
         assert_eq!(
             session_of(&wire(json!({ "session": id }))),
+            Ok(id.to_owned())
+        );
+        // In uppercase, the session is named as its partition writes it.
+        assert_eq!(
+            session_of(&wire(json!({ "session": id.to_uppercase() }))),
             Ok(id.to_owned())
         );
         for given in [json!("s4"), json!(7), json!(null)] {

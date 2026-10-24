@@ -377,7 +377,9 @@ async fn an_npc_the_engine_does_not_hold_is_linked_and_not_saved_and_the_dm_is_t
         .expect("queued");
     assert_eq!(
         answer.warnings.first().map(String::as_str),
-        Some("« Gaspard » n'est pas mis à jour : l'élément n'est pas encore enregistré")
+        Some(
+            "« Gaspard » est lié à sa scène mais n'est pas mis à jour : sa fiche n'a jamais été enregistrée"
+        )
     );
     let then = follow_ups(&answer);
     assert_eq!(then.len(), 1, "the scene alone");
