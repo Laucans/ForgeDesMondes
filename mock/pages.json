@@ -20,6 +20,7 @@
     },
     {
       "path": "pages/campagne.html",
+      "screen": "campagne",
       "title": "Campagne",
       "objective": "Le DM parcourt les séances et les éléments de sa campagne, crée ou lance une séance, importe ses notes et traite les entités à créer",
       "components": [
