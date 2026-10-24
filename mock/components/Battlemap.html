@@ -1,11 +1,12 @@
 <div class="bm" id="battlemap" data-reads="table.getBattlemapInstance">
   <div class="bm-toolbar" id="battlemap-toolbar"></div>
-  <div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d’initiative" hidden></div>
+  <div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d’initiative" data-writes="table.nextTurn table.reorderInitiative table.addParticipant table.removeParticipant table.endCombat" hidden></div>
   <div class="bm-body" id="battlemap-body">
     <aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="campaign.listCharacters" hidden></aside>
     <div class="bm-map" id="battlemap-map" data-reads="media.getBattlemap" data-writes="table.moveToken"></div>
-    <aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside>
+    <aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" data-writes="table.changeHitPoints" hidden></aside>
   </div>
+  <div id="battlemap-dialog" data-writes="table.startCombat table.resetBattlemap"></div>
 </div>
 <style>
   .bm { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
@@ -22,385 +23,43 @@
   .bm--fill .kit-hexmap .hm-bar { position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 4; margin: 0; }
   .bm-side { flex: none; width: calc(var(--space-5) * 7); display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); overflow-y: auto; }
   .bm-side .kit-toggle { padding: 0; }
-  .bm-hp { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); background: var(--color-surface); border-radius: var(--radius-medium); }
-  .bm-hp__value { font-size: var(--font-size-large); }
-  .bm-hp__value b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-success); }
   .bm-dead { color: var(--color-danger); font-weight: var(--font-weight-heading); }
+  .bm-status { padding: var(--space-2) var(--space-3); border-radius: var(--radius-medium); background: var(--color-surface); border: var(--border-width) solid var(--color-border); }
+  .bm-status.is-error { border-color: var(--color-danger); color: var(--color-danger); }
+  .bm-status.is-ok { border-color: var(--color-success); color: var(--color-success); }
   .bm-tokens.kit-token { position: absolute; inset: 0; display: block; padding: 0; background: transparent; pointer-events: none; }
   .bm-tokens .kit-token__item { position: absolute; transform: translate(-50%, calc((var(--space-4) + var(--space-2)) * -1)) scale(var(--bm-scale, 0.8)); transform-origin: 50% calc(var(--space-4) + var(--space-2)); pointer-events: auto; cursor: grab; touch-action: none; }
   .bm-tokens .kit-token__item--carried { transform: translate(-50%, calc((var(--space-4) + var(--space-2)) * -1)) scale(calc(var(--bm-scale, 0.8) * 1.2)); z-index: 3; cursor: grabbing; transition: none; }
   .bm-tokens .kit-token__name { text-shadow: var(--shadow-low); }
   .bm--readonly .bm-tokens .kit-token__item { pointer-events: none; cursor: default; }
   .bm .bm-selected .kit-token__disc { outline: calc(var(--border-width) * 3) solid var(--color-primary); outline-offset: calc(var(--border-width) * 3); }
+  .bm .kit-token.kit-token--row { flex-wrap: nowrap; padding: 0; background: transparent; gap: var(--space-3); }
   .bm-carousel { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); }
+  .bm-carousel[hidden] { display: none; }
   .bm-carousel__round { display: grid; justify-items: center; }
   .bm-carousel__round b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-accent); line-height: 1; }
   .bm-carousel__track { flex: 1; min-width: 0; overflow-x: auto; padding: var(--space-2) var(--space-1); }
   .bm-carousel .kit-token__item { cursor: pointer; flex: none; }
+  .bm-carousel .kit-token__item[draggable="true"] { cursor: grab; }
+  .bm-carousel .kit-token__item.bm-drag-over .kit-token__disc { outline: calc(var(--border-width) * 3) dashed var(--color-accent); outline-offset: calc(var(--border-width) * 3); }
   .bm-carousel__controls { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: flex-end; max-width: calc(var(--space-5) * 9); }
   .bm-init { font-size: var(--font-size-small); font-weight: var(--font-weight-heading); color: var(--color-accent); }
   .bm-add { width: auto; max-width: calc(var(--space-5) * 4); }
+  .bm-hp { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); background: var(--color-surface); border-radius: var(--radius-medium); }
+  .bm-hp__value { font-size: var(--font-size-large); }
+  .bm-hp__value b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-success); }
+  .bm-modal { position: fixed; inset: 0; z-index: 100; }
+  .bm-modal .kit-dialog, .bm-modal .kit-dialog__veil { height: 100%; }
+  .bm-modal .kit-dialog__window { max-height: 88vh; }
   .bm-drop { position: absolute; z-index: 5; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-primary); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); cursor: default; }
   @media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } }
 </style>
 <script>
+// The Micro-UI's real code (apps/table/battlemap), bundled by mock/build.sh: it fills the map on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const props = Object.assign({ instance: 'bmi-gue-s4', view: 'dm', pilot: false, fill: false }, Mock.props(root));
-  const PLAYER = props.view === 'player', DM = props.view === 'dm', PREP = props.view === 'prep';
-  const CAN_MOVE = !PLAYER || !!props.pilot;
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  const STATES = { 'À terre': '↓', 'Empoisonné': '☠', 'Effrayé': '!', 'Étourdi': '✦', 'Agrippé': '✊', 'Invisible': '?', 'Concentration': '◎' };
-  let inst, map, chars, KEY, S, hx, layer, selected = null, drag = null;
-
-  const tok = id => S.tokens.find(t => t.id === id);
-  const dexMod = t => Mock.modOf(chars[t.char] ? chars[t.char].stats.DEX : 10);
-  const inOrder = id => !!(id && S.combat && S.combat.order.find(o => o.id === id));
-  const save = () => Mock.store.set(KEY, S);
-  function act(name, label, fn) { fn(); save(); Mock.command(name, { instance: inst.id }, { label }); }
-  function approx(t) {
-    if (t.dead || t.hp <= 0) return 'Mort';
-    const p = t.hp / t.hpMax;
-    return p >= 1 ? 'Indemne' : p > 0.5 ? 'Blessé' : 'En sang';
-  }
-
-  function view(t, extra) {
-    const c = chars[t.char] || {}, pnj = t.kind === 'pnj';
-    return Object.assign({
-      key: t.id, name: t.name, initials: c.initials || t.name.slice(0, 2).toUpperCase(), color: c.color || 'secondary',
-      art: c.portrait ? c.art : null, num: t.num, hidden: !t.visible, dead: t.dead,
-      current: !!(S.combat && S.combat.current === t.id),
-      badges: (t.states || []).map(s => ({ glyph: STATES[s] || '•', title: s })),
-      hp: !PLAYER && pnj ? { cur: t.hp, max: t.hpMax } : null,
-      hpLabel: PLAYER && pnj ? approx(t) : null,
-      cls: t.id === selected ? 'bm-selected' : ''
-    }, extra);
-  }
-
-  // ---------- rendering ----------
-  function renderToolbar() {
-    const box = $('#battlemap-toolbar');
-    if (PLAYER) { box.hidden = true; return; }
-    const hidden = S.tokens.filter(t => !t.visible).length;
-    box.innerHTML = `<div class="bm-title"><h2 id="battlemap-title">${esc(map.title)}</h2><span class="small muted">${esc(inst.label)} · ${S.tokens.length} tokens${hidden ? ' · ' + hidden + ' caché' + (hidden > 1 ? 's' : '') : ''} · 1 hex = 5 pi</span></div>` +
-      Mock.kitHTML('Button', { small: true, items: [].concat(DM ? [S.combat ? { id: 'bm-end-combat', label: 'Terminer le combat', variant: 'secondary', 'data-writes': 'table.endCombat' } : { id: 'bm-start-combat', label: 'Lancer le combat', variant: 'primary', 'data-writes': 'table.startCombat' },
-        { id: 'bm-send', label: 'Envoyer aux joueurs', variant: 'secondary', 'data-writes': 'live.showOnPlayerView' }] : [], [{ id: 'bm-reset', label: 'Réinitialiser la carte', variant: 'ghost', 'data-writes': 'table.resetBattlemap' }]) });
-    Mock.mount(box);
-  }
-  function renderTokens() {
-    layer.style.setProperty('--bm-scale', (hx.grid.size * 1.7 / 64).toFixed(3));
-    layer.innerHTML = S.tokens.filter(t => !PLAYER || t.visible).map(t => {
-      const c = hx.center(t.q, t.r);
-      return Mock.tokenHTML(view(t, { id: 'token-' + t.id, style: `left:${c.x.toFixed(1)}px;top:${c.y.toFixed(1)}px`, title: t.name + (t.visible ? '' : ' — caché aux joueurs') }));
-    }).join('');
-  }
-  function renderCarousel() {
-    const box = $('#initiative-carousel');
-    const c = S.combat;
-    if (!c) { box.hidden = true; box.innerHTML = ''; return; }
-    box.hidden = false;
-    const items = c.order.map(o => ({ o, t: tok(o.id) })).filter(x => x.t && (!PLAYER || x.t.visible))
-      .map(({ o, t }) => view(t, { id: 'carousel-' + t.id, extra: `<span class="bm-init" title="Initiative">${o.init}</span>` }));
-    const outside = S.tokens.filter(t => !inOrder(t.id) && !t.dead);
-    const sel = inOrder(selected);
-    box.innerHTML = `<div class="bm-carousel__round" id="combat-round"><span class="small muted">Round</span><b>${c.round}</b></div>` +
-      `<div class="bm-carousel__track" id="carousel-track">${Mock.kitHTML('Token', { row: true, items })}</div>` +
-      (DM ? '<div class="bm-carousel__controls" id="carousel-controls">' +
-        Mock.kitHTML('Button', { small: true, items: [{ id: 'combat-next', label: 'Suivant ▸', variant: 'primary', 'data-writes': 'table.nextTurn' }, { id: 'combat-earlier', label: '◂ Avancer', variant: 'ghost', disabled: !sel, 'data-writes': 'table.reorderInitiative' },
-          { id: 'combat-later', label: 'Reculer ▸', variant: 'ghost', disabled: !sel, 'data-writes': 'table.reorderInitiative' }, { id: 'combat-drop', label: 'Retirer du combat', variant: 'ghost', disabled: !sel, 'data-writes': 'table.removeParticipant' }] }) +
-        (outside.length ? `<span class="row"><select class="num-input bm-add" id="combat-add-select" aria-label="Participant à ajouter">${outside.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select>` +
-          Mock.kitHTML('Button', { small: true, items: [{ id: 'combat-add', label: 'Ajouter', variant: 'secondary', 'data-writes': 'table.addParticipant' }] }) + '</span>' : '') + '</div>' : '');
-    Mock.mount(box);
-  }
-  function renderInspector() {
-    const box = $('#token-inspector');
-    const t = selected && tok(selected);
-    if (PLAYER || !t) { box.hidden = true; box.innerHTML = ''; return; }
-    box.hidden = false;
-    const c = chars[t.char] || {}, pnj = t.kind === 'pnj';
-    const siblings = S.tokens.filter(x => x.char === t.char);
-    box.innerHTML = `<div class="panel__head"><h3 id="inspector-title">${esc(t.name)}</h3><button type="button" class="icon-btn" data-act="close" aria-label="Fermer la fiche d’instance">×</button></div>` +
-      `<p class="small muted">${esc(c.name || '')}${c.ca ? ' · CA ' + c.ca : ''}${inOrder(t.id) ? ' · initiative ' + S.combat.order.find(o => o.id === t.id).init : ''}</p>` +
-      (siblings.length > 1 ? `<div class="row" id="inspector-instances" role="group" aria-label="Instances de ${esc(c.name)}">` + siblings.map(x => `<button type="button" class="chip${x.id === t.id ? ' is-on' : ''}" data-select="${esc(x.id)}">${esc(x.name)}${x.dead ? ' †' : ''}</button>`).join('') + '</div>' : '') +
-      '<div data-writes="table.renameToken" style="display: contents">' + Mock.kitHTML('Input', { id: 'inspector-name', label: 'Nom affiché', value: t.name, wide: true }) + '</div>' +
-      (pnj ? `<div class="bm-hp" id="inspector-hp"><div class="bm-hp__value"><b>${t.hp}</b> / ${t.hpMax} PV</div><span class="small muted">Vu par les joueurs : ${approx(t)}</span>` +
-        '<div class="row"><input type="number" class="num-input" id="inspector-hp-amount" min="1" max="200" value="7" aria-label="Points de vie">' +
-        Mock.kitHTML('Button', { small: true, items: [{ id: 'inspector-damage', label: '− Dégâts', variant: 'danger', 'data-writes': 'table.changeHitPoints' }, { id: 'inspector-heal', label: '+ Soins', variant: 'secondary', 'data-writes': 'table.changeHitPoints' }] }) + '</div></div>'
-        : '<p class="small muted">Les PV des PJ ne sont pas suivis : les joueurs les gèrent sur leur fiche.</p>') +
-      '<div data-writes="table.setTokenVisibility" style="display: contents">' + Mock.kitHTML('Toggle', { bare: true, items: [{ id: 'inspector-visible', label: t.visible ? 'Visible des joueurs' : 'Caché aux joueurs', on: t.visible }] }) + '</div>' +
-      '<div id="inspector-states" class="stack"><h3>États</h3><div class="row" data-writes="table.setTokenCondition">' + Object.keys(STATES).map(s => `<button type="button" class="chip${t.states.includes(s) ? ' is-on' : ''}" data-state="${esc(s)}">${STATES[s]} ${esc(s)}</button>`).join('') + '</div></div>' +
-      (t.dead ? '<p class="bm-dead" id="inspector-dead">Mort — grisé, sauté dans l’initiative.</p>' : '') +
-      Mock.kitHTML('Button', { small: true, items: [].concat(DM ? [{ id: 'inspector-sheet', label: 'Fiche complète', variant: 'ghost' }] : [], [{ id: 'inspector-remove', label: t.dead ? 'Retirer le corps' : 'Retirer de la carte', variant: 'danger', 'data-writes': 'table.removeToken' }]) });
-    Mock.mount(box);
-  }
-  function renderRoster() {
-    const box = $('#battlemap-roster');
-    if (!PREP) { box.hidden = true; return; }
-    box.hidden = false;
-    box.innerHTML = '<h3 id="battlemap-roster-title">Personnages de la scène</h3><p class="small muted">Glissez un personnage sur la carte, ou cliquez pour choisir le nombre d’instances (× N).</p><ul class="list" id="battlemap-roster-list">' +
-      inst.roster.map(id => chars[id]).filter(Boolean).map(c => `<li><button type="button" class="chip chip--${c.kind}" draggable="true" data-writes="table.placeTokens" data-char="${esc(c.id)}" id="roster-${esc(c.id)}">⠿ ${esc(c.name)}</button></li>`).join('') + '</ul>';
-  }
-  function renderAll() { renderToolbar(); renderTokens(); renderCarousel(); renderInspector(); }
-
-  // ---------- combat ----------
-  function next() {
-    const c = S.combat, ord = c.order, i = ord.findIndex(o => o.id === c.current);
-    for (let k = 1; k <= ord.length; k++) {
-      const j = (i + k) % ord.length, t = tok(ord[j].id);
-      if (t && !t.dead) { if (j <= i) c.round++; c.current = ord[j].id; return; }
-    }
-  }
-  function startCombat() {
-    const parts = S.tokens.filter(t => !t.dead), rolls = {};
-    parts.forEach(t => {
-      const dex = dexMod(t);
-      if (t.kind === 'pnj') { const d = 1 + Math.floor(Math.random() * 20); rolls[t.id] = { d, dex, init: d + dex }; } else rolls[t.id] = { dex, init: 0 };
-    });
-    const fmt = m => (m < 0 ? '− ' + Math.abs(m) : '+ ' + m);
-    const html = '<p class="kit-dialog__text">Les PNJ tirent d20 + modificateur de DEX ; les égalités se départagent par la DEX, puis au hasard. Saisissez l’initiative des PJ.</p>' +
-      '<ul class="kit-dialog__list" id="combat-setup">' + parts.map(t => `<li class="kit-dialog__row"><span>${esc(t.name)}${t.visible ? '' : ' <em class="muted">(caché)</em>'}</span>` +
-        (t.kind === 'pnj' ? `<strong>d20 (${rolls[t.id].d}) ${fmt(rolls[t.id].dex)} = ${rolls[t.id].init}</strong>`
-          : `<input type="number" class="num-input" data-init="${esc(t.id)}" min="1" max="40" value="${(inst.pjInitiative || {})[t.char] || ''}" aria-label="Initiative de ${esc(t.name)}">`) + '</li>').join('') + '</ul>';
-    Mock.dialog({ title: 'Lancer le combat', id: 'combat-start-dialog', html, actions: [{ label: 'Annuler', variant: 'ghost' }, { label: 'Commencer le combat', id: 'combat-start-submit', onClick(api) {
-      api.el.querySelectorAll('[data-init]').forEach(i => { rolls[i.dataset.init].init = +i.value || 1; });
-      const order = parts.map(t => ({ id: t.id, init: rolls[t.id].init, dex: rolls[t.id].dex, tie: Math.random() }))
-        .sort((a, b) => (b.init - a.init) || (b.dex - a.dex) || (b.tie - a.tie)).map(({ id, init, dex }) => ({ id, init, dex }));
-      api.close();
-      act('table.startCombat', 'Lancer le combat (' + order.length + ' participants)', () => { S.combat = { round: 1, current: order[0].id, order }; });
-    } }] });
-  }
-  function dropFromCombat(id) {
-    if (S.combat.current === id) next();
-    S.combat.order = S.combat.order.filter(o => o.id !== id);
-    if (!S.combat.order.length) S.combat = null;
-  }
-
-  // ---------- placing tokens ----------
-  function freeHexes(start, n) {
-    const taken = new Set(S.tokens.map(t => t.q + ',' + t.r)), out = [], seen = new Set([start.q + ',' + start.r]), queue = [start];
-    while (queue.length && out.length < n) {
-      const h = queue.shift();
-      if (!taken.has(h.q + ',' + h.r)) out.push(h);
-      hx.neighbors(h).forEach(x => { const k = x.q + ',' + x.r; if (!seen.has(k)) { seen.add(k); queue.push(x); } });
-    }
-    return out;
-  }
-  function place(id, hex, n) {
-    const c = chars[id], pnj = c.kind === 'pnj';
-    const existing = S.tokens.filter(t => t.char === id);
-    if (!pnj && existing.length) { act('table.moveToken', 'Placer ' + existing[0].name, () => { existing[0].q = hex.q; existing[0].r = hex.r; }); return; }
-    const base = c.tokenName || c.name.split(' ')[0];
-    let num = Math.max(0, ...existing.map(t => t.num || 0));
-    const numbered = pnj && (n > 1 || existing.length > 0);
-    act('table.placeTokens', 'Placer ' + (n > 1 ? n + ' × ' : '') + base, () => {
-      freeHexes(hex, n).forEach((h, i) => {
-        num++;
-        S.tokens.push({ id: 't-' + id + '-' + Date.now().toString(36) + i, char: id, kind: c.kind, name: pnj ? (numbered ? base + ' ' + num : base) : base, num: pnj ? num : null,
-          q: h.q, r: h.r, visible: true, hp: pnj ? c.pvMax : null, hpMax: pnj ? c.pvMax : null, states: [], dead: false });
-      });
-    });
-  }
-  function askPlace(id, hex, w) {
-    const c = chars[id], pnj = c.kind === 'pnj';
-    const old = $('#battlemap-drop');
-    if (old) old.remove();
-    const nextNum = Math.max(0, ...S.tokens.filter(t => t.char === id).map(t => t.num || 0)) + 1;
-    const pop = document.createElement('div');
-    pop.className = 'bm-drop';
-    pop.id = 'battlemap-drop';
-    pop.setAttribute('data-no-pan', '');
-    pop.style.left = w.lx + 'px';
-    pop.style.top = w.ly + 'px';
-    pop.innerHTML = `<b>Placer ${esc(c.name)}</b>` + (pnj
-      ? `<label class="row small">× <input type="number" class="num-input" id="battlemap-drop-count" min="1" max="12" value="1"> instance(s)</label><span class="small muted">Numérotées à partir de ${esc(c.tokenName || c.name)} ${nextNum}, renommables</span>`
-      : '<span class="small muted">Un PJ n’a qu’un token sur la carte.</span>') +
-      Mock.kitHTML('Button', { small: true, items: [{ id: 'battlemap-drop-ok', label: 'Placer', variant: 'primary', 'data-writes': 'table.placeTokens' }, { id: 'battlemap-drop-cancel', label: 'Annuler', variant: 'ghost' }] });
-    hx.view.appendChild(pop);
-    Mock.mount(pop);
-    pop.addEventListener('click', e => {
-      const b = e.target.closest('button');
-      if (!b) return;
-      if (b.id === 'battlemap-drop-ok') place(id, hex, pnj ? Math.max(1, Math.min(12, +pop.querySelector('#battlemap-drop-count').value || 1)) : 1);
-      pop.remove();
-    });
-    const count = pop.querySelector('#battlemap-drop-count');
-    if (count) count.focus();
-  }
-
-  // ---------- wiring ----------
-  function wire() {
-    if (CAN_MOVE) {
-      layer.addEventListener('pointerdown', e => {
-        const el = e.target.closest('.kit-token__item');
-        if (!el || e.button !== 0) return;
-        e.stopPropagation();
-        e.preventDefault();
-        const t = tok(el.dataset.token);
-        drag = { t, el, from: { q: t.q, r: t.r }, x: e.clientX, y: e.clientY, moved: false, to: null };
-        el.setPointerCapture(e.pointerId);
-      });
-      layer.addEventListener('pointermove', e => {
-        if (!drag) return;
-        if (!drag.moved && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 4) return;
-        drag.moved = true;
-        drag.el.classList.add('kit-token__item--carried');
-        const w = hx.world(e);
-        drag.el.style.left = w.x + 'px';
-        drag.el.style.top = w.y + 'px';
-        drag.to = hx.toHex(w.x, w.y);
-        hx.showTip(hx.label(hx.drawPath(drag.from, drag.to)), w);
-      });
-      const end = () => {
-        if (!drag) return;
-        const d = drag;
-        drag = null;
-        hx.clearOver();
-        hx.hideTip();
-        if (d.moved && d.to && (d.to.q !== d.from.q || d.to.r !== d.from.r)) {
-          const n = hx.dist(d.from, d.to);
-          act('table.moveToken', 'Déplacer ' + d.t.name + ' (' + hx.label(n) + ')', () => { d.t.q = d.to.q; d.t.r = d.to.r; });
-        } else if (!d.moved && !PLAYER) {
-          selected = d.t.id;
-          renderAll();
-        } else renderTokens();
-      };
-      layer.addEventListener('pointerup', end);
-      layer.addEventListener('pointercancel', end);
-    }
-    if (!PLAYER) {
-      hx.view.addEventListener('dragover', e => { if (Array.from(e.dataTransfer.types).includes('text/fdm-character')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-      hx.view.addEventListener('drop', e => {
-        const id = e.dataTransfer.getData('text/fdm-character');
-        if (!id || !chars[id]) return;
-        e.preventDefault();
-        const w = hx.world(e);
-        askPlace(id, hx.toHex(w.x, w.y), w);
-      });
-      const roster = $('#battlemap-roster');
-      roster.addEventListener('dragstart', e => {
-        const b = e.target.closest('[data-char]');
-        if (!b) return;
-        e.dataTransfer.setData('text/fdm-character', b.dataset.char);
-        e.dataTransfer.setData('text/plain', chars[b.dataset.char].name);
-        e.dataTransfer.effectAllowed = 'copy';
-      });
-      roster.addEventListener('click', e => {
-        const b = e.target.closest('[data-char]');
-        if (!b) return;
-        const r = hx.view.getBoundingClientRect();
-        const w = hx.world({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
-        askPlace(b.dataset.char, hx.toHex(w.x, w.y), w);
-      });
-      const insp = $('#token-inspector');
-      insp.addEventListener('click', e => {
-        const b = e.target.closest('button');
-        const t = selected && tok(selected);
-        if (!b || !t) return;
-        if (b.dataset.act === 'close') { selected = null; renderAll(); }
-        if (b.dataset.select) { selected = b.dataset.select; renderAll(); }
-        if (b.dataset.state) {
-          const s = b.dataset.state, has = t.states.includes(s);
-          act('table.setTokenCondition', (has ? 'Retirer « ' : 'Ajouter « ') + s + ' » ' + (has ? 'de ' : 'à ') + t.name, () => { t.states = has ? t.states.filter(x => x !== s) : t.states.concat(s); });
-        }
-        if (b.id === 'inspector-damage' || b.id === 'inspector-heal') {
-          const n = Math.max(0, +$('#inspector-hp-amount').value || 0), dmg = b.id === 'inspector-damage';
-          act('table.changeHitPoints', (dmg ? 'Retirer ' : 'Rendre ') + n + ' PV à ' + t.name, () => { t.hp = Math.max(0, Math.min(t.hpMax, t.hp + (dmg ? -n : n))); t.dead = t.hp === 0; });
-        }
-        if (b.id === 'inspector-remove') {
-          act('table.removeToken', 'Retirer ' + t.name + ' de la carte', () => { if (inOrder(t.id)) dropFromCombat(t.id); S.tokens = S.tokens.filter(x => x.id !== t.id); selected = null; });
-        }
-        if (b.id === 'inspector-sheet') Mock.emit('open', { type: 'character', id: t.char });
-      });
-      insp.addEventListener('kit:change', e => {
-        const t = selected && tok(selected);
-        if (!t || e.detail.id !== 'inspector-visible') return;
-        act('table.setTokenVisibility', (e.detail.on ? 'Révéler ' : 'Cacher ') + t.name, () => { t.visible = e.detail.on; });
-      });
-      insp.addEventListener('change', e => {
-        const t = selected && tok(selected);
-        if (!t || e.target.id !== 'inspector-name' || !e.target.value.trim()) return;
-        act('table.renameToken', 'Renommer « ' + t.name + ' » en « ' + e.target.value.trim() + ' »', () => { t.name = e.target.value.trim(); });
-      });
-    }
-    root.addEventListener('click', e => {
-      const b = e.target.closest('button');
-      if (b) {
-        if (b.id === 'bm-start-combat') startCombat();
-        if (b.id === 'bm-end-combat') act('table.endCombat', 'Terminer le combat', () => { S.combat = null; });
-        if (b.id === 'bm-send') {
-          const d = Mock.store.get('diffusion', { base: { kind: 'cover' }, window: null, view: null });
-          d.base = { kind: 'battlemap', id: inst.id };
-          d.view = null;
-          Mock.store.set('diffusion', d);
-          Mock.command('live.showOnPlayerView', { kind: 'battlemap', id: inst.id }, { label: 'Envoyer « ' + map.title + ' » aux joueurs' });
-        }
-        if (b.id === 'bm-reset') {
-          Mock.dialog({ title: 'Réinitialiser la carte', id: 'battlemap-reset-dialog', text: 'Les tokens reviennent à leur placement de préparation et le combat en cours est effacé.',
-            actions: [{ label: 'Annuler', variant: 'ghost' }, { label: 'Réinitialiser', id: 'battlemap-reset-submit', 'data-writes': 'table.resetBattlemap', onClick(api) { api.close(); selected = null; Mock.store.remove(KEY); Mock.command('table.resetBattlemap', { instance: inst.id }, { label: 'Réinitialiser « ' + map.title + ' »' }); } }] });
-        }
-        if (b.id === 'combat-next') {
-          next();
-          const cur = tok(S.combat.current);
-          save();
-          Mock.command('table.nextTurn', { instance: inst.id }, { label: 'Tour suivant : ' + (cur ? cur.name : '—') + ' · round ' + S.combat.round });
-        }
-        if ((b.id === 'combat-earlier' || b.id === 'combat-later') && inOrder(selected)) {
-          const ord = S.combat.order, i = ord.findIndex(o => o.id === selected), j = i + (b.id === 'combat-earlier' ? -1 : 1);
-          if (j >= 0 && j < ord.length) act('table.reorderInitiative', 'Réordonner l’initiative', () => { [ord[i], ord[j]] = [ord[j], ord[i]]; });
-        }
-        if (b.id === 'combat-drop' && inOrder(selected)) act('table.removeParticipant', 'Retirer ' + tok(selected).name + ' du combat', () => dropFromCombat(selected));
-        if (b.id === 'combat-add') {
-          const t = tok($('#combat-add-select').value);
-          const init = t.kind === 'pnj' ? 1 + Math.floor(Math.random() * 20) + dexMod(t) : (inst.pjInitiative || {})[t.char] || 10;
-          act('table.addParticipant', 'Ajouter ' + t.name + ' au combat (initiative ' + init + ')', () => {
-            const ord = S.combat.order, at = ord.findIndex(o => o.init < init);
-            ord.splice(at < 0 ? ord.length : at, 0, { id: t.id, init, dex: dexMod(t) });
-          });
-        }
-      }
-      const item = e.target.closest('#carousel-track .kit-token__item');
-      if (item && !PLAYER) { selected = item.dataset.token; renderAll(); }
-    });
-    Mock.store.on(KEY, v => {
-      S = v || Mock.clone(inst.state);
-      if (selected && !tok(selected)) selected = null;
-      renderAll();
-    });
-    if (PLAYER) {
-      const d = Mock.store.get('diffusion', null);
-      if (d && d.view) hx.setView(d.view);
-      if (props.pilot) {
-        let timer = null;
-        hx.on('view', v => {
-          clearTimeout(timer);
-          timer = setTimeout(() => { const cur = Mock.store.get('diffusion', { base: { kind: 'battlemap', id: inst.id }, window: null }); cur.view = v; Mock.store.set('diffusion', cur); }, 200);
-        });
-      } else {
-        Mock.store.on('diffusion', v => { if (v && v.view) hx.setView(v.view); });
-      }
-    }
-  }
-
-  Mock.fixture(['fixtures/Battlemap.json', 'fixtures/media.json', 'fixtures/entities.json']).then(([b, m, e]) => {
-    inst = b.instances.find(i => i.id === props.instance) || b.instances[0];
-    map = m.battlemaps.find(x => x.id === inst.battlemap);
-    chars = Object.fromEntries(e.characters.map(c => [c.id, c]));
-    KEY = 'map:' + inst.id;
-    S = Mock.store.get(KEY, inst.state);
-    const bmEl = $('.bm');
-    if (props.fill) bmEl.classList.add('bm--fill');
-    if (!CAN_MOVE) bmEl.classList.add('bm--readonly');
-    $('#battlemap-map').innerHTML = Mock.kitHTML('HexMap', { id: 'battlemap-view', map, grid: map.grid, pan: CAN_MOVE, zoom: CAN_MOVE, label: 'Battlemap ' + map.title });
-    Mock.mount($('#battlemap-map'));
-    hx = $('#battlemap-map [data-kit]').hexmap;
-    layer = document.createElement('div');
-    layer.className = 'kit-token bm-tokens';
-    layer.id = 'battlemap-tokens';
-    hx.stage.appendChild(layer);
-    renderRoster();
-    wire();
-    renderAll();
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/Battlemap.js';
+  root.appendChild(bundle);
 })();
 </script>

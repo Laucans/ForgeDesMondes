@@ -1,0 +1,28 @@
+{
+  "dataCapability": "live.moveWindow",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Diffusion",
+    "id": "$sessionId"
+  },
+  "touches": [
+    "Diffusion.windowX",
+    "Diffusion.windowY",
+    "Diffusion.updatedAt"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign whose live session's player view shows the window",
+    "x": "number — where the window's left edge goes, a fraction of the screen's width; one outside 0 to 1 is brought back to it",
+    "y": "number — where the window's top edge goes, a fraction of the screen's height; one outside 0 to 1 is brought back to it. The width and the media stay; a window that is not open is rejected under window-fields-together"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "window-fields-together",
+    "single-diffusion-source"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

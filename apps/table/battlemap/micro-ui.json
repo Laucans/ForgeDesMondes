@@ -1,0 +1,34 @@
+{
+  "microUi": "Battlemap",
+  "system": "table",
+  "description": "Une instance de battlemap : grille hexagonale, tokens glissés avec le compteur « hex · pi », personnages déposés × N, fiche du token (renommer, cacher, état, PV, retirer), combat avec son carrousel d’initiative (Suivant, réordonner, ajouter, retirer, terminer), réinitialisation de la carte et envoi aux joueurs ; en player view, seulement ce que les joueurs peuvent voir",
+  "needs": [
+    "table.getBattlemapInstance",
+    "media.getBattlemap",
+    "campaign.listCharacters"
+  ],
+  "actions": [
+    "table.moveToken",
+    "table.placeTokens",
+    "table.removeToken",
+    "table.renameToken",
+    "table.setTokenVisibility",
+    "table.setTokenCondition",
+    "live.showOnPlayerView",
+    "table.changeHitPoints",
+    "table.startCombat",
+    "table.nextTurn",
+    "table.reorderInitiative",
+    "table.addParticipant",
+    "table.removeParticipant",
+    "table.endCombat",
+    "table.resetBattlemap"
+  ],
+  "props": {
+    "instance": "string — id de l’instance de battlemap",
+    "view": "\"dm\" | \"prep\" | \"player\"",
+    "pilot": "boolean — onglet player view piloté par le DM",
+    "fill": "boolean — occupe tout l’écran",
+    "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
+  }
+}

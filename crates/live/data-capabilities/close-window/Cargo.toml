@@ -1,0 +1,20 @@
+[package]
+name = "close-window"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.closeWindow: the DM takes the floating window off the live session's player view, on the session's Diffusion partition — its media, x, y and width emptied together under window-fields-together, its base and its framing untouched, a window already closed closed again."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target aggregate: how a diffusion is stamped, and its partitions.
+aggregate-diffusion = { path = "../../aggregates/Diffusion" }
+async-trait = "0.1"
+serde_json = "1"
+
+[dev-dependencies]
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

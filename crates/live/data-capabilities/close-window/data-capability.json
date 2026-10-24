@@ -1,0 +1,27 @@
+{
+  "dataCapability": "live.closeWindow",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Diffusion",
+    "id": "$sessionId"
+  },
+  "touches": [
+    "Diffusion.windowMediaId",
+    "Diffusion.windowX",
+    "Diffusion.windowY",
+    "Diffusion.windowWidth",
+    "Diffusion.updatedAt"
+  ],
+  "payload": {
+    "campaign": "uuid — the campaign whose live session's player view closes its floating window: its media, x, y and width are all emptied together (window-fields-together); the base and the framing stay. A window already closed is closed again, the row unchanged but its stamp"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "window-fields-together"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

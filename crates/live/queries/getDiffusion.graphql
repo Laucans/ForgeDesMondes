@@ -1,0 +1,21 @@
+# fields: diffusion.baseKind, diffusion.baseMediaId, diffusion.baseInstanceId, campaign.coverMediaId, diffusion.windowMediaId, diffusion.windowX, diffusion.windowY, diffusion.windowWidth, media.widthPx, media.heightPx, diffusion.viewZoom, diffusion.viewPanX, diffusion.viewPanY
+# What the live session's player view shows: its background, its floating
+# window and its framing — the one diffusion row both player views read
+# (single-diffusion-source). The window's height is not stored: it is derived
+# from the media's proportions (window-proportional). Nothing about tokens,
+# hit points or notes is selected.
+query GetDiffusion($campaign: ID) {
+  liveDiffusion(campaign: $campaign) {
+    baseKind
+    baseId
+    windowMediaId
+    windowX
+    windowY
+    windowWidth
+    windowHeight
+    viewZoom
+    viewPanX
+    viewPanY
+    shown
+  }
+}
