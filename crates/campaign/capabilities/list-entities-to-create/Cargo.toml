@@ -1,0 +1,10 @@
+[package]
+name = "list-entities-to-create"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability campaign.listEntitiesToCreate: the NPCs, places and events a campaign's briefs mentioned and the campaign does not hold yet — rows in, answer out."
+publish = false
+
+[dependencies]
+serde_json = "1"
