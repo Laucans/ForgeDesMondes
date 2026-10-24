@@ -191,11 +191,15 @@ test('a refused microphone goes back where it was and says why', async () => {
   assert.equal(p.listeners.size, 0, 'a microphone that did not start is not watched');
 });
 
-test('a command that never settles, or never leaves, leaves the microphone as it was', async () => {
+test('a command the server has not settled yet is still the DM\'s: the microphone stays as asked and is watched', async () => {
   const slow = await pill({}, { status: 'queued' });
   await slow.click('#suggestions-mic-button');
-  assert.equal(slow.$('#suggestions-mic-box').dataset.state, 'idle');
-  assert.match(slow.$('#suggestions-status').textContent ?? '', /état : queued/);
+  assert.equal(slow.$('#suggestions-mic-box').dataset.state, 'recording');
+  assert.equal(slow.listeners.size, 1);
+  assert.match(slow.$('#suggestions-status').textContent ?? '', /pas encore pris en compte \(état : queued\)/);
+});
+
+test('a command that never leaves leaves the microphone as it was', async () => {
   const down = await pill({}, { failCommand: true });
   await down.click('#suggestions-mic-button');
   assert.equal(down.$('#suggestions-mic-box').dataset.state, 'idle');
@@ -284,21 +288,64 @@ test('a sound that could not be played says so', async () => {
   assert.match(down.$('#suggestions-status').textContent ?? '', /n’a pas pu être joué\./);
 });
 
+test('a sound that plays does not hide the microphone\'s refusal, and a sound that fails does not outlast a read', async () => {
+  const p = await pill({}, { answer: { suggestions: [], history: [sound(2)] }, status: ['rejected', 'applied'], violations: ['status-lifecycle'] });
+  await p.click('#suggestions-mic-button');
+  assert.match(p.$('#suggestions-status').textContent ?? '', /la séance est terminée/);
+  await p.click('#suggestion-0');
+  await p.click('#suggestion-0');
+  assert.equal(p.sent[1]?.dataCapability, 'soundbox.playSound@1');
+  assert.match(p.$('#suggestions-status').textContent ?? '', /la séance est terminée/, 'the sound played: the microphone\'s message stays');
+});
+
+test('a sound that left the list is no longer waiting for its second click', async () => {
+  let heard = [sound(9), entity(1)];
+  const p = await pill({}, { answer: () => ({ suggestions: heard, history: heard }) });
+  await p.click('#suggestion-0');
+  assert.equal(p.$('#suggestion-0').getAttribute('aria-pressed'), 'true');
+  await p.click('#suggestions-mic-button');
+  heard = [entity(3), entity(1)];
+  p.moveOn();
+  await settle();
+  heard = [sound(9), entity(3)];
+  p.moveOn();
+  await settle();
+  assert.equal(p.$('#suggestion-0').getAttribute('aria-pressed'), 'false');
+  await p.click('#suggestion-0');
+  assert.equal(p.sent.filter((c) => c.dataCapability === 'soundbox.playSound@1').length, 0, 'it is armed again, not played');
+});
+
+test('a pill that left the page stops watching', async () => {
+  const p = await pill();
+  await p.click('#suggestions-mic-button');
+  assert.equal(p.listeners.size, 1);
+  p.host.remove();
+  p.moveOn();
+  await settle();
+  assert.equal(p.listeners.size, 0);
+});
+
 test('what the answer holds is shown as text, never as markup', async () => {
   const p = await pill({}, { answer: [{ ...entity(1), name: '<img src=x onerror=alert(1)>', via: '"><b>' }] });
   assert.equal(p.host.querySelector('#suggestions-stack img'), null);
   assert.equal(p.names('#suggestions-stack')[0], '<img src=x onerror=alert(1)>');
 });
 
-test('a new campaign empties the pill and reads it again', async () => {
+test('a new campaign empties the pill, switches the microphone off and reads it again', async () => {
   const p = await pill({ campaign: 'c1' }, { answer: { suggestions: [entity(1)], history: [entity(1)] } });
+  await p.click('#suggestions-mic-button');
+  assert.equal(p.$('#suggestions-mic-box').dataset.state, 'recording');
+  const reads = p.reads.length;
   p.mounted.update({ campaign: 'c1' });
   await settle();
-  assert.equal(p.reads.length, 1, 'the same campaign reads nothing again');
+  assert.equal(p.reads.length, reads, 'the same campaign reads nothing again');
+  assert.equal(p.$('#suggestions-mic-box').dataset.state, 'recording');
   p.mounted.update({ campaign: 'c2' });
   await settle();
-  assert.equal(p.reads.length, 2);
-  assert.deepEqual(p.reads[1]?.variables, { campaign: 'c2' });
+  assert.equal(p.reads.length, reads + 1);
+  assert.deepEqual(p.reads.at(-1)?.variables, { campaign: 'c2' });
+  assert.equal(p.$('#suggestions-mic-box').dataset.state, 'idle', 'nothing listens in another campaign until the DM says so');
+  assert.equal(p.listeners.size, 0);
 });
 
 test('it never reaches for a microphone of its own: only the server listens, locally (live-only-local-audio)', () => {

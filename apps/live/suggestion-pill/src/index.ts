@@ -49,7 +49,6 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   let armed: string | null = null;
   let generation = 0;
   let readNo = 0;
-  let readFailed = false;
   let stopWatching: () => void = () => undefined;
 
   const part = <T extends HTMLElement = HTMLElement>(id: string): T => {
@@ -62,10 +61,14 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   const scope = (): { campaign?: string } => (props.campaign === '' ? {} : { campaign: props.campaign });
 
   // ---------- painting ----------
-  function say(text: string): void {
+  /** Who the status line speaks for: a message is taken down by its own source only, so a sound that plays does not hide the microphone's refusal. */
+  let speaker: 'read' | 'mic' | 'sound' | '' = '';
+  function say(text: string, from: 'read' | 'mic' | 'sound'): void {
+    if (text === '' && speaker !== from) return;
     const box = part('suggestions-status');
     box.textContent = text;
     box.hidden = text === '';
+    speaker = text === '' ? '' : from;
   }
 
   function paintHeard(): void {
@@ -104,15 +107,13 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       const read = await shell.capability(LIST_SUGGESTIONS, undefined, scope());
       if (mine !== generation || no < readNo) return;
       suggestions = parseSuggestions(read.data);
-      if (readFailed) {
-        readFailed = false;
-        say('');
-      }
+      say('', 'read');
+      // A sound that is no longer listed is not waiting for a second click.
+      if (armed !== null && !suggestions.history.some((s) => s.kind === 'sound' && s.id === armed)) armed = null;
       paintLists();
     } catch {
       if (mine !== generation || no < readNo) return;
-      readFailed = true;
-      say('Impossible de lire les suggestions.');
+      say('Impossible de lire les suggestions.', 'read');
     }
   }
 
@@ -121,6 +122,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     stopWatching();
     stopWatching = shell.onDataVersion(() => {
       if (host.isConnected) void refresh();
+      else stopWatching();
     }, timing.watchMs);
   }
 
@@ -149,17 +151,18 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     paintMic();
     try {
       const state = await send(SET_MICROPHONE, { on });
-      if (state.status === 'applied') {
-        say('');
+      if (isFinal(state.status) && state.status !== 'applied') {
+        mic = before;
+        say(`Le micro n’a pas changé : ${why(state)}.`, 'mic');
+      } else {
+        // A command the server has not settled yet (queued behind another, parked) is still the DM's: it will apply, and the pill follows it.
+        say(state.status === 'applied' ? '' : `Le micro : le serveur ne l’a pas encore pris en compte (${why(state)}).`, 'mic');
         if (on) watch();
         else stopWatching();
-      } else {
-        mic = before;
-        say(`Le micro n’a pas changé : ${why(state)}.`);
       }
     } catch {
       mic = before;
-      say('La commande du micro n’a pas pu être envoyée.');
+      say('La commande du micro n’a pas pu être envoyée.', 'mic');
     } finally {
       busy = false;
       paintMic();
@@ -170,9 +173,9 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   async function play(id: string, name: string): Promise<void> {
     try {
       const state = await send(PLAY_SOUND, { source: SOUND_SOURCE }, id);
-      say(state.status === 'applied' ? '' : `« ${name} » n’a pas pu être joué : ${why(state)}.`);
+      say(state.status === 'applied' ? '' : `« ${name} » n’a pas pu être joué : ${why(state)}.`, 'sound');
     } catch {
-      say(`« ${name} » n’a pas pu être joué.`);
+      say(`« ${name} » n’a pas pu être joué.`, 'sound');
     }
   }
 
@@ -223,6 +226,11 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       generation += 1;
       suggestions = parseSuggestions(undefined);
       armed = null;
+      // Another campaign is another session: the microphone is not on there until the DM turns it on.
+      stopWatching();
+      mic = 'idle';
+      say('', 'mic');
+      paintMic();
       paintLists();
       void refresh();
     },

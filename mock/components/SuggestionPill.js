@@ -236,7 +236,6 @@
     let armed = null;
     let generation = 0;
     let readNo = 0;
-    let readFailed = false;
     let stopWatching = () => void 0;
     const part = (id) => {
       const found = host2.querySelector(`#${id}`);
@@ -244,10 +243,13 @@
       return found;
     };
     const scope = () => props2.campaign === "" ? {} : { campaign: props2.campaign };
-    function say(text2) {
+    let speaker = "";
+    function say(text2, from) {
+      if (text2 === "" && speaker !== from) return;
       const box = part("suggestions-status");
       box.textContent = text2;
       box.hidden = text2 === "";
+      speaker = text2 === "" ? "" : from;
     }
     function paintHeard() {
       const newest = suggestions.stack[0];
@@ -279,21 +281,19 @@
         const read = await shell2.capability(LIST_SUGGESTIONS, void 0, scope());
         if (mine !== generation || no < readNo) return;
         suggestions = parseSuggestions(read.data);
-        if (readFailed) {
-          readFailed = false;
-          say("");
-        }
+        say("", "read");
+        if (armed !== null && !suggestions.history.some((s) => s.kind === "sound" && s.id === armed)) armed = null;
         paintLists();
       } catch {
         if (mine !== generation || no < readNo) return;
-        readFailed = true;
-        say("Impossible de lire les suggestions.");
+        say("Impossible de lire les suggestions.", "read");
       }
     }
     function watch() {
       stopWatching();
       stopWatching = shell2.onDataVersion(() => {
         if (host2.isConnected) void refresh();
+        else stopWatching();
       }, timing.watchMs);
     }
     async function send(dataCapability, payload, targetId) {
@@ -316,17 +316,17 @@
       paintMic();
       try {
         const state = await send(SET_MICROPHONE, { on });
-        if (state.status === "applied") {
-          say("");
+        if (isFinal(state.status) && state.status !== "applied") {
+          mic = before;
+          say(`Le micro n\u2019a pas chang\xE9 : ${why(state)}.`, "mic");
+        } else {
+          say(state.status === "applied" ? "" : `Le micro : le serveur ne l\u2019a pas encore pris en compte (${why(state)}).`, "mic");
           if (on) watch();
           else stopWatching();
-        } else {
-          mic = before;
-          say(`Le micro n\u2019a pas chang\xE9 : ${why(state)}.`);
         }
       } catch {
         mic = before;
-        say("La commande du micro n\u2019a pas pu \xEAtre envoy\xE9e.");
+        say("La commande du micro n\u2019a pas pu \xEAtre envoy\xE9e.", "mic");
       } finally {
         busy = false;
         paintMic();
@@ -336,9 +336,9 @@
     async function play(id, name) {
       try {
         const state = await send(PLAY_SOUND, { source: SOUND_SOURCE }, id);
-        say(state.status === "applied" ? "" : `\xAB ${name} \xBB n\u2019a pas pu \xEAtre jou\xE9 : ${why(state)}.`);
+        say(state.status === "applied" ? "" : `\xAB ${name} \xBB n\u2019a pas pu \xEAtre jou\xE9 : ${why(state)}.`, "sound");
       } catch {
-        say(`\xAB ${name} \xBB n\u2019a pas pu \xEAtre jou\xE9.`);
+        say(`\xAB ${name} \xBB n\u2019a pas pu \xEAtre jou\xE9.`, "sound");
       }
     }
     host2.addEventListener("click", (event) => {
@@ -383,6 +383,10 @@
         generation += 1;
         suggestions = parseSuggestions(void 0);
         armed = null;
+        stopWatching();
+        mic = "idle";
+        say("", "mic");
+        paintMic();
         paintLists();
         void refresh();
       }
