@@ -410,11 +410,11 @@
       else if (act === "revert") void revert();
     }
     async function revert() {
-      const shown2 = history.versions.find((v) => v.v === modal?.shown);
-      if (!modal || !shown2) return;
+      const shown3 = history.versions.find((v) => v.v === modal?.shown);
+      if (!modal || !shown3) return;
       const ticked = [...modal.el.querySelectorAll("#versions-diff .kit-diffview__row")].filter((row) => row.querySelector(".kit-diffview__check")?.checked).map((row) => Number(row.dataset.index));
       if (ticked.length === 0) return say("Cochez les changements \xE0 annuler.", "error");
-      await restore({ version: shown2.v - 1, changes: ticked }, `${ticked.length} changement(s) de la v${shown2.v} annul\xE9(s)`);
+      await restore({ version: shown3.v - 1, changes: ticked }, `${ticked.length} changement(s) de la v${shown3.v} annul\xE9(s)`);
     }
     async function send(restore2, id) {
       const answer = await shell2.command(restoreBody(RESTORE_ENTITY_VERSION, id, restore2, keyOf(id, restore2)));
@@ -522,1104 +522,6 @@
     return mounted2;
   }
 
-  // mock/src/reads.js
-  var bridged = /* @__PURE__ */ new WeakSet();
-  async function instanceOf(server2, id) {
-    const data = await server2.load("table.getBattlemapInstance");
-    if (!data) return void 0;
-    if (id && data.id !== id) return server2.instances ? server2.instances.get(id) : void 0;
-    const store = window.Mock && window.Mock.store;
-    if (store && !bridged.has(data)) {
-      bridged.add(data);
-      data.state = store.get(`map:${data.id}`, data.state);
-      store.on(`map:${data.id}`, (state) => {
-        if (state && state !== data.state) {
-          data.state = state;
-          server2.bump();
-        }
-      });
-    }
-    return data;
-  }
-  function shareInstance(data) {
-    if (window.Mock) window.Mock.store.set(`map:${data.id}`, data.state);
-  }
-  function healthBand(hp, hpMax) {
-    if (typeof hp !== "number" || typeof hpMax !== "number") return null;
-    const current2 = Math.max(0, Math.min(hpMax, hp));
-    return current2 === 0 ? "mort" : current2 === hpMax ? "indemne" : 2 * current2 > hpMax ? "bless\xE9" : "en sang";
-  }
-  async function dressed(server2, tokens) {
-    const characters = await server2.load("campaign.listCharacters") || [];
-    return tokens.map((t) => {
-      const c = characters.find((x) => x.id === t.char);
-      return c ? { ...t, initials: c.initials, color: c.color, portrait: c.portrait } : t;
-    });
-  }
-  var diffusionBridged = false;
-  async function diffusionRow(server2) {
-    const fixture = await server2.load("live.getDiffusion");
-    const store = window.Mock && window.Mock.store;
-    if (store && !diffusionBridged) {
-      diffusionBridged = true;
-      store.on("diffusion", () => server2.bump());
-    }
-    return store ? store.get("diffusion", fixture) : structuredClone(fixture);
-  }
-  async function ratioOfIllustration(server2, id) {
-    const media = await server2.load("media.listMedia");
-    const found = media && media.illustrations.find((i) => i.id === id);
-    return found && found.ratio > 0 ? found.ratio : 1;
-  }
-  var STATUS_LABELS = { prep: "En pr\xE9paration", live: "En direct", closed: "Jou\xE9e" };
-  var READS = {
-    // live.getDiffusion (crates/live/capabilities/get-diffusion): the one row both
-    // player views read, so view 'dm' and view 'player' answer the same values —
-    // position, size, zoom and pan. The window's x and w are fractions of the stage's
-    // width, y of its height; h, derived from the image's ratio, is in the width's unit
-    // and never stored. Nothing else leaves the row: no token, no HP figure, no note.
-    "live.getDiffusion": async (server2) => {
-      const row = await diffusionRow(server2);
-      const win = row.window;
-      const ratio = win ? await ratioOfIllustration(server2, win.id || win.media) : 1;
-      return {
-        base: { kind: row.base.kind, id: row.base.id || "" },
-        window: win ? { media: win.id || win.media, x: win.x, y: win.y, w: win.w, h: win.w / ratio } : null,
-        view: row.view ? { zoom: row.view.z ?? row.view.zoom, panX: row.view.px ?? row.view.panX, panY: row.view.py ?? row.view.panY } : null
-      };
-    },
-    // table.getBattlemapInstance (crates/table/capabilities/get-battlemap-instance):
-    // the DM sees everything; the players no hidden token, no hit point figure, no
-    // note — each visible NPC gives its HealthBand@1 band instead.
-    "table.getBattlemapInstance": async (server2, { instance, view } = {}) => {
-      const data = await instanceOf(server2, instance);
-      if (!data) return data;
-      const dressedTokens = (await dressed(server2, data.state.tokens)).map((t) => t.kind === "pnj" ? { ...t, dead: t.hp === 0 } : t);
-      if (view !== "player") return { ...data, state: { ...data.state, tokens: dressedTokens } };
-      const tokens = dressedTokens.filter((t) => t.visible).map((t) => ({ id: t.id, char: t.char, kind: t.kind, name: t.name, num: t.num, q: t.q, r: t.r, visible: true, states: t.states, dead: t.dead, initials: t.initials, color: t.color, portrait: t.portrait, healthBand: t.kind === "pnj" ? healthBand(t.hp, t.hpMax) : null }));
-      const seen = new Set(tokens.map((t) => t.id));
-      const combat = data.state.combat ? { ...data.state.combat, current: seen.has(data.state.combat.current) ? data.state.combat.current : "", order: data.state.combat.order.filter((o) => seen.has(o.id)) } : null;
-      return { id: data.id, battlemap: data.battlemap, session: data.session, scene: data.scene, label: data.label, state: { tokens, combat } };
-    },
-    // session.getSession (crates/session/capabilities/get-session): one session's
-    // header and the PCs present, a session of `session.listSessions` (the ones
-    // created since included), its status labelled as SessionLifecycle@1 says. An
-    // unknown id is no session: `null`, as the server answers it.
-    "session.getSession": async (server2, { id }) => {
-      const session = (await server2.load("session.listSessions")).find((s) => s.id === id);
-      if (!session) return null;
-      const status = session.status === "played" ? "closed" : session.status;
-      return { id: session.id, order: session.order, title: session.title, date: session.date, status, statusLabel: STATUS_LABELS[status] ?? null, present: session.present };
-    },
-    // campaign.listImportedNotes (crates/campaign/capabilities/list-imported-notes):
-    // the notes already imported, newest first, and the proposals of the latest
-    // analysed note still awaiting validation. The imports are the fixture's
-    // list; the proposals are what `ai.extractFromNotes` recorded (commands.js).
-    "campaign.listImportedNotes": async (server2) => {
-      const fixture = await server2.load("campaign.listImportedNotes");
-      const imports = Array.isArray(fixture) ? fixture : fixture && fixture.imports || [];
-      return { imports: [...imports].sort((x, y) => String(y.date).localeCompare(String(x.date))), proposals: server2.noteProposals || [] };
-    },
-    // campaign.listEntitiesToCreate (crates/campaign/capabilities/list-entities-to-create):
-    // the to-create list, answered as `{ items }`; the fixture is the bare list of entries.
-    "campaign.listEntitiesToCreate": async (server2) => {
-      const fixture = await server2.load("campaign.listEntitiesToCreate");
-      return { items: Array.isArray(fixture) ? fixture : fixture && fixture.items || [] };
-    },
-    // soundbox.listSounds (crates/soundbox/capabilities/list-sounds): the
-    // campaign's sounds with their effective gain — the own volume times the
-    // master volume, both percents (EffectiveVolume@1) — and whether one plays
-    // now (the fixture's `playing`, which soundbox.playSound and soundbox.stopAll move). The optional `search` keeps the
-    // names that hold it and `tag` the sounds that carry it, whatever the case
-    // (SoundTag@1); the fixture's `duration` is kept, the store has none yet.
-    "soundbox.listSounds": async (server2, { search, tag }) => {
-      const { masterVolume, sounds } = await server2.load("soundbox.listSounds");
-      const lower = (text2) => String(text2 ?? "").trim().toLowerCase();
-      return {
-        masterVolume,
-        sounds: sounds.filter((s) => lower(s.name).includes(lower(search)) && (!lower(tag) || s.tags.some((t) => lower(t) === lower(tag)))).map((s) => ({ ...s, gain: s.volume * masterVolume / 1e4, playing: s.playing === true }))
-      };
-    },
-    // media.getBattlemap (crates/media/capabilities/get-battlemap): one
-    // battlemap of the media library, by its id, its grid as HexGrid@1 states
-    // it — the opacity a fraction of 1 where the mock-up's fixtures write a
-    // percentage, and a hex always 5 feet. An illustration or an unknown id
-    // is no battlemap: `null`, as the server answers it, not a `not-found`.
-    "media.getBattlemap": async (server2, { id }) => {
-      const battlemap = (await server2.load("media")).battlemaps.find((b) => b.id === id);
-      if (!battlemap) return null;
-      const { opacity, ...grid } = battlemap.grid;
-      return { ...battlemap, grid: { ...grid, opacity: opacity / 100, feetPerHex: 5 } };
-    },
-    // session.listScenes (crates/session/capabilities/list-scenes): a session's scenes by rank. The fixture
-    // is the scenes of session 4, the one in preparation; another session has none yet.
-    "session.listScenes": async (server2, { session }) => session === "s4" ? await server2.load("session.listScenes") : [],
-    // session.getLastBrief (crates/session/capabilities/get-last-brief): a session's last oral brief and what its
-    // analysis found. The fixture is the brief of session 4; another session has none: the same shape, empty.
-    "session.getLastBrief": async (server2, { session }) => session === "s4" ? await server2.load("session.getLastBrief") : { session, lastRun: null, duration: null, transcript: [], result: { scenes: [], recognized: [], missing: [] } },
-    // One element's history, newest first: the version list of `entity` in the fixture; an element the fixture
-    // does not know but `entities` does has never been saved (an empty history), any other has no answer (null).
-    "campaign.listEntityVersions": async (server2, { entity }) => {
-      const history = (await server2.load("campaign.listEntityVersions"))[entity];
-      if (history) return history;
-      const entities = await server2.load("entities");
-      const known = [...entities.characters, ...entities.places, ...entities.events].find((e) => e.id === entity);
-      return known ? { name: known.name, versions: [] } : null;
-    },
-    // campaign.getEntity (crates/campaign/capabilities/get-entity): one element's sheet, as the
-    // Capability answers it — the lists `campaign.saveEntity` writes, so a save is read back. A PC or
-    // an NPC has its stats with their modifier computed from the score (AbilityModifier@1), its token
-    // (`tokenImage`: a dedicated image) and its D&D Beyond link; a place or an event has its kind
-    // (`lieu`, `evenement`), aliases, description and notes alone. An unknown element is `null`.
-    "campaign.getEntity": async (server2, { id }) => {
-      const lists = [["campaign.listCharacters", null], ["campaign.listPlaces", "lieu"], ["campaign.listEvents", "evenement"]];
-      for (const [name, kind] of lists) {
-        const found = (await server2.load(name) || []).find((e) => e.id === id);
-        if (!found) continue;
-        const base = { id: found.id, name: found.name, aliases: found.aliases || [], kind: kind || found.kind, description: found.description || "", notes: found.notes || "" };
-        if (kind) return base;
-        const modifiers = Object.fromEntries(Object.entries(found.stats).map(([ability, score]) => [ability, Math.floor((score - 10) / 2)]));
-        const initials = found.initials || found.name.split(/\s+/).map((w) => w.charAt(0)).join("").slice(0, 2).toUpperCase();
-        return { ...base, player: found.kind === "pj" ? found.player || null : null, prompt: found.prompt || "", background: found.background || "", behavior: found.behavior || "", stats: found.stats, modifiers, ca: found.ca, pvMax: found.pvMax, features: found.features || [], color: found.color || "accent", initials, portrait: Boolean(found.portrait), tokenImage: Boolean(found.token || found.tokenImage), crop: found.crop || null, ddb: found.ddb && found.ddb.url ? found.ddb : null };
-      }
-      return null;
-    }
-  };
-
-  // mock/src/commands.js
-  function apiType(settings, url) {
-    let host2 = "";
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol === "http:" || parsed.protocol === "https:") host2 = parsed.hostname.toLowerCase();
-    } catch {
-    }
-    const home = settings.providers.opencode.url;
-    return host2 === "api.anthropic.com" ? "cloud" : url !== "" && url === home ? "opencode" : null;
-  }
-  var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
-  var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
-  var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
-  var SAVED_BY = { dm: "manuelle", brief: "ia", ia: "ia" };
-  var elementOf = async (server2, id) => {
-    for (const name of new Set(Object.values(LISTS))) {
-      const element = (await server2.load(name) || []).find((e) => e.id === id);
-      if (element) return { element };
-    }
-    return {};
-  };
-  var changedBy = async (server2, element, patch, origin, source, changes) => {
-    Object.assign(element, patch);
-    const history = await server2.load("campaign.listEntityVersions") || {};
-    const entry = history[element.id] || (history[element.id] = { name: element.name, versions: [] });
-    const v = Math.max(0, ...entry.versions.map((version2) => version2.v)) + 1;
-    entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin, source, restoredFrom: null, seen: false, changes });
-  };
-  var onScreen = (fraction, kept) => typeof fraction === "number" && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept;
-  async function onWindow(server2, change2) {
-    const row = await diffusionRow(server2);
-    if (!row.window) return ["window-fields-together"];
-    const violations = await change2(row.window);
-    if (violations) return violations;
-    if (window.Mock) window.Mock.store.set("diffusion", row);
-    return void 0;
-  }
-  var AROUND = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-  function freeHexes(start, taken, count) {
-    const busy = new Set(taken.map((t) => `${t.q},${t.r}`));
-    const seen = /* @__PURE__ */ new Set([`${start.q},${start.r}`]);
-    const queue = [start];
-    const out = [];
-    for (let i = 0; i < queue.length && out.length < count; i += 1) {
-      const hex = queue[i];
-      if (!busy.has(`${hex.q},${hex.r}`)) out.push(hex);
-      for (const [dq, dr] of AROUND) {
-        const next = { q: hex.q + dq, r: hex.r + dr };
-        if (!seen.has(`${next.q},${next.r}`)) {
-          seen.add(`${next.q},${next.r}`);
-          queue.push(next);
-        }
-      }
-    }
-    return out;
-  }
-  async function onToken(server2, target, token, change2) {
-    const data = await instanceOf(server2, target && target.id);
-    const found = data && data.state.tokens.find((t) => t.id === token);
-    if (!found) return ["instance-isolated"];
-    const violations = change2(found, data.state);
-    if (violations) return violations;
-    shareInstance(data);
-    return void 0;
-  }
-  function dexModifier(characters, id) {
-    const sheet = characters.find((c) => c.id === id);
-    return Math.floor(((sheet && sheet.stats ? sheet.stats.DEX : 10) - 10) / 2);
-  }
-  function advance(combat, state) {
-    const { order } = combat;
-    const from = Math.max(0, order.findIndex((o) => o.id === combat.current));
-    for (let step = 1; step <= order.length; step += 1) {
-      const at = (from + step) % order.length;
-      const token = state.tokens.find((t) => t.id === order[at].id);
-      if (token && !token.dead) {
-        if (at <= from) combat.round += 1;
-        combat.current = order[at].id;
-        return;
-      }
-    }
-  }
-  async function onCombat(server2, id, change2) {
-    const data = await instanceOf(server2, id);
-    if (!data) return ["instance-isolated"];
-    if (!data.state.combat) return ["one-active-combat"];
-    const violations = await change2(data.state.combat, data.state);
-    if (violations) return violations;
-    shareInstance(data);
-    return void 0;
-  }
-  var soundTags = (tags) => [...new Set((Array.isArray(tags) ? tags : []).map((t) => [...String(t).replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "")].map((c) => c.toLowerCase()).join("")).filter(Boolean))];
-  var COMMANDS = {
-    // table.moveToken (crates/table/data-capabilities/move-token): (q, r) is the
-    // one position both views read.
-    "table.moveToken": (server2, { payload, targetId }) => onToken(server2, { id: targetId }, payload.token, (t) => {
-      t.q = payload.q;
-      t.r = payload.r;
-    }),
-    // table.renameToken: only that token's name; an empty name is refused.
-    "table.renameToken": (server2, { payload, targetId }) => onToken(server2, { id: targetId }, payload.token, (t) => {
-      if (!String(payload.name || "").trim()) return ["name-required"];
-      t.name = String(payload.name).trim();
-      return void 0;
-    }),
-    // table.setTokenVisibility: hidden tokens keep their place; the players do not read them.
-    "table.setTokenVisibility": (server2, { payload, targetId }) => onToken(server2, { id: targetId }, payload.token, (t) => {
-      t.visible = payload.visible === true;
-    }),
-    // table.setTokenCondition (crates/table/data-capabilities/set-token-condition): the badge
-    // `payload.state` put on that token when `payload.on`, after the others and once, or taken off,
-    // the others keeping their order — its conditions alone. A state that is no name without the
-    // blanks around it, or holds U+0000, or an `on` that is no boolean, is `state-persisted-reset`.
-    "table.setTokenCondition": (server2, { payload, targetId }) => onToken(server2, { id: targetId || payload.instance }, payload.token, (t) => {
-      const state = typeof payload.state === "string" ? payload.state.trim() : "";
-      if (!state || state.includes("\0") || typeof payload.on !== "boolean") return ["state-persisted-reset"];
-      const held = t.states || [];
-      t.states = payload.on ? held.includes(state) ? held : [...held, state] : held.filter((s) => s !== state);
-      return void 0;
-    }),
-    // table.removeToken: the token leaves the map.
-    "table.removeToken": (server2, { payload, targetId }) => onToken(server2, { id: targetId }, payload.token, (t, state) => {
-      state.tokens = state.tokens.filter((x) => x !== t);
-    }),
-    // table.changeHitPoints (crates/table/data-capabilities/change-hit-points):
-    // hp-change-one-token — the targeted token only; pj-hp-not-tracked — a PC has
-    // no hit points; the current ones stay within 0 and the maximum, and an NPC
-    // is dead iff they are 0 (dead-derived).
-    "table.changeHitPoints": (server2, { payload, targetId }) => onToken(server2, { id: targetId }, payload.token, (t) => {
-      if (t.kind !== "pnj" || typeof t.hp !== "number") return ["pj-hp-not-tracked"];
-      t.hp = Math.max(0, Math.min(t.hpMax, t.hp + Math.trunc(Number(payload.delta) || 0)));
-      t.dead = t.hp === 0;
-      return void 0;
-    }),
-    // table.startCombat: the NPC roll a d20 plus the DEX modifier of their sheet,
-    // the DM enters the PCs' initiative; the order is the initiative, then the DEX,
-    // then at random (initiative-tiebreak). A hidden token is in the order and keeps its rank.
-    "table.startCombat": async (server2, { payload, targetId }) => {
-      const data = await instanceOf(server2, targetId);
-      if (!data) return ["instance-isolated"];
-      if (data.state.combat) return ["one-active-combat"];
-      const characters = await server2.load("campaign.listCharacters") || [];
-      const rolls = payload.rolls || {};
-      const entered = payload.initiative || {};
-      const order = [];
-      for (const t of data.state.tokens.filter((x) => !x.dead)) {
-        const dex = dexModifier(characters, t.char);
-        if (t.kind === "pnj") {
-          const roll = Number(rolls[t.id]);
-          if (!(roll >= 1 && roll <= 20)) return ["npc-initiative-bounds"];
-          order.push({ id: t.id, init: roll + dex, dex, tie: Math.random() });
-        } else {
-          const init = Number(entered[t.char]);
-          if (!(init >= 1)) return ["npc-initiative-bounds"];
-          order.push({ id: t.id, init, dex, tie: Math.random() });
-        }
-      }
-      if (!order.length) return ["one-active-combat"];
-      order.sort((a, b) => b.init - a.init || b.dex - a.dex || b.tie - a.tie);
-      data.pjInitiative = { ...data.pjInitiative, ...entered };
-      data.state.combat = { round: 1, current: order[0].id, order: order.map(({ id, init, dex }) => ({ id, init, dex })) };
-      shareInstance(data);
-      return void 0;
-    },
-    // table.nextTurn: next-turn — the next living participant by rank, the round counting up when it comes back to the first.
-    "table.nextTurn": (server2, { targetId }) => onCombat(server2, targetId, (combat, state) => {
-      advance(combat, state);
-      return void 0;
-    }),
-    // table.reorderInitiative (crates/table/data-capabilities/reorder-initiative): the open combat
-    // reordered as `payload.order` gives it, every participant once, named by its token — the ranks
-    // 1 to n in that order; the turn and the round stay. An order that is no list, omits a
-    // participant, repeats one or names one not in the combat is `initiative-tiebreak`.
-    "table.reorderInitiative": (server2, { payload, targetId }) => onCombat(server2, targetId || payload.instance, (combat) => {
-      const named = Array.isArray(payload.order) ? payload.order : [];
-      if (named.length !== combat.order.length) return ["initiative-tiebreak"];
-      const order = [];
-      for (const id of named) {
-        const found = combat.order.find((o) => o.id === id && !order.includes(o));
-        if (!found) return ["initiative-tiebreak"];
-        order.push(found);
-      }
-      combat.order = order;
-      return void 0;
-    }),
-    // table.addParticipant (crates/table/data-capabilities/add-participant): a token joins the running
-    // order at the place its initiative earns. An NPC rolls a d20 plus its DEX modifier and is given no
-    // figure; a PC takes the `payload.initiative` the DM entered (`npc-initiative-bounds`). A token not
-    // on the instance is `not-found`; one already in the order is `initiative-tiebreak`.
-    "table.addParticipant": (server2, { payload, targetId }) => onCombat(server2, targetId || payload.instance, async (combat, state) => {
-      const token = state.tokens.find((t) => t.id === payload.token);
-      if (!token) return ["not-found"];
-      if (combat.order.some((o) => o.id === token.id)) return ["initiative-tiebreak"];
-      const pc = token.kind === "pj";
-      if (pc ? !Number.isInteger(payload.initiative) : payload.initiative != null) return ["npc-initiative-bounds"];
-      const dex = dexModifier(await server2.load("campaign.listCharacters") || [], token.char);
-      const init = pc ? payload.initiative : 1 + Math.floor(Math.random() * 20) + dex;
-      const at = combat.order.findIndex((o) => o.init < init || o.init === init && o.dex < dex);
-      combat.order.splice(at < 0 ? combat.order.length : at, 0, { id: token.id, init, dex });
-      return void 0;
-    }),
-    // table.removeParticipant (crates/table/data-capabilities/remove-participant): the participant
-    // `payload.participant` — named by its token, as the carousel shows it — taken out of the open combat;
-    // its token stays on the map and the order closes up. The participant that holds the turn is refused
-    // by `next-turn`: the Battlemap sends table.nextTurn first. One not in the combat is `not-found`.
-    "table.removeParticipant": (server2, { payload, targetId }) => onCombat(server2, targetId, (combat) => {
-      if (!combat.order.some((o) => o.id === payload.participant)) return ["not-found"];
-      if (combat.current === payload.participant) return ["next-turn"];
-      combat.order = combat.order.filter((o) => o.id !== payload.participant);
-      return void 0;
-    }),
-    // table.endCombat: the combat ends; the tokens stay as they are.
-    "table.endCombat": (server2, { targetId }) => onCombat(server2, targetId, (combat, state) => {
-      state.combat = null;
-      return void 0;
-    }),
-    // table.resetBattlemap: state-persisted-reset — the instance's tokens, combat and initiative are removed: an empty map.
-    "table.resetBattlemap": async (server2, { targetId }) => {
-      const data = await instanceOf(server2, targetId);
-      if (!data) return ["instance-isolated"];
-      data.state = { tokens: [], combat: null };
-      data.pjInitiative = {};
-      shareInstance(data);
-      return void 0;
-    },
-    // table.placeTokens: one character dropped, once or « × n »; the new tokens
-    // are numbered after those already taken for it (multi-drop-numbering), a
-    // monster takes its hit points from its sheet, a PC has one token.
-    "table.placeTokens": async (server2, { payload, targetId }) => {
-      const data = await instanceOf(server2, targetId);
-      const character = (await server2.load("campaign.listCharacters") || []).find((c) => c.id === payload.character);
-      if (!data || !character) return ["instance-isolated"];
-      const { tokens } = data.state;
-      const mine = tokens.filter((t) => t.char === character.id);
-      const pnj = character.kind === "pnj";
-      if (!pnj && (mine.length || !(data.roster || []).includes(character.id))) return ["token-roster"];
-      const count = pnj ? Math.max(1, Math.min(12, Number(payload.count) || 1)) : 1;
-      const base = character.tokenName || String(character.name).split(" ")[0];
-      let num = Math.max(0, ...mine.map((t) => t.num || 0));
-      const numbered = pnj && (count > 1 || mine.length > 0);
-      for (const hex of freeHexes({ q: payload.q, r: payload.r }, tokens, count)) {
-        num += 1;
-        tokens.push({
-          id: `t-${character.id}${pnj ? `-${num}` : ""}`,
-          char: character.id,
-          kind: character.kind,
-          name: numbered ? `${base} ${num}` : base,
-          num: pnj ? num : null,
-          q: hex.q,
-          r: hex.r,
-          visible: true,
-          hp: pnj ? character.pvMax : null,
-          hpMax: pnj ? character.pvMax : null,
-          states: [],
-          dead: false
-        });
-      }
-      shareInstance(data);
-      return void 0;
-    },
-    // live.moveWindow (crates/live/data-capabilities/move-window): x and y alone,
-    // brought back onto the screen (0 to 1); the size and the content stay.
-    "live.moveWindow": (server2, { payload }) => onWindow(server2, (w) => {
-      w.x = onScreen(payload.x, w.x);
-      w.y = onScreen(payload.y, w.y);
-    }),
-    // live.closeWindow (crates/live/data-capabilities/close-window): the window's
-    // media, position and width are emptied together (window-fields-together);
-    // the base and the framing stay. A window already closed is closed again.
-    "live.closeWindow": async (server2) => {
-      const row = await diffusionRow(server2);
-      row.window = null;
-      if (window.Mock) window.Mock.store.set("diffusion", row);
-      return void 0;
-    },
-    // live.resizeWindow (crates/live/data-capabilities/resize-window): only the width
-    // is stored, the largest that fits the box asked for at the image's ratio — w
-    // alone with no h — from 0.1 to the screen's width, to 4 decimals
-    // (window-proportional); the position stays. A w that is no number, which the
-    // server refuses, keeps the width.
-    "live.resizeWindow": (server2, { payload }) => onWindow(server2, async (w) => {
-      if (typeof payload.w !== "number" || !Number.isFinite(payload.w)) return void 0;
-      const ratio = await ratioOfIllustration(server2, w.id || w.media);
-      const fit = typeof payload.h === "number" && Number.isFinite(payload.h) ? Math.min(payload.w, payload.h * ratio) : payload.w;
-      w.w = Math.round(Math.max(0.1, Math.min(1, fit)) * 1e4) / 1e4;
-      return void 0;
-    }),
-    // live.showOnPlayerView (crates/live/data-capabilities/show-on-player-view):
-    // a battlemap instance of the session, or an illustration of the campaign,
-    // becomes the player view's base, framed as the DM framed it (1 and 0, 0
-    // when no framing is sent); the floating window stays as it is. Any other
-    // base would leave it incoherent (`base-coherent`).
-    "live.showOnPlayerView": async (server2, { payload }) => {
-      let base;
-      if (payload.kind === "battlemap") {
-        const data = await instanceOf(server2, payload.instance);
-        if (!data) return ["base-coherent"];
-        base = { kind: "battlemap", id: data.id };
-      } else if (payload.kind === "illustration") {
-        const listed = [await server2.load("media"), await server2.load("media.listMedia")];
-        if (!listed.some((media) => media && media.illustrations.some((i) => i.id === payload.media))) return ["base-coherent"];
-        base = { kind: "illustration", id: payload.media };
-      } else return ["base-coherent"];
-      const store = window.Mock && window.Mock.store;
-      if (store) {
-        const diffusion = store.get("diffusion", { base: { kind: "cover" }, window: null, view: null });
-        diffusion.base = base;
-        diffusion.view = { z: payload.zoom ?? 1, px: payload.panX ?? 0, py: payload.panY ?? 0 };
-        store.set("diffusion", diffusion);
-      }
-      return void 0;
-    },
-    // live.showCover (crates/live/data-capabilities/show-cover): the player
-    // view goes back to the campaign's cover, with neither a media nor an
-    // instance as its base (`base-coherent`); the floating window and the
-    // framing stay as they are.
-    "live.showCover": async () => {
-      const store = window.Mock && window.Mock.store;
-      if (store) {
-        const diffusion = store.get("diffusion", { base: { kind: "cover" }, window: null, view: null });
-        diffusion.base = { kind: "cover" };
-        store.set("diffusion", diffusion);
-      }
-      return void 0;
-    },
-    // live.showWindowOnPlayerView (crates/live/data-capabilities/show-window-on-player-view):
-    // an illustration of the campaign opens in the floating window at its
-    // default position and width, the three set together
-    // (`window-fields-together`); its height follows the image's ratio and is
-    // never stored (`window-proportional`). Another illustration replaces the
-    // window's; the base and the framing stay as they are.
-    "live.showWindowOnPlayerView": async (server2, { payload }) => {
-      const id = payload.media ?? payload.id;
-      if (!id) return payload.kind && payload.kind !== "illustration" ? ["window-proportional"] : void 0;
-      const listed = [await server2.load("media"), await server2.load("media.listMedia")];
-      if (!listed.some((media) => media && media.illustrations.some((i) => i.id === id))) return ["window-proportional"];
-      const store = window.Mock && window.Mock.store;
-      if (store) {
-        const diffusion = store.get("diffusion", { base: { kind: "cover" }, window: null, view: null });
-        diffusion.window = { id, x: 0.6, y: 0.12, w: 0.3 };
-        store.set("diffusion", diffusion);
-      }
-      return void 0;
-    },
-    // soundbox.addSound (crates/soundbox/data-capabilities/add-sound): a sound
-    // added to the library. One with no name or no file is refused before
-    // anything is queued, as the server refuses it. Its tags, a list of texts,
-    // are normalised (`tags-normalized`); its own volume is a percentage from
-    // 0 to 100 — a number or the text of one — full when none is given
-    // (`sound-volume-range`).
-    "soundbox.addSound": async (server2, { payload }) => {
-      const name = typeof payload.name === "string" ? payload.name.trim() : "";
-      const file = typeof payload.file === "string" ? payload.file.trim() : "";
-      if (!name || !file) return ["unprocessable"];
-      const tags = payload.tags ?? [];
-      if (!Array.isArray(tags) || !tags.every((t) => typeof t === "string")) return ["tags-normalized"];
-      const given = payload.volume ?? 100;
-      const volume = typeof given === "number" || typeof given === "string" && given.trim() !== "" ? Number(given) : NaN;
-      if (!(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
-      const library = await server2.load("soundbox.listSounds");
-      library.sounds.unshift({ id: server2.uuid(), name, tags: soundTags(tags), duration: 0, volume: Math.round(volume), file });
-      return void 0;
-    },
-    // session.createSession (crates/session/data-capabilities/create-session):
-    // the next session of the campaign, at the position after the last, in
-    // preparation, with the PCs ticked present. `present-only-pj` refuses a
-    // character that is not a PC of the fixtures; `oneshot-single-session` a
-    // second session of a oneshot.
-    "session.createSession": async (server2, { payload }) => {
-      const sessions = await server2.load("session.listSessions");
-      const characters = await server2.load("campaign.listCharacters");
-      const campaign = (await server2.load("campaign.listCampaigns") || []).find((c) => c.id === payload.campaign);
-      const present = Array.isArray(payload.present) ? payload.present : [];
-      const pcs = new Set(characters.filter((c) => c.kind === "pj").map((c) => c.id));
-      if (present.some((id) => !pcs.has(id))) return ["present-only-pj"];
-      if (campaign && campaign.type === "oneshot" && (campaign.sessions ?? 0) > 0) return ["oneshot-single-session"];
-      if (campaign) campaign.sessions = (campaign.sessions ?? 0) + 1;
-      sessions.push({
-        id: server2.uuid(),
-        order: sessions.reduce((last, s) => Math.max(last, s.order), 0) + 1,
-        title: String(payload.title || ""),
-        date: payload.plannedOn || null,
-        status: "prep",
-        label: "En pr\xE9paration",
-        present,
-        summary: null
-      });
-      return void 0;
-    },
-    // session.addPresentCharacter (crates/session/data-capabilities/add-present-character):
-    // one more PC present at the session — `targetId`, or `payload.session` —
-    // listed in its `present` from then on. `present-only-pj` refuses a
-    // character that is not a PC of the fixtures, which hold one campaign; a
-    // session they do not list is `not-found`. A PC present already stays
-    // present once.
-    "session.addPresentCharacter": async (server2, { payload, targetId }) => {
-      const session = (await server2.load("session.listSessions")).find((s) => s.id === (targetId || payload.session));
-      if (!session) return ["not-found"];
-      const characters = await server2.load("campaign.listCharacters");
-      if (!characters.some((c) => c.kind === "pj" && c.id === payload.character)) return ["present-only-pj"];
-      if (!session.present.includes(payload.character)) session.present.push(payload.character);
-      return void 0;
-    },
-    // session.reorderScenes (crates/session/data-capabilities/reorder-scenes):
-    // the session's scenes in the order the DM gives, every rank rewritten at
-    // once, 1 to n. An order that omits a scene of the fixtures' session,
-    // repeats one or names one it does not hold is `scene-order-contiguous`,
-    // and no rank changes.
-    "session.reorderScenes": async (server2, { payload }) => {
-      const scenes = await server2.load("session.listScenes");
-      const order = Array.isArray(payload.order) ? payload.order : [];
-      const known = new Set(scenes.map((sc) => sc.id));
-      if (order.length !== known.size || new Set(order).size !== order.length || order.some((id) => !known.has(id))) return ["scene-order-contiguous"];
-      for (const sc of scenes) sc.order = order.indexOf(sc.id) + 1;
-      scenes.sort((a, b) => a.order - b.order);
-      return void 0;
-    },
-    // session.removePresentCharacter (crates/session/data-capabilities/remove-present-character):
-    // a PC no longer present at the session — `targetId`, or `payload.session`
-    // — taken out of its `present` (which `session.getSession` reads too), and
-    // so no longer offered (`present-only-pj`); the character itself stays in
-    // the fixtures. A PC who is not present changes nothing; a session they do
-    // not list is `not-found`.
-    "session.removePresentCharacter": async (server2, { payload, targetId }) => {
-      const session = (await server2.load("session.listSessions")).find((s) => s.id === (targetId || payload.session));
-      if (!session) return ["not-found"];
-      session.present = session.present.filter((pc) => pc !== payload.character);
-      return void 0;
-    },
-    // media.uploadMedia (crates/media/data-capabilities/upload-media): a
-    // battlemap or an illustration added to the library, the path the DM chose
-    // recorded and no file copied. A battlemap arrives with its default grid
-    // (`grid-only-for-battlemap`) — a 32 px hex, pointy, 45 % opaque — at 5
-    // feet per hex; an illustration has none. A place, when one is named, is a
-    // lieu of the campaign (`media-place-is-lieu`); a kind that is neither is
-    // refused (`media-kind`, the table's CHECK).
-    "media.uploadMedia": async (server2, { payload }) => {
-      const { kind, place = null } = payload;
-      if (kind !== "battlemap" && kind !== "illustration") return ["media-kind"];
-      if (place && !(await server2.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["media-place-is-lieu"];
-      const base = { id: server2.uuid(), title: String(payload.title || "").trim() || "Sans titre", file: payload.file || "", uploadedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), place };
-      for (const name of ["media", "media.listMedia"]) {
-        const media = await server2.load(name);
-        if (!media) continue;
-        if (kind === "battlemap") media.battlemaps.push({ ...base, width: payload.width || 0, height: payload.height || 0, grid: { size: 32, ox: 0, oy: 0, orient: "pointy", color: "text", opacity: 45 } });
-        else media.illustrations.push({ ...base, ratio: payload.width > 0 && payload.height > 0 ? Math.round(payload.width / payload.height * 100) / 100 : null });
-      }
-      return void 0;
-    },
-    // media.saveGridSettings (crates/media/data-capabilities/save-grid-settings):
-    // a battlemap's grid kept — the six fields of HexGrid@1, the opacity a
-    // fraction of 1 where the mock-up's fixtures write a percentage. A hex size
-    // of 0 or an opacity outside 0..1 is refused by `grid-values-range`; an
-    // illustration or an unknown id has no grid (`grid-only-for-battlemap`).
-    "media.saveGridSettings": async (server2, { payload, targetId }) => {
-      const battlemap = (await server2.load("media")).battlemaps.find((b) => b.id === targetId);
-      if (!battlemap) return ["grid-only-for-battlemap"];
-      const { size, ox, oy, orient, color, opacity } = payload;
-      if (!(size > 0) || !(opacity >= 0 && opacity <= 1)) return ["grid-values-range"];
-      battlemap.grid = { size, ox, oy, orient, color, opacity: Math.round(opacity * 100) };
-      return void 0;
-    },
-    // media.setMediaPlace (crates/media/data-capabilities/set-media-place): a
-    // media — battlemap or illustration — attached to one of the campaign's
-    // places, or detached with `place: null`, and nothing else of it changes. A
-    // place that is no lieu the fixtures list is refused by
-    // `media-place-is-lieu`; an unknown media is `not-found`.
-    "media.setMediaPlace": async (server2, { payload, targetId }) => {
-      const id = targetId || payload.media;
-      const listed = [await server2.load("media"), await server2.load("media.listMedia")];
-      const found = listed.flatMap((media) => media.battlemaps.concat(media.illustrations)).filter((m) => m.id === id);
-      if (!found.length) return ["not-found"];
-      const place = payload.place ?? null;
-      if (place !== null && !(await server2.load("campaign.listPlaces")).some((p) => p.id === place)) return ["media-place-is-lieu"];
-      for (const medium of found) medium.place = place;
-      return void 0;
-    },
-    // session.addScene (crates/session/data-capabilities/add-scene): a new
-    // scene, ranked after the session's last (`scene-order-contiguous`), with
-    // its title, its notes and the places it links — each a place of the
-    // fixtures' campaign, else `scene-links-same-campaign` — whose media
-    // follow it to the session (`session-media-by-place`, derived, never
-    // stored). Its notes are kept as written. A blank title is
-    // `scene-title-required`: the mock answers violation ids, where the
-    // server answers 422.
-    "session.addScene": async (server2, { payload }) => {
-      const title = String(payload.title || "").trim();
-      if (!title) return ["scene-title-required"];
-      const known = new Set((await server2.load("campaign.listPlaces")).map((p) => p.id));
-      const places = [...new Set(Array.isArray(payload.places) ? payload.places : [])];
-      if (places.some((id) => !known.has(id))) return ["scene-links-same-campaign"];
-      const library = await server2.load("media.listMedia");
-      const media = library.battlemaps.concat(library.illustrations).filter((m) => places.includes(m.place)).map((m) => m.id);
-      const scenes = await server2.load("session.listScenes");
-      scenes.push({
-        id: server2.uuid(),
-        order: scenes.reduce((last, sc) => Math.max(last, sc.order), 0) + 1,
-        title,
-        places,
-        characters: [],
-        events: [],
-        media,
-        toCreate: [],
-        battlemap: null,
-        notes: typeof payload.notes === "string" ? payload.notes : null
-      });
-      return void 0;
-    },
-    // session.addPlaceToSession (crates/session/data-capabilities/add-place-to-session):
-    // a place of the campaign joins a scene of the session — `payload.scene`,
-    // else the first — after its last element, and stays there once (a place
-    // already in the scene is not linked twice). Its media follow by
-    // `session-media-by-place`: they are listed in the scene's media, never
-    // stored apart. A place that is no lieu of the campaign is refused by
-    // `scene-links-same-campaign`; a scene the session does not have is
-    // `not-found` — the server answers 422 `scene-links-same-campaign` for a
-    // scene of another session, which the fixtures, one session's, never list.
-    "session.addPlaceToSession": async (server2, { payload }) => {
-      const place = payload.place;
-      const scenes = await server2.load("session.listScenes") || [];
-      const first2 = scenes.reduce((low, sc) => !low || sc.order < low.order ? sc : low, null);
-      const scene = payload.scene ? scenes.find((sc) => sc.id === payload.scene) : first2;
-      if (!scene) return ["not-found"];
-      if (!(await server2.load("campaign.listPlaces") || []).some((p) => p.id === place)) return ["scene-links-same-campaign"];
-      if (!scene.places.includes(place)) scene.places.push(place);
-      const library = await server2.load("media.listMedia") || { battlemaps: [], illustrations: [] };
-      for (const medium of library.battlemaps.concat(library.illustrations)) {
-        if (medium.place === place && !scene.media.includes(medium.id)) scene.media.push(medium.id);
-      }
-      return void 0;
-    },
-    // campaign.restoreEntityVersion (EntityVersion@1, restore-exact): the element `targetId` goes back to exactly
-    // the version `payload.version` — or, with `payload.changes`, only the changes at those positions of the
-    // version after it are undone, each field back to what it was. Either way the restoration is a new version
-    // on top of the history — source restauration, restoredFrom the version — whose changes are what moved since
-    // the version it replaces; versions 1..n stay as they were. A version the element does not have is refused.
-    // table.createBattlemapInstance (crates/table/data-capabilities/create-battlemap-instance):
-    // the scene's own copy of a battlemap of the campaign, empty; the battlemap, its grid and
-    // the scene's media are left as they are (`instance-isolated`). A scene of another session,
-    // or a battlemap the campaign's library does not list, is `not-found`; a scene that has its
-    // instance is refused (`one-instance-per-scene`).
-    "table.createBattlemapInstance": async (server2, { payload }) => {
-      const session = await server2.load("session.getSession");
-      const scene = (await server2.load("session.listScenes")).find((sc) => sc.id === payload.scene);
-      const map = (await server2.load("media.listMedia")).battlemaps.find((m) => m.id === payload.battlemap);
-      if (!session || session.id !== payload.session || !scene || !map) return ["not-found"];
-      if (scene.battlemap) return ["one-instance-per-scene"];
-      const id = `bmi-${map.id}-${scene.id}`;
-      server2.instances = server2.instances || /* @__PURE__ */ new Map();
-      server2.instances.set(id, { id, battlemap: map.id, session: payload.session, scene: scene.id, label: scene.title, roster: [], pjInitiative: {}, state: { tokens: [], combat: null } });
-      scene.battlemap = id;
-      return void 0;
-    },
-    "campaign.restoreEntityVersion": async (server2, { payload, targetId }) => {
-      const history = (await server2.load("campaign.listEntityVersions"))[targetId];
-      const target = history && history.versions.find((v) => v.v === payload.version);
-      if (!target) return ["not-found"];
-      const sheet = (upTo) => history.versions.slice().sort((a, b) => a.v - b.v).filter((v) => v.v <= upTo).reduce((fields, v) => {
-        for (const c of v.changes) fields[c.field] = c.new;
-        return fields;
-      }, {});
-      const before = sheet(history.versions[0].v);
-      let after = sheet(target.v);
-      if (Array.isArray(payload.changes)) {
-        const undone = (history.versions.find((v) => v.v === payload.version + 1) || { changes: [] }).changes;
-        after = { ...before };
-        for (const i of payload.changes) if (undone[i]) after[undone[i].field] = undone[i].old;
-      }
-      const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].sort().filter((field) => (before[field] ?? "") !== (after[field] ?? "")).map((field) => ({ field, old: before[field] ?? "", new: after[field] ?? "" }));
-      history.versions.unshift({ v: history.versions[0].v + 1, date: (/* @__PURE__ */ new Date()).toISOString(), origin: "manuelle", source: "restauration", restoredFrom: target.v, changes });
-      return void 0;
-    },
-    // campaign.exportCampaign (crates/dataguard/data-capabilities/export-campaign):
-    // stamps the campaign's last export with today's date and changes nothing
-    // else (`export-stamps-date`). An unknown campaign is `not-found`.
-    "campaign.exportCampaign": async (server2, { payload }) => {
-      const campaign = await server2.load("campaign.getCampaign");
-      if (!campaign || campaign.id !== payload.id) return ["not-found"];
-      const now = /* @__PURE__ */ new Date();
-      const pad = (n) => String(n).padStart(2, "0");
-      campaign.lastExport = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-      return void 0;
-    },
-    // soundbox.updateSound (crates/soundbox/data-capabilities/update-sound): the
-    // name, tags and volume of one sound, tags normalised and volume ranged as
-    // for an addition; a sound that is not there is `not-found`.
-    "soundbox.updateSound": async (server2, { payload, targetId }) => {
-      const sound = (await server2.load("soundbox.listSounds")).sounds.find((s) => s.id === targetId);
-      if (!sound) return ["not-found"];
-      if ("volume" in payload && !(Number(payload.volume) >= 0 && Number(payload.volume) <= 100)) return ["sound-volume-range"];
-      if ("name" in payload) sound.name = String(payload.name);
-      if ("tags" in payload) sound.tags = soundTags(payload.tags);
-      if ("volume" in payload) sound.volume = Number(payload.volume);
-      if ("file" in payload) sound.file = String(payload.file);
-      return void 0;
-    },
-    // soundbox.removeSound (crates/soundbox/data-capabilities/remove-sound): the
-    // sound leaves the library's readers (a soft delete, its tombstone is the
-    // server's).
-    "soundbox.removeSound": async (server2, { targetId }) => {
-      const library = await server2.load("soundbox.listSounds");
-      const at = library.sounds.findIndex((s) => s.id === targetId);
-      if (at < 0) return ["not-found"];
-      library.sounds.splice(at, 1);
-      return void 0;
-    },
-    // soundbox.setMasterVolume (crates/soundbox/data-capabilities/set-master-volume):
-    // the master slider, in percent, kept to the whole percent; every sound
-    // follows it, keeping their ratio (EffectiveVolume@1). A volume outside
-    // 0..100, or no number, is refused by `master-volume-range`, never clamped;
-    // a request naming no campaign is `not-found`.
-    "soundbox.setMasterVolume": async (server2, { payload, targetId }) => {
-      if (!String(targetId || payload.campaign || "").trim()) return ["not-found"];
-      const { volume } = payload;
-      if (typeof volume !== "number" || !(volume >= 0 && volume <= 100)) return ["master-volume-range"];
-      for (const name of ["soundbox.listSounds", "sounds"]) {
-        const fixture = await server2.load(name);
-        if (fixture) fixture.masterVolume = Math.round(volume);
-      }
-      return void 0;
-    },
-    // soundbox.stopAll (crates/soundbox/data-capabilities/stop-all): every
-    // running playback gets its stop (`stop-all`); with none running it still
-    // succeeds and changes nothing.
-    "soundbox.stopAll": async (server2) => {
-      for (const sound of (await server2.load("soundbox.listSounds")).sounds) sound.playing = false;
-      return void 0;
-    },
-    // soundbox.setSoundVolume (crates/soundbox/data-capabilities/set-sound-volume):
-    // one sound's own volume, in percent, from 0 to 100; out of range it is
-    // refused by `sound-volume-range`, never clamped. Nothing else of the sound
-    // changes; its effective gain follows (EffectiveVolume@1).
-    "soundbox.setSoundVolume": async (server2, { payload, targetId }) => {
-      const id = targetId || payload?.sound;
-      const fixtures = (await Promise.all(["soundbox.listSounds", "sounds"].map((name) => server2.load(name)))).filter(Boolean);
-      const found = fixtures.map((fixture) => fixture.sounds.find((candidate) => candidate.id === id)).filter(Boolean);
-      if (!found.length) return ["not-found"];
-      const volume = payload?.volume;
-      if (typeof volume !== "number" || !(volume >= 0 && volume <= 100)) return ["sound-volume-range"];
-      for (const sound of found) sound.volume = volume;
-      return void 0;
-    },
-    // campaign.createCampaign (crates/campaign/data-capabilities/create-campaign):
-    // a new campaign at the top of the home page, its master volume at full
-    // (`master-volume-range`); a oneshot comes with its single session, in
-    // preparation (`oneshot-single-session`), a campagne with none. A campaign
-    // with no name is refused, as one of a kind there is not.
-    "campaign.createCampaign": async (server2, { payload }) => {
-      const name = String(payload.name ?? "").trim();
-      if (!name) return ["campaign-name-required"];
-      if (!["campagne", "oneshot"].includes(payload.type)) return ["campaign-type-unknown"];
-      const text2 = (field) => typeof payload[field] === "string" ? payload[field] : null;
-      (await server2.load("campaign.listCampaigns")).unshift({
-        id: server2.uuid(),
-        name,
-        type: payload.type,
-        art: text2("art"),
-        glyph: text2("glyph"),
-        pitch: text2("pitch"),
-        sessions: payload.type === "oneshot" ? 1 : 0,
-        lastPlayed: null,
-        next: null
-      });
-      return void 0;
-    },
-    // ai.saveSettings (crates/ai/data-capabilities/save-settings): the DM's
-    // provider saved and made active. The API type is derived from the URL,
-    // never taken from the payload: the cloud host by itself, the home server
-    // at the URL whose model list the fixtures know; any other URL is refused
-    // by `api-type-recognized` (« type d'API non reconnu »). `binary: claude`
-    // is stored « claude-code ». The key is kept masked, never echoed.
-    "ai.saveSettings": async (server2, { payload }) => {
-      const settings = await server2.load("ai.getSettings");
-      const models = { generationModel: payload.generationModel, summaryModel: payload.summaryModel };
-      if (!String(models.generationModel || "") || !String(models.summaryModel || "")) return ["single-settings-row"];
-      if (payload.mode === "api") {
-        const url = String(payload.url || "");
-        const type = apiType(settings, url);
-        if (!type) return ["api-type-recognized"];
-        const key = String(payload.key || "");
-        settings.providers[type] = { ...settings.providers[type], url, ...models, key: key ? `\u2022\u2022\u2022\u2022${key.slice(-4)}` : "" };
-        Object.assign(settings, { mode: "api", provider: type, binary: null });
-        return void 0;
-      }
-      if (payload.mode === "binary") {
-        const binary = { claude: "claude-code", "claude-code": "claude-code", opencode: "opencode" }[payload.binary];
-        if (!binary) return ["mode-fields"];
-        Object.assign(settings, { mode: "binary", provider: binary, binary: { binary, ...models } });
-        return void 0;
-      }
-      return ["mode-fields"];
-    },
-    // ai.testConnection (crates/ai/data-capabilities/test-connection): the
-    // configuration on screen tested and nothing of it saved — only `lastTest`
-    // changes (`test-does-not-save`). Its type is detected as a save's; a URL
-    // of no known type is the active provider's failed test, « type d'API non
-    // reconnu ». The key is never kept.
-    "ai.testConnection": async (server2, { payload }) => {
-      const settings = await server2.load("ai.getSettings");
-      const at = (/* @__PURE__ */ new Date()).toISOString();
-      const provider = payload.mode === "api" ? apiType(settings, String(payload.url || "")) : payload.mode === "binary" ? { claude: "claude-code", "claude-code": "claude-code", opencode: "opencode" }[payload.binary] || null : null;
-      if (!provider) {
-        settings.lastTest = { ok: false, at, provider: settings.provider, latency: null, message: "type d'API non reconnu" };
-        return void 0;
-      }
-      const message = payload.mode === "api" && settings.testResults?.[provider]?.message || `Connexion r\xE9ussie (binaire ${provider})`;
-      const latency = message.match(/répond en ([\d,]+ s)/)?.[1] || "0,01 s";
-      settings.lastTest = { ok: true, at, provider, latency, message };
-      return void 0;
-    },
-    // ai.extractFromNotes (crates/ai/data-capabilities/extract-from-notes): the
-    // note analysed into proposals, nothing created (`no-creation-before-
-    // validation`). The mock's AI proposes what the fixture NoteImport lists; a
-    // proposal that names an existing element starts unchecked.
-    "ai.extractFromNotes": async (server2, { payload }) => {
-      const text2 = String(payload.text || "");
-      const { proposals } = await server2.load("NoteImport");
-      server2.noteText = text2;
-      server2.noteProposals = proposals.map((p) => ({ id: p.id, type: p.type, name: p.name, excerpt: p.excerpt, existing: p.existing, checked: !p.existing }));
-      return void 0;
-    },
-    // campaign.createEntitiesFromNote (crates/campaign/data-capabilities/create-entities-from-note):
-    // one element per accepted proposal, the raw note kept as an import listed
-    // newest first, the proposals no longer awaiting.
-    "campaign.createEntitiesFromNote": async (server2, { payload }) => {
-      const proposals = server2.noteProposals || [];
-      const accepted = Array.isArray(payload.accepted) ? payload.accepted : [];
-      const created = proposals.filter((p) => accepted.includes(p.id));
-      const fixture = await server2.load("campaign.listImportedNotes");
-      const imports = Array.isArray(fixture) ? fixture : fixture.imports;
-      const note = server2.noteText || "";
-      imports.unshift({ id: `imp-${server2.uuid()}`, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10), title: note.split("\n")[0].replace(/[.\s]+$/, "") || "Notes import\xE9es", chars: note.length, proposed: proposals.length, created: created.length });
-      server2.noteProposals = [];
-      return void 0;
-    },
-    // ai.analyzeBrief (crates/ai/data-capabilities/analyze-brief): the brief
-    // kept as text alone and cut into scenes; what the campaign holds is linked
-    // to them, an NPC the brief speaks of gains a version of source `brief`
-    // (read `ia`), every unknown NPC, place or event waits on the to-create
-    // list with its type and excerpt, and nothing is created
-    // (`brief-no-auto-creation`). The mock's AI finds what the fixture
-    // OralBrief lists; a dictation is heard as its transcript. A brief that
-    // holds no word is refused before anything is written.
-    "ai.analyzeBrief": async (server2, { payload }) => {
-      const oral = await server2.load("OralBrief");
-      const typed = String(payload.text || "").trim();
-      const lines = typed ? typed.split(/\n+/).map((line) => line.trim()).filter(Boolean) : payload.dictation ? oral.transcript : [];
-      if (lines.length === 0) return ["no-brief"];
-      const seconds = Number.isInteger(payload.durationSeconds) ? payload.durationSeconds : 0;
-      const brief = await server2.load("session.getLastBrief");
-      Object.assign(brief, {
-        session: payload.session,
-        lastRun: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19),
-        duration: `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`,
-        transcript: lines,
-        result: JSON.parse(JSON.stringify(oral.result))
-      });
-      const fixture = await server2.load("campaign.listEntitiesToCreate");
-      const entries = Array.isArray(fixture) ? fixture : fixture.items;
-      const said = (name) => lines.find((line) => name.split(/[\s’']+/).some((word) => word.length > 3 && normalized(line).includes(normalized(word)))) || name;
-      for (const missing of oral.result.missing) {
-        const waiting = entries.some((e) => e.status === "todo" && e.type === missing.type && normalized(e.name) === normalized(missing.name));
-        if (!waiting) entries.push({ id: `tc-${server2.uuid()}`, type: missing.type, name: missing.name, session: payload.session, sessionTitle: "", excerpt: said(missing.name), status: "todo", entity: null });
-      }
-      const history = await server2.load("campaign.listEntityVersions") || {};
-      for (const known of oral.result.recognized.filter((r) => r.updated)) {
-        const entry = history[known.id] || (history[known.id] = { name: known.name, versions: [] });
-        const v = Math.max(0, ...entry.versions.map((version2) => version2.v)) + 1;
-        entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: SAVED_BY.brief, source: "brief", restoredFrom: null, seen: false, changes: [{ field: "notes", old: null, new: said(known.name) }] });
-      }
-      return void 0;
-    },
-    // ai.createFromBrief (crates/ai/data-capabilities/create-from-brief): the
-    // to-create entry becomes an element of the campaign, from its excerpt alone
-    // or from the excerpt and the DM's refinement (the fixture ToCreateList
-    // gives the AI's proposal for each); the entry is created once its element
-    // is set (`to-create-leaves-once-created`), and an entry already created is
-    // refused. An NPC gets its background, behaviour and sheet. The element has
-    // its first version, of source `brief`, and the entry keeps the refinement
-    // it was made from.
-    "ai.createFromBrief": async (server2, { payload }) => {
-      const entries = await server2.load("campaign.listEntitiesToCreate");
-      const entry = (Array.isArray(entries) ? entries : entries?.items || []).find((candidate) => candidate.id === payload.entry);
-      if (!entry) return ["not-found"];
-      if (entry.status === "created") return ["to-create-leaves-once-created"];
-      const given = (await server2.load("ToCreateList")).proposals?.[entry.id] || {};
-      const refined = typeof payload.refinement === "string" && payload.refinement.trim() !== "";
-      const proposal = (refined ? given.refined : given.fromBrief) || { description: entry.excerpt };
-      const { statblock, ...text2 } = proposal;
-      const kind = { pnj: "pnj", lieu: "lieu", "\xE9v\xE9nement": "evenement" }[entry.type];
-      const entities = await server2.load("entities");
-      const list = { pnj: entities.characters, lieu: entities.places, evenement: entities.events }[kind];
-      const id = `${entry.id.replace(/^tc-/, "")}-${server2.uuid().slice(0, 8)}`;
-      const figure = (value) => Number.isNaN(parseInt(value, 10)) ? null : parseInt(value, 10);
-      const vital = (label) => statblock?.vitals?.find((v) => v.label === label)?.value;
-      list.push({
-        id,
-        name: entry.name,
-        aliases: [],
-        kind,
-        notes: "",
-        ...text2,
-        ...statblock ? { type: statblock.type, stats: statblock.abilities, ca: figure(vital("CA")), pvMax: figure(vital("PV")), speed: vital("Vitesse"), features: statblock.features } : {}
-      });
-      const history = await server2.load("campaign.listEntityVersions") || {};
-      history[id] = { name: entry.name, versions: [{ v: 1, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: SAVED_BY.brief, source: "brief", seen: false, changes: [] }] };
-      entry.status = "created";
-      entry.entity = id;
-      entry.refinement = refined ? payload.refinement.trim() : null;
-      return void 0;
-    },
-    // campaign.saveEntity (crates/campaign/data-capabilities/save-entity): the
-    // DM's explicit save of an element, its sheet and its aliases, which adds a
-    // version (EntityVersion@1) whose changes are the fields that moved. Its
-    // source is the one the save names, `dm` when none, else `brief` or `ia`:
-    // any other is refused before anything is written, as the server answers
-    // 422. A version from the brief or the AI is one the DM has not seen yet.
-    // An alias naming another element, by its name or an alias
-    // (AliasMatch@1), is refused by `alias-unique-in-campaign`; a player on
-    // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
-    // are kept: a DEX modifier given is never written.
-    "campaign.saveEntity": async (server2, { payload }) => {
-      const source = payload.source ?? "dm";
-      if (typeof source !== "string" || !Object.hasOwn(SAVED_BY, source)) return ["unprocessable"];
-      const given = payload.entity || payload;
-      const lists = await Promise.all(Object.values(LISTS).filter((v2, i, all2) => all2.indexOf(v2) === i).map(async (name) => [name, await server2.load(name) || []]));
-      const all = lists.flatMap(([name, list2]) => list2.map((element) => ({ name, element })));
-      const found = all.find(({ element }) => given.id && element.id === given.id);
-      const before = found ? found.element : {};
-      const kind = given.kind || before.kind || (found && found.name === "campaign.listPlaces" ? "lieu" : found && found.name === "campaign.listEvents" ? "evenement" : void 0);
-      if (!LISTS[kind]) return ["character-is-pj-or-pnj"];
-      const after = { ...before };
-      for (const field of SAVED) if (field in given) after[field] = given[field];
-      after.kind = kind;
-      if (Array.isArray(after.aliases)) {
-        const seen = /* @__PURE__ */ new Set();
-        after.aliases = after.aliases.filter((a) => typeof a === "string" && normalized(a) && !seen.has(normalized(a)) && seen.add(normalized(a)));
-      }
-      if (after.player && kind !== "pj") return ["character-is-pj-or-pnj"];
-      const own = [[normalized(after.name), false], ...(after.aliases || []).map((a) => [normalized(a), true])].filter(([t]) => t);
-      const others = all.filter(({ element }) => element !== before).flatMap(({ element }) => [[normalized(element.name), false], ...(element.aliases || []).map((a) => [normalized(a), true])]);
-      if (own.some(([t, alias]) => others.some(([o, otherAlias]) => o === t && (alias || otherAlias)))) return ["alias-unique-in-campaign"];
-      if ((kind === "pj" || kind === "pnj") && !after.color) after.color = "accent";
-      const id = before.id || given.id || server2.uuid();
-      after.id = id;
-      const list = await server2.load(LISTS[kind]) || [];
-      if (found && found.name !== LISTS[kind]) {
-        const old = lists.find(([name]) => name === found.name)[1];
-        old.splice(old.indexOf(before), 1);
-      }
-      const at = list.indexOf(before);
-      if (at >= 0) list[at] = after;
-      else list.push(after);
-      const history = await server2.load("campaign.listEntityVersions") || {};
-      const entry = history[id] || (history[id] = { name: after.name, versions: [] });
-      entry.name = after.name;
-      const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
-      const v = Math.max(0, ...entry.versions.map((version2) => version2.v)) + 1;
-      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: SAVED_BY[source], source, seen: source === "dm", changes });
-      return void 0;
-    },
-    // ai.proposeCharacter (crates/ai/data-capabilities/propose-character): the
-    // initial prompt told or typed gives the character's background and behaviour and, for an NPC,
-    // a statblock — the proposals of fixtures/EntityEditor.json, the fake llm's answers. It applies
-    // at once and is a version like any other (source ia), unseen until the DM looks. A prompt with
-    // no text, or an element the lists do not hold, is refused.
-    "ai.proposeCharacter": async (server2, { payload, targetId }) => {
-      const { element } = await elementOf(server2, targetId);
-      if (!element || !String(payload.prompt ?? "").trim()) return ["not-found"];
-      const { proposals } = await server2.load("EntityEditor");
-      const proposal = proposals[element.id] || proposals.default;
-      const patch = { prompt: payload.prompt, background: proposal.background, behavior: proposal.behavior };
-      if (element.kind === "pnj") Object.assign(patch, { stats: { ...proposal.stats }, ca: proposal.ca, pvMax: proposal.pvMax, features: proposal.features.map((f) => ({ ...f })) });
-      await changedBy(server2, element, patch, "ia", "Prompt initial", element.kind === "pnj" ? proposal.changes : proposal.changes.slice(0, 1));
-      return void 0;
-    },
-    // dndbeyond.resyncCharacter (crates/dndbeyond/data-capabilities/resync-character): the stats,
-    // hit points and spells of a PC linked to D&D Beyond are read again — the patch of
-    // fixtures/EntityEditor.json, and the spells its « Sorts et capacités » line adds, as the
-    // character-sheets fake plays the level-up — whose changes the history keeps; the aliases, the
-    // notes and the token are left as they are (`dndbeyond-resync-scope`). A sheet with no link is
-    // refused.
-    "dndbeyond.resyncCharacter": async (server2, { targetId }) => {
-      const { element } = await elementOf(server2, targetId);
-      if (!element || !element.ddb || !element.ddb.url) return ["not-found"];
-      const { ddbResync } = await server2.load("EntityEditor");
-      const resync = ddbResync[element.id] || ddbResync.default;
-      const { stats, pvMax } = resync.patch;
-      const spells = resync.changes.find((c) => c.field === "Sorts et capacit\xE9s");
-      const names = (line) => line.split(",").map((name) => name.trim()).filter(Boolean);
-      const known = (element.features || []).map((f) => f.name);
-      const gained = spells ? names(spells.new).filter((name) => !names(spells.old).includes(name) && !known.includes(name)) : [];
-      const features = gained.length ? { features: [...element.features || [], ...gained.map((name) => ({ name, text: "Ajout\xE9 \xE0 la fiche D&D Beyond lors de la mont\xE9e de niveau." }))] } : {};
-      await changedBy(server2, element, { ...stats ? { stats: { ...element.stats, ...stats } } : {}, ...pvMax ? { pvMax } : {}, ...features, ddb: { ...element.ddb, syncedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) } }, "dndbeyond", "Resynchronisation D&D Beyond", resync.changes.filter((c) => c.field === "PV max" || c.field === "Sorts et capacit\xE9s" && gained.length || stats && c.field in stats));
-      return void 0;
-    },
-    // dndbeyond.importCharacter (crates/dndbeyond/data-capabilities/import-character): a D&D
-    // Beyond URL (or a bare id) imports the PC of the campaign linked to that character — the
-    // character-sheets fake knows the ones the fixtures link, as they were last synchronised —
-    // its statblock and sync date alone, its name, aliases, notes and token left as the DM made
-    // them (`dndbeyond-resync-scope`), as a version of source dndbeyond. A PC targeted is filled
-    // only if it is that one; a URL of another host, or of a character the fake does not know,
-    // is refused and nothing is written.
-    "dndbeyond.importCharacter": async (server2, { payload, targetId }) => {
-      const url = String(payload.url ?? "").trim();
-      const [, host2, path] = /^https?:\/\/([^/]+)\/(.*)$/.exec(url) || [];
-      const match = host2 && ["www.dndbeyond.com", "dndbeyond.com"].includes(host2.toLowerCase()) ? /^(?:profile\/[^/?#]+\/)?characters\/(\d+)(?:[/?#]|$)/.exec(path) : null;
-      const digits = match ? match[1] : /^\d+$/.test(url) ? url : null;
-      const ddbId = digits && BigInt(digits) > 0n ? String(BigInt(digits)) : null;
-      if (!ddbId) return ["not-found"];
-      const characters = await server2.load("campaign.listCharacters") || [];
-      const linked = characters.find((e) => e.kind === "pj" && e.ddb && String(e.ddb.url ?? "").replace(/\/+$/, "").endsWith(`/characters/${ddbId}`));
-      if (!linked) return ["not-found"];
-      if (targetId && targetId !== linked.id) return ["already-imported"];
-      await changedBy(server2, linked, { ddb: { ...linked.ddb, syncedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) } }, "dndbeyond", "Import D&D Beyond", []);
-      return void 0;
-    },
-    // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
-    // playback of the sound starts, whatever else plays (`simultaneous-playback`),
-    // from the soundbox (the default) or a suggestion's pastille; any other
-    // source, the player view's, is refused (`dm-side-only`). The sound plays
-    // as soundbox.listSounds says it: `playing`.
-    "soundbox.playSound": async (server2, { payload, targetId }) => {
-      const id = targetId || payload?.sound;
-      const sound = (await server2.load("soundbox.listSounds")).sounds.find((candidate) => candidate.id === id);
-      if (!sound) return ["not-found"];
-      const source = payload?.source ?? "soundbox";
-      if (!["soundbox", "suggestion"].includes(source)) return ["dm-side-only"];
-      sound.playing = true;
-      return void 0;
-    }
-  };
-
   // mock/src/server.js
   var LATENCY_MS = 120;
   var delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1629,6 +531,33 @@
   var refused = (why) => json({ error: why }, 409);
   var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   var FINAL2 = /* @__PURE__ */ new Set(["applied", "rejected", "cancelled", "expired"]);
+  var LEGACY = { reads: ["../src/reads.js", "READS"], commands: ["../src/commands.js", "COMMANDS"] };
+  var HandlerError = class extends Error {
+  };
+  var shown2 = (path) => `mock/${path.replace(/^\.\.\//, "")}`;
+  async function moduleAt(path) {
+    const url = new URL(path, location.href).href;
+    const served = await fetch(url).then((r) => r.ok, () => false);
+    if (!served) return null;
+    try {
+      return await import(url);
+    } catch (e) {
+      throw new HandlerError(`${shown2(path)} does not load: ${e && e.message ? e.message : e}`);
+    }
+  }
+  function ownFile(id, mod) {
+    if (!mod) return null;
+    const file = `mock/handlers/${id}.js`;
+    const kinds = Object.keys(LEGACY).filter((kind) => mod[kind] !== void 0);
+    if (!kinds.length) throw new HandlerError(`${file} exports neither reads nor commands`);
+    for (const kind of kinds) {
+      if (!mod[kind] || typeof mod[kind] !== "object") throw new HandlerError(`${file}: ${kind} is not an object`);
+      for (const key of Object.keys(mod[kind])) {
+        if (key !== id) throw new HandlerError(`${file} defines ${key}: a handler file defines its own id only \u2014 ${key} belongs in mock/handlers/${key}.js`);
+      }
+    }
+    return mod;
+  }
   function ruleHolds(rule, payload) {
     const m = /^\s*([A-Za-z_][\w.]*)\s*(<=|>=|==|!=|<|>|=)\s*(.+?)\s*$/.exec(String(rule || ""));
     if (!m) return true;
@@ -1663,6 +592,48 @@
       }
       return s.fixtures.get(name);
     };
+    s.legacy = () => {
+      if (!s.legacyHandlers) {
+        s.legacyHandlers = Promise.all(Object.entries(LEGACY).map(async ([kind, [path, name]]) => [kind, (await moduleAt(path) || {})[name] || {}])).then(Object.fromEntries);
+      }
+      return s.legacyHandlers;
+    };
+    s.files = /* @__PURE__ */ new Map();
+    s.handlerOf = async (kind, id) => {
+      if (!s.files.has(id)) s.files.set(id, moduleAt(`../handlers/${encodeURIComponent(id)}.js`).then((mod2) => ownFile(id, mod2)));
+      const [mod, legacy] = await Promise.all([s.files.get(id), s.legacy()]);
+      const own = mod && mod[kind] && Object.hasOwn(mod[kind], id) ? mod[kind][id] : void 0;
+      const kept = Object.hasOwn(legacy[kind], id) ? legacy[kind][id] : void 0;
+      if (own && kept) throw new HandlerError(`${id} is defined twice: mock/handlers/${id}.js and ${shown2(LEGACY[kind][0])} \u2014 keep one`);
+      return own || kept;
+    };
+    s.problems = [];
+    s.check = async () => {
+      const said = /* @__PURE__ */ new Set();
+      const fail = (e) => {
+        const message = e && e.message ? e.message : String(e);
+        if (said.has(message)) return;
+        said.add(message);
+        s.problems.push(message);
+        console.error(message);
+      };
+      const ids = /* @__PURE__ */ new Set();
+      try {
+        const legacy = await s.legacy();
+        for (const kind of Object.keys(LEGACY)) for (const id of Object.keys(legacy[kind])) ids.add(id);
+      } catch (e) {
+        fail(e);
+        return;
+      }
+      const pages = await fetch(new URL("../pages.json", location.href)).then((r) => r.ok ? r.json() : void 0).catch(() => void 0);
+      for (const component of pages && pages.components || []) {
+        for (const id of [].concat(component.needs || [], component.actions || [])) if (typeof id === "string") ids.add(id);
+      }
+      for (const id of [...ids].sort()) {
+        for (const kind of Object.keys(LEGACY)) await s.handlerOf(kind, id).catch(fail);
+      }
+    };
+    s.ready = s.check();
     s.bump = () => {
       s.dataVersion += 1;
       for (const listener of s.listeners) listener({ data: JSON.stringify({ dataVersion: s.dataVersion }) });
@@ -1681,7 +652,7 @@
       return m;
     };
     const read = async (identifier, variables) => {
-      const handler = READS[identifier];
+      const handler = await s.handlerOf("reads", identifier);
       if (handler) return handler(s, variables);
       const fixture = await s.load(identifier);
       if (fixture === void 0) return void 0;
@@ -1766,7 +737,7 @@
       const target = body2.target || {};
       const targetId = target.id || body2.targetId;
       const by = body2.caller && body2.caller.by || body2.by || "anonymous";
-      const handler = COMMANDS[dataCapability];
+      const handler = await s.handlerOf("commands", dataCapability);
       if (body2.idempotencyKey) {
         const seen = [...s.queue.values()].find((e) => e.idempotencyKey === body2.idempotencyKey && e.dataCapability === dataCapability);
         if (seen) return answer(seen, true);
@@ -1790,7 +761,7 @@
       if (!handler) {
         entry.state = "rejected";
         entry.violations = ["unhandled-data-capability"];
-        s.tell("CommandRejected", by, commandId2, { violations: entry.violations, reason: `${dataCapability} is not in mock/src/commands.js` });
+        s.tell("CommandRejected", by, commandId2, { violations: entry.violations, reason: `${dataCapability} has no handler: write mock/handlers/${dataCapability}.js` });
         return answer(entry);
       }
       const verdict = await invariants(aggregate, payload);
@@ -1853,6 +824,17 @@
       return json({ result: resultOf(entry) });
     };
     s.fetch = async (input, init) => {
+      try {
+        await s.ready;
+        if (s.problems.length) return json({ error: `the mock server did not start: ${s.problems.join("; ")}` }, 500);
+        return await respond(input, init);
+      } catch (e) {
+        if (!(e instanceof HandlerError)) throw e;
+        console.error(e.message);
+        return json({ error: e.message }, 500);
+      }
+    };
+    const respond = async (input, init) => {
       await delay(LATENCY_MS);
       const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
       const method = init && init.method || "GET";
