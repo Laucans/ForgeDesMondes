@@ -1651,11 +1651,25 @@
       await changedBy(server, element, { ...stats ? { stats: { ...element.stats, ...stats } } : {}, ...pvMax ? { pvMax } : {}, ...features, ddb: { ...element.ddb, syncedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) } }, "dndbeyond", "Resynchronisation D&D Beyond", resync.changes.filter((c) => c.field === "PV max" || c.field === "Sorts et capacit\xE9s" || stats && c.field in stats));
       return void 0;
     },
-    // dndbeyond.importCharacter (crates/dndbeyond/data-capabilities/import-character, planned): a
-    // PC of the campaign linked to that D&D Beyond URL is updated (upsert); a URL that is not
-    // D&D Beyond's is refused, and a URL no sheet is linked to creates nothing on the mock-up.
-    "dndbeyond.importCharacter": async (server, { payload }) => {
-      if (!/^https:\/\/(www\.)?dndbeyond\.com\/characters\/\d+/.test(String(payload.url ?? ""))) return ["not-found"];
+    // dndbeyond.importCharacter (crates/dndbeyond/data-capabilities/import-character): a D&D
+    // Beyond URL (or a bare id) imports the PC of the campaign linked to that character — the
+    // character-sheets fake knows the ones the fixtures link, as they were last synchronised —
+    // its statblock and sync date alone, its name, aliases, notes and token left as the DM made
+    // them (`dndbeyond-resync-scope`), as a version of source dndbeyond. A PC targeted is filled
+    // only if it is that one; a URL of another host, or of a character the fake does not know,
+    // is refused and nothing is written.
+    "dndbeyond.importCharacter": async (server, { payload, targetId }) => {
+      const url = String(payload.url ?? "").trim();
+      const [, host2, path] = /^https?:\/\/([^/]+)\/(.*)$/.exec(url) || [];
+      const match = host2 && ["www.dndbeyond.com", "dndbeyond.com"].includes(host2.toLowerCase()) ? /^(?:profile\/[^/?#]+\/)?characters\/(\d+)(?:[/?#]|$)/.exec(path) : null;
+      const digits = match ? match[1] : /^\d+$/.test(url) ? url : null;
+      const ddbId = digits && BigInt(digits) > 0n ? String(BigInt(digits)) : null;
+      if (!ddbId) return ["not-found"];
+      const characters = await server.load("campaign.listCharacters") || [];
+      const linked = characters.find((e) => e.kind === "pj" && e.ddb && String(e.ddb.url ?? "").replace(/\/+$/, "").endsWith(`/characters/${ddbId}`));
+      if (!linked) return ["not-found"];
+      if (targetId && targetId !== linked.id) return ["already-imported"];
+      await changedBy(server, linked, { ddb: { ...linked.ddb, syncedAt: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19) } }, "dndbeyond", "Import D&D Beyond", []);
       return void 0;
     },
     // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
