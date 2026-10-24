@@ -311,6 +311,8 @@ test('the answer to an earlier element never replaces the one opened since', asy
   await new Promise((resolve) => setTimeout(resolve, 20));
   await settle();
   assert.equal(text(s.$('h2')), 'L’incendie du moulin');
+  // The superseded place never fetched its characters.
+  assert.equal(s.reads.some((r) => r.variables?.id === 'gaspard'), false);
 });
 
 test('no element opened says so, and reads nothing', async () => {
@@ -367,4 +369,45 @@ test('the style is added once, whatever the number of sheets on the page', async
   mount(s.host, { id: 'morlox' }, s.shell, timing);
   assert.equal(s.dom.window.document.querySelectorAll('style[data-micro-ui="TableSheet"]').length, 1);
   assert.doesNotMatch(s.dom.window.document.querySelector('style[data-micro-ui="TableSheet"]')?.textContent ?? '', /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
+});
+
+test('a host mounted again is served once: a click sends one command, the earlier mount is gone', async () => {
+  const s = await sheet({ id: 'gaspard', campaign: 'c-1' });
+  const again = mount(s.host, { id: 'gaspard', campaign: 'c-1' }, s.shell, timing);
+  await settle();
+  await s.click('#sheet-send-scene');
+  assert.equal(s.sent.length, 1);
+  again.destroy();
+  await s.open({ type: 'event', id: 'incendie-moulin' });
+  assert.equal(text(s.$('h2')), 'Gaspard Grosmollet');
+  await s.click('#sheet-send-window');
+  assert.equal(s.sent.length, 1);
+});
+
+test('a command the server took whose outcome cannot be read is not said unsent', async () => {
+  const s = await sheet({ id: 'gaspard', campaign: 'c-1' }, { status: 'queued' });
+  s.shell.commandResult = async () => {
+    throw new Error('502');
+  };
+  await s.click('#sheet-send-scene');
+  assert.equal(s.sent.length, 1);
+  assert.equal(text(s.$('#sheet-status')), 'L’envoi est parti, mais son état n’a pas pu être lu.');
+  assert.equal((s.$('#sheet-send-scene') as HTMLButtonElement).disabled, false);
+});
+
+test('a chip with no type is no open event', async () => {
+  const s = await sheet({ id: 'taverne-sanglier' });
+  const stray = s.dom.window.document.createElement('button');
+  stray.dataset.open = 'morlox';
+  s.host.append(stray);
+  await s.click('button[data-open="morlox"]');
+  assert.deepEqual(s.heard, []);
+  assert.equal(text(s.$('h2')), 'La Taverne du Sanglier');
+});
+
+test('the library and the characters of a place are read together', async () => {
+  const s = await sheet({ id: 'taverne-sanglier' });
+  const order = s.reads.map((r) => r.id + (typeof r.variables?.id === 'string' ? `:${r.variables.id}` : ''));
+  assert.deepEqual(order.slice(0, 2), ['campaign.getEntity:taverne-sanglier', 'media.listMedia']);
+  assert.deepEqual(order.slice(2).sort(), ['campaign.getEntity:gaspard', 'campaign.getEntity:morlox']);
 });

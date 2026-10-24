@@ -19,7 +19,12 @@ export function parseProps(raw: Record<string, unknown>): Props {
   return { ...parseTarget(raw), campaign: text(raw.campaign) };
 }
 
-const KINDS: Record<string, Exclude<ElementType, 'illustration'>> = { pj: 'character', pnj: 'character', lieu: 'place', evenement: 'event' };
+const KINDS = new Map<string, Exclude<ElementType, 'illustration'>>([
+  ['pj', 'character'],
+  ['pnj', 'character'],
+  ['lieu', 'place'],
+  ['evenement', 'event'],
+]);
 
 function scores(value: unknown): Record<Ability, number | null> {
   const given = isRecord(value) ? value : {};
@@ -42,7 +47,7 @@ export function parseRefs(value: unknown): string[] {
 export function parseEntity(data: unknown, asked: Target): Entity | null {
   if (!isRecord(data) || text(data.id) === '') return null;
   const kind = text(data.kind);
-  const type = KINDS[kind] ?? (asked.type === '' || asked.type === 'illustration' ? (isRecord(data.stats) ? 'character' : 'place') : asked.type);
+  const type = KINDS.get(kind) ?? (asked.type === '' || asked.type === 'illustration' ? (isRecord(data.stats) ? 'character' : 'place') : asked.type);
   const name = text(data.name);
   return {
     id: text(data.id),

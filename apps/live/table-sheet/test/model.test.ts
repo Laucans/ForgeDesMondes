@@ -29,6 +29,11 @@ test('the kind of an answer gives the type and PC or NPC; the props’ type stan
   assert.equal(parseEntity({ id: 'j', name: 'J', player: 'jou-1' }, { type: 'character', id: 'j' })?.pc, true);
 });
 
+test('a kind that is a name of Object’s own is no kind', () => {
+  assert.equal(parseEntity({ id: 'x', name: 'X', kind: 'constructor' }, { type: 'event', id: 'x' })?.type, 'event');
+  assert.equal(parseEntity({ id: 'x', name: 'X', kind: 'toString' }, { type: '', id: 'x' })?.type, 'place');
+});
+
 test('no answer, or one with no id, is no element', () => {
   assert.equal(parseEntity(null, { type: '', id: 'x' }), null);
   assert.equal(parseEntity({ name: 'No id' }, { type: '', id: 'x' }), null);

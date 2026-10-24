@@ -119,7 +119,12 @@
   function parseProps(raw) {
     return { ...parseTarget(raw), campaign: text(raw.campaign) };
   }
-  var KINDS = { pj: "character", pnj: "character", lieu: "place", evenement: "event" };
+  var KINDS = /* @__PURE__ */ new Map([
+    ["pj", "character"],
+    ["pnj", "character"],
+    ["lieu", "place"],
+    ["evenement", "event"]
+  ]);
   function scores(value) {
     const given = isRecord(value) ? value : {};
     return Object.fromEntries(ABILITIES.map((k) => [k, num(given[k])]));
@@ -136,7 +141,7 @@
   function parseEntity(data, asked) {
     if (!isRecord(data) || text(data.id) === "") return null;
     const kind = text(data.kind);
-    const type = KINDS[kind] ?? (asked.type === "" || asked.type === "illustration" ? isRecord(data.stats) ? "character" : "place" : asked.type);
+    const type = KINDS.get(kind) ?? (asked.type === "" || asked.type === "illustration" ? isRecord(data.stats) ? "character" : "place" : asked.type);
     const name = text(data.name);
     return {
       id: text(data.id),
@@ -332,6 +337,8 @@
 
   // apps/live/table-sheet/src/index.ts
   var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60 };
+  var mounts = /* @__PURE__ */ new WeakMap();
+  var UNREAD = "unread";
   function ensureStyle(doc) {
     if (doc.querySelector('style[data-micro-ui="TableSheet"]')) return;
     const style = doc.createElement("style");
@@ -386,13 +393,17 @@
           return;
         }
         campaign = props2.campaign || entity?.campaign || "";
-        let media = { illustrations: [] };
-        try {
-          media = parseMedia((await shell2.capability(LIST_MEDIA, void 0, campaign === "" ? {} : { campaign })).data);
-        } catch (error) {
-          if (entity === null) throw error;
-        }
-        const characters = entity?.type === "place" ? await met(entity.characters) : [];
+        const named = campaign;
+        const [media, characters] = await Promise.all([
+          shell2.capability(LIST_MEDIA, void 0, named === "" ? {} : { campaign: named }).then(
+            (answer) => parseMedia(answer.data),
+            (error) => {
+              if (entity === null) throw error;
+              return { illustrations: [] };
+            }
+          ),
+          entity?.type === "place" ? met(entity.characters) : Promise.resolve([])
+        ]);
         if (mine !== generation) return;
         let view;
         if (entity === null) {
@@ -416,9 +427,13 @@
       const answer = await shell2.command(body);
       const id = commandId(answer);
       let state = settled(answer);
-      for (let asked = 0; !isFinal(state.status) && id !== "" && asked < timing.polls; asked += 1) {
-        await timing.sleep(timing.everyMs);
-        state = settled(await shell2.commandResult(id));
+      try {
+        for (let asked = 0; !isFinal(state.status) && id !== "" && asked < timing.polls; asked += 1) {
+          await timing.sleep(timing.everyMs);
+          state = settled(await shell2.commandResult(id));
+        }
+      } catch {
+        return { status: UNREAD, violations: [] };
       }
       return state;
     }
@@ -439,6 +454,7 @@
       try {
         const state = await submit(body);
         if (state.status === "applied") message = `\xAB ${picked.title} \xBB est envoy\xE9e aux joueurs, en mode ${mode === "scene" ? "sc\xE8ne" : "fen\xEAtre"}.`;
+        else if (state.status === UNREAD) message = "L\u2019envoi est parti, mais son \xE9tat n\u2019a pas pu \xEAtre lu.";
         else if (state.status === "rejected") message = `Envoi refus\xE9 : ${reasons(state.violations)}.`;
         else message = `La commande n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`;
       } catch {
@@ -453,16 +469,16 @@
       const win = doc.defaultView;
       if (win) doc.dispatchEvent(new win.CustomEvent(name, { detail }));
     };
-    host2.addEventListener("click", (event) => {
+    const onClick = (event) => {
       const button = event.target?.closest("button");
       if (!button || !host2.contains(button)) return;
       const { open, action, media } = button.dataset;
       if (open !== void 0) {
         const at = open.indexOf(":");
-        raise(OPEN_EVENT, { type: open.slice(0, at), id: open.slice(at + 1) });
+        if (at > 0) raise(OPEN_EVENT, { type: open.slice(0, at), id: open.slice(at + 1) });
       } else if (action === "to-map") raise(OPEN_MAP_EVENT, { place: shown.id });
       else if (action === "send-scene" || action === "send-window") void send(action === "send-scene" ? "scene" : "window", media ?? "");
-    });
+    };
     const onOpen = (event) => {
       if (!host2.isConnected) {
         doc.removeEventListener(OPEN_EVENT, onOpen);
@@ -474,9 +490,18 @@
       shown = target;
       void load(shown);
     };
+    const destroy = () => {
+      generation += 1;
+      host2.removeEventListener("click", onClick);
+      doc.removeEventListener(OPEN_EVENT, onOpen);
+    };
+    mounts.get(host2)?.();
+    mounts.set(host2, destroy);
+    host2.addEventListener("click", onClick);
     doc.addEventListener(OPEN_EVENT, onOpen);
     void load(shown);
     return {
+      destroy,
       update(next) {
         const before = props2;
         props2 = parseProps(next);

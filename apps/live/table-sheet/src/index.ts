@@ -27,9 +27,17 @@ const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(res
 /** What the shell keeps of a mounted Micro-UI: new props follow the screen's context. */
 export interface Mounted {
   update(raw: Record<string, unknown>): void;
+  /** Stops following the screen: no more `open` event, no more click. */
+  destroy(): void;
 }
 
+/** What each host's current mount undoes, so a host mounted again is not served twice. */
+const mounts = new WeakMap<HTMLElement, () => void>();
+
 type Mode = 'scene' | 'window';
+
+/** The status of a command the server took and whose outcome could not be read. */
+const UNREAD = 'unread';
 
 function ensureStyle(doc: Document): void {
   if (doc.querySelector('style[data-micro-ui="TableSheet"]')) return;
@@ -99,14 +107,19 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
         return;
       }
       campaign = props.campaign || entity?.campaign || '';
-      let media: Media = { illustrations: [] };
-      try {
-        media = parseMedia((await shell.capability(LIST_MEDIA, undefined, campaign === '' ? {} : { campaign })).data);
-      } catch (error) {
-        // An element is read without its image; an image has nothing else to show.
-        if (entity === null) throw error;
-      }
-      const characters = entity?.type === 'place' ? await met(entity.characters) : [];
+      const named = campaign;
+      // The library and the characters of a place are independent reads.
+      const [media, characters] = await Promise.all([
+        shell.capability(LIST_MEDIA, undefined, named === '' ? {} : { campaign: named }).then(
+          (answer) => parseMedia(answer.data),
+          (error: unknown) => {
+            // An element is read without its image; an image has nothing else to show.
+            if (entity === null) throw error;
+            return { illustrations: [] } satisfies Media;
+          },
+        ),
+        entity?.type === 'place' ? met(entity.characters) : Promise.resolve([]),
+      ]);
       if (mine !== generation) return;
       let view;
       if (entity === null) {
@@ -133,9 +146,14 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     const answer = await shell.command(body);
     const id = commandId(answer);
     let state = settled(answer);
-    for (let asked = 0; !isFinal(state.status) && id !== '' && asked < timing.polls; asked += 1) {
-      await timing.sleep(timing.everyMs);
-      state = settled(await shell.commandResult(id));
+    try {
+      for (let asked = 0; !isFinal(state.status) && id !== '' && asked < timing.polls; asked += 1) {
+        await timing.sleep(timing.everyMs);
+        state = settled(await shell.commandResult(id));
+      }
+    } catch {
+      // The server took the command: only its outcome is unknown, and sending it again would send it twice.
+      return { status: UNREAD, violations: [] };
     }
     return state;
   }
@@ -158,6 +176,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     try {
       const state = await submit(body);
       if (state.status === 'applied') message = `« ${picked.title} » est envoyée aux joueurs, en mode ${mode === 'scene' ? 'scène' : 'fenêtre'}.`;
+      else if (state.status === UNREAD) message = 'L’envoi est parti, mais son état n’a pas pu être lu.';
       else if (state.status === 'rejected') message = `Envoi refusé : ${reasons(state.violations)}.`;
       else message = `La commande n’a pas abouti (état : ${state.status || 'inconnu'}).`;
     } catch {
@@ -176,16 +195,16 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     if (win) doc.dispatchEvent(new win.CustomEvent(name, { detail }));
   };
 
-  host.addEventListener('click', (event) => {
+  const onClick = (event: MouseEvent): void => {
     const button = (event.target as Element | null)?.closest('button');
     if (!button || !host.contains(button)) return;
     const { open, action, media } = button.dataset;
     if (open !== undefined) {
       const at = open.indexOf(':');
-      raise(OPEN_EVENT, { type: open.slice(0, at), id: open.slice(at + 1) });
+      if (at > 0) raise(OPEN_EVENT, { type: open.slice(0, at), id: open.slice(at + 1) });
     } else if (action === 'to-map') raise(OPEN_MAP_EVENT, { place: shown.id });
     else if (action === 'send-scene' || action === 'send-window') void send(action === 'send-scene' ? 'scene' : 'window', media ?? '');
-  });
+  };
 
   /** An element opened anywhere on the screen — the panel, the suggestions, a place's chip — is shown here. */
   const onOpen = (event: Event): void => {
@@ -200,11 +219,21 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     shown = target;
     void load(shown);
   };
+
+  const destroy = (): void => {
+    generation += 1;
+    host.removeEventListener('click', onClick);
+    doc.removeEventListener(OPEN_EVENT, onOpen);
+  };
+  mounts.get(host)?.();
+  mounts.set(host, destroy);
+  host.addEventListener('click', onClick);
   doc.addEventListener(OPEN_EVENT, onOpen);
 
   void load(shown);
 
   return {
+    destroy,
     update(next) {
       const before = props;
       props = parseProps(next);
