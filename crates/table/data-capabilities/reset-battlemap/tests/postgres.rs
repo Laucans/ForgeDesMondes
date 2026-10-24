@@ -335,6 +335,18 @@ impl Scratch {
             })
     }
 
+    /// The engine's live row on `partition` holding `fields`, written
+    /// straight into `dataguard_rows`: the tables are left as they are.
+    async fn hold(&self, partition: &str, fields: &Value) {
+        self.client
+            .execute(
+                "INSERT INTO dataguard_rows (partition, fields) VALUES ($1, $2::text::jsonb)",
+                &[&partition, &fields.to_string()],
+            )
+            .await
+            .expect("the engine's row");
+    }
+
     /// The payloads of the resets' commands the journal holds, applied, by
     /// partition.
     async fn journal(&self) -> Vec<(String, Value)> {
@@ -744,6 +756,55 @@ async fn a_stamp_authorises_only_its_submitter_in_the_minute_its_reset_stands() 
     refused(
         submit(&engine, "table.resetBattlemap@1", stamp, Some(lone)).await,
         RefusalKind::Unprocessable,
+    );
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn an_instance_only_the_engine_holds_is_reset_from_the_engines_row() {
+    let scratch = Scratch::new("engine_only").await;
+    let engine = scratch.serve().await;
+    // The engine holds the instance and a Bandit of it; the tables hold neither.
+    scratch
+        .hold(&partition(INSTANCE), &instance(INSTANCE, TAVERNE))
+        .await;
+    scratch
+        .hold(
+            &partition(&bandit_id(1)),
+            &bandit(&bandit_id(1), INSTANCE, 1),
+        )
+        .await;
+    assert!(scratch.tables().await.iter().all(|t| !t.contains(INSTANCE)));
+
+    let submitted = reset(&engine, INSTANCE).await.expect("queued");
+    assert_eq!(landed(&submitted), [partition(&bandit_id(1))]);
+
+    // A row of the engine naming another instance is none of this one.
+    let other = "b1000000-0000-4000-8000-0000000000aa";
+    scratch
+        .hold(&partition(other), &instance(NOWHERE, TAVERNE))
+        .await;
+    scratch
+        .hold(&partition(&bandit_id(2)), &bandit(&bandit_id(2), other, 2))
+        .await;
+    refused(reset(&engine, other).await, RefusalKind::NotFound);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn an_instance_the_tables_hold_is_reset_whatever_the_engines_row_says() {
+    let scratch = Scratch::new("tables_only").await;
+    let engine = scratch.serve().await;
+    scratch.fixtures().await;
+    // The engine's row of the partition names no instance of that id.
+    scratch
+        .hold(&partition(PONT_INSTANCE), &instance(NOWHERE, PONT))
+        .await;
+
+    let submitted = reset(&engine, PONT_INSTANCE).await.expect("queued");
+    assert_eq!(
+        landed(&submitted),
+        [PONT_ENTRY, PONT_COMBAT, PONT_TOKEN].map(partition)
     );
     scratch.drop().await;
 }
