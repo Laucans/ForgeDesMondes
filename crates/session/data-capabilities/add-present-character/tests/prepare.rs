@@ -9,7 +9,6 @@ use serde_json::{Value, json};
 const SEANCE: &str = "51000000-0000-4000-8000-00000000000a";
 const AUTRE: &str = "51000000-0000-4000-8000-00000000000b";
 const SIRIELLE: &str = "e1000000-0000-4000-8000-000000000004";
-const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 
 fn wire(payload: Value) -> Row {
     serde_json::from_value(payload).expect("an object")
@@ -112,7 +111,7 @@ fn a_malformed_request_is_refused_naming_what_is_wrong() {
 #[test]
 fn a_pc_of_the_campaign_is_the_row_of_one_presence_ticked_now() {
     assert_eq!(
-        prepare(&sirielle(), Some(VALOMBRE), true, 1_761_300_000_123),
+        prepare(&sirielle(), true, true, 1_761_300_000_123),
         Ok(Row::from([
             ("sessionPresentCharacterSessionId".to_owned(), json!(SEANCE)),
             (
@@ -127,17 +126,14 @@ fn a_pc_of_the_campaign_is_the_row_of_one_presence_ticked_now() {
 #[test]
 fn a_session_there_is_not_or_a_character_that_is_no_pc_of_it_is_refused() {
     assert_eq!(
-        prepare(&sirielle(), None, true, 0),
+        prepare(&sirielle(), false, true, 0),
         Err(Refusal::UnknownSession)
     );
     // With no session, its PCs are none: the session is what is missing.
     assert_eq!(
-        prepare(&sirielle(), None, false, 0),
+        prepare(&sirielle(), false, false, 0),
         Err(Refusal::UnknownSession)
     );
-    assert_eq!(
-        prepare(&sirielle(), Some(VALOMBRE), false, 0),
-        Err(Refusal::NotAPc)
-    );
+    assert_eq!(prepare(&sirielle(), true, false, 0), Err(Refusal::NotAPc));
     assert!(Refusal::NotAPc.to_string().starts_with("present-only-pj"));
 }

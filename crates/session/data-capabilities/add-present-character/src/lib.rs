@@ -3,9 +3,10 @@
 //! PC is offered like the others, in the DM view and on the session's
 //! battlemaps, through `session_roster_view` (« present »).
 //!
-//! A presence is one command on a partition of its own, `Session/<its id>`
-//! — never the session's own row, which keeps the PCs of its creation
-//! (`crates/session/aggregates/Session`, `Presences`). What the screen sends
+//! A presence is one command on a partition of its own, `Session/<session>.<pc>`
+//! (`presence_id`) — never the session's own row, which keeps the PCs of its
+//! creation (`crates/session/aggregates/Session`, `Presences`): the same PC
+//! ticked twice queues on one row. What the screen sends
 //! is `{ "character" }` with the session as `target.id`, or `{ "session",
 //! "character" }`, and it becomes the presence's row in two steps:
 //!
@@ -29,7 +30,9 @@
 
 use std::collections::BTreeMap;
 
-use aggregate_session::{ADDED_AT, PRESENT, PRESENT_ONLY_PJ, PRESENT_SESSION_ID, uuid};
+use aggregate_session::{
+    ADDED_AT, PRESENT, PRESENT_ONLY_PJ, PRESENT_SESSION_ID, presence_id, uuid,
+};
 use async_trait::async_trait;
 use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::Value;
@@ -133,11 +136,11 @@ impl Prepare for Presents {
             None => false,
         };
         let payload =
-            prepare(&asked, campaign.as_deref(), pc, context.now_millis).map_err(refused)?;
+            prepare(&asked, campaign.is_some(), pc, context.now_millis).map_err(refused)?;
         Ok(plugins::Prepared {
             payload,
-            // A partition of its own, never the session's row.
-            target_id: Some(context.ids.fresh().to_ascii_lowercase()),
+            // The presence's own row, never the session's.
+            target_id: Some(presence_id(&asked.session, &asked.character)),
             ..plugins::Prepared::default()
         })
     }
@@ -235,21 +238,18 @@ pub fn asked(wire: &Row, target: Option<&str>) -> Result<Asked, Refusal> {
     Ok(Asked { session, character })
 }
 
-/// `asked` judged against its session's campaign — `None` when the store
-/// holds no such session — and whether its character is a PC of it: the
-/// row the presence writes, ticked at `now_millis`.
+/// `asked` judged against whether the store holds its session, and whether
+/// its character is a PC of that session's campaign: the row the presence
+/// writes, ticked at `now_millis`.
 ///
 /// # Errors
 ///
 /// [`Refusal::UnknownSession`] when there is no session, and
 /// [`Refusal::NotAPc`] when the character is no PC of its campaign.
-pub fn prepare(
-    asked: &Asked,
-    campaign: Option<&str>,
-    pc: bool,
-    now_millis: u64,
-) -> Result<Row, Refusal> {
-    campaign.ok_or(Refusal::UnknownSession)?;
+pub fn prepare(asked: &Asked, session: bool, pc: bool, now_millis: u64) -> Result<Row, Refusal> {
+    if !session {
+        return Err(Refusal::UnknownSession);
+    }
     if !pc {
         return Err(Refusal::NotAPc);
     }

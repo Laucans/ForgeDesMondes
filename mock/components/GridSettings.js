@@ -776,9 +776,10 @@
     },
     // session.addPresentCharacter (crates/session/data-capabilities/add-present-character):
     // one more PC present at the session — `targetId`, or `payload.session` —
-    // offered from then on like the others. `present-only-pj` refuses a
-    // character that is not a PC of the fixtures; a session they do not list
-    // is `not-found`. A PC present already stays present once.
+    // listed in its `present` from then on. `present-only-pj` refuses a
+    // character that is not a PC of the fixtures, which hold one campaign; a
+    // session they do not list is `not-found`. A PC present already stays
+    // present once.
     "session.addPresentCharacter": async (server, { payload: payload2, targetId }) => {
       const session = (await server.load("session.listSessions")).find((s) => s.id === (targetId || payload2.session));
       if (!session) return ["not-found"];

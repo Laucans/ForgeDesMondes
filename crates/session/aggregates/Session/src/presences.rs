@@ -2,7 +2,9 @@
 //! `session_present_character` (`crates/data/migrations/0006_session.sql`),
 //! written by [`Presences`] inside the transaction that applies it.
 //!
-//! A presence is a partition of its own, `Session/<its id>`, whose row holds
+//! A presence is a partition of its own, `Session/<its id>` ([`presence_id`]:
+//! the session's and the PC's, so that ticking a PC again writes the same
+//! row, and unticking it names that row), whose row holds
 //! `sessionPresentCharacterSessionId`, the one PC under
 //! `sessionPresentCharacterCharacterId` — a text, where a session's own row
 //! holds a list — and when it was ticked, under `addedAt`, in milliseconds
@@ -42,7 +44,7 @@ const SESSION: &str = "SELECT s.campaign_id::text FROM session s
 /// Whether `$2` names a live PC — a « pj » with its sheet — of the
 /// campaign `$1`.
 const PC: &str = "SELECT EXISTS (SELECT 1 FROM character c JOIN entity e ON e.id = c.entity_id
-    WHERE e.id::text = lower($2) AND e.type = 'pj' AND e.campaign_id = $1::text::uuid
+    WHERE e.id = $2::text::uuid AND e.type = 'pj' AND e.campaign_id = $1::text::uuid
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned))";
 
@@ -50,8 +52,20 @@ const PC: &str = "SELECT EXISTS (SELECT 1 FROM character c JOIN entity e ON e.id
 /// stays.
 const ADD_PRESENT: &str = "INSERT INTO session_present_character
         (session_id, character_id, added_at)
-    VALUES ($1::text::uuid, lower($2)::uuid, coalesce(to_timestamp($3::float8 / 1000), now()))
+    VALUES ($1::text::uuid, $2::text::uuid, coalesce(to_timestamp($3::float8 / 1000), now()))
     ON CONFLICT (session_id, character_id) DO NOTHING";
+
+/// The id of the row the presence of `character` at `session` is written
+/// on: their ids, lowercase, joined by a dot — never a uuid, so never a
+/// session's, a scene's or an order's.
+#[must_use]
+pub fn presence_id(session: &str, character: &str) -> String {
+    format!(
+        "{}.{}",
+        session.to_ascii_lowercase(),
+        character.to_ascii_lowercase()
+    )
+}
 
 /// The Session aggregate's projection of a PC ticked present into
 /// `session_present_character`.
@@ -107,7 +121,23 @@ mod tests {
     use harness_dataguard::store::Write;
     use serde_json::{Value, json};
 
-    use super::{PRESENT, PRESENT_SESSION_ID, SESSION_ID, presence};
+    use super::{PRESENT, PRESENT_SESSION_ID, SESSION_ID, presence, presence_id};
+    use crate::{order_id, uuid};
+
+    #[test]
+    fn a_presence_s_row_is_its_session_s_and_its_pc_s_and_no_other_row_s() {
+        let session = "51000000-0000-4000-8000-00000000000A";
+        let pc = "E1000000-0000-4000-8000-000000000004";
+        let id = presence_id(session, pc);
+        assert_eq!(
+            id,
+            "51000000-0000-4000-8000-00000000000a.e1000000-0000-4000-8000-000000000004"
+        );
+        assert_eq!(id, presence_id(&session.to_lowercase(), &pc.to_lowercase()));
+        assert_ne!(id, presence_id(pc, session));
+        assert!(!uuid(&id));
+        assert_ne!(Some(id), order_id(session));
+    }
 
     fn write(values: Value, tombstone: bool) -> Write {
         let values: BTreeMap<String, Value> = serde_json::from_value(values).expect("an object");

@@ -50,7 +50,7 @@ mod scenes;
 mod sessions;
 
 pub use order::{SceneOrder, order_id, session_of};
-pub use presences::{ADDED_AT, PRESENT_SESSION_ID, Presences};
+pub use presences::{ADDED_AT, PRESENT_SESSION_ID, Presences, presence_id};
 pub use scenes::{
     LINKS, NOTES, PARTITION, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, Scenes,
 };

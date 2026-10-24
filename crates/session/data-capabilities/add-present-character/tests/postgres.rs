@@ -288,7 +288,7 @@ async fn a_pc_of_the_campaign_ticked_late_is_listed_present_by_the_roster() {
     .await
     .expect("queued");
     // Each presence on a partition of its own, never the session's row.
-    assert_ne!(sirielle.partition, format!("Session/{SEANCE}"));
+    assert_eq!(sirielle.partition, format!("Session/{SEANCE}.{SIRIELLE}"));
     for result in engine.run_once().await.expect("the applier ran") {
         assert_eq!(result.status, State::Applied, "{result:?}");
     }
@@ -359,16 +359,34 @@ async fn a_session_there_is_not_is_not_found_and_a_malformed_request_unprocessab
     scratch.drop().await;
 }
 
+/// Applies what is queued: `commands` commands, each rejected.
+async fn rejected(engine: &Engine, commands: usize) {
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), commands, "{results:?}");
+    for result in results {
+        assert_eq!(result.status, State::Rejected, "{result:?}");
+    }
+}
+
 #[tokio::test]
-async fn a_pc_that_is_no_longer_one_when_applied_is_rejected_and_ticks_nothing() {
-    let scratch = Scratch::new("applied").await;
+async fn a_pc_deleted_before_it_is_applied_is_rejected_and_ticks_nothing() {
+    let scratch = Scratch::new("deleted").await;
     let engine = scratch.serve().await;
     let before = scratch.present().await;
     tick(&engine, SEANCE, SIRIELLE, None).await.expect("queued");
-    tick(&engine, SEANCE, KAEL, None).await.expect("queued");
-    // Since submitted: Sirielle deleted, and the session moved to Brume,
-    // whose PC Kael is not.
     scratch.tombstone(&format!("Entity/{SIRIELLE}")).await;
+    rejected(&engine, 1).await;
+    assert_eq!(scratch.present().await, before);
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_pc_of_another_campaign_when_applied_is_rejected_and_ticks_nothing() {
+    let scratch = Scratch::new("moved").await;
+    let engine = scratch.serve().await;
+    let before = scratch.present().await;
+    tick(&engine, SEANCE, KAEL, None).await.expect("queued");
+    // Since submitted, the session is Brume's, whose PC Kael is not.
     scratch
         .client
         .batch_execute(&format!(
@@ -376,9 +394,7 @@ async fn a_pc_that_is_no_longer_one_when_applied_is_rejected_and_ticks_nothing()
         ))
         .await
         .expect("the session moved to Brume");
-    for result in engine.run_once().await.expect("the applier ran") {
-        assert_eq!(result.status, State::Rejected, "{result:?}");
-    }
+    rejected(&engine, 1).await;
     assert_eq!(scratch.present().await, before);
     scratch.drop().await;
 }
@@ -414,7 +430,9 @@ async fn a_pc_present_already_keeps_its_one_row() {
     tick(&engine, SEANCE, ELOWEN, Some("k-2"))
         .await
         .expect("queued");
-    for result in engine.run_once().await.expect("the applier ran") {
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 2, "{results:?}");
+    for result in results {
         assert_eq!(result.status, State::Applied, "{result:?}");
     }
     // Applied, a replay answers the first command and queues none; ticked
@@ -424,12 +442,14 @@ async fn a_pc_present_already_keeps_its_one_row() {
         .expect("replayed");
     assert_eq!(after.partition, first.partition);
     assert!(engine.run_once().await.expect("the applier ran").is_empty());
-    tick(&engine, SEANCE, SIRIELLE, Some("k-3"))
+    let retick = tick(&engine, SEANCE, SIRIELLE, Some("k-3"))
         .await
         .expect("queued");
-    for result in engine.run_once().await.expect("the applier ran") {
-        assert_eq!(result.status, State::Applied, "{result:?}");
-    }
+    assert!(!retick.replayed, "{retick:?}");
+    assert_eq!(retick.partition, first.partition);
+    let results = engine.run_once().await.expect("the applier ran");
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0].status, State::Applied, "{results:?}");
     let present = scratch.present().await;
     let characters: Vec<&Value> = present.iter().map(|row| &row["character"]).collect();
     assert_eq!(characters, [ELOWEN, SIRIELLE]);
