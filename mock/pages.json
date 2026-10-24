@@ -130,7 +130,7 @@
       ],
       "props": {},
       "source": "apps/ai/ai-settings",
-      "builtFrom": "471fe7b339298217"
+      "builtFrom": "6a8c58e33a862e0a"
     },
     {
       "name": "CampaignOverview",
@@ -150,7 +150,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "24b73bb67d82f925"
+      "builtFrom": "14288c9d261d85f4"
     },
     {
       "name": "SessionList",
@@ -172,7 +172,7 @@
         "campaign": "string — id de la campagne dont on liste les séances"
       },
       "source": "apps/session/session-list",
-      "builtFrom": "77fe9d1d495cae10"
+      "builtFrom": "3b03ded6f35703bf"
     },
     {
       "name": "CampaignElements",
@@ -219,7 +219,7 @@
         "campaign": "string — id de la campagne dont on importe les notes"
       },
       "source": "apps/ai/note-import",
-      "builtFrom": "87b9643f70193ee1"
+      "builtFrom": "186f2c5ec82349c0"
     },
     {
       "name": "ToCreateList",
@@ -283,7 +283,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "5b27cad61cdbcb31"
+      "builtFrom": "fd8b8b0908f761d0"
     },
     {
       "name": "PreviousSummary",
@@ -301,7 +301,7 @@
       "actions": [],
       "props": {},
       "source": "apps/session/previous-summary",
-      "builtFrom": "038d583b3812e217"
+      "builtFrom": "971d5a29b8344e0a"
     },
     {
       "name": "OralBrief",
@@ -412,7 +412,7 @@
         "sessionNumber": "number — le numéro de cette séance, celui de « Associé à la séance N »"
       },
       "source": "apps/media/media-library",
-      "builtFrom": "d047f62d744eae1f"
+      "builtFrom": "29c023e05c6aba22"
     },
     {
       "name": "GridSettings",
@@ -432,7 +432,7 @@
         "battlemap": "string — id de la battlemap à régler"
       },
       "source": "apps/media/grid-settings",
-      "builtFrom": "af4eaba9db067b46"
+      "builtFrom": "280509e607368521"
     },
     {
       "name": "SoundLibrary",
@@ -478,7 +478,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "644580f0f80ca1c4"
+      "builtFrom": "85560e2ad52a09a3"
     },
     {
       "name": "ElementsPanel",

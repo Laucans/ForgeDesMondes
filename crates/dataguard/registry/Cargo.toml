@@ -37,6 +37,7 @@ ignored = [
     "get-battlemap",
     "get-campaign",
     "get-entity",
+    "get-live-session",
     "get-session",
     "get-session-journal",
     "get-settings",
@@ -87,6 +88,7 @@ extract-from-notes = { path = "../../ai/data-capabilities/extract-from-notes" }
 get-battlemap = { path = "../../media/capabilities/get-battlemap" }
 get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
+get-live-session = { path = "../../session/capabilities/get-live-session" }
 get-session = { path = "../../session/capabilities/get-session" }
 get-session-journal = { path = "../../session/capabilities/get-session-journal" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
