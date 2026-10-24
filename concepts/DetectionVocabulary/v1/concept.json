@@ -1,0 +1,35 @@
+{
+  "concept": "DetectionVocabulary",
+  "version": 1,
+  "kind": "derived",
+  "definition": "What the microphone listens for in a campaign, and how a heard phrase names one of its terms. Normalisation and term equality are those of AliasMatch@1 and are not redefined here: two terms are the same term when AliasMatch@1 says they match.\n\nThe vocabulary of a campaign is a list of entries, each a term as written paired with its target, `{term, kind, id}`, `kind` being `entity` or `sound`. It holds, in this order: for each entity of the campaign in the order given, its name then its aliases in the order given; then for each sound of the campaign in the order given, its name. An element or a sound whose `campaign` is not the campaign asked is not in it, and neither are its terms. A blank term (AliasMatch@1: its normalised term is empty) names nothing and is left out. A term that matches, under AliasMatch@1, an earlier term of the same target is left out: the first spelling stays. The same term on two different targets stays on both, each with its own target. `term` is the term exactly as written, never normalised.\n\nA phrase is read as a sequence of words. A word is a maximal run of letters, digits and combining marks (the Unicode categories L, N and M); everything else, spaces and punctuation included (an apostrophe, a comma, a question mark), only separates words. Each word is normalised with AliasMatch@1. A term is read the same way, as the sequence of its normalised words. A term occurs in the phrase where its words are equal, one for one, to consecutive words of the phrase, so that a term never occurs inside a longer word (`bandit` does not occur in `bandits`, nor `ane` in `banane`) and the case, the accents and the punctuation of the phrase change nothing (`LA BALAFREE` names `la Balafrée`). A term with no word occurs nowhere.\n\nA phrase is matched against the vocabulary in four steps. (1) Every occurrence of every entry is a candidate; an entry that occurs several times gives one candidate per occurrence. (2) The candidates are taken longest first: the length of a candidate is the number of characters of its words joined by single spaces; at equal length the earlier occurrence in the phrase comes first, then the earlier entry in the vocabulary. (3) A candidate is kept unless it shares a word of the phrase with a candidate already kept (overlap: the longer term wins, so `la taverne du sanglier` wins over `la taverne` and over `sanglier` in « La Taverne du Sanglier ») or unless its target is already detected (a target is detected at most once per phrase, by its longest term). (4) The kept candidates are answered in the order of the phrase. Each detection targets exactly one entity or one sound.\n\n`campaign` is the campaign whose vocabulary is built. `entities` and `sounds` are the elements and sounds, of any campaign, each with its `campaign`. `phrase`, when given, is the transcribed text to match, and is absent (never null) when only the vocabulary is wanted. The vocabulary is always answered; `detections` is null when `phrase` is absent.",
+  "output": {
+    "vocabulary": {
+      "type": "array",
+      "items": {
+        "term": "string, the name or alias as written",
+        "kind": "entity or sound",
+        "id": "string, the id of the entity or of the sound"
+      },
+      "rule": "the names and aliases of every entity of the campaign, then the names of its sounds, in the order given; nothing of another campaign; no blank term; no term twice for one target"
+    },
+    "detections": {
+      "type": "array",
+      "nullable": true,
+      "items": {
+        "kind": "entity or sound",
+        "id": "string, the id of the target",
+        "via": "string, the term of the vocabulary as written that named it"
+      },
+      "rule": "null when `phrase` is absent; otherwise one entry per target named by the phrase, never twice, by the longest term, with no two entries sharing a word of the phrase, in the order of the phrase; empty when nothing is named"
+    }
+  },
+  "inputs": [
+    "entity.name",
+    "entity.alias",
+    "sound.name",
+    "campaign.id"
+  ],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}
