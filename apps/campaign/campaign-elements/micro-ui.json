@@ -1,0 +1,18 @@
+{
+  "microUi": "CampaignElements",
+  "system": "campaign",
+  "description": "Les éléments de la campagne : en grille à onglets (joueurs, personnages, lieux, événements, médias, sons) ou en rail collant à gauche d’une fiche (PJ, PNJ, lieux, événements ; recherche floue, repliable, tiroir sous 960 px)",
+  "needs": [
+    "campaign.listPlayers",
+    "campaign.listCharacters",
+    "campaign.listPlaces",
+    "campaign.listEvents",
+    "media.listMedia",
+    "soundbox.listSounds"
+  ],
+  "actions": [],
+  "props": {
+    "mode": "\"tabs\" | \"rail\" — grille à onglets (défaut) ou rail latéral qui ouvre la fiche sur place",
+    "campaign": "string — id de la campagne, remplacé par ?campaign= dans l’adresse"
+  }
+}
