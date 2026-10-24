@@ -333,6 +333,8 @@ mod tests {
         assert_eq!(french_date("2026-10-02").as_deref(), Some("2 oct. 2026"));
         assert_eq!(french_date("2026-04-30").as_deref(), Some("30 avr. 2026"));
         assert_eq!(french_date("2028-02-29").as_deref(), Some("29 févr. 2028"));
+        assert_eq!(french_date("2026-04-30").as_deref(), Some("30 avr. 2026"));
+        assert_eq!(french_date("2028-02-29").as_deref(), Some("29 févr. 2028"));
         for bad in [
             "",
             "2026",
@@ -341,6 +343,11 @@ mod tests {
             "2026-13-10",
             "2026-10-00",
             "2026-10-32",
+            "2026-02-30",
+            "2026-04-31",
+            "2026-06-31",
+            "2026-09-31",
+            "2026-11-31",
             "x-y-z",
         ] {
             assert_eq!(french_date(bad), None, "{bad:?}");
