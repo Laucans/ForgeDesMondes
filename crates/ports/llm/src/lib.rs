@@ -21,6 +21,10 @@
 //!   the notes that justify the proposal. `ai.extractFromNotes` parses it; the
 //!   fake answers it ([`fake`] says how) and an adapter's prompt asks the model
 //!   for the same shape.
+//! - **The answer to a [`TextKind::Prompt`] request** for a character is the
+//!   one JSON object `ai.proposeCharacter`'s request text asks for:
+//!   background, behaviour and statblock. The fake answers it with the
+//!   proposals it was handed ([`fake::FakeLlm::with_character`]).
 //! - **[`contract`]** is the suite every adapter passes, run against itself
 //!   from its own tests.
 //!

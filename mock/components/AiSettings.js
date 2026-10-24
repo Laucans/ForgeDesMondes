@@ -937,6 +937,36 @@
       server.noteProposals = proposals.map((p) => ({ id: p.id, type: p.type, name: p.name, excerpt: p.excerpt, existing: p.existing, checked: !p.existing }));
       return void 0;
     },
+    // ai.proposeCharacter (crates/ai/data-capabilities/propose-character): the
+    // AI's background, behaviour and statblock written at once on the sheet of
+    // a PC or an NPC, as a version of origin `ia` whose changes are the fields
+    // that moved. The mock's AI proposes what the fixture EntityEditor gives for
+    // the dictation the prompt holds, else its default proposal; one that does
+    // not fill the sheet (StatBlock@1) is refused by
+    // `proposal-fills-sheet-fields`. An element that is no PC or NPC is
+    // `not-found`.
+    "ai.proposeCharacter": async (server, { payload: payload2, targetId }) => {
+      const id = targetId || payload2.entityId;
+      const list = await server.load("campaign.listCharacters") || [];
+      const at = list.findIndex((element) => element.id === id);
+      if (at < 0) return ["not-found"];
+      const before = list[at];
+      const prompt = String(payload2.prompt || "").trim() || before.prompt || "";
+      const { dictations, proposals } = await server.load("EntityEditor");
+      const key = Object.keys(proposals).find((name) => dictations[name] && prompt.includes(dictations[name])) || "default";
+      const proposal = proposals[key];
+      const score = (n) => Number.isInteger(n) && n >= 1 && n <= 30;
+      const filled = proposal && String(proposal.background || "").trim() && String(proposal.behavior || "").trim() && ["FOR", "DEX", "CON", "INT", "SAG", "CHA"].every((s) => score(proposal.stats?.[s])) && Number.isInteger(proposal.ca) && proposal.ca > 0 && Number.isInteger(proposal.pvMax) && proposal.pvMax > 0 && Array.isArray(proposal.features) && proposal.features.length > 0;
+      if (!filled) return ["proposal-fills-sheet-fields"];
+      const after = { ...before, prompt, background: proposal.background, behavior: proposal.behavior, stats: { ...proposal.stats }, ca: proposal.ca, pvMax: proposal.pvMax, features: proposal.features };
+      list[at] = after;
+      const history = await server.load("campaign.listEntityVersions") || {};
+      const entry = history[id] || (history[id] = { name: after.name, versions: [] });
+      const changes = ["prompt", "background", "behavior", "stats", "ca", "pvMax", "features"].filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
+      const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
+      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "ia", source: "Proposition IA", seen: false, changes });
+      return void 0;
+    },
     // campaign.createEntitiesFromNote (crates/campaign/data-capabilities/create-entities-from-note):
     // one element per accepted proposal, the raw note kept as an import listed
     // newest first, the proposals no longer awaiting.
