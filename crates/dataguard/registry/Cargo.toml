@@ -46,6 +46,7 @@ ignored = [
     "get-entity",
     "get-session",
     "get-settings",
+    "import-character",
     "list-campaigns",
     "list-characters",
     "list-entity-versions",
@@ -126,6 +127,7 @@ get-diffusion = { path = "../../live/capabilities/get-diffusion" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
 get-session = { path = "../../session/capabilities/get-session" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
+import-character = { path = "../../dndbeyond/data-capabilities/import-character" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
 list-entity-versions = { path = "../../campaign/capabilities/list-entity-versions" }

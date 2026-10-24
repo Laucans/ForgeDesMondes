@@ -1,0 +1,59 @@
+{
+  "dataCapability": "dndbeyond.importCharacter",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "upsert",
+  "target": {
+    "aggregate": "Entity",
+    "id": "$entityId"
+  },
+  "touches": [
+    "Entity.entityId",
+    "Entity.entityCampaignId",
+    "Entity.type",
+    "Entity.name",
+    "Entity.entityCreatedAt",
+    "Entity.updatedAt",
+    "Entity.characterEntityId",
+    "Entity.playerId",
+    "Entity.strength",
+    "Entity.dexterity",
+    "Entity.constitution",
+    "Entity.intelligence",
+    "Entity.wisdom",
+    "Entity.charisma",
+    "Entity.armorClass",
+    "Entity.hpMax",
+    "Entity.spells",
+    "Entity.actions",
+    "Entity.tokenColor",
+    "Entity.dndbeyondId",
+    "Entity.dndbeyondSyncedAt",
+    "Entity.entityVersionId",
+    "Entity.entityVersionEntityId",
+    "Entity.versionNumber",
+    "Entity.source",
+    "Entity.snapshot",
+    "Entity.diff",
+    "Entity.restoredFromVersionId",
+    "Entity.entityVersionCreatedAt"
+  ],
+  "payload": {
+    "url": "string — the character's URL on D&D Beyond (https://www.dndbeyond.com/characters/<id>, or its bare id); a URL of another host is refused",
+    "campaign": "uuid — the campaign the PC is imported into; required unless the command targets a PC, whose campaign it is",
+    "player": "uuid | null — the PC's player, of the same campaign; read only when the import creates the PC",
+    "entityId": "uuid — the PC the import fills, when the command's target does not name it; absent, the PC of the campaign already linked to that character is updated, else a new one created"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "character-is-pj-or-pnj",
+    "every-change-versioned",
+    "default-token",
+    "dndbeyond-resync-scope",
+    "alias-unique-in-campaign"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "ports": ["character-sheets"],
+  "idempotencyKey": "optional"
+}
