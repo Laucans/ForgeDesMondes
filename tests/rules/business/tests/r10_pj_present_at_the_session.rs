@@ -21,13 +21,23 @@ fn r10_pj_present_at_the_session() {
             "capability:session.listSessions",
             "data-capability:session.addScene",
             "data-capability:table.createBattlemapInstance",
+            "data-capability:campaign.createCampaign",
+            "data-capability:campaign.saveEntity",
+            "capability:campaign.listCampaigns",
+            "data-capability:media.uploadMedia",
+            "capability:media.listMedia",
         ],
         |s| {
-            // Two PJ ticked out of the four of the fixtures.
-            let session = new_session(s, CAMPAIGN, &["elowen", "kael"])?;
+            // A campaign of its own with the four PJ of the fixtures (a
+            // command takes stored ids, never the fixtures' slugs), two of
+            // them ticked present.
+            let campaign = new_campaign(s, "campagne")?;
+            let cast = new_cast(s, &campaign, &["elowen", "brannoc", "sirielle", "kael"])?;
+            let battlemap = new_battlemap(s, &campaign)?;
+            let session = new_session(s, &campaign, &[cast.id("elowen"), cast.id("kael")])?;
             let scene = new_scene(s, &session, json!({}))?;
-            let map = new_instance(s, &session, &scene, "bm-gue")?;
-            let pj_ids: Vec<String> = characters(s, CAMPAIGN)?
+            let map = new_instance(s, &session, &scene, &battlemap)?;
+            let pj_ids: Vec<String> = characters(s, &campaign)?
                 .iter()
                 .filter(|c| text(c, "kind") == "pj")
                 .map(|c| text(c, "id").to_string())
@@ -55,13 +65,14 @@ fn r10_pj_present_at_the_session() {
                     .filter(|c| pj_ids.contains(c))
                     .collect();
                 Ok([
-                    sorted(ids(&prep["session"]["present"])),
+                    sorted(ids(&prep["present"])),
                     sorted(ids(&live["session"]["present"])),
                     sorted(on_map),
                 ])
             };
 
-            let two = vec!["elowen".to_string(), "kael".to_string()];
+            let mut two = vec![cast.id("elowen").to_string(), cast.id("kael").to_string()];
+            two.sort();
             let [prep, live, on_map] = proposed(s)?;
             check(
                 prep == two && live == two && on_map == two,
@@ -71,14 +82,15 @@ fn r10_pj_present_at_the_session() {
             apply(
                 s,
                 "session.addPresentCharacter",
-                json!({ "character": "sirielle" }),
+                json!({ "character": cast.id("sirielle") }),
                 Some(&session),
             )?;
-            let three = vec![
-                "elowen".to_string(),
-                "kael".to_string(),
-                "sirielle".to_string(),
+            let mut three = vec![
+                cast.id("elowen").to_string(),
+                cast.id("kael").to_string(),
+                cast.id("sirielle").to_string(),
             ];
+            three.sort();
             let [prep, live, on_map] = proposed(s)?;
             check(
                 prep == three && live == three && on_map == three,
