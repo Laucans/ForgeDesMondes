@@ -900,6 +900,7 @@
   var normalized = (term) => String(term ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
   var LISTS = { pj: "campaign.listCharacters", pnj: "campaign.listCharacters", lieu: "campaign.listPlaces", evenement: "campaign.listEvents" };
   var SAVED = ["kind", "name", "aliases", "description", "notes", "player", "prompt", "background", "behavior", "stats", "ca", "pvMax", "spells", "features", "actions", "portrait", "token", "crop", "color"];
+  var SAVED_BY = { dm: "Fiche enregistr\xE9e par le DM", brief: "Fiche mise \xE0 jour par le brief", ia: "Fiche compl\xE9t\xE9e par l'IA" };
   var onScreen = (fraction, kept) => typeof fraction === "number" && Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : kept;
   async function onWindow(server, change) {
     const row = await diffusionRow(server);
@@ -1661,14 +1662,17 @@
       entry.entity = id;
       return void 0;
     },
-    // campaign.saveEntity (crates/dataguard/data-capabilities/save-entity): the
+    // campaign.saveEntity (crates/campaign/data-capabilities/save-entity): the
     // DM's explicit save of an element, its sheet and its aliases, which adds a
-    // version (EntityVersion@1, source `dm`) whose changes are the fields that
-    // moved. An alias naming another element, by its name or an alias
+    // version (EntityVersion@1) whose changes are the fields that moved. Its
+    // source is the one the save names, `dm` when none: `brief` or `ia`, any
+    // other refused before anything is written, as the server answers 422. An alias naming another element, by its name or an alias
     // (AliasMatch@1), is refused by `alias-unique-in-campaign`; a player on
     // anything but a PC by `character-is-pj-or-pnj`. Only the editor's fields
     // are kept: a DEX modifier given is never written.
     "campaign.saveEntity": async (server, { payload: payload2 }) => {
+      const origin = payload2.source ?? "dm";
+      if (!Object.hasOwn(SAVED_BY, origin)) return ["unprocessable"];
       const given = payload2.entity || payload2;
       const lists = await Promise.all(Object.values(LISTS).filter((v2, i, all2) => all2.indexOf(v2) === i).map(async (name) => [name, await server.load(name) || []]));
       const all = lists.flatMap(([name, list2]) => list2.map((element) => ({ name, element })));
@@ -1703,7 +1707,7 @@
       entry.name = after.name;
       const changes = [.../* @__PURE__ */ new Set([...Object.keys(before), ...Object.keys(after)])].filter((f) => f !== "id").sort().filter((f) => JSON.stringify(before[f] ?? null) !== JSON.stringify(after[f] ?? null)).map((field) => ({ field, old: before[field] ?? null, new: after[field] ?? null }));
       const v = Math.max(0, ...entry.versions.map((version) => version.v)) + 1;
-      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin: "dm", source: "Fiche enregistr\xE9e par le DM", seen: true, changes });
+      entry.versions.unshift({ v, date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 19), origin, source: SAVED_BY[origin], seen: true, changes });
       return void 0;
     },
     // soundbox.playSound (crates/soundbox/data-capabilities/play-sound): a
