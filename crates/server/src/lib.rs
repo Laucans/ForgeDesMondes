@@ -40,7 +40,7 @@
 //! describes, inserted as the tables' own constraints and triggers judge them.
 //! Their rows go by their slugs on the wire, as the mock-up names them, and by
 //! a uuid in the store: [`renaming`] turns one into the other around the
-//! reads.
+//! reads and the commands.
 
 mod applier;
 mod fixtures;
