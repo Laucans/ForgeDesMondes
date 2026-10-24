@@ -17,6 +17,7 @@ ignored = [
     "add-place-to-session",
     "add-present-character",
     "add-scene",
+    "add-sound",
     "aggregate-ai-settings",
     "aggregate-battlemap-instance",
     "aggregate-campaign",
@@ -53,11 +54,14 @@ ignored = [
     "list-players",
     "list-scenes",
     "list-sessions",
+    "list-sounds",
     "move-token",
     "next-turn",
     "place-tokens",
+    "play-sound",
     "remove-participant",
     "remove-present-character",
+    "remove-sound",
     "remove-token",
     "rename-token",
     "reorder-initiative",
@@ -67,11 +71,15 @@ ignored = [
     "save-entity",
     "save-grid-settings",
     "save-settings",
+    "set-master-volume",
     "set-media-place",
+    "set-sound-volume",
     "set-token-condition",
     "set-token-visibility",
     "start-combat",
+    "stop-all",
     "test-connection",
+    "update-sound",
     "upload-media",
 ]
 
@@ -81,6 +89,7 @@ add-participant = { path = "../../table/data-capabilities/add-participant" }
 add-place-to-session = { path = "../../session/data-capabilities/add-place-to-session" }
 add-present-character = { path = "../../session/data-capabilities/add-present-character" }
 add-scene = { path = "../../session/data-capabilities/add-scene" }
+add-sound = { path = "../../soundbox/data-capabilities/add-sound" }
 aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
 aggregate-battlemap-instance = { path = "../../table/aggregates/BattlemapInstance" }
 aggregate-campaign = { path = "../../campaign/aggregates/Campaign" }
@@ -117,11 +126,14 @@ list-places = { path = "../../campaign/capabilities/list-places" }
 list-players = { path = "../../campaign/capabilities/list-players" }
 list-scenes = { path = "../../session/capabilities/list-scenes" }
 list-sessions = { path = "../../session/capabilities/list-sessions" }
+list-sounds = { path = "../../soundbox/capabilities/list-sounds" }
 move-token = { path = "../../table/data-capabilities/move-token" }
 next-turn = { path = "../../table/data-capabilities/next-turn" }
 place-tokens = { path = "../../table/data-capabilities/place-tokens" }
+play-sound = { path = "../../soundbox/data-capabilities/play-sound" }
 remove-participant = { path = "../../table/data-capabilities/remove-participant" }
 remove-present-character = { path = "../../session/data-capabilities/remove-present-character" }
+remove-sound = { path = "../../soundbox/data-capabilities/remove-sound" }
 remove-token = { path = "../../table/data-capabilities/remove-token" }
 rename-token = { path = "../../table/data-capabilities/rename-token" }
 reorder-initiative = { path = "../../table/data-capabilities/reorder-initiative" }
@@ -131,9 +143,13 @@ restore-entity-version = { path = "../../campaign/data-capabilities/restore-enti
 save-entity = { path = "../../campaign/data-capabilities/save-entity" }
 save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings" }
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
+set-master-volume = { path = "../../soundbox/data-capabilities/set-master-volume" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
+set-sound-volume = { path = "../../soundbox/data-capabilities/set-sound-volume" }
 set-token-condition = { path = "../../table/data-capabilities/set-token-condition" }
 set-token-visibility = { path = "../../table/data-capabilities/set-token-visibility" }
 start-combat = { path = "../../table/data-capabilities/start-combat" }
+stop-all = { path = "../../soundbox/data-capabilities/stop-all" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
+update-sound = { path = "../../soundbox/data-capabilities/update-sound" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }

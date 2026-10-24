@@ -1,0 +1,25 @@
+{
+  "concept": "SoundTag",
+  "version": 1,
+  "kind": "derived",
+  "definition": "What a tag of a sound is, and how a tag filter reads it. A tag is normalised in three steps, in this order: surrounding whitespace is removed, the text is lowercased, and a tag left empty is dropped. Accents are kept (`Intérieur` becomes `intérieur`, never `interieur`), whitespace inside a tag is kept as typed, and nothing else changes the text. Whitespace is the Unicode White_Space property and lowercasing is the Unicode default lowercase mapping, character by character, with no accent folding and no Unicode normalisation form applied. A list of tags is normalised tag by tag, then a tag already seen earlier in the list is dropped: the first occurrence stays and the order of the list is kept. `sound.tags` is the list as typed. `tags` is the normalised list, the only field the tag filter and the name search read. A tag filter is a list of tags, normalised the same way. It matches a sound when the filter is empty once normalised (no filter keeps every sound) or when at least one tag of the filter is among the normalised tags of the sound. `matches` is the answer to that filter; it is true when `filter` is absent.",
+  "output": {
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "rule": "each tag trimmed, lowercased and non-empty; no tag twice; order of first occurrence kept"
+    },
+    "matches": {
+      "type": "boolean",
+      "rule": "true when the normalised filter is empty, else true exactly when a tag of the normalised filter is in tags"
+    }
+  },
+  "inputs": [
+    "sound.tags",
+    "filter.tags"
+  ],
+  "conformance": "./fixtures.json",
+  "deprecates": null
+}

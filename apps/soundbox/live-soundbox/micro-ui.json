@@ -1,0 +1,8 @@
+{
+  "microUi": "LiveSoundbox",
+  "system": "soundbox",
+  "description": "L’onglet Soundbox de la DM view : cases de sons, recherche, filtre par tags, volume global et par son, « Tout arrêter »",
+  "needs": ["soundbox.listSounds"],
+  "actions": ["soundbox.playSound", "soundbox.stopAll", "soundbox.setSoundVolume", "soundbox.setMasterVolume"],
+  "props": {}
+}

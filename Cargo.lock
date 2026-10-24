@@ -54,6 +54,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "add-sound"
+version = "0.1.0"
+dependencies = [
+ "aggregate-sound",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
@@ -526,6 +539,7 @@ dependencies = [
  "add-place-to-session",
  "add-present-character",
  "add-scene",
+ "add-sound",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
  "aggregate-campaign",
@@ -563,11 +577,14 @@ dependencies = [
  "list-players",
  "list-scenes",
  "list-sessions",
+ "list-sounds",
  "move-token",
  "next-turn",
  "place-tokens",
+ "play-sound",
  "remove-participant",
  "remove-present-character",
+ "remove-sound",
  "remove-token",
  "rename-token",
  "reorder-initiative",
@@ -577,11 +594,15 @@ dependencies = [
  "save-entity",
  "save-grid-settings",
  "save-settings",
+ "set-master-volume",
  "set-media-place",
+ "set-sound-volume",
  "set-token-condition",
  "set-token-visibility",
  "start-combat",
+ "stop-all",
  "test-connection",
+ "update-sound",
  "upload-media",
 ]
 
@@ -1243,6 +1264,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-sounds"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1445,6 +1474,18 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-normalization",
+]
+
+[[package]]
+name = "play-sound"
+version = "0.1.0"
+dependencies = [
+ "aggregate-sound-playback",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1661,6 +1702,21 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "remove-sound"
+version = "0.1.0"
+dependencies = [
+ "add-sound",
+ "aggregate-sound",
+ "aggregate-sound-playback",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "play-sound",
  "serde_json",
  "tokio",
 ]
@@ -2053,10 +2109,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "set-master-volume"
+version = "0.1.0"
+dependencies = [
+ "aggregate-campaign",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "set-media-place"
 version = "0.1.0"
 dependencies = [
  "aggregate-media",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "set-sound-volume"
+version = "0.1.0"
+dependencies = [
+ "aggregate-sound",
  "async-trait",
  "data",
  "harness-dataguard",
@@ -2185,6 +2265,18 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "stop-all"
+version = "0.1.0"
+dependencies = [
+ "aggregate-sound-playback",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -2480,6 +2572,19 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "update-sound"
+version = "0.1.0"
+dependencies = [
+ "aggregate-sound",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "platform-conformance",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "upload-media"
