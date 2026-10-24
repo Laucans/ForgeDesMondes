@@ -1,0 +1,27 @@
+{
+  "dataCapability": "session.addPresentCharacter",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "Session",
+    "id": "$session"
+  },
+  "touches": [
+    "Session.sessionPresentCharacterSessionId",
+    "Session.sessionPresentCharacterCharacterId",
+    "Session.addedAt"
+  ],
+  "payload": {
+    "session": "uuid — the session the PC joins, live in the tables; sent as `target.id` or here",
+    "character": "uuid — a PC (« pj » with its sheet) of the session's campaign (present-only-pj); present already, the one row stays. The caller keys the command by session + character (`<session>:<character>`)"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "present-only-pj",
+    "text-only-no-audio"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

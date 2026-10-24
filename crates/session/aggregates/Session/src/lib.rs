@@ -27,6 +27,11 @@
 //! other (`oneshot-single-session`); the PCs it ticks present are judged
 //! there against its campaign (`present-only-pj`).
 //!
+//! A PC ticked present after the session's creation is a row of its own,
+//! the session and the one PC, written into `session_present_character` in
+//! the transaction that applies it ([`Presences`]): judged there against the
+//! session's campaign (`present-only-pj`), present once.
+//!
 //! A session's scene order is a row of its own, its scenes' ids under
 //! `scenePosition`, rewritten into their ranks in the transaction that
 //! applies it ([`SceneOrder`]): every rank at once, 1 to n.
@@ -40,10 +45,12 @@ use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
 mod order;
+mod presences;
 mod scenes;
 mod sessions;
 
 pub use order::{SceneOrder, order_id, session_of};
+pub use presences::{ADDED_AT, PRESENT_SESSION_ID, Presences};
 pub use scenes::{
     LINKS, NOTES, PARTITION, SAME_CAMPAIGN, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, Scenes,
 };
@@ -154,7 +161,8 @@ impl Judge for Session {
 }
 
 /// What the aggregate plugs into the engine: its judge, and its sessions,
-/// scenes and scene orders written in the transaction that applies them.
+/// scenes, scene orders and PCs ticked present later written in the
+/// transaction that applies them.
 #[must_use]
 pub fn plugin() -> Plugin {
     Plugin::new()
@@ -162,6 +170,7 @@ pub fn plugin() -> Plugin {
         .project_pg(AGGREGATE, Sessions)
         .project_pg(AGGREGATE, Scenes)
         .project_pg(AGGREGATE, SceneOrder)
+        .project_pg(AGGREGATE, Presences)
 }
 
 /// `field`'s value in `row`, an absent field and a null being the same.
