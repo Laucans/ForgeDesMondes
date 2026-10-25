@@ -10,12 +10,20 @@
 //! the microphone on, read the Session aggregate, which the engine does not
 //! hold beside the suggestion: the DataCapability that produces suggestions
 //! reads the session before it writes one.
+//!
+//! An applied write of a suggestion is a row of that table, inserted once, in
+//! the transaction that applies it ([`Table`]): the pill's Capability reads
+//! it from there.
 
 use std::collections::BTreeMap;
 
 use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
+
+mod table;
+
+pub use table::Table;
 
 const AGGREGATE: &str = "Suggestion";
 
@@ -58,10 +66,13 @@ impl Judge for Suggestion {
     }
 }
 
-/// What the aggregate plugs into the engine: its judge.
+/// What the aggregate plugs into the engine: its judge, and its table
+/// (`live_suggestion`) written in the transaction that applies a write.
 #[must_use]
 pub fn plugin() -> Plugin {
-    Plugin::new().judge(AGGREGATE, Suggestion)
+    Plugin::new()
+        .judge(AGGREGATE, Suggestion)
+        .project_pg(AGGREGATE, Table)
 }
 
 /// Whether `field` holds a non-blank text in `row`.
