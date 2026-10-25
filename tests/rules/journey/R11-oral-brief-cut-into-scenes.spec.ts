@@ -12,15 +12,14 @@ rule('R11', ['screen:preparation-seance', 'micro-ui:OralBrief', 'micro-ui:SceneB
   const nameOf = (id: string): string =>
     [...entities.characters, ...entities.places, ...entities.events].find((e: any) => e.id === id)?.name
     ?? [...media.battlemaps, ...media.illustrations].find((m: any) => m.id === id)?.title;
-  const everyName = [...entities.characters, ...entities.places, ...entities.events].map((e: any) => e.name as string)
-    .concat([...media.battlemaps, ...media.illustrations].map((m: any) => m.title as string));
   await open(page, 'preparation-seance');
   const scenes = component(page, 'SceneBoard');
   const headings = scenes.getByRole('heading', { level: 3 });
   const card = (title: string) => scenes.getByRole('listitem').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
 
-  // The session's board before the brief: its scenes, in their order.
-  await expect(headings.first()).toBeVisible();
+  // The session's board before the brief: its scenes, in their order (possibly none). The board paints
+  // its counter and its list together, so the counter says the list is there.
+  await expect(scenes.locator('#scenes-present-count')).toHaveText(/\d+ sur \d+/);
   const before = (await headings.allTextContents()).map((t) => t.trim());
 
   // The brief is told, then processed.
@@ -33,13 +32,13 @@ rule('R11', ['screen:preparation-seance', 'micro-ui:OralBrief', 'micro-ui:SceneB
   // The board holds the scenes the brief was cut into once the screen is opened again,
   // after those it already held, which keep their order.
   await open(page, 'preparation-seance');
-  await expect(headings.first()).toBeVisible();
   await expect.poll(() => headings.count()).toBeGreaterThan(before.length);
   const titles = (await headings.allTextContents()).map((t) => t.trim());
   expect(titles.slice(0, before.length)).toEqual(before);
 
   // An ordered list of scenes, each linked to its places, NPCs, events and media: the mock-up's scenes
-  // to exactly what it links, the others to at least one place, NPC, event or medium.
+  // to exactly what it links, the others to at least one place, NPC, event or medium. Only the card's
+  // link chips count: its title, its notes and its battlemap select can name an entity without any link.
   for (const title of titles) {
     const mocked = board.scenes.find((s: any) => s.title === title);
     if (mocked) {
@@ -47,8 +46,8 @@ rule('R11', ['screen:preparation-seance', 'micro-ui:OralBrief', 'micro-ui:SceneB
         await expect(card(title)).toContainText(nameOf(id));
       }
     } else {
-      const text = await card(title).innerText();
-      expect(everyName.some((name) => text.includes(name)), `${title} is linked to nothing`).toBe(true);
+      // The « À créer » chips (`chip--todo`) are entities still to create, not links to existing ones.
+      await expect(card(title).locator('.mf-scenes__links a:not(.chip--todo)').first(), `${title} is linked to nothing`).toBeVisible();
     }
   }
 
