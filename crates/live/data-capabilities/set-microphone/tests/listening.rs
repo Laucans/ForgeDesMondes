@@ -1,7 +1,8 @@
 //! The microphone's streams, with no database: the write of a session seen once applied
 //! opens the stream the command staged (microphone on) or ends it (microphone off), each
-//! target a heard phrase names is submitted as a `live.addSuggestion` with the words that
-//! named it, and nothing is listened to without an engine to submit to.
+//! phrase heard is submitted as the next line of the session's journal
+//! (`session.addJournalLine`), each target it names as a `live.addSuggestion` with the
+//! words that named it, and nothing is listened to without an engine to submit to.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -28,16 +29,31 @@ const OTHER: &str = "5e000000-0000-4000-8000-000000000002";
 const VESNA: &str = "e1000000-0000-4000-8000-000000000001";
 const PORTE: &str = "50000000-0000-4000-8000-000000000001";
 
-/// Where the suggestions go: kept, and failing the first `refusing` of them.
+/// The DataCapability a phrase heard is submitted to, as a journal line.
+const ADD_JOURNAL_LINE: &str = "session.addJournalLine";
+
+/// Where the submissions go: the journal lines kept apart; the others kept,
+/// failing the first `refusing` of them.
 #[derive(Default)]
 struct Recorder {
     kept: Mutex<Vec<Submission>>,
+    lines: Mutex<Vec<Submission>>,
     refusing: Mutex<usize>,
 }
 
 impl Recorder {
+    /// What was submitted but the journal lines: the suggestions, and the
+    /// microphone turned off.
     fn kept(&self) -> Vec<Submission> {
         self.kept
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The journal lines submitted, in order.
+    fn lines(&self) -> Vec<Submission> {
+        self.lines
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
@@ -47,6 +63,13 @@ impl Recorder {
 #[async_trait]
 impl Submit for Recorder {
     async fn submit(&self, submission: Submission) -> Result<(), String> {
+        if submission.data_capability == ADD_JOURNAL_LINE {
+            self.lines
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(submission);
+            return Ok(());
+        }
         let mut refusing = self.refusing.lock().unwrap_or_else(PoisonError::into_inner);
         if *refusing > 0 {
             *refusing -= 1;
@@ -177,6 +200,50 @@ async fn the_microphone_on_listens_and_each_target_named_becomes_a_suggestion() 
             sound_names: vec!["Porte qui grince".into()],
         }
     );
+    listening.shutdown();
+}
+
+#[tokio::test]
+async fn each_phrase_heard_is_the_next_line_of_the_session_s_journal_text_only() {
+    let (listening, plans, recorder) = server();
+    let fake = FakeSpeechToText::new("");
+    plans.stage(
+        SESSION,
+        &listening,
+        Some(plan(
+            &fake,
+            &[
+                "Vous entrez dans la taverne.",
+                "   ",
+                "La Balafrée ? Jamais.",
+            ],
+            Duration::from_millis(5),
+        )),
+    );
+    Observer(plans).observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    assert!(
+        until(|| recorder.lines().len() == 2).await,
+        "{:?}",
+        recorder.lines()
+    );
+    let lines = recorder.lines();
+    // On the session's own row, for the DM who turned the microphone on; a
+    // blank phrase is no line.
+    for line in &lines {
+        assert_eq!(line.target_id.as_deref(), Some(SESSION));
+        assert_eq!(line.caller.from, DATA_CAPABILITY);
+        assert_eq!(line.caller.by, "dm");
+        assert_eq!(line.caller.roles, ["role:approver"]);
+    }
+    assert_eq!(
+        lines.iter().map(|l| json!(l.payload)).collect::<Vec<_>>(),
+        [
+            json!({ "text": "Vous entrez dans la taverne." }),
+            json!({ "text": "La Balafrée ? Jamais." }),
+        ]
+    );
+    // The phrase that names a target is a line and a suggestion both.
+    assert!(until(|| recorder.kept().len() == 1).await);
     listening.shutdown();
 }
 
