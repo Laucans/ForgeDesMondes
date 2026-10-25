@@ -18,7 +18,7 @@
       "kind": "authoritative"
     },
     "sessionId": {
-      "criticality": "normal",
+      "criticality": "critical",
       "kind": "authoritative"
     },
     "soundId": {

@@ -357,23 +357,34 @@ async fn a_suggestion_is_always_new() {
 }
 
 #[tokio::test]
-async fn a_caller_without_a_role_is_applied_not_parked_in_review() {
-    // The mic pipeline holds no role: a pure addition needs no approver.
+async fn a_caller_who_is_no_approver_waits_for_its_review_and_nothing_is_written() {
+    // `Suggestion.sessionId` is critical (aggregate.json): an approver's to
+    // let through.
     let (scratch, served) = seeded_by(
         "add_suggestion_no_role",
         Some(Engine::caller("mic", "live.suggestions", &[], &[])),
     )
     .await;
-    let applied = served
-        .applied(
+    let submitted = served
+        .submit(
             "live.addSuggestion",
             json!({ "sessionId": live(), "entityId": entity(), "matchedText": "la taverne" }),
             None,
         )
-        .await;
-    assert_eq!(applied.status, State::Applied, "{applied:?}");
-    assert!(applied.violations.is_empty(), "{:?}", applied.violations);
-    assert_eq!(written(&scratch).await.len(), 1);
+        .await
+        .expect("queued");
+    assert_eq!(
+        submitted.result.status,
+        State::AwaitingReview,
+        "{submitted:?}"
+    );
+    let review = submitted.result.review_id.clone().expect("a review");
+    assert_eq!(
+        served.engine.review(&review).map(|review| review.aggregate),
+        Some(format!("Suggestion/{SUGGESTION}"))
+    );
+    served.settled().await;
+    assert!(written(&scratch).await.is_empty(), "nothing written");
 }
 
 #[tokio::test]
