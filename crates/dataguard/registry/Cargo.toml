@@ -13,6 +13,7 @@ build = "build.rs"
 # machete does not read.
 [package.metadata.cargo-machete]
 ignored = [
+    "add-journal-line",
     "add-participant",
     "add-place-to-session",
     "add-present-character",
@@ -33,6 +34,7 @@ ignored = [
     "aggregate-suggestion",
     "analyze-brief",
     "change-hit-points",
+    "close-session",
     "close-window",
     "create-battlemap-instance",
     "create-campaign",
@@ -48,7 +50,10 @@ ignored = [
     "get-diffusion",
     "get-entity",
     "get-last-brief",
+    "get-live-session",
+    "get-previous-session-summary",
     "get-session",
+    "get-session-journal",
     "get-settings",
     "get-transcription-vocabulary",
     "import-campaign",
@@ -98,12 +103,14 @@ ignored = [
     "start-combat",
     "stop-all",
     "test-connection",
+    "update-scene-notes",
     "update-sound",
     "upload-media",
 ]
 
 [dependencies]
 harness-dataguard = { git = "https://github.com/laucans/custom-harness", tag = "dataguard-v5", features = ["postgres", "uuid"] }
+add-journal-line = { path = "../../session/data-capabilities/add-journal-line" }
 add-participant = { path = "../../table/data-capabilities/add-participant" }
 add-place-to-session = { path = "../../session/data-capabilities/add-place-to-session" }
 add-present-character = { path = "../../session/data-capabilities/add-present-character" }
@@ -124,6 +131,7 @@ aggregate-sound-playback = { path = "../../soundbox/aggregates/SoundPlayback" }
 aggregate-suggestion = { path = "../../live/aggregates/Suggestion" }
 analyze-brief = { path = "../../ai/data-capabilities/analyze-brief" }
 change-hit-points = { path = "../../table/data-capabilities/change-hit-points" }
+close-session = { path = "../../session/data-capabilities/close-session" }
 close-window = { path = "../../live/data-capabilities/close-window" }
 create-battlemap-instance = { path = "../../table/data-capabilities/create-battlemap-instance" }
 create-campaign = { path = "../../campaign/data-capabilities/create-campaign" }
@@ -139,7 +147,10 @@ get-campaign = { path = "../../campaign/capabilities/get-campaign" }
 get-diffusion = { path = "../../live/capabilities/get-diffusion" }
 get-entity = { path = "../../campaign/capabilities/get-entity" }
 get-last-brief = { path = "../../session/capabilities/get-last-brief" }
+get-live-session = { path = "../../session/capabilities/get-live-session" }
+get-previous-session-summary = { path = "../../session/capabilities/get-previous-session-summary" }
 get-session = { path = "../../session/capabilities/get-session" }
+get-session-journal = { path = "../../session/capabilities/get-session-journal" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
 get-transcription-vocabulary = { path = "../../live/capabilities/get-transcription-vocabulary" }
 import-campaign = { path = "../../campaign/data-capabilities/import-campaign" }
@@ -189,5 +200,6 @@ show-window-on-player-view = { path = "../../live/data-capabilities/show-window-
 start-combat = { path = "../../table/data-capabilities/start-combat" }
 stop-all = { path = "../../soundbox/data-capabilities/stop-all" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
+update-scene-notes = { path = "../../session/data-capabilities/update-scene-notes" }
 update-sound = { path = "../../soundbox/data-capabilities/update-sound" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }

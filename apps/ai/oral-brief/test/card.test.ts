@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { mount, type Dictation, type Timing } from '../src/index.ts';
+import { listens, mount, type Dictation, type Timing } from '../src/index.ts';
 import { STYLE } from '../src/style.ts';
 import type { Shell } from '../src/types.ts';
 
@@ -40,8 +40,8 @@ const analysed = (session: string, text: string): Answer => ({
 
 interface Sent {
   dataCapability: string;
-  payload: { session: string; text: string };
-  caller: { by: string; from: string };
+  payload: { session: string; text?: string; dictation?: string };
+  caller: { by: string; from: string; roles: string[] };
 }
 
 interface Applied {
@@ -58,7 +58,7 @@ function fakeShell(options: { apply?: (sent: Sent) => Applied; unreadable?: bool
   const apply =
     options.apply ??
     ((command: Sent): Applied => {
-      briefs.set(command.payload.session, analysed(command.payload.session, command.payload.text));
+      briefs.set(command.payload.session, analysed(command.payload.session, command.payload.text ?? 'Brief entendu.'));
       return { status: 'applied' };
     });
   const shell: Shell = {
@@ -184,7 +184,7 @@ test('typing a brief and launching the analysis sends the text alone, then reads
   assert.equal(analyse.disabled, false);
   await s.click('#brief-analyse');
   assert.deepEqual(s.sent, [
-    { dataCapability: 'ai.analyzeBrief@1', payload: { session: 's4', text: 'On commence au pont des Pendus.' }, caller: { by: 'dm', from: 'OralBrief', roles: [] } },
+    { dataCapability: 'ai.analyzeBrief@1', payload: { session: 's4', text: 'On commence au pont des Pendus.' }, caller: { by: 'dm', from: 'OralBrief', roles: ['role:approver'] } },
   ]);
   assert.equal(s.reads.length, 2);
   assert.deepEqual(Array.from(s.$('#brief-scenes ol').children).map((li) => li.querySelector('b')?.textContent), ['La nouvelle scène', 'La suite']);
@@ -205,7 +205,7 @@ test('an empty brief sends nothing and takes the focus', async () => {
 });
 
 test('the microphone: one click listens, « Terminer et analyser » ends it and sends what was heard, as text', async () => {
-  const s = await screen(undefined, { session: 's4' }, { transcript: () => 'Première scène à la taverne.\nDeuxième scène au pont.' });
+  const s = await screen(undefined, { session: 's4' }, { transcript: () => 'Première scène à la taverne.\nDeuxième scène au pont.', audio: () => '' });
   assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, true);
   await s.click('#brief-mic');
   assert.equal(s.$('#brief-mic-box').getAttribute('data-state'), 'recording');
@@ -221,7 +221,7 @@ test('the microphone: one click listens, « Terminer et analyser » ends it and 
 });
 
 test('a second click pauses the microphone and hands the transcript to the text area, after what is typed', async () => {
-  const s = await screen(undefined, { session: 's4' }, { transcript: () => 'dicté' });
+  const s = await screen(undefined, { session: 's4' }, { transcript: () => 'dicté', audio: () => '' });
   s.type('tapé');
   await s.click('#brief-mic');
   await s.click('#brief-mic');
@@ -369,4 +369,114 @@ test('an id with a quote cannot break out of the markup', async () => {
   const diff = s.host.querySelector('[data-diff]') as HTMLElement;
   assert.equal(diff.dataset.diff, 'a" onclick="x');
   assert.equal(diff.getAttribute('onclick'), null);
+});
+
+/** A host that records: it starts a take on the first click, and hands its audio over once, as base64. */
+function recorder(audio: string | Promise<string>) {
+  const calls: string[] = [];
+  let handed = false;
+  const dictation: Dictation = {
+    transcript: () => '',
+    start: () => void calls.push('start'),
+    audio: () => {
+      calls.push('audio');
+      if (handed) return '';
+      handed = true;
+      return audio;
+    },
+  };
+  return { dictation, calls };
+}
+
+test('the microphone that records and gives no words sends the dictation, as the DM, and nothing typed', async () => {
+  const { dictation, calls } = recorder('T3JhbEJyaWVm');
+  const s = await screen(undefined, { session: 's4' }, dictation);
+  await s.click('#brief-mic');
+  assert.deepEqual(calls, ['start']);
+  assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, false);
+  await s.click('#brief-analyse');
+  assert.deepEqual(calls, ['start', 'audio']);
+  assert.deepEqual(s.sent, [
+    { dataCapability: 'ai.analyzeBrief@1', payload: { session: 's4', dictation: 'T3JhbEJyaWVm' }, caller: { by: 'dm', from: 'OralBrief', roles: ['role:approver'] } },
+  ]);
+  assert.match(s.$('#brief-done').textContent ?? '', /Brief analysé/);
+  assert.equal(s.$('#brief-mic-box').getAttribute('data-state'), 'idle');
+});
+
+test('a take held after a pause keeps « Terminer et analyser » open, and is sent as it was handed over, even as a promise', async () => {
+  const { dictation, calls } = recorder(Promise.resolve('YXVkaW8='));
+  const s = await screen(undefined, { session: 's4' }, dictation);
+  await s.click('#brief-mic');
+  await s.click('#brief-mic');
+  assert.equal(s.$('#brief-mic-box').getAttribute('data-state'), 'paused');
+  assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, false);
+  await s.click('#brief-analyse');
+  assert.deepEqual(calls, ['start', 'audio']);
+  assert.deepEqual(s.sent.map((c) => c.payload), [{ session: 's4', dictation: 'YXVkaW8=' }]);
+});
+
+test('what is typed wins over a take: the text is sent, not the audio', async () => {
+  const { dictation } = recorder('YXVkaW8=');
+  const s = await screen(undefined, { session: 's4' }, dictation);
+  await s.click('#brief-mic');
+  s.type('Le brief tapé.');
+  await s.click('#brief-analyse');
+  assert.deepEqual(s.sent.map((c) => c.payload), [{ session: 's4', text: 'Le brief tapé.' }]);
+});
+
+test('a take is spent once its brief is analysed: the next launch with nothing typed sends nothing', async () => {
+  const { dictation } = recorder('YXVkaW8=');
+  const s = await screen(undefined, { session: 's4' }, dictation);
+  await s.click('#brief-mic');
+  await s.click('#brief-analyse');
+  assert.equal(s.sent.length, 1);
+  assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, true);
+});
+
+test('a take is dropped with the session it was recorded for', async () => {
+  const { dictation } = recorder('YXVkaW8=');
+  const s = await screen(undefined, { session: 's4' }, dictation);
+  await s.click('#brief-mic');
+  await s.click('#brief-mic');
+  s.mounted.update({ session: 's9' });
+  await settle();
+  assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, true);
+});
+
+test('a session change while recording stops the recorder and throws its sound away', async () => {
+  const { dictation, calls } = recorder('YXVkaW8=');
+  const s = await screen(undefined, { session: 's4' }, dictation);
+  await s.click('#brief-mic');
+  s.mounted.update({ session: 's9' });
+  await settle();
+  assert.deepEqual(calls, ['start', 'audio']);
+  assert.equal(s.$('#brief-mic-box').getAttribute('data-state'), 'idle');
+  assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, true);
+  assert.deepEqual(s.sent, []);
+});
+
+test('a recording that gave no audio says so and sends nothing', async () => {
+  const s = await screen(undefined, { session: 's4' }, { transcript: () => '', start: () => undefined, audio: () => Promise.resolve('') });
+  await s.click('#brief-mic');
+  await s.click('#brief-analyse');
+  assert.deepEqual(s.sent, []);
+  assert.match(s.$('#brief-error').textContent ?? '', /Aucun son n’a été enregistré/);
+  assert.equal((s.$('#brief-text') as HTMLTextAreaElement).disabled, false);
+});
+
+test('a refused dictation says why and keeps the take for another try', async () => {
+  const { dictation } = recorder('YXVkaW8=');
+  let refuse = true;
+  const s = await screen({ apply: () => (refuse ? { status: 'rejected', violations: ['brief-no-auto-creation'] } : { status: 'applied' }) }, { session: 's4' }, dictation);
+  await s.click('#brief-mic');
+  await s.click('#brief-analyse');
+  assert.match(s.$('#brief-error').textContent ?? '', /Analyse refusée/);
+  refuse = false;
+  assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, false);
+  await s.click('#brief-analyse');
+  assert.deepEqual(s.sent.map((c) => c.payload), [{ session: 's4', dictation: 'YXVkaW8=' }, { session: 's4', dictation: 'YXVkaW8=' }]);
+});
+
+test('OralBrief says it listens, so the shell hands it the microphone', () => {
+  assert.equal(listens, true);
 });

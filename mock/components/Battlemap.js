@@ -115,6 +115,7 @@
   var SHOW_ON_PLAYER_VIEW = "live.showOnPlayerView";
   var AGGREGATE = "BattlemapInstance";
   var DATA_CAPABILITY_VERSION = 1;
+  var APPROVER = "role:approver";
 
   // apps/table/battlemap/src/hexgrid.ts
   var FEET_PER_HEX = 5;
@@ -347,7 +348,7 @@
   }
   var withCondition = (states, condition) => states.includes(condition) ? states.filter((s) => s !== condition) : [...states, condition];
   function commandBody(dataCapability, aggregate, id, payload) {
-    return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, target: id === void 0 ? { aggregate } : { aggregate, id }, payload, caller: { by: "dm", from: "Battlemap", roles: [] } };
+    return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, target: id === void 0 ? { aggregate } : { aggregate, id }, payload, caller: { by: "dm", from: "Battlemap", roles: [APPROVER] } };
   }
   var tableCommand = (dataCapability, instance, payload) => commandBody(dataCapability, AGGREGATE, instance, payload);
   var VIOLATIONS = {
@@ -377,8 +378,8 @@
   var attr = (name, value) => value === "" ? "" : ` ${name}="${esc(value)}"`;
   var tone = (color) => /^[a-z][a-z-]*$/.test(color) ? color : "secondary";
   function skeleton(props2) {
-    const modes = `${props2.fill ? " bm--fill" : ""}${props2.view === "player" && !props2.pilot ? " bm--readonly" : ""}`;
-    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}" hidden></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
+    const modes = `${props2.fill ? " bm--fill" : ""}${props2.view === "player" && !props2.pilot ? " bm--readonly" : ""}${props2.view === "prep" ? " bm--prep" : ""}`;
+    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props2.view === "prep" ? "" : " hidden"}></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
   }
   function button(p) {
     return `<button type="button" class="${p.variant}" id="${p.id}"${attr("data-writes", p.writes ?? "")}${p.disabled ? " disabled" : ""}>${esc(p.label)}</button>`;
@@ -527,6 +528,8 @@
 .bm--fill .kit-hexmap .hm-bar { position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 4; margin: 0; }
 .bm-side { flex: none; width: calc(var(--space-5) * 7); display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); overflow-y: auto; }
 .bm-side[hidden] { display: none; }
+.bm--prep .bm-body { position: relative; }
+.bm--prep #token-inspector { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; box-shadow: var(--shadow-high); }
 .bm-dead { color: var(--color-danger); font-weight: var(--font-weight-heading); }
 .bm-status { padding: var(--space-2) var(--space-3); border-radius: var(--radius-medium); background: var(--color-surface); border: var(--border-width) solid var(--color-border); }
 .bm-status[hidden] { display: none; }
@@ -557,7 +560,7 @@
 .bm-modal .kit-dialog, .bm-modal .kit-dialog__veil { height: 100%; }
 .bm-modal .kit-dialog__window { max-height: 88vh; }
 .bm-drop { position: absolute; z-index: 5; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-primary); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); cursor: default; }
-@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } }
+@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm--prep #token-inspector { position: static; } }
 `;
 
   // apps/table/battlemap/src/index.ts
@@ -675,7 +678,7 @@
     function paintRoster() {
       const box = part("battlemap-roster");
       if (!box) return;
-      box.hidden = props2.view !== "prep" || !instance;
+      box.hidden = props2.view !== "prep";
       if (box.hidden || !instance) return;
       box.innerHTML = roster(instance.roster.map((id) => characters[id]).filter((c) => c !== void 0));
     }

@@ -27,3 +27,6 @@ export const AGGREGATE = 'BattlemapInstance';
 
 /** The version of a DataCapability's contract, as a command names it. */
 export const DATA_CAPABILITY_VERSION = 1;
+
+/** The role every command of the map carries: the DM approving their own act (BattlemapInstance.q, r, visible, hpCurrent… are critical, and a command without it waits for a review instead of being stored). */
+export const APPROVER = 'role:approver';

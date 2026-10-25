@@ -1,7 +1,7 @@
 // What the Micro-UI knows, with no DOM: the brief as the Capability answers
 // it, the command the screen becomes.
 
-import { DATA_CAPABILITY_VERSION } from './ids.ts';
+import { APPROVER, DATA_CAPABILITY_VERSION } from './ids.ts';
 import type { Brief, Missing, Recognized, Scene } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -40,9 +40,9 @@ export function parseBrief(data: unknown): Brief {
   };
 }
 
-/** `POST /commands` for one DataCapability, by identifier: the DM's own. Only text goes. */
+/** `POST /commands` for one DataCapability, by identifier: the DM's own, who approves the Session's critical fields. The payload is the text, or a dictation only the speech-to-text port hears. */
 export function commandBody(dataCapability: string, payload: Record<string, unknown>): unknown {
-  return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload, caller: { by: 'dm', from: 'OralBrief', roles: [] } };
+  return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload, caller: { by: 'dm', from: 'OralBrief', roles: [APPROVER] } };
 }
 
 const VIOLATIONS: Record<string, string> = {

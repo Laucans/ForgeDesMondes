@@ -1,0 +1,23 @@
+[package]
+name = "close-session"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.closeSession: a live session closed in one action — its microphone off, its close dated, the summary of its journal generated through the llm port by the active provider's summary model and stored with that model's name; its running playbacks stopped and its journal kept by the tables."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+# Its PostgreSQL client is the engine's re-export, never a driver of this crate.
+harness-dataguard = { workspace = true }
+# The engine's `Prepare` and `ProjectPg` are async traits.
+async-trait = "0.1"
+ports-llm = { path = "../../../ports/llm" }
+serde_json = "1"
+
+[dev-dependencies]
+# Its target aggregate's judge, which the engine runs beside it.
+aggregate-session = { path = "../../aggregates/Session" }
+# The migrations' applier the server runs: the tables its tests write.
+data = { path = "../../../data" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }

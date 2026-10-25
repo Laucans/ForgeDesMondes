@@ -97,6 +97,7 @@
   // apps/ai/oral-brief/src/ids.ts
   var GET_LAST_BRIEF = "session.getLastBrief";
   var ANALYZE_BRIEF = "ai.analyzeBrief";
+  var APPROVER = "role:approver";
   var DATA_CAPABILITY_VERSION = 1;
 
   // apps/ai/oral-brief/src/model.ts
@@ -130,7 +131,7 @@
     };
   }
   function commandBody(dataCapability, payload) {
-    return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload, caller: { by: "dm", from: "OralBrief", roles: [] } };
+    return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload, caller: { by: "dm", from: "OralBrief", roles: [APPROVER] } };
   }
   var VIOLATIONS = {
     "brief-no-auto-creation": "le brief ne cr\xE9e aucun \xE9l\xE9ment",
@@ -244,6 +245,7 @@
     };
     let session = sessionOf(props2);
     let busy = false;
+    let take = "";
     const say = (outcome) => {
       part("brief-status").innerHTML = status(outcome);
     };
@@ -269,12 +271,13 @@
     const count2 = () => {
       const analyse2 = host2.querySelector("#brief-analyse");
       if (!analyse2) return;
-      analyse2.disabled = busy || field().value.trim() === "" && state !== "recording";
+      analyse2.disabled = busy || field().value.trim() === "" && state !== "recording" && take === "";
     };
     const setMic = (next) => {
       state = next;
       stopTimers();
       if (next === "recording") {
+        dictation?.start?.();
         tick = setInterval(() => {
           if (!mic.isConnected) return stopTimers();
           seconds += 1;
@@ -293,7 +296,10 @@
     const hear = () => {
       if (state !== "recording") return;
       setMic("paused");
+      const recorded = dictation?.audio() ?? "";
+      if (recorded !== "") take = recorded;
       const heard = dictation?.transcript() ?? "";
+      count2();
       if (heard === "") return;
       const area = field();
       area.value = area.value === "" ? heard : `${area.value}
@@ -321,7 +327,7 @@ ${heard}`;
       if (busy) return;
       hear();
       const text2 = field().value.trim();
-      if (text2 === "") {
+      if (text2 === "" && take === "") {
         field().focus();
         return;
       }
@@ -330,13 +336,16 @@ ${heard}`;
       lock(true);
       try {
         say({ kind: "busy", text: "Analyse du brief en cours\u2026" });
-        const outcome = await send(ANALYZE_BRIEF, { session: target, text: text2 });
+        const audio = text2 === "" ? await take : "";
+        if (text2 === "" && audio === "") return say({ kind: "error", text: "Aucun son n\u2019a \xE9t\xE9 enregistr\xE9." });
+        const outcome = await send(ANALYZE_BRIEF, text2 === "" ? { session: target, dictation: audio } : { session: target, text: text2 });
         if (outcome.status === "rejected") return say({ kind: "error", text: `Analyse refus\xE9e : ${reasons(outcome.violations)}.` });
         if (!isFinal(outcome.status) && outcome.status !== "") return say({ kind: "error", text: `L\u2019analyse est toujours en attente (\xE9tat : ${outcome.status}) : elle s\u2019appliquera \xE0 son tour, ne la relancez pas.` });
         if (outcome.status !== "applied") return say({ kind: "error", text: `L\u2019analyse n\u2019a pas abouti (\xE9tat : ${outcome.status || "inconnu"}).` });
         if (target !== session) return;
         field().value = "";
         seconds = 0;
+        take = "";
         setMic("idle");
         try {
           const brief = await read();
@@ -385,7 +394,9 @@ ${heard}`;
         const chosen = sessionOf(next);
         if (chosen === session) return;
         session = chosen;
+        if (state === "recording") void Promise.resolve(dictation?.audio?.()).catch(() => void 0);
         seconds = 0;
+        take = "";
         setMic("idle");
         field().value = "";
         paint(NO_BRIEF);
@@ -822,7 +833,7 @@ ${heard}`;
   var shell = shellOnce((server) => createShell((input, init) => server.fetch(new URL(input, location.href), init)));
   mockServer().load("OralBrief").then((fixture) => {
     let told = false;
-    const dictation = { transcript: () => told ? "" : (told = true, fixture.transcript.join("\n")) };
+    const dictation = { transcript: () => told ? "" : (told = true, fixture.transcript.join("\n")), audio: () => "" };
     host.addEventListener("open-versions", (e) => window.Mock?.emit("open-versions", e.detail));
     compose({ session: fixture.session, ...props }, (resolved) => mount(host, resolved, shell, void 0, dictation));
   });

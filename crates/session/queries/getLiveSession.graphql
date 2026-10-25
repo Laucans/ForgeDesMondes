@@ -1,0 +1,23 @@
+# fields: session.id, session.position, session.title, session.plannedOn, session.status, session.startedAt, session.microphoneOn, sessionPresentCharacter.sessionId, sessionPresentCharacter.characterId, sessionPresentCharacter.addedAt
+# The running session for the live bar and the DM view: its number, title,
+# date, status and start time, whether its microphone listens, and the PCs
+# ticked present, in the order they were ticked. The present PCs are exactly
+# the rows of the session's present list, those added later included
+# (present-only-pj). The status is read as stored; its label is derived
+# (SessionLifecycle@1), never read. Without an id, the live session that
+# started last is the one read.
+query GetLiveSession($id: ID) {
+  session(id: $id) {
+    id
+    position
+    title
+    plannedOn
+    status
+    startedAt
+    microphoneOn
+    presentCharacters {
+      characterId
+      addedAt
+    }
+  }
+}
