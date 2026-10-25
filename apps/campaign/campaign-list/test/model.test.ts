@@ -9,6 +9,7 @@ import {
   glyphOf,
   importCommand,
   lastPlayedText,
+  mayBeQueued,
   parseArchive,
   parseCampaigns,
   refusedBy,
@@ -60,18 +61,20 @@ test('the words: plural sessions, none while the count is unknown, never played,
 });
 
 test('the create command names its DataCapability and version, trims the name, and a blank pitch is none', () => {
-  const body = createCommand('campaign.createCampaign', { name: '  Les Brumes ', type: 'oneshot', pitch: '  ' }) as Record<string, unknown>;
+  const body = createCommand('campaign.createCampaign', { name: '  Les Brumes ', type: 'oneshot', pitch: '  ' }, 'k1') as Record<string, unknown>;
   assert.equal(body.dataCapability, 'campaign.createCampaign@1');
   assert.deepEqual(body.payload, { name: 'Les Brumes', type: 'oneshot', pitch: null, glyph: 'L' });
-  assert.deepEqual((createCommand('campaign.createCampaign', { name: 'A', type: 'campagne', pitch: ' un pitch ' }) as { payload: unknown }).payload, { name: 'A', type: 'campagne', pitch: 'un pitch', glyph: 'A' });
+  assert.equal(body.idempotencyKey, 'k1', 'sent again, it is the same command');
+  assert.deepEqual((createCommand('campaign.createCampaign', { name: 'A', type: 'campagne', pitch: ' un pitch ' }, 'k2') as { payload: unknown }).payload, { name: 'A', type: 'campagne', pitch: 'un pitch', glyph: 'A' });
 });
 
 test('the export names the campaign by its id; the import sends the archive and names no campaign', () => {
   assert.deepEqual(exportCommand('campaign.exportCampaign', 'c1'), { dataCapability: 'campaign.exportCampaign@1', payload: { id: 'c1' }, caller: { by: 'dm', from: 'CampaignList', roles: [] } });
   const archive = { format: 'campaign-archive', version: 1 };
-  const body = importCommand('campaign.importCampaign', archive) as Record<string, unknown>;
+  const body = importCommand('campaign.importCampaign', archive, 'k1') as Record<string, unknown>;
   assert.equal(body.dataCapability, 'campaign.importCampaign@1');
   assert.deepEqual(body.payload, { archive });
+  assert.equal(body.idempotencyKey, 'k1');
   assert.equal(body.targetId, undefined, 'an import never targets the original');
   assert.equal(body.target, undefined);
 });
@@ -114,4 +117,12 @@ test('a download is saved under the name the export gave, with nothing that is a
   assert.equal(safeFileName('les-cendres-2026-10-14T10-00-00Z.json'), 'les-cendres-2026-10-14T10-00-00Z.json');
   assert.equal(safeFileName('../../etc/passwd'), '..-..-etc-passwd');
   assert.equal(safeFileName('a:b*c.json'), 'a-b-c.json');
+});
+
+test('a command not applied may still be queued while it is not final and the server gave no reason', () => {
+  assert.equal(mayBeQueued({ status: 'queued', violations: [], archive: null }), true, 'a wait that ran out');
+  assert.equal(mayBeQueued({ status: '', violations: [], archive: null }), true);
+  assert.equal(mayBeQueued(failed('')), true, 'a server that could not be told');
+  assert.equal(mayBeQueued(failed('format inconnu')), false, 'refused before it was queued');
+  for (const status of ['rejected', 'cancelled', 'expired', 'applied']) assert.equal(mayBeQueued({ status, violations: [], archive: null }), false, status);
 });

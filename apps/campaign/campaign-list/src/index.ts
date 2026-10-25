@@ -14,6 +14,7 @@ import {
   exportCommand,
   importCommand,
   isFinal,
+  mayBeQueued,
   parseArchive,
   parseCampaigns,
   failed,
@@ -86,6 +87,10 @@ const readText = (doc: Document, file: File): Promise<string> =>
 const size = (bytes: number): string =>
   bytes < 1024 ? `${bytes} o` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1).replace('.', ',')} Ko` : `${(bytes / 1048576).toFixed(1).replace('.', ',')} Mo`;
 
+/** A new command's key: the server keeps one command per key, so the same command sent again is not a second one. */
+let keys = 0;
+const newKey = (): string => `CampaignList:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${(keys += 1)}`;
+
 /** What each host listens with: a list mounted again in the same host drops them, so one click is one command. */
 const listening = new WeakMap<HTMLElement, Array<() => void>>();
 
@@ -113,6 +118,8 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   let busy = false;
   /** The archive the import dialog holds, once a file was read as one. */
   let archive: unknown;
+  /** The key of the open dialog's command: kept while what it sent may still be queued, so a second click is the same command. */
+  let key = newKey();
 
   const say = (words: string): void => {
     if (current()) part('campaign-status').textContent = words;
@@ -210,9 +217,12 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     const type = part('campaign-create-dialog').querySelector<HTMLInputElement>('input[name="campaign-type"]:checked')?.value === 'oneshot' ? 'oneshot' : 'campagne';
     const pitch = part<HTMLInputElement>('campaign-create-pitch').value;
     dialogError('campaign-create-error', '');
-    const state = await run(createCommand(CREATE_CAMPAIGN, { name, type, pitch }));
+    const state = await run(createCommand(CREATE_CAMPAIGN, { name, type, pitch }, key));
     if (!current()) return;
-    if (state.status !== 'applied') return dialogError('campaign-create-error', unapplied(state, CREATE_WORDS));
+    if (state.status !== 'applied') {
+      if (!mayBeQueued(state)) key = newKey();
+      return dialogError('campaign-create-error', unapplied(state, CREATE_WORDS));
+    }
     closeDialog();
     await reload(`Campagne « ${name.trim()} » créée.`);
   }
@@ -220,10 +230,13 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   async function importArchive(): Promise<void> {
     if (busy || archive === undefined) return;
     dialogError('campaign-import-error', '');
-    const state = await run(importCommand(IMPORT_CAMPAIGN, archive));
+    const state = await run(importCommand(IMPORT_CAMPAIGN, archive, key));
     if (!current()) return;
     // A refusal leaves the dialog open with its reason, and the list as it was.
-    if (state.status !== 'applied') return dialogError('campaign-import-error', unapplied(state, IMPORT_WORDS));
+    if (state.status !== 'applied') {
+      if (!mayBeQueued(state)) key = newKey();
+      return dialogError('campaign-import-error', unapplied(state, IMPORT_WORDS));
+    }
     closeDialog();
     await reload('Archive importée : une nouvelle campagne a été ajoutée.');
   }
@@ -264,6 +277,7 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   const open = (html: string): void => {
     dialogs += 1;
     archive = undefined;
+    key = newKey();
     part('campaign-dialogs').innerHTML = html;
     paintBusy();
   };

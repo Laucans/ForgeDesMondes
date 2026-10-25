@@ -13,6 +13,7 @@ const fixture = JSON.parse(mock('fixtures/campaign.listCampaigns.json')) as Arra
 interface Sent {
   dataCapability: string;
   payload: Record<string, unknown>;
+  idempotencyKey?: string;
   targetId?: unknown;
   target?: unknown;
 }
@@ -397,6 +398,51 @@ test('a lookup that fails while a command is followed is asked again: the comman
   assert.ok(lookups >= 2, 'asked again after the blip');
   assert.equal(element.querySelector('#campaign-create-dialog'), null, 'applied, not failed');
   assert.equal(element.querySelector('#campaign-status')?.textContent, 'Campagne « Les Brumes » créée.');
+});
+
+test('a creation not settled in time, sent again, is the same command: the server keeps one campaign', async () => {
+  const { click, type, sent, document, text } = await list({ later: 7 });
+  await click('#campaign-new');
+  type('#campaign-create-name', 'Les Brumes');
+  await click('#campaign-create-submit');
+  assert.match(text('#campaign-create-error'), /Création non appliquée/);
+  assert.ok(document.getElementById('campaign-create-dialog'), 'the dialog stays open');
+  await click('#campaign-create-submit');
+  assert.equal(sent.length, 2);
+  assert.ok(sent[0]?.idempotencyKey, 'the command carries a key');
+  assert.equal(sent[1]?.idempotencyKey, sent[0]?.idempotencyKey, 'the second click is the same command');
+});
+
+test('an import a server that is down may have queued, sent again, is the same command; a refused one, sent again, is a new one', async () => {
+  let down = true;
+  const offline = await list({ apply: (s, c) => (down ? { offline: true } : defaults(s, c)) });
+  await offline.click('#campaign-import');
+  await offline.choose('archive.json', JSON.stringify(ARCHIVE.content));
+  await offline.click('#campaign-import-submit');
+  down = false;
+  await offline.click('#campaign-import-submit');
+  assert.equal(offline.sent.length, 2);
+  assert.ok(offline.sent[0]?.idempotencyKey);
+  assert.equal(offline.sent[1]?.idempotencyKey, offline.sent[0]?.idempotencyKey, 'one import, not two copies');
+
+  const refused = await list({ apply: () => ({ status: 'rejected', violations: ['archive-format-unknown'] }) });
+  await refused.click('#campaign-import');
+  await refused.choose('archive.json', JSON.stringify(ARCHIVE.content));
+  await refused.click('#campaign-import-submit');
+  await refused.click('#campaign-import-submit');
+  assert.equal(refused.sent.length, 2);
+  assert.notEqual(refused.sent[1]?.idempotencyKey, refused.sent[0]?.idempotencyKey, 'a refused command is over: trying again is a new one');
+});
+
+test('each dialog opened is a new command: two campaigns created one after the other are two', async () => {
+  const { click, type, sent } = await list();
+  for (const name of ['A', 'B']) {
+    await click('#campaign-new');
+    type('#campaign-create-name', name);
+    await click('#campaign-create-submit');
+  }
+  assert.equal(sent.length, 2);
+  assert.notEqual(sent[1]?.idempotencyKey, sent[0]?.idempotencyKey);
 });
 
 test('a dialog is not left while its command is followed: the reason it ends with has somewhere to land', async () => {

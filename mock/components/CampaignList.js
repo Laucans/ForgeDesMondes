@@ -134,18 +134,20 @@
   var lastPlayedText = (lastPlayed) => lastPlayed === null ? "jamais jou\xE9e" : `jou\xE9e le ${dayText(lastPlayed)}`;
   var glyphOf = (name) => [...name.trim()][0]?.toUpperCase() ?? "";
   var caller = { by: "dm", from: "CampaignList", roles: [] };
-  var command = (dataCapability, payload) => ({
+  var command = (dataCapability, payload, idempotencyKey) => ({
     dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
     payload,
+    ...idempotencyKey === void 0 ? {} : { idempotencyKey },
     caller
   });
-  function createCommand(dataCapability, form) {
+  function createCommand(dataCapability, form, idempotencyKey) {
     const name = form.name.trim();
     const pitch = form.pitch.trim();
-    return command(dataCapability, { name, type: form.type, pitch: pitch === "" ? null : pitch, glyph: glyphOf(name) });
+    return command(dataCapability, { name, type: form.type, pitch: pitch === "" ? null : pitch, glyph: glyphOf(name) }, idempotencyKey);
   }
   var exportCommand = (dataCapability, id) => command(dataCapability, { id });
-  var importCommand = (dataCapability, archive) => command(dataCapability, { archive });
+  var importCommand = (dataCapability, archive, idempotencyKey) => command(dataCapability, { archive }, idempotencyKey);
+  var mayBeQueued = (state) => !isFinal(state.status) && !(state.status === "failed" && state.violations.length > 0);
   function parseArchive(source) {
     try {
       const document2 = JSON.parse(source);
@@ -292,6 +294,8 @@
     reader.readAsText(file);
   });
   var size = (bytes) => bytes < 1024 ? `${bytes} o` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1).replace(".", ",")} Ko` : `${(bytes / 1048576).toFixed(1).replace(".", ",")} Mo`;
+  var keys = 0;
+  var newKey = () => `CampaignList:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${keys += 1}`;
   var listening = /* @__PURE__ */ new WeakMap();
   function mount(host2, _props, shell2, timing = WAITING, save = downloadIn(host2.ownerDocument)) {
     ensureStyle(host2.ownerDocument);
@@ -312,6 +316,7 @@
     let campaigns = [];
     let busy = false;
     let archive;
+    let key = newKey();
     const say = (words) => {
       if (current()) part("campaign-status").textContent = words;
     };
@@ -394,18 +399,24 @@
       const type = part("campaign-create-dialog").querySelector('input[name="campaign-type"]:checked')?.value === "oneshot" ? "oneshot" : "campagne";
       const pitch = part("campaign-create-pitch").value;
       dialogError("campaign-create-error", "");
-      const state = await run(createCommand(CREATE_CAMPAIGN, { name, type, pitch }));
+      const state = await run(createCommand(CREATE_CAMPAIGN, { name, type, pitch }, key));
       if (!current()) return;
-      if (state.status !== "applied") return dialogError("campaign-create-error", unapplied(state, CREATE_WORDS));
+      if (state.status !== "applied") {
+        if (!mayBeQueued(state)) key = newKey();
+        return dialogError("campaign-create-error", unapplied(state, CREATE_WORDS));
+      }
       closeDialog();
       await reload(`Campagne \xAB ${name.trim()} \xBB cr\xE9\xE9e.`);
     }
     async function importArchive() {
       if (busy || archive === void 0) return;
       dialogError("campaign-import-error", "");
-      const state = await run(importCommand(IMPORT_CAMPAIGN, archive));
+      const state = await run(importCommand(IMPORT_CAMPAIGN, archive, key));
       if (!current()) return;
-      if (state.status !== "applied") return dialogError("campaign-import-error", unapplied(state, IMPORT_WORDS));
+      if (state.status !== "applied") {
+        if (!mayBeQueued(state)) key = newKey();
+        return dialogError("campaign-import-error", unapplied(state, IMPORT_WORDS));
+      }
       closeDialog();
       await reload("Archive import\xE9e : une nouvelle campagne a \xE9t\xE9 ajout\xE9e.");
     }
@@ -442,6 +453,7 @@
     const open = (html) => {
       dialogs += 1;
       archive = void 0;
+      key = newKey();
       part("campaign-dialogs").innerHTML = html;
       paintBusy();
     };
@@ -480,11 +492,11 @@
       if (file) void takeFile(file);
     });
     on("keydown", (event) => {
-      const key = event.key;
-      if (event.target?.id === "campaign-import-drop" && (key === "Enter" || key === " ")) {
+      const key2 = event.key;
+      if (event.target?.id === "campaign-import-drop" && (key2 === "Enter" || key2 === " ")) {
         event.preventDefault();
         part("campaign-import-file").click();
-      } else if (key === "Escape") leave();
+      } else if (key2 === "Escape") leave();
     });
     read().then(
       (loaded) => {
@@ -601,7 +613,7 @@
     const declares = (key) => declared.some((d) => d === key || d.startsWith(key) && d[key.length] === ".");
     return Object.keys(payload || {}).filter((key) => key !== id && !declares(key)).sort();
   }
-  var undeclaredWarning = (keys, dataCapability) => `payload key(s) ${keys.join(", ")} not declared by ${dataCapability}`;
+  var undeclaredWarning = (keys2, dataCapability) => `payload key(s) ${keys2.join(", ")} not declared by ${dataCapability}`;
   function mockServer() {
     if (window.__mockServer) return window.__mockServer;
     const s = { dataVersion: 1, fixtures: /* @__PURE__ */ new Map(), listeners: /* @__PURE__ */ new Set(), commands: /* @__PURE__ */ new Map(), queue: /* @__PURE__ */ new Map(), messages: [], tick: 1e3, parkAfterMs: 3e4 };
@@ -787,12 +799,12 @@
       s.queue.set(commandId2, entry);
       s.commands.set(commandId2, entry);
       const known = (await s.manifests())[dataCapability];
-      const keys = known ? undeclaredKeys(known.manifest, payload) : [];
+      const keys2 = known ? undeclaredKeys(known.manifest, payload) : [];
       const warnUndeclared = () => {
-        if (!keys.length) return;
-        const warning = undeclaredWarning(keys, dataCapability);
+        if (!keys2.length) return;
+        const warning = undeclaredWarning(keys2, dataCapability);
         entry.warnings.push(warning);
-        s.undeclared.push({ commandId: commandId2, dataCapability, keys, manifest: known.path, warning });
+        s.undeclared.push({ commandId: commandId2, dataCapability, keys: keys2, manifest: known.path, warning });
         console.error(`mock server: ${warning} (${known.path}) \u2014 the real server accepts it with this warning and the journeys fail on it: send only what the manifest's payload declares`);
       };
       if (!handler && await s.planned(dataCapability)) {

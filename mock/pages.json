@@ -118,7 +118,7 @@
       ],
       "props": {},
       "source": "apps/campaign/campaign-list",
-      "builtFrom": "dc92b0593a26c727"
+      "builtFrom": "5e168e2b93f7d8e4"
     },
     {
       "name": "AiSettings",

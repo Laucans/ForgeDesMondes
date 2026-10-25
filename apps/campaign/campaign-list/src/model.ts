@@ -46,9 +46,10 @@ export const lastPlayedText = (lastPlayed: string | null): string => (lastPlayed
 export const glyphOf = (name: string): string => [...name.trim()][0]?.toUpperCase() ?? '';
 
 const caller = { by: 'dm', from: 'CampaignList', roles: [] };
-const command = (dataCapability: string, payload: Record<string, unknown>): unknown => ({
+const command = (dataCapability: string, payload: Record<string, unknown>, idempotencyKey?: string): unknown => ({
   dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
   payload,
+  ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
   caller,
 });
 
@@ -59,17 +60,20 @@ export interface NewCampaign {
 }
 
 /** `POST /commands` for a new campaign; a blank pitch is none, the cover's glyph is the name's first letter. */
-export function createCommand(dataCapability: string, form: NewCampaign): unknown {
+export function createCommand(dataCapability: string, form: NewCampaign, idempotencyKey: string): unknown {
   const name = form.name.trim();
   const pitch = form.pitch.trim();
-  return command(dataCapability, { name, type: form.type, pitch: pitch === '' ? null : pitch, glyph: glyphOf(name) });
+  return command(dataCapability, { name, type: form.type, pitch: pitch === '' ? null : pitch, glyph: glyphOf(name) }, idempotencyKey);
 }
 
 /** `POST /commands` for the export: the campaign is named by its id, nothing else is sent. */
 export const exportCommand = (dataCapability: string, id: string): unknown => command(dataCapability, { id });
 
 /** `POST /commands` for the import: the archive as the export wrote it, nothing else. An import never names a campaign to overwrite. */
-export const importCommand = (dataCapability: string, archive: unknown): unknown => command(dataCapability, { archive });
+export const importCommand = (dataCapability: string, archive: unknown, idempotencyKey: string): unknown => command(dataCapability, { archive }, idempotencyKey);
+
+/** Whether a command not applied may still be queued: one that timed out, or a server that could not be told why. Sent again, it must be the same command. */
+export const mayBeQueued = (state: Settled): boolean => !isFinal(state.status) && !(state.status === 'failed' && state.violations.length > 0);
 
 /** What a dropped file holds, if it is an archive an export wrote: a JSON document. */
 export function parseArchive(source: string): unknown {
