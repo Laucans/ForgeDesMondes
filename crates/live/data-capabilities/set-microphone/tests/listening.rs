@@ -462,6 +462,44 @@ async fn a_port_that_cannot_listen_leaves_no_task_and_one_that_fails_ends_it_and
     }
 }
 
+#[tokio::test]
+async fn a_stream_that_ended_by_itself_leaves_the_next_on_a_stream_of_its_own() {
+    // The stream ends and its turn-off is never applied (parked): the next on listens.
+    let (listening, plans, _recorder) = server();
+    plans.stage(
+        SESSION,
+        &listening,
+        Some(Plan {
+            vocabulary: vocabulary(),
+            speech: SharedSpeechToText::new(Broken {
+                fails_after_a_phrase: false,
+                journal: RequestJournal::new(),
+            }),
+            caller: Caller::default(),
+        }),
+    );
+    let observer = Observer(Arc::clone(&plans));
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    assert!(
+        until(|| !listening.listens(SESSION)).await,
+        "the stream ended"
+    );
+
+    let fake = FakeSpeechToText::new("");
+    plans.stage(
+        SESSION,
+        &listening,
+        Some(plan(&fake, &["x"], Duration::from_secs(60))),
+    );
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    assert!(listening.listens(SESSION), "the next on listens");
+    assert!(
+        until(|| fake.journal().list().len() == 1).await,
+        "its stream was opened"
+    );
+    listening.shutdown();
+}
+
 /// A port whose stream tells when its task is gone.
 struct Watched {
     gone: Arc<std::sync::atomic::AtomicBool>,
