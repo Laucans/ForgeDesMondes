@@ -1,9 +1,12 @@
 //! DataCapability `campaign.exportCampaign` (`data-capability.json`): the DM
 //! exports a campaign to keep a copy of it, and the home page shows when that
 //! last happened. The export is an archive — the campaign, its players, its
-//! elements with their sheets, their aliases and their versions, as the
-//! tables hold them now — and one command on `Campaign/<its id>` stamping
-//! `lastExportedAt`, which writes nothing else (`export-stamps-date`).
+//! elements with their sheets, their aliases and their versions, its media
+//! with their battlemap grids, its sounds, its sessions with their present
+//! characters, their scenes and their journal, as the tables hold them now,
+//! every section `CampaignArchive@1` names — and one command on
+//! `Campaign/<its id>` stamping `lastExportedAt`, which writes nothing else
+//! (`export-stamps-date`).
 //!
 //! Its `Prepare` ([`plugin`]) reads what the tables hold of the campaign
 //! ([`ARCHIVE`], over the engine's read-only SQL) and makes the archive the
@@ -11,7 +14,8 @@
 //! applied — never before, never for an export rejected — and the shell
 //! hands it to the DM as a download, `{file, content}`. [`prepare`] turns
 //! what the tables hold of the campaign — one JSON document, `{campaign,
-//! players, elements}`, each row under its columns' names — into that
+//! players, elements, media, sounds, sessions}`, each row under its columns'
+//! names — into that
 //! archive and the command's payload:
 //!
 //! - the archive is one self-contained JSON document: its [`FORMAT`] and
@@ -26,12 +30,12 @@
 //!   and nothing else;
 //! - a campaign the tables do not hold — or none at all, over the engine's
 //!   memory — is refused before anything is queued, 404; what they answered
-//!   but cannot be an archive — a campaign without its id, players or
-//!   elements that are no list — and tables that could not be read, 422
+//!   but cannot be an archive — a campaign without its id, a section that is
+//!   no list — and tables that could not be read, 422
 //!   ([`Refusal`]): the stamp is left as it was.
 //!
-//! Media, sounds and sessions join the archive with their milestones; the
-//! import that reads it back is a DataCapability of its own.
+//! The files a medium and a sound name are not in the archive, only their
+//! rows; the import that reads it back is a DataCapability of its own.
 
 use std::collections::BTreeMap;
 
@@ -51,14 +55,20 @@ pub const FORMAT_VERSION: u64 = 1;
 /// The one field an export writes: when it happened.
 const STAMP: &str = "lastExportedAt";
 
+/// The archive's lists, in the order the archive writes them.
+const SECTIONS: [&str; 5] = ["players", "elements", "media", "sounds", "sessions"];
+
 /// What a file is named after when the campaign has no name to give it.
 const UNNAMED: &str = "campagne";
 
 /// What an archive holds of the campaign `$1` names, in whatever case, as
 /// the tables hold it — the campaign, its players, its elements each with
-/// its sheet, its aliases and its versions — in one statement, so one
-/// snapshot: each row under its columns' names, in a stable order, in the
-/// one column `archive`. A campaign the engine deleted is none.
+/// its sheet, its aliases and its versions, its media each with its battlemap
+/// grid, its sounds, its sessions each with its present characters, its
+/// scenes (with their elements and their media) and its journal — in one
+/// statement, so one snapshot: each row under its columns' names, in a stable
+/// order, in the one column `archive`. A section the campaign has none of is
+/// an empty list. A campaign the engine deleted is none.
 pub const ARCHIVE: &str = "SELECT jsonb_build_object(
         'campaign', to_jsonb(c),
         'players', coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.created_at, p.id)
@@ -70,7 +80,29 @@ pub const ARCHIVE: &str = "SELECT jsonb_build_object(
                 'versions', coalesce((SELECT jsonb_agg(to_jsonb(v) ORDER BY v.version_number)
                     FROM entity_version v WHERE v.entity_id = e.id), '[]'))
             ORDER BY e.created_at, e.id)
-            FROM entity e WHERE e.campaign_id = c.id), '[]')
+            FROM entity e WHERE e.campaign_id = c.id), '[]'),
+        'media', coalesce((SELECT jsonb_agg(to_jsonb(m) || jsonb_build_object(
+                'battlemap_grid', (SELECT to_jsonb(g) FROM battlemap_grid g WHERE g.media_id = m.id))
+            ORDER BY m.uploaded_at, m.id)
+            FROM media m WHERE m.campaign_id = c.id), '[]'),
+        'sounds', coalesce((SELECT jsonb_agg(to_jsonb(so) ORDER BY so.created_at, so.id)
+            FROM sound so WHERE so.campaign_id = c.id), '[]'),
+        'sessions', coalesce((SELECT jsonb_agg(to_jsonb(s) || jsonb_build_object(
+                'session_present_character', coalesce((SELECT jsonb_agg(to_jsonb(pc)
+                        ORDER BY pc.added_at, pc.character_id)
+                    FROM session_present_character pc WHERE pc.session_id = s.id), '[]'),
+                'scenes', coalesce((SELECT jsonb_agg(to_jsonb(sc) || jsonb_build_object(
+                        'scene_entity', coalesce((SELECT jsonb_agg(to_jsonb(se)
+                                ORDER BY se.position, se.entity_id)
+                            FROM scene_entity se WHERE se.scene_id = sc.id), '[]'),
+                        'scene_media', coalesce((SELECT jsonb_agg(to_jsonb(sm) ORDER BY sm.media_id)
+                            FROM scene_media sm WHERE sm.scene_id = sc.id), '[]'))
+                    ORDER BY sc.position, sc.id)
+                    FROM scene sc WHERE sc.session_id = s.id), '[]'),
+                'journal_lines', coalesce((SELECT jsonb_agg(to_jsonb(j) ORDER BY j.spoken_at, j.id)
+                    FROM session_journal_line j WHERE j.session_id = s.id), '[]'))
+            ORDER BY s.position, s.id)
+            FROM session s WHERE s.campaign_id = c.id), '[]')
     ) AS archive
     FROM campaign c WHERE c.id::text = lower($1)
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
@@ -84,8 +116,8 @@ pub type Row = BTreeMap<String, Value>;
 pub enum Refusal {
     /// What the tables answered holds no campaign with its id.
     NoCampaign,
-    /// The campaign's players or elements are not a list: no archive holds
-    /// them.
+    /// One of the campaign's sections (players, elements, media, sounds,
+    /// sessions) is not a list: no archive holds it.
     Unreadable(&'static str),
 }
 
@@ -204,12 +236,13 @@ pub fn campaign_id(wire: &Row) -> Option<String> {
 }
 
 /// The export of the campaign `tables` holds — `{campaign, players,
-/// elements}`, as the tables hold them — at `now`, RFC 3339.
+/// elements, media, sounds, sessions}`, as the tables hold them — at `now`,
+/// RFC 3339.
 ///
 /// # Errors
 ///
-/// [`Refusal`] when `tables` holds no campaign with its id, or players or
-/// elements that are not a list.
+/// [`Refusal`] when `tables` holds no campaign with its id, or a section that
+/// is not a list.
 pub fn prepare(tables: &Value, now: &str) -> Result<Prepared, Refusal> {
     let campaign = tables
         .get("campaign")
@@ -229,8 +262,7 @@ pub fn prepare(tables: &Value, now: &str) -> Result<Prepared, Refusal> {
             .cloned()
             .ok_or(Refusal::Unreadable(field))
     };
-    let players = list("players")?;
-    let elements = list("elements")?;
+    let sections = SECTIONS.map(|field| list(field).map(|rows| (field, Value::Array(rows))));
     let name = campaign.get("name").and_then(Value::as_str).unwrap_or("");
     let mut content = Map::new();
     for (field, value) in [
@@ -239,10 +271,12 @@ pub fn prepare(tables: &Value, now: &str) -> Result<Prepared, Refusal> {
         ("origin_campaign_id", id.clone().into()),
         ("exported_at", now.into()),
         ("campaign", Value::Object(campaign.clone())),
-        ("players", Value::Array(players)),
-        ("elements", Value::Array(elements)),
     ] {
         content.insert(field.into(), value);
+    }
+    for section in sections {
+        let (field, rows) = section?;
+        content.insert(field.into(), rows);
     }
     let payload = Row::from([(STAMP.into(), now.into())]);
     Ok(Prepared {

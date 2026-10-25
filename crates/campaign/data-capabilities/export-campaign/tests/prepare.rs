@@ -29,6 +29,22 @@ fn tables() -> Value {
             },
             { "id": "e2", "type": "lieu", "character": null, "aliases": [], "versions": [] },
         ],
+        "media": [{
+            "id": "d1",
+            "kind": "battlemap",
+            "battlemap_grid": { "media_id": "d1", "hex_size_px": 48, "feet_per_hex": 5 },
+        }],
+        "sounds": [{ "id": "a1", "name": "Pluie", "tags": ["météo"], "volume": 0.5 }],
+        "sessions": [{
+            "id": "5e1",
+            "session_present_character": [{ "session_id": "5e1", "character_id": "e1" }],
+            "scenes": [{
+                "id": "5c1",
+                "scene_entity": [{ "scene_id": "5c1", "entity_id": "e2", "position": 0 }],
+                "scene_media": [{ "scene_id": "5c1", "media_id": "d1" }],
+            }],
+            "journal_lines": [{ "id": "1a", "session_id": "5e1", "scene_id": "5c1", "text": "Elle entre." }],
+        }],
     })
 }
 
@@ -47,7 +63,7 @@ fn the_payload_stamps_the_export_s_time_and_writes_nothing_else() {
 }
 
 #[test]
-fn the_archive_holds_the_campaign_its_players_and_its_elements_as_the_tables_do() {
+fn the_archive_holds_every_section_of_the_campaign_as_the_tables_do() {
     let archive = prepare(&tables(), NOW).expect("prepared").archive;
     let tables = tables();
     assert_eq!(
@@ -60,6 +76,9 @@ fn the_archive_holds_the_campaign_its_players_and_its_elements_as_the_tables_do(
             "campaign": tables["campaign"],
             "players": tables["players"],
             "elements": tables["elements"],
+            "media": tables["media"],
+            "sounds": tables["sounds"],
+            "sessions": tables["sessions"],
         })
     );
     assert_eq!(
@@ -85,6 +104,12 @@ fn no_campaign_or_rows_that_are_no_list_are_refused() {
     no_players["players"] = Value::Null;
     let mut no_elements = tables();
     no_elements["elements"] = json!({});
+    // The sections an archive gained with media, sounds and sessions.
+    let [no_media, no_sounds, no_sessions] = ["media", "sounds", "sessions"].map(|section| {
+        let mut broken = tables();
+        broken[section] = json!("none");
+        broken
+    });
     for (tables, refusal) in [
         (json!({}), Refusal::NoCampaign),
         (
@@ -94,9 +119,19 @@ fn no_campaign_or_rows_that_are_no_list_are_refused() {
         (no_id, Refusal::NoCampaign),
         (no_players, Refusal::Unreadable("players")),
         (no_elements, Refusal::Unreadable("elements")),
+        (no_media, Refusal::Unreadable("media")),
+        (no_sounds, Refusal::Unreadable("sounds")),
+        (no_sessions, Refusal::Unreadable("sessions")),
     ] {
         assert_eq!(prepare(&tables, NOW), Err(refusal.clone()), "{tables}");
     }
+    let mut missing = tables();
+    missing.as_object_mut().expect("tables").remove("sounds");
+    assert_eq!(
+        prepare(&missing, NOW),
+        Err(Refusal::Unreadable("sounds")),
+        "an absent list is not an empty one"
+    );
     assert_eq!(
         Refusal::NoCampaign.to_string(),
         "cette campagne n'existe pas"
@@ -147,4 +182,49 @@ fn only_this_data_capability_is_named_with_or_without_its_version() {
     assert!(names("campaign.exportCampaign@1"));
     assert!(!names("campaign.importCampaign@1"));
     assert!(!names("campaign.exportCampaigns"));
+}
+
+#[test]
+fn a_campaign_with_no_media_sounds_or_sessions_exports_them_as_empty_lists() {
+    let mut empty = tables();
+    for section in ["media", "sounds", "sessions"] {
+        empty[section] = json!([]);
+    }
+    let content = prepare(&empty, NOW).expect("prepared").archive.content;
+    for section in ["media", "sounds", "sessions"] {
+        assert_eq!(content[section], json!([]), "{section}");
+    }
+}
+
+#[test]
+fn the_tables_of_the_concept_s_archives_come_out_as_the_archives_they_are() {
+    let fixtures = platform_conformance::fixtures_of("CampaignArchive@1");
+    let mut full = 0;
+    for case in &fixtures.cases {
+        let archive = &case.input["archive"];
+        let mut tables = archive.clone();
+        let content = tables.as_object_mut().expect("an archive");
+        for header in ["format", "version", "origin_campaign_id", "exported_at"] {
+            content.remove(header);
+        }
+        // An archive made before media, sounds and sessions joined it.
+        let mut expected = archive.clone();
+        let mut whole = true;
+        for section in ["media", "sounds", "sessions"] {
+            if archive.get(section).is_none() {
+                tables[section] = json!([]);
+                expected[section] = json!([]);
+                whole = false;
+            }
+        }
+        full += usize::from(whole);
+        let now = archive["exported_at"].as_str().expect("an export time");
+        let exported = prepare(&tables, now).expect(&case.name);
+        assert_eq!(exported.archive.content, expected, "{}", case.name);
+        assert_eq!(exported.payload, wire(json!({ "lastExportedAt": now })));
+    }
+    assert!(
+        full >= 3,
+        "the fixtures hold archives with all their sections"
+    );
 }
