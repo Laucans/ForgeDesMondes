@@ -118,11 +118,14 @@ struct Stubs {
 
 /// Writes every stub before the first program is started: a script being
 /// written while a program is started elsewhere in the process can make that
-/// start fail with "text file busy".
+/// start fail with "text file busy". The directory is the process's own: under
+/// nextest each test is a process, and one clearing a shared directory would
+/// delete the stubs of another.
 fn stubs() -> &'static Stubs {
     static STUBS: OnceLock<Stubs> = OnceLock::new();
     STUBS.get_or_init(|| {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("phonon-stubs");
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("phonon-stubs-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let stub = |name: &str, script: Option<(&str, u32)>| {
             let dir = root.join(name);
