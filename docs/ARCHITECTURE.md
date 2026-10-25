@@ -665,13 +665,22 @@ them; every development after conforms to them:
   does — **by identifier**, over the shell's wire protocol
   (`POST /capabilities/<id>`, `POST /commands`, `GET /commands/<id>`) and by
   screen name — through the kit installed beside them;
-- every test names its rule (`rule("R3", needs, …)`), the units it needs
-  (`data-capability:ArchiveCampaign`, `capability:ListCampaigns`,
-  `micro-ui:…`, `screen:…`, `aggregate:…`) and copies the criterion as it is,
-  in three comment lines `given: …`, `when: …`, `then: …`;
+- every test names its rule (`rule("R3", needs, …)`), the units it needs by
+  their ids (`data-capability:campaign.archiveCampaign`,
+  `capability:campaign.listCampaigns`, `micro-ui:…`, `screen:…`,
+  `aggregate:…`) and copies the criterion as it is, in three comment lines
+  `given: …`, `when: …`, `then: …`;
 - a test is **pending** while a unit it needs is not built (no manifest names
   it) or the product is not served yet: it passes, and says so. Once
   everything it needs exists, it runs and must hold;
+- a running test is **mis-mounted** when it reaches the product off its
+  mounting — a unit its needs do not cover, a read's variable its
+  `capability.json` `input` does not take, a payload key its
+  `data-capability.json` does not declare (the kits check it at its first
+  real run). Neither red nor contested: its outcome proves nothing, the
+  rules' gate says it apart and fails on it, and the rules' task fixes the
+  test before anything is contested — a development only copies the line
+  into `CONTEST.md`;
 - the product is served by `scripts/rules-runtime.sh`, installed whole and
   changed by nobody (the gate *Rule tests untouched*). It starts what the
   layout fixes: `crates/server`, the one binary serving the wire protocol
@@ -754,7 +763,7 @@ red carries the same name in the run's log.
 | Contracts untouched | A pull request changes the manifests of the ids its milestone produces, and no other's | B, F, R |
 | Read-only | No Capability has write access: lint and read-only credentials | B |
 | Capability isolation | No Capability imports, invokes or references another Capability or any mutation infrastructure | B |
-| Queries | Every persisted query is valid against the current schema and the next | C |
+| Queries | Every persisted query is valid against the current schema and the next; the SQL of a Capability a change adds or changes prepares against the migrated schema (`queries-valid--capabilities`) | C |
 | Schema impact | A schema change lists the Capabilities touched and blocks until each is migrated | C, I |
 | System frontier | `needs:` — a Micro-UI references only Capabilities that exist or the plan declares, in any system; a behaviour change of a shared one is a duplicate, never an edit | B |
 | Write actions | `actions:` references existing DataCapabilities, with compatible `callableBy` and `permissions`; no Capability has an `invokes` field | D, F |
@@ -763,6 +772,7 @@ red carries the same name in the run's log.
 | Invariants | Every declared invariant has tests; every DataCapability lists the ones it may affect | F, I |
 | Units placed | A DataCapability sits under the system its id names, an aggregate under its system in a folder named after it, never under `crates/dataguard/` (`data-capability-placed`, `aggregate-placed`) | F, I |
 | Units registered | The registry's `Cargo.toml` and the workspace's engine line are what `scripts/register.sh` writes; every unit is a workspace member by glob, its library named as the registry's glue calls it, the engine taken from the workspace (`units-registered`) | B, F, I |
+| Unit conventions | A unit a change adds or changes keeps the house conventions its neighbours drift from: a DataCapability reads no clock, declares its id constant, lists its ports-* crates as its `ports`, plants its real manifest in a test and runs the SQL it reads on PostgreSQL; a Capability is one SELECT binding its variables in order, compared as text, filtered once (never again by `answer`), its query file named after its folder and declaring what the SQL selects. What older units break is judged on added units only (`data-capability-conventions`, `capability-conventions`, `scripts/unit-conventions-gate.mjs`) | B, C, F |
 | Relations | Every foreign key has a declared `onDelete` and `onUpdate` policy | I |
 | Compositions | Every Micro-UI of a frozen screen exists in the referenced version | D, E |
 | Pages mocked | `mock/pages.json` validates; every page and every micro-frontend it lists exists; every frozen screen has a page; every Micro-UI has a micro-frontend whose listing says its needs and actions; the bundles are rebuilt from the Micro-UIs' code | D, E, N |
@@ -771,7 +781,7 @@ red carries the same name in the run's log.
 | Secrets encrypted | Only sops-encrypted `secrets/<env>.enc.yaml` and no `.env` file are committed (`secrets`) | Q |
 | Rules covered | Every rule of `rules.json` has a test of its family naming it, its criterion copied as it is; no test names a rule `rules.json` has not (`scripts/rules-gate.mjs coverage`) | P |
 | Rules hold | Every rule's test whose units are built runs on the product the runtime serves, and passes; each rule's state (pending, green, red) is kept as `rules-status.json`; a rule marked `conform` may be red in a task, never where a milestone lands (`scripts/rules-gate.mjs status`) | P |
-| Rule tests untouched | A change that is not the rules' task leaves `rules.json` and `tests/rules/` alone (`scripts/rules-gate.mjs untouched`), and carries no `CONTEST.md` — which opens the `Rules contested` issue the rules' task settles (`contest`) | P |
+| Rule tests untouched | A change that is not the rules' task leaves `rules.json` and `tests/rules/` alone (`scripts/rules-gate.mjs untouched`), and carries no `CONTEST.md` — which opens the `Rules contested` issue the rules' task settles (`contest`). The rules' task's own PR is told by its branch, `rules/<n>`, read when the job runs. A `CONTEST.md` the change took from its base is the base's: warned, the gate passes, no issue opened; the harness deletes `CONTEST.md` itself once the contest is settled | P |
 
 Beside the gates, the project's own CI (`.github/workflows/ci.yml`) judges
 the code and its tests, not the contracts: format and lint; the tests a
