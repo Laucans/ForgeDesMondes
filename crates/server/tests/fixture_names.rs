@@ -209,6 +209,45 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
     let sheet = read(&renamed, "campaign.getEntity", json!({ "id": "elowen" })).await;
     assert_eq!(sheet["id"], "elowen", "{sheet}");
     assert_eq!(sheet["player"], "jou-julie", "{sheet}");
+    // The history of the elements the fixture gives one: its versions, newest
+    // first, dated and numbered as the fixture has them. Only a creation's
+    // origin differs — the table knows no import, and a first version is the
+    // DM's — and what a version changed is told by the fields of the sheet.
+    let described = fixture("campaign.listEntityVersions.json");
+    for (slug, account) in described.as_object().expect("histories") {
+        let history = read(
+            &renamed,
+            "campaign.listEntityVersions",
+            json!({ "entity": slug }),
+        )
+        .await;
+        assert_eq!(history["name"], account["name"], "{history}");
+        let versions = |history: &Value| -> Vec<(Value, Value)> {
+            history["versions"]
+                .as_array()
+                .expect("versions")
+                .iter()
+                .map(|v| (v["v"].clone(), v["date"].clone()))
+                .collect()
+        };
+        assert_eq!(versions(&history), versions(account), "{slug}: {history}");
+        for (answered, told) in history["versions"]
+            .as_array()
+            .expect("versions")
+            .iter()
+            .zip(account["versions"].as_array().expect("versions"))
+        {
+            if answered["v"] != 1 {
+                assert_eq!(answered["origin"], told["origin"], "{slug} {answered}");
+            }
+            assert!(
+                answered["changes"]
+                    .as_array()
+                    .is_some_and(|c| !c.is_empty()),
+                "{slug} {answered}"
+            );
+        }
+    }
     let overview = read(
         &renamed,
         "campaign.getCampaign",

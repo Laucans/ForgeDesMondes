@@ -17,7 +17,22 @@
 //! `entity_alias:<element slug>:<alias>`, `entity_version:<element slug>:<n>`,
 //! `oral_brief:<session slug>`.
 //!
-//! What the tables have no column for is not loaded: the portrait and the
+//! The history of an element (`campaign.listEntityVersions.json`) is its
+//! versions, from the first: the last is the element as `entities.json` has
+//! it, and each earlier one the state before the changes of the next, put
+//! back field by field from the labels of the screen (`Notes`, `Alias`,
+//! `Statblock`…). A label the tables hold no column for (`Niveau`, `Token`)
+//! moves nothing, and a version's date is the fixture's, in UTC. Its origin
+//! comes to a `source`: an import and the DM's hand are `dm`, a brief is
+//! `brief`, the rest of the AI's work `ia`, a resync `dndbeyond` — and the
+//! first version is always the DM's, a creation being no resync. The elements
+//! with no history have the one version they always had. The versions go in
+//! by round, every first version before any second: a version must be the
+//! next of its element, and one statement inserts its rows in no order.
+//! `campaign.getEntity.json` and the three lists repeat `entities.json`.
+//!
+//! What the tables have no column for is not loaded: the `seen` flag and the
+//! free text of a version's `source`; the portrait and the
 //! crop, the speed and the descriptive `type` line of a sheet, the art and
 //! illustration of a place, the links between places and characters; of a
 //! media, its weight, its terrain and its art. Nor is the campaign's cover:
@@ -276,6 +291,7 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             "campaign.getCampaign.json" => read.campaign_details(&value),
             "entities.json" => read.entities(&value),
             "media.json" => read.media(&value),
+            HISTORY_FILE => read.history(&value),
             SESSIONS => read.sessions(&value),
             BOARD_FILE => read.board(&value),
             CLOSING_FILE => read.closing(&value),
@@ -301,6 +317,11 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
     if let Err(why) = read.library_fits() {
         read.library = None;
         withdraw(&mut plan, LIBRARY, &why);
+    }
+    if let Err(why) = read.history_fits() {
+        read.history = None;
+        read.versions.clear();
+        withdraw(&mut plan, HISTORY_FILE, &why);
     }
     if let Err(why) = read.sessions_fit() {
         read.sessions = None;
@@ -332,6 +353,10 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
 
 /// The fixture of a campaign's media.
 const LIBRARY: &str = "media.json";
+/// The fixture of the Entity aggregate's version history: the versions of
+/// some elements, newest first. `campaign.getEntity.json` and the three lists
+/// repeat `entities.json`, which holds them, and are not read.
+const HISTORY_FILE: &str = "campaign.listEntityVersions.json";
 /// The fixtures of the Session aggregate: a campaign's sessions, a session's
 /// scenes, a closed session's summary and journal, a session's last brief, a
 /// campaign's to-create list.
@@ -441,6 +466,10 @@ struct Read {
     /// when a fixture gives them.
     campaigns: BTreeMap<String, Map<String, Value>>,
     entities: Option<Entities>,
+    history: Option<History>,
+    /// The version rows of each element `history` gives a history, by slug,
+    /// made once the elements are known ([`Read::history_fits`]).
+    versions: BTreeMap<String, Vec<Value>>,
     library: Option<Library>,
     sessions: Option<Sessions>,
     board: Option<Board>,
@@ -580,6 +609,28 @@ struct Medium {
     grid: Option<Value>,
 }
 
+/// The `campaign.listEntityVersions.json` document, mapped: the history of
+/// some elements, by slug.
+type History = BTreeMap<String, Account>;
+
+/// One element's history, from its first version to its last.
+struct Account {
+    name: String,
+    revisions: Vec<Revision>,
+}
+
+/// One version of an element, as the fixture tells it.
+struct Revision {
+    number: u64,
+    /// When it was made: a time with no zone, which is UTC.
+    at: String,
+    /// The table's `source` the fixture's origin comes to.
+    source: &'static str,
+    /// What it changed: the screen's label of the field, and what it held
+    /// before.
+    changes: Vec<(String, Value)>,
+}
+
 /// The `entities.json` document, mapped.
 struct Entities {
     campaign: String,
@@ -683,6 +734,34 @@ impl Read {
             players,
             elements,
         });
+        Ok(())
+    }
+
+    fn history(&mut self, value: &Value) -> Result<(), String> {
+        let mut history = History::new();
+        for (slug, entry) in value.as_object().ok_or("the histories are not an object")? {
+            let mut revisions = Vec::new();
+            for version in array(&entry["versions"], "versions")? {
+                revisions.push(revision_of(slug, version)?);
+            }
+            if revisions.is_empty() {
+                return Err(format!("{slug} has no version"));
+            }
+            revisions.sort_by_key(|revision| revision.number);
+            if !revisions.iter().zip(1..).all(|(r, n)| r.number == n) {
+                return Err(format!(
+                    "the versions of {slug} do not run from 1 without a gap or a repeat"
+                ));
+            }
+            history.insert(
+                slug.clone(),
+                Account {
+                    name: required(entry, "name")?.to_string(),
+                    revisions,
+                },
+            );
+        }
+        self.history = Some(history);
         Ok(())
     }
 
@@ -1132,6 +1211,36 @@ impl Read {
             .then_some(sessions.campaign.as_str())
     }
 
+    /// The history of each element it names is made into the version rows of
+    /// that element: the last version is the element as `entities.json` has
+    /// it, each earlier one the state before the changes of the next.
+    fn history_fits(&mut self) -> Result<(), String> {
+        let Some(history) = &self.history else {
+            return Ok(());
+        };
+        let entities = self
+            .entities
+            .as_ref()
+            .ok_or("no fixture holds the elements")?;
+        let mut versions = BTreeMap::new();
+        for (slug, account) in history {
+            let element = entities
+                .elements
+                .iter()
+                .find(|element| &element.slug == slug)
+                .ok_or_else(|| format!("{slug} is no element of the campaign"))?;
+            if element.name != json!(account.name) {
+                return Err(format!(
+                    "{slug} is called {} here and {:?} there",
+                    element.name, account.name
+                ));
+            }
+            versions.insert(slug.clone(), history_rows(element, &account.revisions)?);
+        }
+        self.versions = versions;
+        Ok(())
+    }
+
     /// Whether the media read fit what the other files say: their campaign
     /// is one of them, each place a « lieu » of that campaign, and no slug
     /// of theirs names another row. Checked once every file is read.
@@ -1218,14 +1327,26 @@ impl Read {
             let mut rows = Rows::default();
             for (index, element) in entities.elements.iter().enumerate() {
                 names.push((element.slug.clone(), id("entity", &element.slug)));
-                rows.add(&campaign, index, element);
+                rows.add(&campaign, index, element, self.versions.get(&element.slug));
             }
             tables.extend([
                 table("entity", "id", ENTITY, rows.entities),
                 table("character", "entity_id", CHARACTER, rows.characters),
                 table("entity_alias", "id", ALIAS, rows.aliases),
-                table("entity_version", "id", VERSION, rows.versions),
             ]);
+            // A version must be the next of its element, and a table goes in
+            // by one statement, whose rows come in no order: the Nth versions
+            // of the elements go in together, the first before the second.
+            let mut rounds: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
+            for version in rows.versions {
+                let number = version["version_number"].as_u64().unwrap_or_default();
+                rounds.entry(number).or_default().push(version);
+            }
+            tables.extend(
+                rounds
+                    .into_values()
+                    .map(|round| table("entity_version", "id", VERSION, round)),
+            );
         }
         if let Some(library) = self.library {
             let campaign = id("campaign", &library.campaign);
@@ -1414,9 +1535,16 @@ struct Rows {
 
 impl Rows {
     /// The rows of `element`, the `index`th of its campaign: its row, its
-    /// sheet, its aliases, and the first version of its history — the Entity
-    /// aggregate refuses an element that no version records.
-    fn add(&mut self, campaign: &str, index: usize, element: &Element) {
+    /// sheet, its aliases, and its versions — those of its `history` when it
+    /// has one, else the first of them: the Entity aggregate refuses an
+    /// element that no version records.
+    fn add(
+        &mut self,
+        campaign: &str,
+        index: usize,
+        element: &Element,
+        history: Option<&Vec<Value>>,
+    ) {
         let entity = id("entity", &element.slug);
         let at = stamp(FIRST, index);
         self.entities.push(json!({
@@ -1430,38 +1558,222 @@ impl Rows {
                 "entity_id": entity, "alias": alias,
             }));
         }
-        // EntityVersion@1: the snapshot is the whole state, and the first
-        // version's diff compares it with nothing.
-        let mut snapshot = Map::new();
-        snapshot.insert("name".into(), element.name.clone());
-        snapshot.insert("type".into(), json!(element.kind));
-        snapshot.insert("description".into(), element.description.clone());
-        snapshot.insert("notes".into(), element.notes.clone());
-        snapshot.insert("aliases".into(), json!(element.aliases));
-        if let Some(sheet) = &element.sheet {
-            let player = element.player.as_deref().map(|p| id("player", p));
-            let mut row = sheet.clone();
-            row.insert("entity_id".into(), json!(entity));
-            row.insert("player_id".into(), json!(player));
-            for (column, value) in &row {
-                if column != "entity_id" {
-                    snapshot.insert(camel(column), value.clone());
-                }
-            }
-            snapshot.insert("spells".into(), json!([]));
-            self.characters.push(Value::Object(row));
+        let (snapshot, sheet) = state_of(element, &entity);
+        self.characters.extend(sheet.map(Value::Object));
+        match history {
+            Some(versions) => self.versions.extend(versions.iter().cloned()),
+            None => self.versions.push(version_row(
+                &element.slug,
+                &entity,
+                1,
+                "dm",
+                &at,
+                &Map::new(),
+                &snapshot,
+            )),
         }
-        snapshot.retain(|_, value| !value.is_null());
-        let diff: Vec<Value> = snapshot
-            .iter()
-            .map(|(field, new)| json!({ "field": field, "old": null, "new": new }))
-            .collect();
-        self.versions.push(json!({
-            "id": id("entity_version", &format!("{}:1", element.slug)),
-            "entity_id": entity, "version_number": 1, "source": "dm",
-            "snapshot": snapshot, "diff": diff, "created_at": at,
-        }));
     }
+}
+
+/// The state of `element` now, as a version's snapshot (EntityVersion@1: the
+/// whole state), and the row of its sheet, if it has one.
+fn state_of(element: &Element, entity: &str) -> (Map<String, Value>, Option<Map<String, Value>>) {
+    let mut snapshot = Map::new();
+    snapshot.insert("name".into(), element.name.clone());
+    snapshot.insert("type".into(), json!(element.kind));
+    snapshot.insert("description".into(), element.description.clone());
+    snapshot.insert("notes".into(), element.notes.clone());
+    snapshot.insert("aliases".into(), json!(element.aliases));
+    let sheet = element.sheet.as_ref().map(|sheet| {
+        let player = element.player.as_deref().map(|p| id("player", p));
+        let mut row = sheet.clone();
+        row.insert("entity_id".into(), json!(entity));
+        row.insert("player_id".into(), json!(player));
+        for (column, value) in &row {
+            if column != "entity_id" {
+                snapshot.insert(camel(column), value.clone());
+            }
+        }
+        snapshot.insert("spells".into(), json!([]));
+        row
+    });
+    snapshot.retain(|_, value| !value.is_null());
+    (snapshot, sheet)
+}
+
+/// One row of `entity_version`: version `number` of the element `slug`, whose
+/// snapshot is `snapshot` and whose diff is what moved since `before`.
+fn version_row(
+    slug: &str,
+    entity: &str,
+    number: u64,
+    source: &str,
+    at: &str,
+    before: &Map<String, Value>,
+    snapshot: &Map<String, Value>,
+) -> Value {
+    json!({
+        "id": id("entity_version", &format!("{slug}:{number}")),
+        "entity_id": entity, "version_number": number, "source": source,
+        "snapshot": snapshot, "diff": diff(before, snapshot), "created_at": at,
+    })
+}
+
+/// EntityVersion@1: one `{ field, old, new }` per field whose value differs
+/// between the two snapshots (an absent field is null), sorted by field.
+fn diff(before: &Map<String, Value>, after: &Map<String, Value>) -> Vec<Value> {
+    let fields: BTreeSet<&String> = before.keys().chain(after.keys()).collect();
+    fields
+        .into_iter()
+        .filter_map(|field| {
+            let old = before.get(field).unwrap_or(&Value::Null);
+            let new = after.get(field).unwrap_or(&Value::Null);
+            (old != new).then(|| json!({ "field": field, "old": old, "new": new }))
+        })
+        .collect()
+}
+
+/// One version of `slug`'s history, mapped.
+fn revision_of(slug: &str, value: &Value) -> Result<Revision, String> {
+    let number = value["v"]
+        .as_u64()
+        .ok_or_else(|| format!("a version of {slug} has no number"))?;
+    let at = required(value, "date")?;
+    if !is_time(at) {
+        return Err(format!("version {number} of {slug} is dated {at:?}"));
+    }
+    // The table has no `import` source: an import is the DM's. A proposal is
+    // the AI's, and a brief's is the brief's, which the table lets change what
+    // an AI proposal may not (the sheet alone).
+    let source = match (required(value, "origin")?, required(value, "source")?) {
+        ("ia", label) if label.starts_with("Brief") => "brief",
+        ("ia", _) => "ia",
+        ("dndbeyond", _) => "dndbeyond",
+        ("manuelle" | "import", _) => "dm",
+        (other, _) => return Err(format!("version {number} of {slug} is of origin {other:?}")),
+    };
+    // A creation is no resync: a D&D Beyond import is the first version of
+    // the element, which the DM made, whole.
+    let source = if number == 1 { "dm" } else { source };
+    let mut changes = Vec::new();
+    for change in array(&value["changes"], "changes")? {
+        changes.push((
+            required(change, "field")?.to_string(),
+            change["old"].clone(),
+        ));
+    }
+    Ok(Revision {
+        number,
+        at: format!("{at}Z"),
+        source,
+        changes,
+    })
+}
+
+/// The version rows of `element`, one per revision, oldest first.
+fn history_rows(element: &Element, revisions: &[Revision]) -> Result<Vec<Value>, String> {
+    let entity = id("entity", &element.slug);
+    let (current, _) = state_of(element, &entity);
+    // Newest first: each state is the one after it with its changes put back.
+    let mut states = vec![current.clone()];
+    let mut state = current;
+    for revision in revisions.iter().skip(1).rev() {
+        for (label, old) in &revision.changes {
+            undo(element, label, old, &mut state)
+                .map_err(|why| format!("version {} of {}: {why}", revision.number, element.slug))?;
+        }
+        state.retain(|_, value| !value.is_null());
+        states.push(state.clone());
+    }
+    states.reverse();
+    let mut before = Map::new();
+    let mut rows = Vec::new();
+    for (revision, snapshot) in revisions.iter().zip(&states) {
+        rows.push(version_row(
+            &element.slug,
+            &entity,
+            revision.number,
+            revision.source,
+            &revision.at,
+            &before,
+            snapshot,
+        ));
+        before = snapshot.clone();
+    }
+    Ok(rows)
+}
+
+/// Puts back in `state` what the screen's field `label` held before a
+/// change, `old` in the words of the screen. A label the tables hold no
+/// column for (a level, a token's look) or the creation moves nothing: the
+/// version has one change less.
+fn undo(
+    element: &Element,
+    label: &str,
+    old: &Value,
+    state: &mut Map<String, Value>,
+) -> Result<(), String> {
+    let sheet = matches!(
+        label,
+        "Comportement" | "Background" | "PV max" | "Statblock" | "Sorts et capacités"
+    );
+    if sheet && element.sheet.is_none() {
+        return Err(format!("{label:?} changed an element with no sheet"));
+    }
+    let text = || {
+        old.as_str()
+            .ok_or_else(|| format!("{label:?} held {old}, not a text"))
+    };
+    match label {
+        "Notes" => state.insert("notes".into(), json!(text()?)),
+        "Comportement" => state.insert("behavior".into(), json!(text()?)),
+        "Background" => state.insert("background".into(), json!(text()?)),
+        "Alias" => {
+            let aliases: Vec<&str> = text()?.split(", ").filter(|a| !a.is_empty()).collect();
+            state.insert("aliases".into(), json!(aliases))
+        }
+        "PV max" => {
+            let hp = old
+                .as_i64()
+                .or_else(|| text().ok()?.trim().parse().ok())
+                .ok_or_else(|| format!("{label:?} held {old}, not a number"))?;
+            state.insert("hpMax".into(), json!(hp))
+        }
+        "Statblock" => {
+            if !text()?.is_empty() {
+                return Err(format!(
+                    "{label:?} held {old}: only a first one is put back"
+                ));
+            }
+            for field in ["armorClass", "hpMax", "dexterity"] {
+                state.remove(field);
+            }
+            state.insert("actions".into(), json!([]))
+        }
+        "Sorts et capacités" => {
+            let kept: Vec<&str> = text()?.split(", ").filter(|a| !a.is_empty()).collect();
+            let actions: Vec<Value> = state
+                .get("actions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|action| {
+                    // « Ennemi juré » is « Ennemi juré (morts-vivants) », not « Ennemi juré-né ».
+                    let name = action["name"].as_str().unwrap_or_default();
+                    kept.iter().any(|kept| {
+                        name == *kept
+                            || name
+                                .strip_prefix(kept)
+                                .is_some_and(|rest| rest.starts_with(" ("))
+                    })
+                })
+                .cloned()
+                .collect();
+            state.insert("actions".into(), json!(actions))
+        }
+        _ => None,
+    };
+    Ok(())
 }
 
 /// One element of `entities.json`, mapped; `kind` is none for a character,
@@ -2078,6 +2390,7 @@ mod tests {
                 "ToCreateList.json",
                 "campaign.getCampaign.json",
                 "campaign.listCampaigns.json",
+                "campaign.listEntityVersions.json",
                 "entities.json",
                 "media.json",
                 "table.getBattlemapInstance.json"
@@ -2101,6 +2414,9 @@ mod tests {
                 "entity",
                 "character",
                 "entity_alias",
+                "entity_version",
+                "entity_version",
+                "entity_version",
                 "entity_version",
                 "media",
                 "battlemap_grid",
@@ -2391,27 +2707,31 @@ mod tests {
     fn every_element_starts_its_history_with_a_complete_first_version() {
         let plan = mock();
         let versions = rows(&plan, "entity_version");
+        // Sixteen elements; the history adds three versions to Morlox, two to
+        // Elowen and one to Gaspard.
         assert_eq!(
             versions.len(),
-            16,
+            16 + 3 + 2 + 1,
             "the Entity aggregate refuses an element no version records"
         );
-        let morlox = versions
-            .iter()
-            .find(|v| v["entity_id"] == id("entity", "morlox"))
-            .expect("a version");
-        assert_eq!(morlox["version_number"], 1);
-        assert_eq!(morlox["source"], "dm");
-        let snapshot = morlox["snapshot"].as_object().expect("a snapshot");
-        assert_eq!(snapshot["type"], "pnj");
-        assert_eq!(
-            snapshot["aliases"],
-            json!(["le gobelin", "le marchand", "Morlo"])
-        );
-        assert_eq!(snapshot["armorClass"], 13);
+        let of = |slug: &str| -> Vec<&&Value> {
+            versions
+                .iter()
+                .filter(|v| v["entity_id"] == id("entity", slug))
+                .collect()
+        };
+        // Kael has no history of his own: his one version is his state now.
+        let kael = of("kael");
+        assert_eq!(kael.len(), 1);
+        let first = kael[0];
+        assert_eq!(first["version_number"], 1);
+        assert_eq!(first["source"], "dm");
+        let snapshot = first["snapshot"].as_object().expect("a snapshot");
+        assert_eq!(snapshot["type"], "pj");
+        assert!(snapshot.contains_key("armorClass"));
         // EntityVersion@1: the first diff compares the snapshot with nothing,
         // one entry per field, sorted.
-        let diff = morlox["diff"].as_array().expect("a diff");
+        let diff = first["diff"].as_array().expect("a diff");
         let fields: Vec<&str> = diff.iter().filter_map(|c| c["field"].as_str()).collect();
         let mut sorted = fields.clone();
         sorted.sort_unstable();
@@ -2420,6 +2740,339 @@ mod tests {
         assert!(
             diff.iter().all(|c| c["old"].is_null()
                 && c["new"] == snapshot[c["field"].as_str().unwrap_or_default()])
+        );
+    }
+
+    #[test]
+    fn the_versions_go_in_by_round_so_that_each_is_the_next_of_its_element() {
+        let plan = mock();
+        let rounds: Vec<&data::Table> = plan
+            .tables
+            .iter()
+            .filter(|t| t.name == "entity_version")
+            .collect();
+        // Morlox has four versions.
+        assert_eq!(rounds.len(), 4);
+        for (round, table) in rounds.iter().zip(1..) {
+            let numbers: BTreeSet<u64> = round
+                .rows
+                .iter()
+                .filter_map(|v| v["version_number"].as_u64())
+                .collect();
+            assert_eq!(numbers, BTreeSet::from([table]));
+        }
+        // The first round holds every element, the last Morlox alone.
+        assert_eq!(rounds[0].rows.len(), 16);
+        assert_eq!(rounds[3].rows.len(), 1);
+        assert_eq!(rounds[3].rows[0]["entity_id"], id("entity", "morlox"));
+    }
+
+    /// The `(number, source, created_at, snapshot, diff)` of the versions of
+    /// `slug` in `plan`, oldest first.
+    fn history_of<'a>(plan: &'a Fixtures, slug: &str) -> Vec<&'a Value> {
+        rows(plan, "entity_version")
+            .into_iter()
+            .filter(|v| v["entity_id"] == id("entity", slug))
+            .collect()
+    }
+
+    fn fields(version: &Value) -> Vec<&str> {
+        version["diff"]
+            .as_array()
+            .expect("a diff")
+            .iter()
+            .filter_map(|c| c["field"].as_str())
+            .collect()
+    }
+
+    fn change<'a>(version: &'a Value, field: &str) -> &'a Value {
+        version["diff"]
+            .as_array()
+            .expect("a diff")
+            .iter()
+            .find(|c| c["field"] == field)
+            .expect("a change")
+    }
+
+    #[test]
+    fn the_history_of_the_mock_up_is_planned_version_by_version() {
+        let plan = mock();
+        let described = mock_file("campaign.listEntityVersions.json");
+        for (slug, account) in described.as_object().expect("histories") {
+            let planned = history_of(&plan, slug);
+            // The versions of the fixture, from the first, dated as it dates them.
+            let numbers: Vec<&Value> = planned.iter().map(|v| &v["version_number"]).collect();
+            let expected: Vec<Value> = (1..=planned.len()).map(|n| json!(n)).collect();
+            assert_eq!(numbers, expected.iter().collect::<Vec<_>>(), "{slug}");
+            let mut told: Vec<&Value> = account["versions"]
+                .as_array()
+                .expect("versions")
+                .iter()
+                .collect();
+            told.reverse();
+            assert_eq!(planned.len(), told.len(), "{slug}");
+            for (version, fixture) in planned.iter().zip(told) {
+                let date = format!("{}Z", fixture["date"].as_str().expect("a date"));
+                assert_eq!(version["created_at"], date, "{slug} {fixture}");
+            }
+            // Each version's diff is what moved from the one before it: the
+            // snapshots chain.
+            let mut state = Map::new();
+            for version in &planned {
+                for c in version["diff"].as_array().expect("a diff") {
+                    let field = c["field"].as_str().expect("a field").to_string();
+                    assert_eq!(state.get(&field).unwrap_or(&Value::Null), &c["old"]);
+                    state.insert(field, c["new"].clone());
+                }
+                state.retain(|_, value| !value.is_null());
+                assert_eq!(
+                    &Value::Object(state.clone()),
+                    &version["snapshot"],
+                    "{slug}"
+                );
+            }
+        }
+        // The last version is the element as `entities.json` has it.
+        let morlox = history_of(&plan, "morlox");
+        let current = mock_file("entities.json");
+        let fixture = current["characters"]
+            .as_array()
+            .expect("characters")
+            .iter()
+            .find(|c| c["id"] == "morlox")
+            .expect("morlox");
+        let last = morlox[3]["snapshot"].as_object().expect("a snapshot");
+        assert_eq!(last["notes"], fixture["notes"]);
+        assert_eq!(last["aliases"], fixture["aliases"]);
+        assert_eq!(last["background"], fixture["background"]);
+        assert_eq!(last["armorClass"], fixture["ca"]);
+    }
+
+    #[test]
+    fn what_a_version_changed_is_what_the_fixture_says_it_changed() {
+        let plan = mock();
+        let morlox = history_of(&plan, "morlox");
+        let sources: Vec<&Value> = morlox.iter().map(|v| &v["source"]).collect();
+        // Imported, then dictated to the AI, edited by hand, found in a brief.
+        assert_eq!(sources, ["dm", "ia", "dm", "brief"]);
+        assert_eq!(fields(morlox[3]), ["aliases", "behavior", "notes"]);
+        assert_eq!(
+            change(morlox[3], "aliases")["old"],
+            json!(["le gobelin", "le marchand"])
+        );
+        assert_eq!(change(morlox[2], "notes")["old"], "Doit 40 po à Vesna.");
+        assert_eq!(fields(morlox[2]), ["notes"]);
+        assert_eq!(
+            fields(morlox[1]),
+            ["actions", "armorClass", "background", "dexterity", "hpMax"]
+        );
+        assert_eq!(change(morlox[1], "background")["old"], "");
+        assert_eq!(change(morlox[1], "hpMax")["old"], Value::Null);
+        // Before the statblock the element had none.
+        assert!(morlox[0]["snapshot"].get("armorClass").is_none());
+        assert_eq!(morlox[0]["snapshot"]["actions"], json!([]));
+
+        let elowen = history_of(&plan, "elowen");
+        let sources: Vec<&Value> = elowen.iter().map(|v| &v["source"]).collect();
+        assert_eq!(sources, ["dm", "dm", "dndbeyond"]);
+        // The level and the token's look have no column: the resync changed two fields.
+        assert_eq!(fields(elowen[2]), ["actions", "hpMax"]);
+        assert_eq!(change(elowen[2], "hpMax")["old"], 36);
+        assert_eq!(change(elowen[2], "hpMax")["new"], 44);
+        assert_eq!(
+            elowen[1]["snapshot"]["actions"].as_array().map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(fields(elowen[1]), ["aliases"]);
+
+        let gaspard = history_of(&plan, "gaspard");
+        assert_eq!(gaspard[1]["source"], "ia");
+        assert_eq!(fields(gaspard[1]), ["background"]);
+    }
+
+    /// An `entities.json` of a PNJ and a place, and `history` as the history
+    /// fixture; what is planned.
+    fn small(history: &Value) -> Fixtures {
+        static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let entities = json!({
+            "campaign": { "id": "c", "name": "C" }, "players": [],
+            "characters": [{
+                "id": "pc", "name": "Pc", "kind": "pnj", "aliases": ["a", "b"],
+                "description": "d", "prompt": "", "background": "bg", "behavior": "agité",
+                "stats": { "FOR": 10, "DEX": 11, "CON": 12, "INT": 13, "SAG": 14, "CHA": 15 },
+                "ca": 12, "pvMax": 10, "color": "success", "notes": "n",
+                "features": [{ "name": "Rage", "text": "x" }, { "name": "Rageur", "text": "z" },
+                    { "name": "Rune (rare)", "text": "y" }]
+            }],
+            "places": [{ "id": "lieu", "name": "Lieu", "aliases": [], "description": "d" }],
+            "events": []
+        });
+        let n = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = folder(
+            &format!("small-{n}"),
+            &[
+                ("entities.json", &entities.to_string()),
+                (HISTORY_FILE, &history.to_string()),
+            ],
+        );
+        let plan = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        plan
+    }
+
+    fn version(v: u64, origin: &str, source: &str, changes: &Value) -> Value {
+        json!({ "v": v, "date": format!("2026-09-{:02}T10:00:00", v + 10), "origin": origin,
+                "source": source, "seen": true, "changes": changes })
+    }
+
+    fn account(name: &str, versions: &[Value]) -> Value {
+        json!({ "name": name, "versions": versions })
+    }
+
+    fn created() -> Value {
+        version(
+            1,
+            "import",
+            "Import",
+            &json!([{ "field": "Création", "old": "", "new": "x" }]),
+        )
+    }
+
+    #[test]
+    fn each_label_of_the_screen_is_put_back_in_the_state_before_its_change() {
+        let history = json!({ "pc": account("Pc", &[
+            version(5, "ia", "Brief oral — séance 4", &json!([
+                { "field": "Comportement", "old": "calme", "new": "agité" }])),
+            version(4, "dndbeyond", "Resynchronisation", &json!([
+                { "field": "PV max", "old": "8", "new": "10" },
+                { "field": "Sorts et capacités", "old": "Rage", "new": "Rage, Rune" }])),
+            version(3, "manuelle", "À la main", &json!([
+                { "field": "Notes", "old": "avant", "new": "n" },
+                { "field": "Alias", "old": "a", "new": "a, b" },
+                { "field": "Niveau", "old": "4", "new": "5" }])),
+            version(2, "ia", "Prompt initial dicté", &json!([
+                { "field": "Statblock", "old": "", "new": "CA 12" },
+                { "field": "Background", "old": "", "new": "bg" }])),
+            created(),
+        ]) });
+        let plan = small(&history);
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        assert!(plan.loaded.contains(&HISTORY_FILE.to_string()));
+        let pc = history_of(&plan, "pc");
+        let numbers: Vec<&Value> = pc.iter().map(|v| &v["version_number"]).collect();
+        assert_eq!(numbers, [1, 2, 3, 4, 5]);
+        let sources: Vec<&Value> = pc.iter().map(|v| &v["source"]).collect();
+        assert_eq!(sources, ["dm", "ia", "dm", "dndbeyond", "brief"]);
+        assert_eq!(pc[1]["created_at"], "2026-09-12T10:00:00Z");
+        // The last version is the element now.
+        assert_eq!(pc[4]["snapshot"]["behavior"], "agité");
+        assert_eq!(fields(pc[4]), ["behavior"]);
+        assert_eq!(change(pc[4], "behavior")["old"], "calme");
+        // A resync: the hit points and the capabilities, the Rune not yet known.
+        assert_eq!(fields(pc[3]), ["actions", "hpMax"]);
+        assert_eq!(change(pc[3], "hpMax")["old"], 8);
+        assert_eq!(
+            change(pc[3], "actions")["old"],
+            json!([{ "name": "Rage", "text": "x" }])
+        );
+        // By hand: the level moves no column.
+        assert_eq!(fields(pc[2]), ["aliases", "notes"]);
+        assert_eq!(change(pc[2], "aliases")["old"], json!(["a"]));
+        assert_eq!(change(pc[2], "notes")["old"], "avant");
+        // The statblock and the background were new.
+        assert_eq!(
+            fields(pc[1]),
+            ["actions", "armorClass", "background", "dexterity", "hpMax"]
+        );
+        assert_eq!(change(pc[1], "actions")["old"], json!([]));
+        assert_eq!(change(pc[1], "armorClass")["old"], Value::Null);
+        assert_eq!(change(pc[1], "background")["old"], "");
+        // And the place, with no history of its own, has the one version.
+        assert_eq!(history_of(&plan, "lieu").len(), 1);
+    }
+
+    #[test]
+    fn a_history_that_does_not_fit_the_elements_is_skipped_whole() {
+        let hurt = |history: Value, why: &str| {
+            let plan = small(&history);
+            assert!(!plan.loaded.contains(&HISTORY_FILE.to_string()), "{why}");
+            let (_, skipped) = plan
+                .skipped
+                .iter()
+                .find(|(file, _)| file == HISTORY_FILE)
+                .unwrap_or_else(|| panic!("{why}: {:?}", plan.skipped));
+            assert!(skipped.contains(why), "{why}: {skipped}");
+            // The elements keep their one version each, and the rest is loaded.
+            assert_eq!(rows(&plan, "entity_version").len(), 2, "{why}");
+            assert!(plan.loaded.contains(&"entities.json".to_string()), "{why}");
+        };
+        let one = |changes: Value| json!({ "pc": account("Pc", &[version(2, "manuelle", "x", &changes), created()]) });
+        hurt(
+            json!({ "ghost": account("Pc", &[created()]) }),
+            "is no element of the campaign",
+        );
+        hurt(json!({ "pc": account("Autre", &[created()]) }), "is called");
+        hurt(
+            json!({ "pc": account("Pc", &[version(3, "manuelle", "x", &json!([])), created()]) }),
+            "do not run from 1 without a gap or a repeat",
+        );
+        hurt(
+            json!({ "pc": account("Pc", &[version(2, "manuelle", "x", &json!([])),
+                version(2, "manuelle", "x", &json!([])), created()]) }),
+            "or a repeat",
+        );
+        hurt(json!({ "pc": account("Pc", &[]) }), "has no version");
+        hurt(
+            json!({ "pc": account("Pc", &[json!({ "v": 1, "date": "2026-13-01T10:00:00",
+                "origin": "import", "source": "x", "changes": [] })]) }),
+            "is dated",
+        );
+        hurt(
+            json!({ "pc": account("Pc", &[version(1, "magie", "x", &json!([]))]) }),
+            "is of origin",
+        );
+        hurt(
+            json!({ "pc": account("Pc", &[json!({ "date": "2026-09-11T10:00:00", "origin": "import",
+                "source": "x", "changes": [] })]) }),
+            "has no number",
+        );
+        hurt(
+            one(json!([{ "field": "Statblock", "old": "CA 9", "new": "CA 12" }])),
+            "only a first one",
+        );
+        hurt(
+            one(json!([{ "field": "PV max", "old": "beaucoup", "new": "10" }])),
+            "not a number",
+        );
+        hurt(
+            one(json!([{ "field": "Notes", "old": 4, "new": "n" }])),
+            "not a text",
+        );
+        hurt(
+            json!({ "lieu": account("Lieu", &[
+                version(2, "manuelle", "x", &json!([{ "field": "Background", "old": "", "new": "d" }])),
+                created()]) }),
+            "no sheet",
+        );
+        hurt(json!(["pc"]), "not an object");
+    }
+
+    #[test]
+    fn a_history_with_no_elements_is_skipped() {
+        let history = json!({ "pc": account("Pc", &[created()]) });
+        let dir = folder("alone", &[(HISTORY_FILE, &history.to_string())]);
+        let plan = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(plan.loaded.is_empty());
+        assert!(
+            plan.skipped[0].1.contains("no fixture holds the elements"),
+            "{:?}",
+            plan.skipped
+        );
+        assert!(
+            plan.tables
+                .iter()
+                .all(|t| t.name != "entity_version" || t.rows.is_empty())
         );
     }
 
