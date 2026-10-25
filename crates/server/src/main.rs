@@ -11,10 +11,9 @@ use std::sync::Arc;
 use dataguard_server::MEMORY;
 use ports_character_sheets::SharedCharacterSheets;
 use ports_llm::SharedLlm;
-use ports_speech_to_text::SharedSpeechToText;
 use server::{
-    Config, Error, Names, Ports, app, applier, character_sheets, fixtures, inventory, llm, plant,
-    renaming, shared, speech_to_text, waking,
+    Config, Error, Names, Ports, app, applier, character_sheets, fixtures, inventory, listen, llm,
+    plant, renaming, shared, speech, waking,
 };
 use tokio::sync::Notify;
 
@@ -47,6 +46,9 @@ async fn run() -> Result<(), Error> {
         Ports::Fake => {
             eprintln!("server: PORTS=fake — every port on its fake, nothing reaches outside")
         }
+        Ports::Local => eprintln!(
+            "server: PORTS=local — the speech-to-text port on the local Phonon sidecar, every other port on its fake"
+        ),
     }
 
     let migrations = Path::new(MIGRATIONS);
@@ -110,13 +112,14 @@ async fn run() -> Result<(), Error> {
     // One port each, shared: the units' `Prepare`s and the journal's route
     // reach the same fake, and read the same journal.
     let llm = SharedLlm::new(llm(config.ports, config.fixtures.as_deref()));
-    let speech = SharedSpeechToText::new(speech_to_text(config.ports, config.fixtures.as_deref()));
+    let speech = speech(config.ports, config.fixtures.as_deref());
     let sheets =
         SharedCharacterSheets::new(character_sheets(config.ports, config.fixtures.as_deref()));
 
     // After the fixtures: the engine's aggregates warm from the tables they
     // hold (the Entity aggregate's aliases, its versions).
-    let planted = plant(&config, shared(&llm, &speech, &sheets)).await?;
+    let shared = shared(&llm, &speech, &sheets);
+    let planted = plant(&config, shared.clone()).await?;
     if config.read_only_url.is_none() && config.database_url != MEMORY {
         eprintln!(
             "server: no DATABASE_URL_READONLY — the Capabilities read through DATABASE_URL, every read in a READ ONLY transaction"
@@ -131,6 +134,8 @@ async fn run() -> Result<(), Error> {
     // not at the next second's tick.
     let wake = Arc::new(Notify::new());
     let applier = applier(Arc::clone(&planted.engine), Arc::clone(&wake));
+    // The microphone's streams submit their suggestions to this engine.
+    let listening = listen(&shared, &planted, &wake);
     eprintln!("server: listening on {addr}");
     // The fixtures' slugs on the wire, their uuids in the store (D8).
     let app = waking(renaming(app(&planted, Arc::new(llm)), names), wake);
@@ -139,6 +144,9 @@ async fn run() -> Result<(), Error> {
         .await
         .map_err(|source| Error::Serve { addr, source });
     applier.abort();
+    if let Some(listening) = listening {
+        listening.shutdown();
+    }
     served
 }
 

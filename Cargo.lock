@@ -680,6 +680,7 @@ dependencies = [
  "save-settings",
  "set-master-volume",
  "set-media-place",
+ "set-microphone",
  "set-sound-volume",
  "set-token-condition",
  "set-token-visibility",
@@ -2346,7 +2347,9 @@ dependencies = [
  "ports-character-sheets",
  "ports-llm",
  "ports-speech-to-text",
+ "ports-speech-to-text-phonon",
  "serde_json",
+ "set-microphone",
  "thiserror",
  "tokio",
  "tower",
@@ -2375,6 +2378,22 @@ dependencies = [
  "harness-dataguard",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "set-microphone"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "harness-dataguard",
+ "platform-conformance",
+ "platform-test-kit",
+ "ports-speech-to-text",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]
