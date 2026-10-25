@@ -62,6 +62,7 @@ ignored = [
     "list-scenes",
     "list-sessions",
     "list-sounds",
+    "list-suggestions",
     "move-token",
     "move-window",
     "next-turn",
@@ -148,6 +149,7 @@ list-players = { path = "../../campaign/capabilities/list-players" }
 list-scenes = { path = "../../session/capabilities/list-scenes" }
 list-sessions = { path = "../../session/capabilities/list-sessions" }
 list-sounds = { path = "../../soundbox/capabilities/list-sounds" }
+list-suggestions = { path = "../../live/capabilities/list-suggestions" }
 move-token = { path = "../../table/data-capabilities/move-token" }
 move-window = { path = "../../live/data-capabilities/move-window" }
 next-turn = { path = "../../table/data-capabilities/next-turn" }

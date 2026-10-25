@@ -639,6 +639,7 @@ dependencies = [
  "list-scenes",
  "list-sessions",
  "list-sounds",
+ "list-suggestions",
  "move-token",
  "move-window",
  "next-turn",
@@ -1376,6 +1377,17 @@ version = "0.1.0"
 dependencies = [
  "platform-conformance",
  "serde_json",
+]
+
+[[package]]
+name = "list-suggestions"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "harness-dataguard",
+ "platform-scratch-db",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
