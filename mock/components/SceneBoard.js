@@ -107,6 +107,8 @@
   var ADD_SCENE = "session.addScene";
   var REORDER_SCENES = "session.reorderScenes";
   var CREATE_BATTLEMAP_INSTANCE = "table.createBattlemapInstance";
+  var UPDATE_SCENE_NOTES = "session.updateSceneNotes";
+  var APPROVER = "role:approver";
   var DATA_CAPABILITY_VERSION = 1;
 
   // apps/session/scene-board/src/model.ts
@@ -175,14 +177,13 @@
     order.splice(to, 0, ...order.splice(from, 1));
     return order;
   }
-  var ranks = (order) => order.map((scene, index) => ({ scene, rank: index + 1 }));
   function commandBody(dataCapability, payload, target, idempotencyKey) {
     return {
       dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
       payload,
       target,
       ...idempotencyKey === void 0 ? {} : { idempotencyKey },
-      caller: { by: "dm", from: "SceneBoard", roles: [] }
+      caller: { by: "dm", from: "SceneBoard", roles: [APPROVER] }
     };
   }
   var VIOLATIONS = {
@@ -239,7 +240,7 @@
     const shown2 = rows.filter(([, items]) => items.length > 0);
     return shown2.length === 0 ? "" : `<dl class="mf-scenes__links">${shown2.map(([name, items]) => `<dt>${name}</dt><dd>${items.join("")}</dd>`).join("")}</dl>`;
   }
-  var notes = (scene) => `<div class="kit-textarea is-wide"><label class="kit-textarea__label" for="scene-${esc(scene.id)}-notes">Notes</label><textarea class="kit-textarea__field" id="scene-${esc(scene.id)}-notes" rows="2" readonly>${esc(scene.notes)}</textarea><div class="kit-textarea__footer"><p class="kit-textarea__hint"></p></div></div>`;
+  var notes = (scene) => `<div class="kit-textarea is-wide"><label class="kit-textarea__label" for="scene-${esc(scene.id)}-notes">Notes</label><textarea class="kit-textarea__field" id="scene-${esc(scene.id)}-notes" rows="2" data-writes="${UPDATE_SCENE_NOTES}">${esc(scene.notes)}</textarea><div class="kit-textarea__footer"><p class="kit-textarea__hint"></p></div></div>`;
   var plural = (n, one, many) => n > 1 ? many : one;
   function mapLine(scene, board) {
     const id = `${esc(scene.id)}-battlemap`;
@@ -369,7 +370,7 @@
       }
       return state;
     }
-    async function act(wrong, run) {
+    async function act(wrong, run, applied) {
       if (busy || board === null) return;
       if (board.session.id === "") return say("La s\xE9ance n\u2019est pas identifi\xE9e : rien ne peut \xEAtre modifi\xE9.");
       busy = true;
@@ -381,8 +382,11 @@
         else {
           if (state.status !== "applied") say(`L\u2019action n\u2019est pas encore appliqu\xE9e (\xE9tat : ${state.status || "inconnu"}).`);
           try {
-            board = await read();
-            paint();
+            if (applied !== void 0) applied();
+            else {
+              board = await read();
+              paint();
+            }
           } catch {
             say("L\u2019action a eu lieu, mais la s\xE9ance n\u2019a pas pu \xEAtre relue.");
           }
@@ -417,7 +421,7 @@
         case REORDER_SCENES: {
           const order = moved(current.scenes, clicked.closest("[data-scene]")?.dataset.scene ?? "", Number(clicked.dataset.move));
           if (order === null) return;
-          void act("Impossible de r\xE9ordonner les sc\xE8nes.", () => send(REORDER_SCENES, { session, order: ranks(order) }, "Session", session));
+          void act("Impossible de r\xE9ordonner les sc\xE8nes.", () => send(REORDER_SCENES, { session, order }, "Session", session));
           return;
         }
         case CREATE_BATTLEMAP_INSTANCE: {
@@ -430,6 +434,22 @@
         }
       }
       if (clicked.dataset.action === "place") host2.ownerDocument.getElementById("scene-battlemap")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    host2.addEventListener("change", (event) => {
+      const field = event.target;
+      if (field?.tagName !== "TEXTAREA" || field.dataset.writes !== UPDATE_SCENE_NOTES || board === null) return;
+      const current = board;
+      const session = current.session.id;
+      const scene = current.scenes.find((s) => s.id === field.closest("[data-scene]")?.dataset.scene);
+      const notes2 = field.value;
+      if (!scene || notes2 === scene.notes) return;
+      void act(
+        "Impossible d\u2019enregistrer ces notes.",
+        () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes: notes2 }, "Session", scene.id),
+        () => {
+          scene.notes = notes2;
+        }
+      );
     });
     if (wanted === "") {
       say("Aucune s\xE9ance n\u2019est indiqu\xE9e : rien \xE0 afficher.");

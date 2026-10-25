@@ -1,7 +1,7 @@
 // What the board knows, with no DOM: the answers of the Capabilities, the
 // order of the scenes, the commands a click becomes.
 
-import { DATA_CAPABILITY_VERSION } from './ids.ts';
+import { APPROVER, DATA_CAPABILITY_VERSION } from './ids.ts';
 import type { Board, Character, Entity, Instance, Media, Medias, Scene, Session } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -95,7 +95,7 @@ export const presentPcs = (board: Pick<Board, 'characters' | 'session'>): Charac
 /** The PCs of the campaign still to tick. */
 export const absentPcs = (board: Pick<Board, 'characters' | 'session'>): Character[] => pcs(board).filter((character) => !board.session.present.includes(character.id));
 
-/** The scene ids with the scene `id` moved by `delta` places; null when it cannot move that way. */
+/** scene-order-contiguous: every scene id once, in the order they play (the server ranks them 1 to n); the scene `id` moved by `delta` places, null when it cannot move that way. */
 export function moved(scenes: readonly Scene[], id: string, delta: number): string[] | null {
   const from = scenes.findIndex((scene) => scene.id === id);
   const to = from + delta;
@@ -105,9 +105,6 @@ export function moved(scenes: readonly Scene[], id: string, delta: number): stri
   return order;
 }
 
-/** scene-order-contiguous: every scene gets its rank again, from 1 to n. */
-export const ranks = (order: readonly string[]): Array<{ scene: string; rank: number }> => order.map((scene, index) => ({ scene, rank: index + 1 }));
-
 /** `POST /commands` for one DataCapability, by identifier. */
 export function commandBody(dataCapability: string, payload: Record<string, unknown>, target: { aggregate: string; id: string }, idempotencyKey?: string): unknown {
   return {
@@ -115,7 +112,7 @@ export function commandBody(dataCapability: string, payload: Record<string, unkn
     payload,
     target,
     ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-    caller: { by: 'dm', from: 'SceneBoard', roles: [] },
+    caller: { by: 'dm', from: 'SceneBoard', roles: [APPROVER] },
   };
 }
 

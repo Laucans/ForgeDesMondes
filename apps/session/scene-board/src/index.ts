@@ -5,9 +5,12 @@
 // `campaign.listPlaces`, `campaign.listEvents`, `media.listMedia` and
 // `table.getBattlemapInstance`, and triggers
 // `session.addPresentCharacter`, `session.removePresentCharacter`,
-// `session.addScene`, `session.reorderScenes` and
+// `session.addScene`, `session.reorderScenes`, `session.updateSceneNotes` and
 // `table.createBattlemapInstance`, by identifier, through the shell it is
-// handed: no network call of its own. It does not show or drive the map. The
+// handed: no network call of its own. Every command is the DM's, as the
+// approver of the Session's critical fields, so it applies rather than
+// waits in review; a reorder sends the scene ids in their new order, and a
+// scene's notes are written when the DM leaves the field. It does not show or drive the map. The
 // session is its `session` prop, else the screen's `session` context value;
 // with neither it reads nothing and writes nothing. The campaign its
 // campaign reads are for is the one session.getSession gives, else its
@@ -26,8 +29,9 @@ import {
   LIST_SCENES,
   REMOVE_PRESENT_CHARACTER,
   REORDER_SCENES,
+  UPDATE_SCENE_NOTES,
 } from './ids.ts';
-import { campaignAsked, commandBody, commandId, isFinal, moved, parseCharacters, parseEntities, parseInstance, parseMedias, parseScenes, parseSession, ranks, reasons, sessionAsked, settled, type Settled } from './model.ts';
+import { campaignAsked, commandBody, commandId, isFinal, moved, parseCharacters, parseEntities, parseInstance, parseMedias, parseScenes, parseSession, reasons, sessionAsked, settled, type Settled } from './model.ts';
 import { presentAdd, presentCount, presentList, sceneList, sceneTitle, skeleton } from './render.ts';
 import { STYLE } from './style.ts';
 import type { Board, Instance, Shell } from './types.ts';
@@ -123,8 +127,8 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     return state;
   }
 
-  /** One command at a time; once applied, the board is read again, so what it shows is what the server holds. */
-  async function act(wrong: string, run: () => Promise<Settled>): Promise<void> {
+  /** One command at a time; once applied, the board is read again, so what it shows is what the server holds — unless `applied` says what changed, which keeps the field the DM is in, whatever the server's pace. */
+  async function act(wrong: string, run: () => Promise<Settled>, applied?: () => void): Promise<void> {
     if (busy || board === null) return;
     // A session the board does not know is one it cannot write to.
     if (board.session.id === '') return say('La séance n’est pas identifiée : rien ne peut être modifié.');
@@ -138,8 +142,11 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
         // A command still queued or parked is the server's to apply on its own clock: the board says so, and shows what is held now.
         if (state.status !== 'applied') say(`L’action n’est pas encore appliquée (état : ${state.status || 'inconnu'}).`);
         try {
-          board = await read();
-          paint();
+          if (applied !== undefined) applied();
+          else {
+            board = await read();
+            paint();
+          }
         } catch {
           say('L’action a eu lieu, mais la séance n’a pas pu être relue.');
         }
@@ -176,7 +183,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       case REORDER_SCENES: {
         const order = moved(current.scenes, clicked.closest<HTMLElement>('[data-scene]')?.dataset.scene ?? '', Number(clicked.dataset.move));
         if (order === null) return;
-        void act('Impossible de réordonner les scènes.', () => send(REORDER_SCENES, { session, order: ranks(order) }, 'Session', session));
+        void act('Impossible de réordonner les scènes.', () => send(REORDER_SCENES, { session, order }, 'Session', session));
         return;
       }
       case CREATE_BATTLEMAP_INSTANCE: {
@@ -191,6 +198,24 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     }
     // « Placer les personnages » only leads to the map, which the Battlemap Micro-UI shows; it writes nothing.
     if (clicked.dataset.action === 'place') host.ownerDocument.getElementById('scene-battlemap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // A scene's notes are written when the DM leaves the field, once, and only when they changed.
+  host.addEventListener('change', (event) => {
+    const field = event.target as HTMLTextAreaElement | null;
+    if (field?.tagName !== 'TEXTAREA' || field.dataset.writes !== UPDATE_SCENE_NOTES || board === null) return;
+    const current = board;
+    const session = current.session.id;
+    const scene = current.scenes.find((s) => s.id === field.closest<HTMLElement>('[data-scene]')?.dataset.scene);
+    const notes = field.value;
+    if (!scene || notes === scene.notes) return;
+    void act(
+      'Impossible d’enregistrer ces notes.',
+      () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes }, 'Session', scene.id),
+      () => {
+        scene.notes = notes;
+      },
+    );
   });
 
   // No session named, nothing to read: the board stays empty and writes nothing.
