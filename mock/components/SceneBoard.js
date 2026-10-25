@@ -151,7 +151,10 @@
     const tokens = isRecord(data.state) ? records(data.state.tokens) : [];
     return { id: text(data.id), battlemap: text(data.battlemap), tokens: tokens.length, hidden: tokens.filter((token) => token.visible === false).length };
   }
-  var sessionVariables = (session) => session ? { session } : {};
+  var sessionAsked = (prop, context2) => {
+    if (typeof prop === "string" && prop !== "") return prop;
+    return typeof context2 === "string" ? context2 : "";
+  };
   var pcs = (board) => board.characters.filter((character) => character.kind === "pj");
   var presentPcs = (board) => board.session.present.flatMap((id) => pcs(board).filter((character) => character.id === id));
   var absentPcs = (board) => pcs(board).filter((character) => !board.session.present.includes(character.id));
@@ -300,7 +303,7 @@
     style.textContent = STYLE;
     doc.head.append(style);
   }
-  function mount(host2, _props, shell2, timing = WAITING) {
+  function mount(host2, props2, shell2, timing = WAITING) {
     ensureStyle(host2.ownerDocument);
     host2.innerHTML = skeleton();
     const part = (id) => {
@@ -308,6 +311,7 @@
       if (!found) throw new Error(`SceneBoard: #${id} is not in the board`);
       return found;
     };
+    const wanted = sessionAsked(props2.session, shell2.context?.get("session"));
     let board = null;
     let busy = false;
     const say = (text2) => {
@@ -322,12 +326,10 @@
       part("scenes-list").innerHTML = sceneList(board);
     };
     async function read() {
-      const screenSession = shell2.context?.get("session");
-      const asked = sessionVariables(typeof screenSession === "string" ? screenSession : void 0);
-      const session = parseSession((await shell2.capability(GET_SESSION, void 0, asked)).data);
+      const session = parseSession((await shell2.capability(GET_SESSION, void 0, { id: wanted })).data);
       const forCampaign = session.campaign === null ? {} : { campaign: session.campaign };
       const [scenes, characters, medias2] = await Promise.all([
-        shell2.capability(LIST_SCENES, void 0, { session: session.id || void 0 }).then((answer) => parseScenes(answer.data)),
+        shell2.capability(LIST_SCENES, void 0, { session: wanted }).then((answer) => parseScenes(answer.data)),
         shell2.capability(LIST_CHARACTERS, void 0, forCampaign).then((answer) => parseCharacters(answer.data)),
         shell2.capability(LIST_MEDIA, void 0, forCampaign).then((answer) => parseMedias(answer.data))
       ]);
@@ -415,6 +417,10 @@
       }
       if (clicked.dataset.action === "place") host2.ownerDocument.getElementById("scene-battlemap")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+    if (wanted === "") {
+      say("Aucune s\xE9ance n\u2019est indiqu\xE9e : rien \xE0 afficher.");
+      return;
+    }
     read().then(
       (loaded) => {
         board = loaded;

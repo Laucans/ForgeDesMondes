@@ -365,9 +365,11 @@
         "session.reorderScenes",
         "table.createBattlemapInstance"
       ],
-      "props": {},
+      "props": {
+        "session": "string — id de la séance en préparation (lue par session.getSession, passée aux écritures) ; à défaut, la séance du contexte de l’écran ; sans aucune, rien à lire ni à écrire"
+      },
       "source": "apps/session/scene-board",
-      "builtFrom": "23e144be1281f6fb"
+      "builtFrom": "ca77124cef5e301f"
     },
     {
       "name": "Battlemap",

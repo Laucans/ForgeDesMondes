@@ -4,5 +4,7 @@
   "description": "Les PJ présents et les scènes ordonnées de la séance, avec leurs lieux, PNJ, événements, médias, notes et instance de battlemap",
   "needs": ["session.getSession", "session.listScenes", "campaign.listCharacters", "media.listMedia", "table.getBattlemapInstance"],
   "actions": ["session.addPresentCharacter", "session.removePresentCharacter", "session.addScene", "session.reorderScenes", "table.createBattlemapInstance"],
-  "props": {}
+  "props": {
+    "session": "string — id de la séance en préparation (lue par session.getSession, passée aux écritures) ; à défaut, la séance du contexte de l’écran ; sans aucune, rien à lire ni à écrire"
+  }
 }
