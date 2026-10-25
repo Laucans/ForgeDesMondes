@@ -4,8 +4,9 @@
 // and triggers `ai.analyzeBrief`, by identifier, through the shell it is
 // handed: no network call of its own. Nothing is created here
 // (brief-no-auto-creation): the missing elements are only listed, and only
-// text leaves the machine (text-only-no-audio): the payload is the typed or
-// transcribed text, never the sound.
+// text reaches the llm (text-only-no-audio): the payload is the typed or
+// transcribed text, or — when the host records and nothing was typed — the
+// dictation, which the speech-to-text port turns into text on the machine.
 
 import { ANALYZE_BRIEF, GET_LAST_BRIEF } from './ids.ts';
 import { commandBody, commandId, isFinal, lastRunLabel, parseBrief, reasons, settled, type Settled } from './model.ts';
@@ -14,6 +15,9 @@ import { STYLE } from './style.ts';
 import type { Brief, Dictation, Outcome, Shell, Timing } from './types.ts';
 
 export type { Dictation, Shell, Timing } from './types.ts';
+
+/** The shell hands a dictation only to the Micro-UIs that say they listen: the fifth `mount` slot means something else elsewhere. */
+export const listens = true;
 
 const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 400, polls: 120 };
 
@@ -42,6 +46,8 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
 
   let session = sessionOf(props);
   let busy = false;
+  // The audio of the dictation just paused, held until the brief is sent or the session changes.
+  let take: string | Promise<string> = '';
 
   const say = (outcome: Outcome): void => {
     part('brief-status').innerHTML = status(outcome);
@@ -73,13 +79,14 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   const count = (): void => {
     const analyse = host.querySelector<HTMLButtonElement>('#brief-analyse');
     if (!analyse) return;
-    analyse.disabled = busy || (field().value.trim() === '' && state !== 'recording');
+    analyse.disabled = busy || (field().value.trim() === '' && state !== 'recording' && take === '');
   };
 
   const setMic = (next: MicState): void => {
     state = next;
     stopTimers();
     if (next === 'recording') {
+      dictation?.start?.();
       tick = setInterval(() => {
         // A screen that left the page stops listening.
         if (!mic.isConnected) return stopTimers();
@@ -101,7 +108,10 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   const hear = (): void => {
     if (state !== 'recording') return;
     setMic('paused');
+    const recorded = dictation?.audio() ?? '';
+    if (recorded !== '') take = recorded;
     const heard = dictation?.transcript() ?? '';
+    count();
     if (heard === '') return;
     const area = field();
     area.value = area.value === '' ? heard : `${area.value}\n${heard}`;
@@ -135,7 +145,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     hear();
     const text = field().value.trim();
     // An empty brief sends nothing: the DM is brought back to the field.
-    if (text === '') {
+    if (text === '' && take === '') {
       field().focus();
       return;
     }
@@ -145,7 +155,10 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     lock(true);
     try {
       say({ kind: 'busy', text: 'Analyse du brief en cours…' });
-      const outcome = await send(ANALYZE_BRIEF, { session: target, text });
+      // What was typed or heard as words is sent as text; a take with no words is sent as audio, for the port to hear.
+      const audio = text === '' ? await take : '';
+      if (text === '' && audio === '') return say({ kind: 'error', text: 'Aucun son n’a été enregistré.' });
+      const outcome = await send(ANALYZE_BRIEF, text === '' ? { session: target, dictation: audio } : { session: target, text });
       if (outcome.status === 'rejected') return say({ kind: 'error', text: `Analyse refusée : ${reasons(outcome.violations)}.` });
       // A command still waiting its turn keeps its text: it applies on its own clock, and sending it again would analyse the brief twice.
       if (!isFinal(outcome.status) && outcome.status !== '') return say({ kind: 'error', text: `L’analyse est toujours en attente (état : ${outcome.status}) : elle s’appliquera à son tour, ne la relancez pas.` });
@@ -154,6 +167,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       // The brief is analysed: the text area is spent, and the view shows what the analysis left.
       field().value = '';
       seconds = 0;
+      take = '';
       setMic('idle');
       try {
         const brief = await read();
@@ -209,8 +223,11 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       const chosen = sessionOf(next);
       if (chosen === session) return;
       session = chosen;
+      // A recorder still listening is stopped and its sound thrown away: it would otherwise be sent as the next session's brief.
+      if (state === 'recording') void Promise.resolve(dictation?.audio?.()).catch(() => undefined);
       // Another session starts with a quiet microphone and an empty text area.
       seconds = 0;
+      take = '';
       setMic('idle');
       field().value = '';
       paint(NO_BRIEF);
