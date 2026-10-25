@@ -11,11 +11,13 @@
 //! - `DATABASE_URL_READONLY`: the read-only connection the Capabilities read
 //!   through; when unset, they read through `DATABASE_URL`, every read in a
 //!   `READ ONLY` transaction;
-//! - `PORTS`: how the ports of ports.json are wired — only `fake`, the
-//!   default: every built port on its fake, no secret read, nothing reached
-//!   outside — the `llm` port's fake is [`llm`], the `speech-to-text`
-//!   port's [`speech_to_text`], the `character-sheets` port's
-//!   [`character_sheets`];
+//! - `PORTS`: how the ports of ports.json are wired — `fake`, the default:
+//!   every built port on its fake, no secret read, nothing reached outside —
+//!   the `llm` port's fake is [`llm`], the `speech-to-text` port's
+//!   [`speech_to_text`], the `character-sheets` port's [`character_sheets`];
+//!   or `local`: the same, except the `speech-to-text` port, which is the
+//!   Phonon sidecar on the DM's machine ([`speech`]) — no secret, nothing
+//!   leaves the machine;
 //! - `FIXTURES_DIR`: when set and not empty, the folder of the mock-up's
 //!   fixtures (`mock/fixtures/*.json`), read as it starts ([`fixtures`]) and
 //!   loaded into the store by the Data layer ([`data::insert_missing`]) —
@@ -24,7 +26,9 @@
 //! What it shares with the units ([`shared`]) is the ports their `Prepare`s
 //! declare they need: the `llm` port, the `speech-to-text` port and the
 //! `character-sheets` port, one of each, which the units and [`app`]'s journal
-//! route reach alike.
+//! route reach alike — and the microphone's streams
+//! ([`set_microphone::Listening`]), bound to the engine once it is planted
+//! ([`listen`]).
 //!
 //! The server adds one read path of its own, and no write path: a read is
 //! served when the engine's registry holds its persisted query, a write only
@@ -52,6 +56,7 @@ use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub use applier::{applier, waking};
 use axum::extract::State;
@@ -72,8 +77,11 @@ use ports_character_sheets::{CharacterId, SharedCharacterSheets};
 use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, SharedLlm};
 use ports_speech_to_text::SharedSpeechToText;
+use ports_speech_to_text_phonon::PhononSidecar;
 pub use proposing::Proposing;
 use serde_json::{Value, json};
+use set_microphone::Listening;
+use tokio::sync::Notify;
 
 /// Where the server listens when `PORT` is unset: the rules' runtime's port.
 const DEFAULT_PORT: u16 = 8790;
@@ -116,6 +124,10 @@ pub enum Ports {
     /// Every built port on its fake adapter: nothing reaches outside, and no
     /// secret is read.
     Fake,
+    /// The `speech-to-text` port on its local adapter, the Phonon sidecar —
+    /// it runs on the DM's machine, reads no secret and reaches nothing
+    /// outside — and every other port on its fake.
+    Local,
 }
 
 /// What the server starts with.
@@ -144,11 +156,12 @@ impl Config {
     pub fn read(var: impl Fn(&str) -> Option<String>) -> Result<Config, Error> {
         let ports = match var("PORTS").as_deref() {
             None | Some("fake") => Ports::Fake,
+            Some("local") => Ports::Local,
             Some(other) => {
                 return Err(Error::Unsupported {
                     name: "PORTS",
                     value: other.to_string(),
-                    why: "only `fake` is — no port has a real adapter yet",
+                    why: "only `fake` and `local` are — no port reaches outside yet",
                 });
             }
         };
@@ -188,7 +201,7 @@ impl Config {
 /// canned sentence.
 pub fn llm(ports: Ports, fixtures: Option<&Path>) -> Proposing {
     match ports {
-        Ports::Fake => {
+        Ports::Fake | Ports::Local => {
             let proposing = |fake| {
                 characters(
                     fake,
@@ -302,16 +315,23 @@ fn sheet(proposal: &Value) -> Value {
     sheet
 }
 
-/// The `speech-to-text` port as `ports` wires it: its fake, which hears in
-/// the audio of the shell's no-device take (`OralBrief`) the brief the
-/// fixtures describe (`OralBrief.json`, its `transcript` lines joined by a
-/// newline) and in every other dictation the draft of notes
-/// (`NoteImport.json`), as the DM would have dictated them — so a dictated
-/// brief is analysed and a dictated import proposes what a pasted one does.
-/// Without a fixture, it hears nothing in the audio that fixture describes.
+/// How long the fake microphone waits before each phrase of the feed: all of
+/// `SuggestionPill.json`'s are heard well within the five seconds R18 waits.
+const FEED_INTERVAL: Duration = Duration::from_millis(250);
+
+/// The `speech-to-text` port's fake — the fake whichever way the ports are
+/// wired: [`speech`] picks the adapter. It hears in the audio of the shell's
+/// no-device take (`OralBrief`) the brief the fixtures describe
+/// (`OralBrief.json`, its `transcript` lines joined by a newline) and in every
+/// other dictation the draft of notes (`NoteImport.json`), as the DM would
+/// have dictated them — so a dictated brief is analysed and a dictated import
+/// proposes what a pasted one does — and, when the microphone listens, the
+/// phrases of the suggestion pill's feed (`SuggestionPill.json`,
+/// `feed[].heard`) in order, one every [`FEED_INTERVAL`], then silence.
+/// Without a fixture, it hears nothing in what that fixture describes.
 pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> Hearing {
     match ports {
-        Ports::Fake => {
+        Ports::Fake | Ports::Local => {
             let brief = fixture(fixtures, "OralBrief.json").and_then(|brief| {
                 let lines = brief["transcript"].as_array()?;
                 Some(
@@ -324,8 +344,27 @@ pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> Hearing {
             });
             let draft = fixture(fixtures, "NoteImport.json")
                 .and_then(|notes| notes["draft"].as_str().map(str::to_owned));
+            let feed = fixture(fixtures, "SuggestionPill.json")
+                .and_then(|pill| pill["feed"].as_array().cloned())
+                .unwrap_or_default();
+            let heard = feed
+                .iter()
+                .filter_map(|item| item["heard"].as_str().map(str::to_owned));
             Hearing::new(brief.unwrap_or_default(), draft.unwrap_or_default())
+                .listening(heard, FEED_INTERVAL)
         }
+    }
+}
+
+/// The `speech-to-text` port the server hands its units, as `ports` wires
+/// it: [`speech_to_text`]'s fake, or — `local` — the Phonon sidecar the
+/// environment names ([`ports_speech_to_text_phonon::SIDECAR_VARIABLE`]), which transcribes on this
+/// machine: the audio never goes further than that process.
+#[must_use]
+pub fn speech(ports: Ports, fixtures: Option<&Path>) -> SharedSpeechToText {
+    match ports {
+        Ports::Fake => SharedSpeechToText::new(speech_to_text(ports, fixtures)),
+        Ports::Local => SharedSpeechToText::new(PhononSidecar::from_environment()),
     }
 }
 
@@ -339,7 +378,7 @@ pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> Hearing {
 /// do not describe a sheet, it knows no character.
 pub fn character_sheets(ports: Ports, fixtures: Option<&Path>) -> FakeCharacterSheets {
     match ports {
-        Ports::Fake => {
+        Ports::Fake | Ports::Local => {
             let json = |name: &str| {
                 fixtures
                     .and_then(|dir| std::fs::read_to_string(dir.join(name)).ok())
@@ -376,8 +415,10 @@ fn play_level_ups(fake: &FakeCharacterSheets, entities: &Value) {
 }
 
 /// What the server shares with its units: the `llm` port, the `speech-to-text`
-/// port and the `character-sheets` port, the ones their `Prepare`s declare
-/// they need. The engine refuses to start while a need has nobody to fill it.
+/// port and the `character-sheets` port, and the microphone's streams
+/// ([`Listening`], which [`listen`] binds to the engine once it is planted),
+/// the ones their `Prepare`s declare they need. The engine refuses to start
+/// while a need has nobody to fill it.
 #[must_use]
 pub fn shared(
     llm: &SharedLlm,
@@ -388,7 +429,19 @@ pub fn shared(
     shared.insert(Arc::new(llm.clone()));
     shared.insert(Arc::new(speech.clone()));
     shared.insert(Arc::new(sheets.clone()));
+    shared.insert(Arc::new(Listening::new()));
     shared
+}
+
+/// Binds the microphone's streams of `shared` to the engine `planted` — the
+/// suggestions they hear are submitted to it, and `wake` — the applier's —
+/// is notified once each is queued, so a suggestion shows within the second.
+/// Returns them, for the caller to end on shutdown ([`Listening::shutdown`]).
+#[must_use]
+pub fn listen(shared: &Shared, planted: &Planted, wake: &Arc<Notify>) -> Option<Arc<Listening>> {
+    let listening = shared.get::<Listening>()?;
+    listening.bind(&planted.engine, Arc::clone(wake));
+    Some(listening)
 }
 
 /// The engine as `crates/dataguard/server` plants it over `config`'s
@@ -606,6 +659,15 @@ mod tests {
             refused.to_string().starts_with("PORTS=\"real\""),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn ports_local_wires_the_speech_to_text_port_on_its_own_machine() {
+        let read = config(&[("DATABASE_URL", "memory"), ("PORTS", "local")])
+            .expect("PORTS=local is a valid configuration");
+        assert_eq!(read.ports, Ports::Local);
+        let default = config(&[("DATABASE_URL", "memory")]).expect("a valid configuration");
+        assert_eq!(default.ports, Ports::Fake, "the fakes stay the default");
     }
 
     #[test]
@@ -1029,6 +1091,74 @@ mod tests {
         for fake in fakes {
             assert_eq!(fake.fetch(id).await, Err(CharacterSheetsError::NotFound));
         }
+    }
+
+    #[tokio::test]
+    async fn the_fake_microphone_hears_the_pills_feed_in_order_within_the_five_seconds_r18_waits() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let pill: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixtures.join("SuggestionPill.json")).expect("the fixture"),
+        )
+        .expect("JSON");
+        let feed: Vec<&str> = pill["feed"]
+            .as_array()
+            .expect("a feed")
+            .iter()
+            .map(|item| item["heard"].as_str().expect("a phrase"))
+            .collect();
+        assert!(feed.len() > 1);
+        let fake = speech_to_text(Ports::Fake, Some(&fixtures));
+        let mut stream = fake
+            .listen(&ports_speech_to_text::Vocabulary::default())
+            .await
+            .expect("the microphone opens");
+        for phrase in &feed {
+            let heard = stream.next().await.expect("a phrase").expect("heard");
+            assert_eq!(heard.text, *phrase);
+        }
+        // The clock is the fake's: the whole feed lands within the five seconds R18
+        // waits, with the applier's second to spare.
+        let feed_len = u32::try_from(feed.len()).expect("a feed");
+        assert!(FEED_INTERVAL * feed_len < Duration::from_secs(4));
+        // Then silence, as a microphone: the stream stays open until it is stopped.
+        let more = tokio::time::timeout(Duration::from_millis(400), stream.next()).await;
+        assert!(more.is_err(), "nothing more is heard");
+        stream.stop().await;
+    }
+
+    #[tokio::test]
+    async fn without_the_pills_feed_the_fake_microphone_hears_nothing() {
+        let dir = folder("no-pill-feed", &[("other.json", "{}")]);
+        let without = speech_to_text(Ports::Fake, Some(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+        for fake in [without, speech_to_text(Ports::Fake, None)] {
+            let mut stream = fake
+                .listen(&ports_speech_to_text::Vocabulary::default())
+                .await
+                .expect("the microphone opens");
+            let heard = tokio::time::timeout(Duration::from_millis(400), stream.next()).await;
+            assert!(heard.is_err(), "nothing is heard");
+            stream.stop().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn shared_carries_the_microphone_s_streams_and_listen_binds_them_to_the_engine() {
+        let llm = SharedLlm::new(FakeLlm::new());
+        let speech = SharedSpeechToText::new(FakeSpeechToText::new(String::new()));
+        let sheets = SharedCharacterSheets::new(FakeCharacterSheets::new());
+        let shared = shared(&llm, &speech, &sheets);
+        let config = config(&[("DATABASE_URL", MEMORY)]).expect("a valid configuration");
+        let planted = plant(&config, shared.clone()).await.expect("the engine");
+        let wake = Arc::new(Notify::new());
+        let listening = listen(&shared, &planted, &wake).expect("the streams are shared");
+        // What the units read from the map is those very streams.
+        assert!(Arc::ptr_eq(
+            &listening,
+            &shared.get::<Listening>().expect("the streams")
+        ));
+        assert!(!listening.listens("5e000000-0000-4000-8000-000000000001"));
+        assert!(listen(&Shared::default(), &planted, &wake).is_none());
     }
 
     #[tokio::test]

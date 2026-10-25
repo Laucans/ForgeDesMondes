@@ -3,7 +3,14 @@
 //!
 //! A DataCapability that takes dictated notes calls [`SpeechToText`] and never
 //! knows which engine answers. The port is stateless: every call carries the
-//! [`Dictation`] and the [`Vocabulary`] to listen for.
+//! [`Vocabulary`] to listen for, and a [`Dictation`] when one is handed over.
+//! Two ways to ask:
+//!
+//! - [`SpeechToText::transcribe`]: one dictation, one answer.
+//! - [`SpeechToText::listen`]: the microphone, for the whole session. It opens
+//!   with a [`Vocabulary`] and yields the [`Transcript`] phrases as they are
+//!   heard, until [`TranscriptStream::stop`] ends it. The adapter owns the
+//!   device and the audio: the caller hands over nothing but the vocabulary.
 //!
 //! - **Local, by construction.** A [`Dictation`] is bytes handed to the port
 //!   and nothing else: no URL, no destination, no credential. The adapter
@@ -16,9 +23,11 @@
 //!   no further than the port (the `llm` port takes the text from there).
 //! - **Journalled.** Every request a call accepts is recorded in the
 //!   [`RequestJournal`] of [`SpeechToText::journal`]: the size of the audio —
-//!   never the audio — and the vocabulary, unchanged.
-//! - **[`fake`]** answers deterministically and opens no device and spawns no
-//!   process: the tests, the CI, the rules' runtime and the mock-up run on it.
+//!   never the audio; none for a stream, which hands the port none — and the
+//!   vocabulary, unchanged.
+//! - **[`fake`]** answers deterministically, and replays the phrases it was
+//!   given at the pace it was given. It opens no device and spawns no process:
+//!   the tests, the CI, the rules' runtime and the mock-up run on it.
 //! - **[`contract`]** is the suite every adapter passes, run against itself
 //!   from its own tests.
 //!
@@ -32,8 +41,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 pub mod contract;
 pub mod fake;
 pub mod shared;
+pub mod stream;
 
 pub use shared::SharedSpeechToText;
+pub use stream::TranscriptStream;
 
 /// The language every adapter transcribes, as a BCP 47 tag.
 pub const LANGUAGE: &str = "fr";
@@ -121,7 +132,8 @@ impl std::error::Error for SpeechToTextError {}
 pub struct RequestRecord {
     /// Its place in the journal, from 1.
     pub sequence: u64,
-    /// The size of the audio, in bytes; the audio itself is not kept.
+    /// The size of the audio, in bytes; the audio itself is not kept. Zero for
+    /// a stream: the caller handed none.
     pub audio_bytes: usize,
     /// The vocabulary the engine was given, as it was passed.
     pub vocabulary: Vocabulary,
@@ -144,11 +156,21 @@ impl RequestJournal {
 
     /// Appends a request; an adapter calls it for every request it accepts.
     pub fn record(&self, dictation: &Dictation, vocabulary: &Vocabulary) {
+        self.push(dictation.audio.len(), vocabulary);
+    }
+
+    /// Appends a stream an adapter opened: the caller handed it no audio, so
+    /// its size is zero.
+    pub fn record_listen(&self, vocabulary: &Vocabulary) {
+        self.push(0, vocabulary);
+    }
+
+    fn push(&self, audio_bytes: usize, vocabulary: &Vocabulary) {
         let mut records = self.records.lock().unwrap_or_else(PoisonError::into_inner);
         let sequence = records.len() as u64 + 1;
         records.push(RequestRecord {
             sequence,
-            audio_bytes: dictation.audio.len(),
+            audio_bytes,
             vocabulary: vocabulary.clone(),
         });
     }
@@ -168,6 +190,9 @@ impl RequestJournal {
 /// An implementation transcribes locally, hands `vocabulary` to the engine
 /// unchanged, journals every request it accepts (nothing for an empty
 /// dictation: nothing is asked of the engine), and passes [`contract::run`].
+///
+/// Only [`transcribe`](Self::transcribe) is required: an engine that cannot
+/// listen continuously answers [`listen`](Self::listen) with a failure.
 pub trait SpeechToText: Send + Sync {
     /// Transcribes `dictation` in [`LANGUAGE`], listening for `vocabulary`.
     fn transcribe(
@@ -175,6 +200,26 @@ pub trait SpeechToText: Send + Sync {
         dictation: &Dictation,
         vocabulary: &Vocabulary,
     ) -> impl Future<Output = Result<Transcript, SpeechToTextError>> + Send;
+
+    /// Opens the microphone in [`LANGUAGE`], listening for `vocabulary`, and
+    /// yields what is heard until the stream is stopped.
+    ///
+    /// The stream is journalled once the engine has started, with `vocabulary`
+    /// unchanged and no audio. Stopping it leaves no task, process or device
+    /// behind. The engine failing to start is the error; one failing later is
+    /// the last item of the stream. Called within a Tokio runtime: the stream
+    /// is fed by a task.
+    fn listen(
+        &self,
+        vocabulary: &Vocabulary,
+    ) -> impl Future<Output = Result<TranscriptStream, SpeechToTextError>> + Send {
+        let _ = vocabulary;
+        async {
+            Err(SpeechToTextError::Failed(
+                "ce moteur ne transcrit pas en continu".to_owned(),
+            ))
+        }
+    }
 
     /// The journal of the requests this port accepted.
     fn journal(&self) -> &RequestJournal;

@@ -22,7 +22,11 @@ list-provider-requests = { path = "../ai/capabilities/list-provider-requests" }
 ports-character-sheets = { path = "../ports/character-sheets" }
 ports-llm = { path = "../ports/llm" }
 ports-speech-to-text = { path = "../ports/speech-to-text" }
+# The speech-to-text port's real adapter, for `PORTS=local`: the Phonon sidecar.
+ports-speech-to-text-phonon = { path = "../ports/speech-to-text/phonon-local-to-be-evaluated-as-the-decision-requests" }
 serde_json = "1"
+# The microphone's streams, which the server binds to the engine it plants.
+set-microphone = { path = "../live/data-capabilities/set-microphone" }
 thiserror = "2"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
 uuid = { version = "1", default-features = false, features = ["v5"] }
