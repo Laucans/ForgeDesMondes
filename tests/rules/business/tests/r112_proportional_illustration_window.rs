@@ -27,8 +27,14 @@ fn r112_proportional_illustration_window() {
         |s| {
             let campaign = new_campaign(s, "campagne")?;
             // A window floats over a base: it needs a live session whose diffusion is committed.
-            new_session(s, &campaign, &[])?;
-            apply(s, "live.setMicrophone", json!({ "on": true }), None)?;
+            let session = new_session(s, &campaign, &[])?;
+            // Unscoped, the microphone would go on in another campaign's session: name the one made here.
+            apply(
+                s,
+                "live.setMicrophone",
+                json!({ "on": true }),
+                Some(&session),
+            )?;
             apply(s, "live.showCover", json!({ "campaign": campaign }), None)?;
             let title = unique("Illustration 800 x 1200");
             apply(
