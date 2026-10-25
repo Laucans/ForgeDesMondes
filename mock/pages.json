@@ -116,7 +116,9 @@
         "campaign.exportCampaign",
         "campaign.importCampaign"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/campaign/campaign-list",
+      "builtFrom": "dc92b0593a26c727"
     },
     {
       "name": "AiSettings",
