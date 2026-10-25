@@ -248,19 +248,28 @@ async fn a_tombstone_writes_nothing() {
         .await;
     assert_eq!(result.status, State::Applied, "{result:?}");
     assert_eq!(sessions(&scratch).await, before);
-    // A write after it brings the row back for the engine, and moves it.
+}
+
+#[tokio::test]
+async fn a_delete_is_no_way_round_status_lifecycle_and_the_table_stays() {
+    let scratch = scratch("tombstone_back").await;
+    let served = served(&scratch).await;
+    let result = served
+        .applied(REMOVE, json!({ "sessionId": CLOSED }), None)
+        .await;
+    assert_eq!(result.status, State::Applied, "{result:?}");
+    let before = sessions(&scratch).await;
+    // The engine holds no row of the deleted session: the judge has no status
+    // to compare, the table's is the one that refuses.
     let result = served
         .applied(
             WRITE,
-            json!({ "sessionId": LIVE, "microphoneOn": false }),
+            json!({ "sessionId": CLOSED, "sessionStatus": "live", "microphoneOn": true, "startedAt": LATER }),
             None,
         )
         .await;
-    assert_eq!(result.status, State::Applied, "{result:?}");
-    assert_eq!(
-        session(&scratch, LIVE).await,
-        [row("live", false, Some(SINCE))]
-    );
+    assert_eq!(result.status, State::Rejected, "{result:?}");
+    assert_eq!(sessions(&scratch).await, before);
 }
 
 /// What `Microphone` makes of `write`, committed.

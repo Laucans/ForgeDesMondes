@@ -17,6 +17,10 @@
 //!   answers before this runs. For a session only the tables hold — a
 //!   fixture — [`Microphone::hydrate`] gives the engine the row they hold, so
 //!   that the judge sees the status it moves from.
+//! - The engine forgets the row of a deleted session, and a write that
+//!   follows it starts from nothing: the judge has no status to compare. The
+//!   table does not forget: a status taken back from the one the row holds
+//!   is rejected here as `status-lifecycle`, so a delete is no way round it.
 
 use std::collections::BTreeMap;
 
@@ -26,6 +30,7 @@ use harness_dataguard::store::Write;
 use harness_dataguard::tokio_postgres::{Client, Transaction};
 use serde_json::Value;
 
+use crate::rank;
 use crate::scenes::judged;
 use crate::sessions::{MICROPHONE_ON, SESSION_STATUS};
 use crate::uuid;
@@ -46,6 +51,10 @@ const MOVE: &str = "UPDATE session SET
         microphone_on = coalesce($3::boolean, microphone_on),
         started_at = coalesce(started_at, to_timestamp($4::float8 / 1000.0), $5::text::timestamptz)
     WHERE id = $1::text::uuid";
+
+/// The status the session `$1` holds, its row locked until the commit: what
+/// a status written is compared with, whatever the engine remembers.
+const HELD: &str = "SELECT status FROM session WHERE id = $1::text::uuid FOR UPDATE";
 
 /// Whether the `session` table exists: a database not migrated yet holds
 /// none.
@@ -88,6 +97,17 @@ impl ProjectPg for Microphone {
         );
         if status.is_none() && microphone.is_none() && millis.is_none() && text.is_none() {
             return Ok(());
+        }
+        if let Some(status) = status {
+            let held = tx.query_opt(HELD, &[&session]).await.map_err(judged)?;
+            if let Some(held) = held {
+                let before = held.try_get::<_, &str>(0)?;
+                if rank(&Value::from(status)) < rank(&Value::from(before)) {
+                    return Err(ProjectionError::Refused(format!(
+                        "status-lifecycle: session {session} is {before}, it does not go back to {status}"
+                    )));
+                }
+            }
         }
         tx.execute(MOVE, &[&session, &status, &microphone, &millis, &text])
             .await
