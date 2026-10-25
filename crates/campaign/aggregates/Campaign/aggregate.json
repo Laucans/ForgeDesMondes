@@ -17,6 +17,10 @@
       "criticality": "low",
       "kind": "authoritative"
     },
+    "elements": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
     "entityCounts": {
       "criticality": "low",
       "kind": "derived"
@@ -45,6 +49,10 @@
       "criticality": "low",
       "kind": "derived"
     },
+    "media": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
     "name": {
       "criticality": "normal",
       "kind": "authoritative"
@@ -61,12 +69,24 @@
       "criticality": "low",
       "kind": "authoritative"
     },
+    "players": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
     "sessionCount": {
       "criticality": "normal",
       "kind": "derived"
     },
+    "sessions": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
     "soundMasterVolume": {
       "criticality": "low",
+      "kind": "authoritative"
+    },
+    "sounds": {
+      "criticality": "normal",
       "kind": "authoritative"
     }
   },

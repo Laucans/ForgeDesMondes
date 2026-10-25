@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Value, json};
 
 use import_campaign::{Refusal, Request, Row, copy, prepare, request, timestamp};
-use platform_test_kit::uuid;
+use platform_test_kit::{uuid, writes_only_touches};
 
 const ID: &str = "CampaignArchive@1";
 const AT: &str = "2026-10-25T12:00:00.000Z";
@@ -148,6 +148,15 @@ fn import_creates_copy_the_copy_keeps_the_archives_origin_not_the_campaign_rows(
         prepared.payload["id"], origin,
         "the copy's id is new all the same"
     );
+}
+
+/// The manifest the engine judges the payload against.
+const MANIFEST: &str = include_str!("../data-capability.json");
+
+#[test]
+fn the_payload_writes_only_what_the_manifest_touches() {
+    let prepared = prepare(&read(full()), AT, drawn()).expect("prepared");
+    writes_only_touches(MANIFEST, &prepared.payload);
 }
 
 #[test]

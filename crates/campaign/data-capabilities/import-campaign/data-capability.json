@@ -18,7 +18,12 @@
     "Campaign.createdAt",
     "Campaign.importedAt",
     "Campaign.originCampaignId",
-    "Campaign.soundMasterVolume"
+    "Campaign.soundMasterVolume",
+    "Campaign.players",
+    "Campaign.elements",
+    "Campaign.media",
+    "Campaign.sounds",
+    "Campaign.sessions"
   ],
   "payload": {
     "archive": "object | string — a campaign archive (format campaign-archive, version 1) as campaign.exportCampaign wrote it, or the text of that JSON; always imported as a new campaign, whatever campaign it was made from (import-creates-copy)"
