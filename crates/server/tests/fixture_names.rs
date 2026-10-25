@@ -4,7 +4,7 @@
 //! the mock-up's own fixtures give. A scratch database of its own
 //! (`DATABASE_URL`), dropped when the test ends.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -98,6 +98,17 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
     data::insert_missing(&mut client, &plan.tables)
         .await
         .expect("the fixtures are inserted");
+    // The battlemap's media, as the first load left it: a restart leaves it as it is.
+    let medium = format!(
+        "SELECT (m.*)::text FROM media m JOIN battlemap_grid g ON g.media_id = m.id \
+         WHERE m.id = '{}'",
+        uuid_of("media", "bm-gue")
+    );
+    let before: String = client
+        .query_one(&medium, &[])
+        .await
+        .expect("a medium")
+        .get(0);
     // A restart plans the same rows and loads none of them twice.
     let again = fixtures(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures"))
         .expect("the fixtures");
@@ -107,6 +118,24 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
             .expect("the fixtures are planned again"),
         0
     );
+    let count = |table: &'static str| {
+        let client = &client;
+        async move {
+            let row = client
+                .query_one(&format!("SELECT count(*) FROM {table}"), &[])
+                .await
+                .expect("a count");
+            row.get::<_, i64>(0)
+        }
+    };
+    assert_eq!(count("battlemap_instance").await, 1, "no instance twice");
+    assert_eq!(count("token").await, 8, "no token twice");
+    let after: String = client
+        .query_one(&medium, &[])
+        .await
+        .expect("a medium")
+        .get(0);
+    assert_eq!(after, before, "the original battlemap is unchanged");
     // The DM took Kael off the second session and ticked him again since: the
     // row is no longer the fixture's, and the load leaves it alone.
     client
@@ -345,6 +374,58 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
         sorted(&json!(["ill-moulin", "ill-cover"])),
         "the cover is at Valombre, a place of the scene"
     );
+
+    // The scene of the ambush has its battlemap instance, the others none.
+    let battlemaps: Vec<&Value> = scenes.iter().map(|s| &s["battlemap"]).collect();
+    assert_eq!(
+        battlemaps,
+        [&json!(null), &json!(null), &json!("bmi-gue-s4")],
+        "{scenes:?}"
+    );
+    // The instance, with its tokens at their hexes, as the DM sees it.
+    let instance = fixture("table.getBattlemapInstance.json");
+    let read_instance = |view: &'static str| {
+        let renamed = &renamed;
+        async move {
+            let variables = json!({ "instance": "bmi-gue-s4", "view": view });
+            read(renamed, "table.getBattlemapInstance", variables).await
+        }
+    };
+    let dm = read_instance("dm").await;
+    for key in ["id", "battlemap", "session", "scene"] {
+        assert_eq!(dm[key], instance[key], "{key}: {dm}");
+    }
+    assert_eq!(dm["state"]["combat"], json!(null), "{dm}");
+    let tokens = |instance: &Value| -> BTreeMap<String, Value> {
+        instance["state"]["tokens"]
+            .as_array()
+            .expect("tokens")
+            .iter()
+            .map(|t| (t["id"].as_str().expect("an id").to_string(), t.clone()))
+            .collect()
+    };
+    let (placed, described) = (tokens(&dm), tokens(&instance));
+    assert_eq!(placed.len(), 8, "{dm}");
+    assert_eq!(
+        placed.keys().collect::<Vec<_>>(),
+        described.keys().collect::<Vec<_>>(),
+        "{dm}"
+    );
+    for (slug, want) in &described {
+        let got = &placed[slug];
+        for key in [
+            "char", "kind", "name", "num", "q", "r", "visible", "hp", "hpMax", "states", "dead",
+        ] {
+            assert_eq!(got[key], want[key], "{slug}.{key}: {got}");
+        }
+    }
+    // The players do not see the hidden chief, nor a hit point.
+    let players = read_instance("player").await;
+    let seen = tokens(&players);
+    assert_eq!(seen.len(), 7, "{players}");
+    assert!(!seen.contains_key("t-vesna-1"), "{players}");
+    assert!(seen.values().all(|t| t.get("hp").is_none()), "{players}");
+    assert_eq!(seen["t-bandit-1"]["status"], "indemne", "{players}");
 
     // The closed session's journal and summary.
     let journal = read(
