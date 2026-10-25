@@ -1,0 +1,27 @@
+{
+  "dataCapability": "session.updateSceneNotes",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Session",
+    "id": "$scene"
+  },
+  "touches": [
+    "Session.sceneId",
+    "Session.sceneSessionId",
+    "Session.sceneTitle",
+    "Session.notes",
+    "Session.entityId"
+  ],
+  "payload": {
+    "session": "uuid — the session the scene belongs to; a scene of another session is refused, 422, and no notes change",
+    "scene": "uuid — the scene whose notes are written; one the store does not hold is refused, 404",
+    "notes": "string — the DM's notes on the scene, kept as written: a blank text is a text, not the absence of notes (null or any other type is refused, 422)"
+  },
+  "mode": "overwrite",
+  "invariants": ["text-only-no-audio"],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}
