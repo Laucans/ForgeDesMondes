@@ -686,7 +686,7 @@
     "SuggestionPill": {
       "kind": "micro-ui",
       "producer": 27,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "TableSheet": {
@@ -794,8 +794,8 @@
     "campaign.listCampaigns": {
       "kind": "capability",
       "producer": 18,
-      "state": "built",
-      "version": 1
+      "state": "evolving",
+      "version": 2
     },
     "campaign.listCharacters": {
       "kind": "capability",
@@ -878,7 +878,7 @@
     "live.listSuggestions": {
       "kind": "capability",
       "producer": 27,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "live.moveWindow": {
@@ -896,7 +896,7 @@
     "live.setMicrophone": {
       "kind": "data-capability",
       "producer": 27,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "live.showCover": {

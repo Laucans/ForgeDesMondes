@@ -3,13 +3,16 @@ name = "aggregate-suggestion"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Aggregate Suggestion: what the live session suggests to the DM — its invariants judged as code (suggestion-target, pile-and-history-derived, live-only-local-audio)."
+description = "Aggregate Suggestion: what the live session suggests to the DM — its invariants judged as code (suggestion-target, pile-and-history-derived, live-only-local-audio), its table (live_suggestion) written in the transaction that applies it."
 publish = false
 
 # The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
 [dependencies]
+# Its PostgreSQL client is the engine's re-export, never a driver of this crate.
 harness-dataguard = { workspace = true }
+async-trait = "0.1"
 serde_json = "1"
 
 [dev-dependencies]
+platform-test-kit = { path = "../../../platform/test-kit" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

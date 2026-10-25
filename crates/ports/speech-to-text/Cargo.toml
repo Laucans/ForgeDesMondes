@@ -3,8 +3,11 @@ name = "ports-speech-to-text"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "The `speech-to-text` port (ports.json): the trait the product calls to transcribe French dictation locally into text, with the vocabulary injected from campaign names, aliases and sound names, the text-only transcript, the request journal, the fake, and the contract suite every adapter passes."
+description = "The `speech-to-text` port (ports.json): the trait the product calls to transcribe French dictation locally into text, in one call or as a stream of phrases heard while the microphone listens, with the vocabulary injected from campaign names, aliases and sound names, the text-only transcript, the request journal, the fake, and the contract suite every adapter passes."
 publish = false
 
+[dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
+
 [dev-dependencies]
-tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "test-util"] }

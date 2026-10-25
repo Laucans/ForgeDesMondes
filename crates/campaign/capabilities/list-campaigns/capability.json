@@ -1,9 +1,11 @@
 {
   "capability": "campaign.listCampaigns",
-  "system": "campaign",
-  "version": "1.0.0",
-  "description": "Every campaign and oneshot of the home page, newest first: each with its id, name, type (campagne or oneshot), cover art, glyph, pitch, session count and last-played and next-session dates. No account is asked and none is answered: a campaign belongs to no owner. The session count and the dates are counted from the sessions, never stored; they are null until the session table exists.",
+  "description": "Every campaign and oneshot of the home page, newest first: each with its id, name, type (campagne or oneshot), cover art, glyph, pitch, session count and last-played and next-session dates. No account is asked and none is answered: a campaign belongs to no owner. The session count and the dates are counted from the campaign's rows of the `session` table, never stored: `sessions` is the number of its sessions (0 when it has none, a oneshot with its one session answers 1), `lastPlayed` the latest day one of its sessions was played (status live or closed: the day it started, else its planned day), `next` the earliest planned day of a session still in prep, today or later; each date is an ISO day (YYYY-MM-DD) or null when no session qualifies.",
   "input": {},
-  "output": "{ id: string, name: string, type: 'campagne' | 'oneshot', art: string | null, glyph: string | null, pitch: string | null, sessions: number | null, lastPlayed: string | null, next: string | null }[]",
-  "reads": ["queries/list-campaigns.graphql"]
+  "output": "{ id: string, name: string, type: 'campagne' | 'oneshot', art: string | null, glyph: string | null, pitch: string | null, sessions: number, lastPlayed: string | null, next: string | null }[]",
+  "reads": [
+    "queries/list-campaigns.graphql"
+  ],
+  "system": "campaign",
+  "version": "2.0.0"
 }

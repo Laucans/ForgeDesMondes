@@ -1,0 +1,9 @@
+# fields: entity.campaignId, entity.name, entityAlias.alias, sound.campaignId, sound.name
+# The words the local transcription is primed with for a campaign: every name
+# and alias of its entities (detection_vocabulary_view) and the name of each of
+# its sounds, one row per distinct term as written (DetectionVocabulary@1).
+query GetTranscriptionVocabulary($campaign: ID!) {
+  transcriptionVocabulary(campaign: $campaign) {
+    term
+  }
+}

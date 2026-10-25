@@ -5,11 +5,15 @@
 //! bytes of the Micro-UI's id (`OralBrief`), never empty so the port is always
 //! asked. The fake of `ports-speech-to-text` hears one text whatever the
 //! audio; this server tells two takes apart — that one hears the brief, any
-//! other audio hears the draft of notes — and keeps one journal for both.
+//! other audio hears the draft of notes — and keeps one journal for both. The
+//! microphone, which hands no take, hears the phrases of the other fake.
+
+use std::time::Duration;
 
 use ports_speech_to_text::fake::FakeSpeechToText;
 use ports_speech_to_text::{
-    Dictation, RequestJournal, SpeechToText, SpeechToTextError, Transcript, Vocabulary,
+    Dictation, RequestJournal, SpeechToText, SpeechToTextError, Transcript, TranscriptStream,
+    Vocabulary,
 };
 
 /// The audio the shell hands when no microphone answers: the id of the
@@ -35,6 +39,18 @@ impl Hearing {
             journal: RequestJournal::new(),
         }
     }
+
+    /// The same port, which hears `phrases` in order when the microphone
+    /// listens, one every `interval` ([`FakeSpeechToText::listening`]).
+    #[must_use]
+    pub fn listening<I, S>(mut self, phrases: I, interval: Duration) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.other = self.other.listening(phrases, interval);
+        self
+    }
 }
 
 impl SpeechToText for Hearing {
@@ -51,6 +67,12 @@ impl SpeechToText for Hearing {
         let heard = fake.transcribe(dictation, vocabulary).await?;
         self.journal.record(dictation, vocabulary);
         Ok(heard)
+    }
+
+    async fn listen(&self, vocabulary: &Vocabulary) -> Result<TranscriptStream, SpeechToTextError> {
+        let stream = self.other.listen(vocabulary).await?;
+        self.journal.record_listen(vocabulary);
+        Ok(stream)
     }
 
     fn journal(&self) -> &RequestJournal {
@@ -109,7 +131,10 @@ mod tests {
                 sound_names: vec!["Orage".into()],
             },
             expected: "le brief".to_owned(),
+            heard: vec!["la porte grince".to_owned(), "un orage gronde".to_owned()],
         };
-        contract::run(&Hearing::new("le brief", "les notes"), &scenario).await;
+        let port = Hearing::new("le brief", "les notes")
+            .listening(scenario.heard.clone(), Duration::from_millis(10));
+        contract::run(&port, &scenario).await;
     }
 }
