@@ -97,6 +97,7 @@ ignored = [
     "start-combat",
     "stop-all",
     "test-connection",
+    "update-scene-notes",
     "update-sound",
     "upload-media",
 ]
@@ -187,5 +188,6 @@ show-window-on-player-view = { path = "../../live/data-capabilities/show-window-
 start-combat = { path = "../../table/data-capabilities/start-combat" }
 stop-all = { path = "../../soundbox/data-capabilities/stop-all" }
 test-connection = { path = "../../ai/data-capabilities/test-connection" }
+update-scene-notes = { path = "../../session/data-capabilities/update-scene-notes" }
 update-sound = { path = "../../soundbox/data-capabilities/update-sound" }
 upload-media = { path = "../../media/data-capabilities/upload-media" }
