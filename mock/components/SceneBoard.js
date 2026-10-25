@@ -98,6 +98,8 @@
   var GET_SESSION = "session.getSession";
   var LIST_SCENES = "session.listScenes";
   var LIST_CHARACTERS = "campaign.listCharacters";
+  var LIST_PLACES = "campaign.listPlaces";
+  var LIST_EVENTS = "campaign.listEvents";
   var LIST_MEDIA = "media.listMedia";
   var GET_BATTLEMAP_INSTANCE = "table.getBattlemapInstance";
   var ADD_PRESENT_CHARACTER = "session.addPresentCharacter";
@@ -141,6 +143,9 @@
   function parseCharacters(data) {
     return records(data).filter((character) => text(character.id) !== "").map((character) => ({ id: text(character.id), name: text(character.name) || text(character.id), kind: character.kind === "pj" ? "pj" : "pnj" }));
   }
+  function parseEntities(data) {
+    return records(data).filter((entity) => text(entity.id) !== "").map((entity) => ({ id: text(entity.id), name: text(entity.name) || text(entity.id) }));
+  }
   var medias = (value) => records(value).filter((media) => text(media.id) !== "").map((media) => ({ id: text(media.id), title: text(media.title) || text(media.id) }));
   function parseMedias(data) {
     const answer = isRecord(data) ? data : {};
@@ -151,6 +156,10 @@
     const tokens = isRecord(data.state) ? records(data.state.tokens) : [];
     return { id: text(data.id), battlemap: text(data.battlemap), tokens: tokens.length, hidden: tokens.filter((token) => token.visible === false).length };
   }
+  var campaignAsked = (fromSession, prop) => {
+    if (fromSession !== null && fromSession !== "") return fromSession;
+    return typeof prop === "string" && prop !== "" ? prop : null;
+  };
   var sessionAsked = (prop, context2) => {
     if (typeof prop === "string" && prop !== "") return prop;
     return typeof context2 === "string" ? context2 : "";
@@ -197,7 +206,7 @@
   var button = (attrs, label, variant) => `<button type="button" class="${variant}"${attrs}>${esc(label)}</button>`;
   var buttons = (inner) => `<div class="kit-button kit-button--bare kit-button--small">${inner}</div>`;
   function skeleton() {
-    return `<section class="mf-scenes stack" id="scene-board" aria-labelledby="scenes-title" data-reads="${GET_SESSION}"><p class="mf-scenes__notice" id="scenes-notice" aria-live="polite"></p><section class="panel" id="scenes-present" aria-labelledby="scenes-present-title"><div class="panel__head"><h2 id="scenes-present-title">PJ pr\xE9sents</h2><span class="small muted" id="scenes-present-count"></span></div><div class="row" id="scenes-present-list" data-reads="${GET_SESSION} ${LIST_CHARACTERS}"></div><div class="row" id="scenes-present-add"></div></section><section class="panel" id="scenes-list-panel" aria-labelledby="scenes-title"><div class="panel__head"><h2 id="scenes-title">Sc\xE8nes</h2>${buttons(button(` id="scenes-add" data-writes="${ADD_SCENE}"`, "Ajouter une sc\xE8ne", "secondary"))}</div><ol class="mf-scenes__list" id="scenes-list" data-reads="${LIST_SCENES} ${LIST_MEDIA}"></ol></section></section>`;
+    return `<section class="mf-scenes stack" id="scene-board" aria-labelledby="scenes-title" data-reads="${GET_SESSION}"><p class="mf-scenes__notice" id="scenes-notice" aria-live="polite"></p><section class="panel" id="scenes-present" aria-labelledby="scenes-present-title"><div class="panel__head"><h2 id="scenes-present-title">PJ pr\xE9sents</h2><span class="small muted" id="scenes-present-count"></span></div><div class="row" id="scenes-present-list" data-reads="${GET_SESSION} ${LIST_CHARACTERS}"></div><div class="row" id="scenes-present-add"></div></section><section class="panel" id="scenes-list-panel" aria-labelledby="scenes-title"><div class="panel__head"><h2 id="scenes-title">Sc\xE8nes</h2>${buttons(button(` id="scenes-add" data-writes="${ADD_SCENE}"`, "Ajouter une sc\xE8ne", "secondary"))}</div><ol class="mf-scenes__list" id="scenes-list" data-reads="${LIST_SCENES} ${LIST_PLACES} ${LIST_EVENTS} ${LIST_MEDIA}"></ol></section></section>`;
   }
   function sceneTitle(board) {
     const { order, title } = board.session;
@@ -217,11 +226,13 @@
   var link = (cls, href, label, id) => `<a class="chip chip--${cls}" href="${esc(href)}" id="${esc(id)}">${esc(label)}</a>`;
   function chips(scene, board) {
     const character = (id) => board.characters.find((c) => c.id === id)?.name ?? id;
+    const place = (id) => board.places.find((p) => p.id === id)?.name ?? id;
+    const event = (id) => board.events.find((e) => e.id === id)?.name ?? id;
     const mediaTitle = (id) => [...board.medias.battlemaps, ...board.medias.illustrations].find((m) => m.id === id)?.title ?? id;
     const rows = [
-      ["Lieux", scene.places.map((id) => link("lieu", `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-place-${id}`))],
+      ["Lieux", scene.places.map((id) => link("lieu", `fiche-entite.html?id=${encodeURIComponent(id)}`, place(id), `${scene.id}-place-${id}`))],
       ["PNJ", scene.characters.map((id) => link("pnj", `fiche-entite.html?id=${encodeURIComponent(id)}`, character(id), `${scene.id}-char-${id}`))],
-      ["\xC9v\xE9nements", scene.events.map((id) => link("media", `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-event-${id}`))],
+      ["\xC9v\xE9nements", scene.events.map((id) => link("media", `fiche-entite.html?id=${encodeURIComponent(id)}`, event(id), `${scene.id}-event-${id}`))],
       ["M\xE9dias", scene.media.map((id) => link("media", "medias.html", mediaTitle(id), `${scene.id}-media-${id}`))],
       ["\xC0 cr\xE9er", scene.toCreate.map((id) => link("todo", `#to-create-${id}`, id, `${scene.id}-todo-${id}`))]
     ];
@@ -327,10 +338,13 @@
     };
     async function read() {
       const session = parseSession((await shell2.capability(GET_SESSION, void 0, { id: wanted })).data);
-      const forCampaign = session.campaign === null ? {} : { campaign: session.campaign };
-      const [scenes, characters, medias2] = await Promise.all([
+      const campaign = campaignAsked(session.campaign, props2.campaign);
+      const forCampaign = campaign === null ? {} : { campaign };
+      const [scenes, characters, places, events, medias2] = await Promise.all([
         shell2.capability(LIST_SCENES, void 0, { session: wanted }).then((answer) => parseScenes(answer.data)),
         shell2.capability(LIST_CHARACTERS, void 0, forCampaign).then((answer) => parseCharacters(answer.data)),
+        shell2.capability(LIST_PLACES, void 0, forCampaign).then((answer) => parseEntities(answer.data)),
+        shell2.capability(LIST_EVENTS, void 0, forCampaign).then((answer) => parseEntities(answer.data)),
         shell2.capability(LIST_MEDIA, void 0, forCampaign).then((answer) => parseMedias(answer.data))
       ]);
       const instances = {};
@@ -343,7 +357,7 @@
           ]
         )
       );
-      return { session, scenes, characters, medias: medias2, instances };
+      return { session, scenes, characters, places, events, medias: medias2, instances };
     }
     async function send(dataCapability, payload, aggregate, id, key) {
       const answer = await shell2.command(commandBody(dataCapability, payload, { aggregate, id }, key));

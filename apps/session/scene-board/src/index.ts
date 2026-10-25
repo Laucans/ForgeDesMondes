@@ -2,13 +2,16 @@
 // PCs present, the scenes in their order, and for each scene its battlemap
 // instance or the campaign's battlemaps to make one from. It reads
 // `session.getSession`, `session.listScenes`, `campaign.listCharacters`,
-// `media.listMedia` and `table.getBattlemapInstance`, and triggers
+// `campaign.listPlaces`, `campaign.listEvents`, `media.listMedia` and
+// `table.getBattlemapInstance`, and triggers
 // `session.addPresentCharacter`, `session.removePresentCharacter`,
 // `session.addScene`, `session.reorderScenes` and
 // `table.createBattlemapInstance`, by identifier, through the shell it is
 // handed: no network call of its own. It does not show or drive the map. The
 // session is its `session` prop, else the screen's `session` context value;
-// with neither it reads nothing and writes nothing.
+// with neither it reads nothing and writes nothing. The campaign its
+// campaign reads are for is the one session.getSession gives, else its
+// `campaign` prop; with neither they are asked with no campaign.
 
 import {
   ADD_PRESENT_CHARACTER,
@@ -17,12 +20,14 @@ import {
   GET_BATTLEMAP_INSTANCE,
   GET_SESSION,
   LIST_CHARACTERS,
+  LIST_EVENTS,
   LIST_MEDIA,
+  LIST_PLACES,
   LIST_SCENES,
   REMOVE_PRESENT_CHARACTER,
   REORDER_SCENES,
 } from './ids.ts';
-import { commandBody, commandId, isFinal, moved, parseCharacters, parseInstance, parseMedias, parseScenes, parseSession, ranks, reasons, sessionAsked, settled, type Settled } from './model.ts';
+import { campaignAsked, commandBody, commandId, isFinal, moved, parseCharacters, parseEntities, parseInstance, parseMedias, parseScenes, parseSession, ranks, reasons, sessionAsked, settled, type Settled } from './model.ts';
 import { presentAdd, presentCount, presentList, sceneList, sceneTitle, skeleton } from './render.ts';
 import { STYLE } from './style.ts';
 import type { Board, Instance, Shell } from './types.ts';
@@ -74,13 +79,16 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     part('scenes-list').innerHTML = sceneList(board);
   };
 
-  /** The five reads the board shows: the session first, which names the campaign the others are read for. */
+  /** The seven reads the board shows: the session first, which names the campaign the others are read for (else the `campaign` prop does). */
   async function read(): Promise<Board> {
     const session = parseSession((await shell.capability(GET_SESSION, undefined, { id: wanted })).data);
-    const forCampaign = session.campaign === null ? {} : { campaign: session.campaign };
-    const [scenes, characters, medias] = await Promise.all([
+    const campaign = campaignAsked(session.campaign, props.campaign);
+    const forCampaign = campaign === null ? {} : { campaign };
+    const [scenes, characters, places, events, medias] = await Promise.all([
       shell.capability(LIST_SCENES, undefined, { session: wanted }).then((answer) => parseScenes(answer.data)),
       shell.capability(LIST_CHARACTERS, undefined, forCampaign).then((answer) => parseCharacters(answer.data)),
+      shell.capability(LIST_PLACES, undefined, forCampaign).then((answer) => parseEntities(answer.data)),
+      shell.capability(LIST_EVENTS, undefined, forCampaign).then((answer) => parseEntities(answer.data)),
       shell.capability(LIST_MEDIA, undefined, forCampaign).then((answer) => parseMedias(answer.data)),
     ]);
     const instances: Record<string, Instance> = {};
@@ -100,7 +108,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
             ],
       ),
     );
-    return { session, scenes, characters, medias, instances };
+    return { session, scenes, characters, places, events, medias, instances };
   }
 
   /** The command is sent, then followed until the server has applied or refused it. */
