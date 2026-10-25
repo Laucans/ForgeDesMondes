@@ -13,6 +13,7 @@ fn r18_live_microphone_suggestions() {
         &[
             "data-capability:live.setMicrophone",
             "capability:live.listSuggestions",
+            "capability:session.listSessions",
             "capability:ai.listProviderRequests",
         ],
         |s| {
@@ -35,7 +36,19 @@ fn r18_live_microphone_suggestions() {
             )?;
             let wanted = text(named_by_alias, "id").to_string();
 
-            apply(s, "live.setMicrophone", json!({ "on": true }), None)?;
+            // The microphone listens in one session: the fixture campaign's planned one, named
+            // explicitly (unscoped, any campaign's live session would be picked first).
+            let sessions = items(
+                &s.read("session.listSessions", json!({ "campaign": CAMPAIGN }))?,
+                "sessions",
+            );
+            let planned = sessions
+                .iter()
+                .find(|x| text(x, "status") == "prep")
+                .map(|x| text(x, "id").to_string())
+                .ok_or("the fixture campaign has no planned session")?;
+
+            apply(s, "live.setMicrophone", json!({ "on": true }), Some(&planned))?;
             let started = std::time::Instant::now();
             let mut shown = Vec::new();
             while started.elapsed() < std::time::Duration::from_secs(5) {
@@ -46,7 +59,7 @@ fn r18_live_microphone_suggestions() {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(250));
             }
-            apply(s, "live.setMicrophone", json!({ "on": false }), None)?;
+            apply(s, "live.setMicrophone", json!({ "on": false }), Some(&planned))?;
             check(
                 shown.iter().any(|x| text(x, "id") == wanted),
                 "the entity named by its alias did not appear within a few seconds",
