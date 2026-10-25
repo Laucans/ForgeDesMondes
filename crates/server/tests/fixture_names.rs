@@ -124,6 +124,15 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
             .expect("a presence the DM changed is not loaded again"),
         0
     );
+    // `session.listScenes` leaves out a battlemap whose partition is tombstoned, in the
+    // engine's `dataguard_rows`, which the Postgres store makes and this memory engine does not.
+    client
+        .batch_execute(
+            "CREATE TABLE IF NOT EXISTS dataguard_rows (partition text PRIMARY KEY, \
+             fields jsonb NOT NULL DEFAULT '{}'::jsonb, tombstoned boolean NOT NULL DEFAULT false)",
+        )
+        .await
+        .expect("the engine's rows table");
     let names = plan.names;
 
     // The engine over memory, its Capabilities reading the scratch database,
@@ -259,14 +268,114 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
     assert_eq!(brief["transcript"], described["transcript"], "{brief}");
     assert_eq!(brief["duration"], "04:12", "{brief}");
     assert_eq!(brief["lastRun"], described["lastRun"], "{brief}");
-    // The brief's scenes and the elements it recognised are other aggregates' rows, not loaded.
-    assert_eq!(brief["result"]["scenes"], json!([]), "{brief}");
+    // The brief's scenes are the session's, now loaded with the elements they link; the
+    // fixture also lists what is « à créer », which is the to-create entries' own `scene_id`
+    // and not loaded, so the loaded links are the fixture's without those.
+    let scenes_of = |brief: &Value| -> Vec<(Value, Value, Vec<String>)> {
+        brief["result"]["scenes"]
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(|scene| {
+                let links = scene["links"].as_array().expect("links");
+                let links = links.iter().filter_map(Value::as_str);
+                let links = links.map(|l| l.trim_end_matches(" (à créer)").to_string());
+                (
+                    scene["order"].clone(),
+                    scene["title"].clone(),
+                    links.collect(),
+                )
+            })
+            .collect()
+    };
+    let (loaded, wanted) = (scenes_of(&brief), scenes_of(&described));
+    assert_eq!(loaded.len(), 3, "{brief}");
+    for ((order, title, links), (want_order, want_title, want_links)) in loaded.iter().zip(&wanted)
+    {
+        assert_eq!((order, title), (want_order, want_title), "{brief}");
+        assert!(links.iter().all(|l| want_links.contains(l)), "{brief}");
+    }
     let missing = brief["result"]["missing"].as_array().expect("a list");
     let missing: BTreeSet<&str> = missing.iter().filter_map(|m| m["id"].as_str()).collect();
     assert_eq!(
         missing,
         BTreeSet::from(["tc-odric", "tc-gue"]),
         "the created entry is no longer missing: {brief}"
+    );
+
+    // The scenes of the session being prepared, with what each links, by rank.
+    let scenes = read(&renamed, "session.listScenes", json!({ "session": "s4" })).await;
+    let described = fixture("session.listScenes.json");
+    let (scenes, described) = (
+        scenes.as_array().expect("a list"),
+        described.as_array().unwrap(),
+    );
+    assert_eq!(scenes.len(), 3, "{scenes:?}");
+    let sorted = |list: &Value| -> Vec<String> {
+        let mut ids: Vec<String> = list
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(Value::to_string)
+            .collect();
+        ids.sort();
+        ids
+    };
+    for (got, want) in scenes.iter().zip(described) {
+        for key in ["id", "order", "title", "notes"] {
+            assert_eq!(got[key], want[key], "{}.{key}: {got}", want["id"]);
+        }
+        for key in ["places", "characters", "events"] {
+            assert_eq!(got[key], want[key], "{}.{key}: {got}", want["id"]);
+        }
+    }
+    // A medium is listed once linked to the scene or once at one of its places: the
+    // fixture's own media, and, for the second scene, the cover illustration of Valombre.
+    for (got, want) in scenes.iter().zip(described) {
+        let (got, want) = (sorted(&got["media"]), sorted(&want["media"]));
+        assert!(
+            want.iter().all(|m| got.contains(m)),
+            "{got:?} lacks {want:?}"
+        );
+    }
+    assert_eq!(sorted(&scenes[0]["media"]), sorted(&described[0]["media"]));
+    assert_eq!(sorted(&scenes[2]["media"]), sorted(&described[2]["media"]));
+    assert_eq!(
+        sorted(&scenes[1]["media"]),
+        sorted(&json!(["ill-moulin", "ill-cover"])),
+        "the cover is at Valombre, a place of the scene"
+    );
+
+    // The closed session's journal and summary.
+    let journal = read(
+        &renamed,
+        "session.getSessionJournal",
+        json!({ "session": "s3" }),
+    )
+    .await;
+    let described = fixture("session.getSessionJournal.json");
+    assert_eq!(
+        journal["journal"].as_array().map(Vec::len),
+        Some(14),
+        "{journal}"
+    );
+    // `journalStats` is a figure of the summary, not of the journal: another read.
+    assert_eq!(
+        journal["journal"], described["journal"],
+        "in order: {journal}"
+    );
+    let previous = read(
+        &renamed,
+        "session.getPreviousSessionSummary",
+        json!({ "session": "s4" }),
+    )
+    .await;
+    let described = fixture("session.getPreviousSessionSummary.json");
+    assert_eq!(previous["session"], described["session"], "{previous}");
+    assert_eq!(previous["summary"], described["summary"], "{previous}");
+    assert_eq!(
+        previous["summaryMeta"], described["summaryMeta"],
+        "{previous}"
     );
 
     // Without the names, a slug names no row: the store knows uuids only.
