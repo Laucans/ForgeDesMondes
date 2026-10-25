@@ -244,7 +244,7 @@
       "query": "ListSuggestions",
       "capability": "live.listSuggestions",
       "file": "crates/live/queries/list-suggestions.graphql",
-      "sha256": "106a42eed329199c684e530931d683f55a4286b59e70295b3f8cf30af1c3996c",
+      "sha256": "2d341b516724f375167f5916b077bf7e9d5fc0e0bcf7eb7cf998cd0b8e955f6d",
       "fields": [
         "session.status",
         "session.campaignId",
@@ -255,8 +255,10 @@
         "live_suggestion.soundId",
         "live_suggestion.matchedText",
         "live_suggestion.detectedAt",
+        "entity.campaignId",
         "entity.type",
         "entity.name",
+        "sound.campaignId",
         "sound.name"
       ]
     },

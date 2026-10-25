@@ -264,3 +264,73 @@ async fn a_live_session_the_engine_deleted_is_none() {
         );
     }
 }
+
+#[tokio::test]
+async fn an_element_the_engine_deleted_is_in_neither_stack_nor_history() {
+    let mut db = Scratch::new("entity_tombstoned").await;
+    db.suggest(SEANCE, GASPARD, "Gaspard", 1).await;
+    db.suggest(SEANCE, INCENDIE, "le feu", 2).await;
+    db.client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Entity/{GASPARD}', true)"
+        ))
+        .await
+        .expect("Gaspard deleted");
+    let got = db.read(VALOMBRE).await;
+    assert_eq!(vias(&got["suggestions"]), ["le feu"]);
+    assert_eq!(vias(&got["history"]), ["le feu"]);
+}
+
+#[tokio::test]
+async fn a_sound_the_engine_deleted_is_in_neither_stack_nor_history() {
+    let mut db = Scratch::new("sound_tombstoned").await;
+    db.suggest(SEANCE, GASPARD, "Gaspard", 1).await;
+    db.suggest(SEANCE, PORTE, "la porte grince", 2).await;
+    db.client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Sound/{PORTE}', true)"
+        ))
+        .await
+        .expect("the door deleted");
+    let got = db.read(VALOMBRE).await;
+    assert_eq!(vias(&got["suggestions"]), ["Gaspard"]);
+    assert_eq!(vias(&got["history"]), ["Gaspard"]);
+}
+
+#[tokio::test]
+async fn a_suggestion_the_engine_deleted_is_in_neither_stack_nor_history() {
+    let mut db = Scratch::new("suggestion_tombstoned").await;
+    db.suggest(SEANCE, GASPARD, "Gaspard", 1).await;
+    db.suggest(SEANCE, GASPARD, "le meunier", 2).await;
+    db.client
+        .batch_execute(
+            "INSERT INTO dataguard_rows (partition, tombstoned) \
+             SELECT 'Suggestion/' || id::text, true FROM live_suggestion \
+             WHERE matched_text = 'le meunier'",
+        )
+        .await
+        .expect("the suggestion deleted");
+    let got = db.read(VALOMBRE).await;
+    assert_eq!(vias(&got["suggestions"]), ["Gaspard"]);
+    assert_eq!(vias(&got["history"]), ["Gaspard"]);
+}
+
+#[tokio::test]
+async fn an_element_of_another_campaign_is_left_out() {
+    let mut db = Scratch::new("other_campaign").await;
+    let ailleurs = "e1000000-0000-4000-8000-000000000003";
+    db.client
+        .batch_execute(&format!(
+            "INSERT INTO entity (id, campaign_id, type, name) VALUES \
+             ('{ailleurs}', '{BRUMES}', 'pnj', 'Le Passeur'); \
+             INSERT INTO entity_version (entity_id, version_number, source, snapshot, diff) \
+             VALUES ('{ailleurs}', 1, 'dm', '{{}}', '[]')"
+        ))
+        .await
+        .expect("an element of Brumes");
+    db.suggest(SEANCE, GASPARD, "Gaspard", 1).await;
+    db.suggest(SEANCE, ailleurs, "le passeur", 2).await;
+    let got = db.read(VALOMBRE).await;
+    assert_eq!(vias(&got["suggestions"]), ["Gaspard"]);
+    assert_eq!(vias(&got["history"]), ["Gaspard"]);
+}

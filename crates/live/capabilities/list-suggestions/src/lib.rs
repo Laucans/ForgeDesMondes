@@ -3,9 +3,9 @@
 //! It reads, and only reads. The rows of its persisted query
 //! (`crates/live/queries/list-suggestions.graphql`, resolved by [`SQL`]) go in —
 //! every suggestion of the campaign's live session, newest first, each
-//! resolved to the element or the sound it names; the answer, in the shape of
-//! `mock/fixtures/live.listSuggestions.json`, comes out: `suggestions` and
-//! `history`.
+//! resolved to the element or the sound it names; the answer comes out:
+//! `suggestions` and `history`. It deliberately does not take the flat shape
+//! of `mock/fixtures/live.listSuggestions.json` (one list, `heard`, no time).
 //!
 //! Nothing is stored beyond the suggestions (pile-and-history-derived): the
 //! pill's stack is the first [`PILE`] rows, the history is all of them, both
@@ -28,11 +28,12 @@ const PILE: usize = 5;
 /// tombstone) being none; the last one started, among the campaigns', when `$1`
 /// is the empty text — and its suggestions, newest first,
 /// each with the element or the sound it names and the words that were heard.
-/// A row that names not exactly one of them breaks suggestion-target and is
-/// left out. The campaign is compared as text, so
+/// A row that names not exactly one of them, or one of another campaign, breaks
+/// suggestion-target and is left out; so is a suggestion, an element or a sound
+/// the engine deleted. The campaign is compared as text, so
 /// that an id which is not a uuid finds nothing instead of failing.
 pub const SQL: &str = r#"WITH live AS (
-    SELECT s.id
+    SELECT s.id, s.campaign_id
     FROM session s
     WHERE s.status = 'live' AND ($1 = '' OR s.campaign_id::text = $1)
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
@@ -49,9 +50,16 @@ SELECT
     to_char(g.detected_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS detected_at
 FROM live_suggestion g
 JOIN live ON live.id = g.session_id
-LEFT JOIN entity e ON e.id = g.entity_id
-LEFT JOIN sound so ON so.id = g.sound_id
+LEFT JOIN entity e ON e.id = g.entity_id AND e.campaign_id = live.campaign_id
+    AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+        WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned)
+LEFT JOIN sound so ON so.id = g.sound_id AND so.campaign_id = live.campaign_id
+    AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+        WHERE r.partition = 'Sound/' || so.id::text AND r.tombstoned)
 WHERE num_nonnulls(g.entity_id, g.sound_id) = 1
+    AND num_nonnulls(e.id, so.id) = 1
+    AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+        WHERE r.partition = 'Suggestion/' || g.id::text AND r.tombstoned)
 ORDER BY g.detected_at DESC, g.id"#;
 
 /// The request's variables [`SQL`] binds, in the order of its `$1`: the
