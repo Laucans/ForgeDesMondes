@@ -4314,9 +4314,8 @@ mod tests {
             1
         );
         // Without the file, s4 is the list's own (in preparation, never started).
-        let list = mock_file(SESSIONS);
         let without = mock_files_without(LIVE_FILE);
-        assert_eq!(without[3], (json!("prep"), Value::Null), "{list}");
+        assert_eq!(without[3], (json!("prep"), Value::Null));
         assert_eq!(with[..3], without[..3], "the played sessions are untouched");
     }
 
