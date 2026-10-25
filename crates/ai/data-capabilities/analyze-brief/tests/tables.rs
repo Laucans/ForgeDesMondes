@@ -541,6 +541,33 @@ async fn a_table_that_fails_fails_the_step_and_rejects_nothing() {
 }
 
 #[tokio::test]
+async fn a_table_the_check_cannot_read_fails_the_step_and_rejects_nothing() {
+    let scratch = Scratch::new("unreadable").await;
+    let engine = scratch.serve().await;
+    let link = "5c000000-0000-4000-8000-000000000010";
+    submit(
+        &engine,
+        "test.addRow",
+        json!({ "sceneMediaSceneId": SEANCE, "sceneMediaMediaId": COMPTOIR }),
+        Some(link),
+    )
+    .await;
+    // The projection's own check reads `media`: an error of class 42, which
+    // neither a value nor a constraint caused.
+    scratch
+        .client
+        .batch_execute("DROP TABLE media CASCADE")
+        .await
+        .expect("the table gone");
+    match engine.run_once().await {
+        Err(harness_dataguard::Error::Store(why)) => {
+            assert!(why.contains("media"), "{why}");
+        }
+        other => panic!("the store's failure, not the command's rejection: {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn a_brief_queued_twice_before_the_applier_runs_lists_each_unknown_once() {
     let scratch = Scratch::new("twice").await;
     let engine = scratch.serve().await;
