@@ -44,6 +44,7 @@
 
 mod applier;
 mod fixtures;
+mod hearing;
 mod names;
 mod proposing;
 
@@ -64,13 +65,13 @@ use dataguard_server::engine::reads::Reads;
 use dataguard_server::engine::tokio_postgres;
 use dataguard_server::{MEMORY, Planted};
 pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, held_instances, id};
+pub use hearing::Hearing;
 pub use names::{Names, renaming};
 use ports_character_sheets::fake::FakeCharacterSheets;
 use ports_character_sheets::{CharacterId, SharedCharacterSheets};
 use ports_llm::fake::FakeLlm;
 use ports_llm::{Llm, SharedLlm};
 use ports_speech_to_text::SharedSpeechToText;
-use ports_speech_to_text::fake::FakeSpeechToText;
 pub use proposing::Proposing;
 use serde_json::{Value, json};
 
@@ -302,16 +303,28 @@ fn sheet(proposal: &Value) -> Value {
 }
 
 /// The `speech-to-text` port as `ports` wires it: its fake, which hears in
-/// every dictation the draft of notes the fixtures describe
-/// (`NoteImport.json` in `fixtures`), as the DM would have dictated it — so
-/// a dictated import proposes what a pasted one does. Without that fixture,
-/// it hears nothing.
-pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> FakeSpeechToText {
+/// the audio of the shell's no-device take (`OralBrief`) the brief the
+/// fixtures describe (`OralBrief.json`, its `transcript` lines joined by a
+/// newline) and in every other dictation the draft of notes
+/// (`NoteImport.json`), as the DM would have dictated them — so a dictated
+/// brief is analysed and a dictated import proposes what a pasted one does.
+/// Without a fixture, it hears nothing in the audio that fixture describes.
+pub fn speech_to_text(ports: Ports, fixtures: Option<&Path>) -> Hearing {
     match ports {
         Ports::Fake => {
+            let brief = fixture(fixtures, "OralBrief.json").and_then(|brief| {
+                let lines = brief["transcript"].as_array()?;
+                Some(
+                    lines
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+            });
             let draft = fixture(fixtures, "NoteImport.json")
                 .and_then(|notes| notes["draft"].as_str().map(str::to_owned));
-            FakeSpeechToText::new(draft.unwrap_or_default())
+            Hearing::new(brief.unwrap_or_default(), draft.unwrap_or_default())
         }
     }
 }
@@ -514,6 +527,7 @@ mod tests {
     use axum::http::{Method, Request, StatusCode};
     use ports_character_sheets::{CharacterSheets, CharacterSheetsError};
     use ports_speech_to_text::SpeechToText;
+    use ports_speech_to_text::fake::FakeSpeechToText;
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
@@ -880,6 +894,62 @@ mod tests {
                 .expect("heard");
             assert_eq!(heard.text, "");
         }
+    }
+
+    #[tokio::test]
+    async fn the_fake_speech_to_text_hears_the_brief_in_the_no_device_take_and_the_draft_in_any_other()
+     {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let read = |name: &str| -> Value {
+            serde_json::from_str(
+                &std::fs::read_to_string(fixtures.join(name)).expect("the fixture"),
+            )
+            .expect("JSON")
+        };
+        let brief = read("OralBrief.json")["transcript"]
+            .as_array()
+            .expect("lines")
+            .iter()
+            .map(|line| line.as_str().expect("a line"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let notes = read("NoteImport.json")["draft"]
+            .as_str()
+            .expect("a draft")
+            .to_owned();
+        assert!(brief.contains('\n') && brief != notes);
+        let vocabulary = ports_speech_to_text::Vocabulary::default();
+        let port = speech_to_text(Ports::Fake, Some(&fixtures));
+        let take = ports_speech_to_text::Dictation::new(b"OralBrief".to_vec());
+        let heard = port.transcribe(&take, &vocabulary).await.expect("heard");
+        assert_eq!(heard.text, brief);
+        for other in [b"OralBrie".to_vec(), b"oralbrief".to_vec(), vec![1_u8; 8]] {
+            let heard = port
+                .transcribe(&ports_speech_to_text::Dictation::new(other), &vocabulary)
+                .await
+                .expect("heard");
+            assert_eq!(heard.text, notes);
+        }
+        // One journal for both takes, in the order they were asked.
+        let sizes: Vec<_> = port
+            .journal()
+            .list()
+            .iter()
+            .map(|r| r.audio_bytes)
+            .collect();
+        assert_eq!(sizes, [9, 8, 9, 8]);
+        // Without the brief's fixture, its take hears nothing.
+        let dir = folder("no-oral-brief", &[("NoteImport.json", "{\"draft\":\"d\"}")]);
+        let without = speech_to_text(Ports::Fake, Some(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(
+            without
+                .transcribe(&take, &vocabulary)
+                .await
+                .expect("heard")
+                .text,
+            ""
+        );
     }
 
     /// The character `elowen` of the mock-up's `entities.json` has on D&D Beyond.
