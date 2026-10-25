@@ -1,0 +1,13 @@
+{
+  "screen": "preparation-seance",
+  "generatedFrom": "Le DM relit la séance précédente, raconte son brief au micro, vérifie les scènes et les entités détectées, crée les manquantes et place les tokens sur la battlemap d’une scène",
+  "version": 1,
+  "layout": [
+    { "PreviousSummary": { "session": "s4" } },
+    { "OralBrief": { "session": "s4" } },
+    { "SceneBoard": { "session": "s4", "campaign": "cendres-valombre" } },
+    { "VersionHistory": { "entity": "morlox", "title": "Fiches modifiées par le brief" } },
+    { "ToCreateList": { "session": "s4" } },
+    { "Battlemap": { "instance": "bmi-gue-s4", "view": "prep", "campaign": "cendres-valombre" } }
+  ]
+}
