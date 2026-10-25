@@ -220,6 +220,8 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       const chosen = sessionOf(next);
       if (chosen === session) return;
       session = chosen;
+      // A recorder still listening is stopped and its sound thrown away: it would otherwise be sent as the next session's brief.
+      if (state === 'recording') void Promise.resolve(dictation?.audio?.()).catch(() => undefined);
       // Another session starts with a quiet microphone and an empty text area.
       seconds = 0;
       take = '';

@@ -108,6 +108,34 @@ test('a long take is encoded whole', async () => {
   assert.equal(text(await dictation.audio()), sound);
 });
 
+test('a recorder already dead when the take ends does not hold the screen: the take stops and the stream is released', async () => {
+  const stopped: string[] = [];
+  const track = { stop: () => void stopped.push('track') };
+  class DeadRecorder {
+    state = 'inactive';
+    ondataavailable: unknown = null;
+    onstop: unknown = null;
+    onerror: unknown = null;
+    start(): void {}
+    stop(): void {
+      throw new Error('InvalidStateError');
+    }
+  }
+  const original = (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+  (globalThis as { MediaRecorder?: unknown }).MediaRecorder = DeadRecorder;
+  try {
+    const devices = { getUserMedia: async () => ({ getTracks: () => [track] }) } as unknown as MediaDevices;
+    const mic = browserMicrophone({ mediaDevices: devices });
+    assert.notEqual(mic, null);
+    const dictation = createDictation('OralBrief', mic);
+    dictation.start();
+    assert.equal(await dictation.audio(), '');
+    assert.deepEqual(stopped, ['track']);
+  } finally {
+    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = original;
+  }
+});
+
 test('the browser has a microphone only where getUserMedia is', () => {
   assert.equal(browserMicrophone(undefined), null);
   assert.equal(browserMicrophone({ mediaDevices: undefined as unknown as MediaDevices }), null);

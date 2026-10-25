@@ -394,6 +394,7 @@ ${heard}`;
         const chosen = sessionOf(next);
         if (chosen === session) return;
         session = chosen;
+        if (state === "recording") void Promise.resolve(dictation?.audio?.()).catch(() => void 0);
         seconds = 0;
         take = "";
         setMic("idle");

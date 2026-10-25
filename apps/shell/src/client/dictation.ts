@@ -39,7 +39,10 @@ export function browserMicrophone(nav: Pick<Navigator, 'mediaDevices'> | undefin
         },
         stop: () =>
           new Promise<void>((resolve) => {
+            // A recorder already dead (mic unplugged, permission revoked) never fires `onstop`.
+            if (media.state === 'inactive') return resolve();
             media.onstop = () => resolve();
+            media.onerror = () => resolve();
             media.stop();
           }),
       };
@@ -94,8 +97,11 @@ export function createDictation(microUi: string, microphone: Microphone | null =
       if (!current) return '';
       const opened = await current;
       if (!opened) return noDeviceTake(microUi);
-      await opened.recorder.stop();
-      opened.release();
+      try {
+        await opened.recorder.stop();
+      } finally {
+        opened.release();
+      }
       const bytes = new Uint8Array(await new Blob(opened.chunks).arrayBuffer());
       // A take that recorded no sound is no take: the port is not asked to hear nothing.
       return bytes.length === 0 ? '' : base64(bytes);

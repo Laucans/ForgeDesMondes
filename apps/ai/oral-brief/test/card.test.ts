@@ -443,6 +443,18 @@ test('a take is dropped with the session it was recorded for', async () => {
   assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, true);
 });
 
+test('a session change while recording stops the recorder and throws its sound away', async () => {
+  const { dictation, calls } = recorder('YXVkaW8=');
+  const s = await screen(undefined, { session: 's4' }, dictation);
+  await s.click('#brief-mic');
+  s.mounted.update({ session: 's9' });
+  await settle();
+  assert.deepEqual(calls, ['start', 'audio']);
+  assert.equal(s.$('#brief-mic-box').getAttribute('data-state'), 'idle');
+  assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, true);
+  assert.deepEqual(s.sent, []);
+});
+
 test('a recording that gave no audio says so and sends nothing', async () => {
   const s = await screen(undefined, { session: 's4' }, { transcript: () => '', start: () => undefined, audio: () => Promise.resolve('') });
   await s.click('#brief-mic');
