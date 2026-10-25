@@ -826,4 +826,114 @@ mod tests {
                 .is_err()
         );
     }
+
+    const TEST_ONLY_MOVE: &str = r#"{"dataCapability":"map.moveToken","owner":"dataguard","version":1,"effect":"update","target":{"aggregate":"Token","id":"$tokenId"},"touches":["Token.q"],"mode":"overwrite","callableBy":["test"]}"#;
+
+    #[test]
+    fn a_product_file_is_read_from_the_root() {
+        assert!(file("Cargo.toml").contains("[workspace]"));
+        assert!(std::panic::catch_unwind(|| file("no/such/file.json")).is_err());
+    }
+
+    #[test]
+    fn a_refusal_gives_its_message_only_for_its_kind() {
+        let refusal = |kind| {
+            Err(Error::Refused(harness_dataguard::plugins::Refusal {
+                kind,
+                message: "nope".to_string(),
+            }))
+        };
+        assert_eq!(
+            refused(refusal(RefusalKind::NotFound), RefusalKind::NotFound),
+            "nope"
+        );
+        let other = std::panic::catch_unwind(|| {
+            refused(refusal(RefusalKind::NotFound), RefusalKind::Unprocessable)
+        });
+        assert!(other.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_submission_carries_the_bench_caller() {
+        let served = Bench::new(TEST_ONLY_MOVE, TOKEN, []).memory().await;
+        let answer = served
+            .submit("map.moveToken", json!({ "q": 1 }), Some("t"))
+            .await;
+        assert!(answer.is_ok(), "{answer:?}");
+        let stranger = Bench::new(TEST_ONLY_MOVE, TOKEN, [])
+            .caller(Engine::caller("dm", "elsewhere", &[], &[]))
+            .memory()
+            .await;
+        let answer = stranger
+            .submit("map.moveToken", json!({ "q": 1 }), Some("t"))
+            .await;
+        assert!(answer.is_err(), "{answer:?}");
+    }
+
+    #[tokio::test]
+    async fn a_planted_row_stands_before_anything_moves_it() {
+        let bench = Bench::new(MOVE, TOKEN, [])
+            .planting(&planter("test.dropToken", "Token", "$tokenId", "insert"))
+            .memory()
+            .await;
+        let id = uuid(0x71, 1);
+        bench
+            .plant("test.dropToken", [json!({ "tokenId": id, "q": 7 })])
+            .await;
+        assert_eq!(bench.row(&format!("Token/{id}"))["q"], 7);
+    }
+
+    #[tokio::test]
+    async fn a_scratch_seeds_answers_and_names_its_database() {
+        let scratch = Scratch::new("kit_scratch").await;
+        scratch
+            .seed("CREATE TABLE kit_probe (id int, name text); INSERT INTO kit_probe VALUES (1, 'a'), (2, 'b');")
+            .await;
+        let rows = scratch
+            .rows("SELECT id, name FROM kit_probe ORDER BY id", &[])
+            .await;
+        assert_eq!(
+            rows,
+            vec![
+                json!({ "id": 1, "name": "a" }),
+                json!({ "id": 2, "name": "b" })
+            ]
+        );
+        assert!(scratch.url().contains("kit_scratch"), "{}", scratch.url());
+        let count = scratch
+            .client()
+            .query_one("SELECT count(*) FROM kit_probe", &[])
+            .await
+            .expect("count");
+        assert_eq!(count.get::<_, i64>(0), 2);
+    }
+
+    #[test]
+    fn the_mock_up_fixture_and_the_query_file_are_read() {
+        let fixture = read::fixture("AiSettings");
+        assert!(fixture.is_object(), "{fixture}");
+        assert!(fixture.get("provider").is_some(), "{fixture}");
+        let query = read::query("ai", "getSettings");
+        assert!(query.contains("query GetSettings"), "{query}");
+    }
+
+    #[test]
+    fn a_selected_field_may_start_with_a_capital() {
+        let sql = "SELECT foo FROM t WHERE a::text = $1";
+        let query = "query Q($id: ID!) {\n  Foo\n}\n";
+        read::query_file_matches(sql, query, &["id"]);
+        assert!(
+            std::panic::catch_unwind(|| read::query_file_matches("SELECT _foo", query, &["id"]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_nameless_variable_is_not_a_declared_one() {
+        let sql = "SELECT id";
+        let query = "query Q($: ID!, $id: ID!) {\n  id\n}\n";
+        read::query_file_matches(sql, query, &["id"]);
+        let spaced = "query Q($a b: ID!, $id: ID!) {\n  id\n}\n";
+        read::query_file_matches(sql, spaced, &["id"]);
+    }
 }
