@@ -125,6 +125,25 @@
       ]
     },
     {
+      "query": "ListEntitiesToCreate",
+      "capability": "campaign.listEntitiesToCreate",
+      "file": "crates/campaign/queries/list-entities-to-create.graphql",
+      "sha256": "f3a68d1c057c779d487dbc8fddc45da64ab92b46880a76bb80e1b9d6e27fbfab",
+      "fields": [
+        "entity_to_create.id",
+        "entity_to_create.campaignId",
+        "entity_to_create.sessionId",
+        "entity_to_create.type",
+        "entity_to_create.name",
+        "entity_to_create.excerpt",
+        "entity_to_create.createdEntityId",
+        "entity_to_create.createdAt",
+        "session.id",
+        "session.title",
+        "session.position"
+      ]
+    },
+    {
       "query": "ListEntityVersions",
       "capability": "campaign.listEntityVersions",
       "file": "crates/campaign/queries/list-entity-versions.graphql",
@@ -266,6 +285,45 @@
         "Media.color",
         "Media.opacity",
         "Campaign.coverMediaId"
+      ]
+    },
+    {
+      "query": "GetLastBrief",
+      "capability": "session.getLastBrief",
+      "file": "crates/session/queries/get-last-brief.graphql",
+      "sha256": "359832db3aa2e64a5a01e6c03942d60fe25bfea7cd3ff9a346f28fe99b6a339f",
+      "fields": [
+        "oralBrief.id",
+        "oralBrief.sessionId",
+        "oralBrief.transcript",
+        "oralBrief.durationSeconds",
+        "oralBrief.recordedAt",
+        "oralBrief.analyzedAt",
+        "scene.id",
+        "scene.sessionId",
+        "scene.position",
+        "scene.title",
+        "sceneEntity.sceneId",
+        "sceneEntity.entityId",
+        "sceneEntity.position",
+        "entity.id",
+        "entity.type",
+        "entity.name",
+        "entity.createdAt",
+        "entityAlias.entityId",
+        "entityAlias.alias",
+        "entityVersion.entityId",
+        "entityVersion.versionNumber",
+        "entityVersion.source",
+        "entityVersion.diff",
+        "entityVersion.createdAt",
+        "entityToCreate.id",
+        "entityToCreate.briefId",
+        "entityToCreate.sceneId",
+        "entityToCreate.type",
+        "entityToCreate.name",
+        "entityToCreate.status",
+        "entityToCreate.createdAt"
       ]
     },
     {

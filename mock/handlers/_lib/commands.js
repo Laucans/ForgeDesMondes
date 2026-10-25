@@ -41,6 +41,11 @@ export const LISTS = { pj: 'campaign.listCharacters', pnj: 'campaign.listCharact
 // modifier least of all, computed from the score (AbilityModifier@1).
 export const SAVED = ['kind', 'name', 'aliases', 'description', 'notes', 'player', 'prompt', 'background', 'behavior', 'stats', 'ca', 'pvMax', 'spells', 'features', 'actions', 'portrait', 'token', 'crop', 'color'];
 
+// The sources a save may name (EntityVersion@1), and the origin
+// campaign.listEntityVersions words each one as: the DM's hand, or the AI's
+// (which also reads the DM's brief).
+export const SAVED_BY = { dm: 'manuelle', brief: 'ia', ia: 'ia' };
+
 // The element `id` among the lists a save writes.
 export const elementOf = async (server, id) => {
   for (const name of new Set(Object.values(LISTS))) {

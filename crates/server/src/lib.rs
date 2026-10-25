@@ -181,13 +181,20 @@ impl Config {
 /// its model list at the opencode provider's URL the fixtures describe
 /// (`AiSettings.json` in `fixtures`) — so a save of that URL detects it, as
 /// the real endpoint would make it — and which answers a character's prompt
-/// with the proposal the fixtures give for it (`EntityEditor.json`,
-/// [`characters`]). Without those fixtures, only the cloud host and the
-/// binaries are recognised, and a prompt is answered the canned sentence.
+/// with the proposal the fixtures give for it (`EntityEditor.json` and
+/// `ToCreateList.json`, [`characters`]). Without those fixtures, only the
+/// cloud host and the binaries are recognised, and a prompt is answered the
+/// canned sentence.
 pub fn llm(ports: Ports, fixtures: Option<&Path>) -> Proposing {
     match ports {
         Ports::Fake => {
-            let proposing = |fake| characters(fake, fixture(fixtures, "EntityEditor.json"));
+            let proposing = |fake| {
+                characters(
+                    fake,
+                    fixture(fixtures, "EntityEditor.json"),
+                    fixture(fixtures, "ToCreateList.json"),
+                )
+            };
             let Some(settings) = fixture(fixtures, "AiSettings.json") else {
                 return proposing(FakeLlm::new());
             };
@@ -214,29 +221,84 @@ fn fixture(fixtures: Option<&Path>, file: &str) -> Option<Value> {
         .and_then(|text| serde_json::from_str(&text).ok())
 }
 
-/// `fake` answering the proposals of `editor` (`EntityEditor.json`): each
-/// one of `proposals` to the prompt that holds the dictation of the same
-/// name, then the `default` one to any other prompt.
-fn characters(fake: FakeLlm, editor: Option<Value>) -> Proposing {
-    let fake = Proposing::new(fake);
-    let Some(editor) = editor else {
-        return fake;
+/// `fake` answering the proposals of the mock-up's fixtures to the prompt
+/// that holds their words, the first match first: each one of `editor`'s
+/// `proposals` (`EntityEditor.json`) to the prompt that holds the dictation
+/// of the same name; then, for each item of `to_create` (`ToCreateList.json`)
+/// with a proposal, its `refined` one to the prompt that holds the DM's
+/// added sentences and its `fromBrief` one to the prompt that holds the
+/// brief's excerpt — the refined ones first, a refinement's prompt holding
+/// the excerpt too; then the editor's `default` one to any other prompt.
+fn characters(fake: FakeLlm, editor: Option<Value>, to_create: Option<Value>) -> Proposing {
+    let editor_proposals = editor.as_ref().and_then(|e| e["proposals"].as_object());
+    let dictated = editor_proposals
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, proposal)| {
+            let dictation = editor.as_ref()?["dictations"][name].as_str()?;
+            Some((dictation.to_owned(), proposal.clone()))
+        });
+    let to_create = to_create.as_ref();
+    let proposed = |answer: &'static str, holding: fn(&Value, &Value) -> Option<String>| {
+        let to_create = to_create.into_iter();
+        to_create.flat_map(move |list| {
+            list["items"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(move |item| {
+                    let proposal = &list["proposals"][item["id"].as_str()?];
+                    Some((holding(item, proposal)?, sheet(proposal.get(answer)?)))
+                })
+        })
     };
-    let Some(proposals) = editor["proposals"].as_object() else {
-        return fake;
-    };
-    let dictated = proposals.iter().filter_map(|(name, proposal)| {
-        let dictation = editor["dictations"][name].as_str()?;
-        Some((dictation.to_owned(), proposal.clone()))
-    });
-    let fallback = proposals
-        .get("default")
+    let fallback = editor_proposals
+        .and_then(|proposals| proposals.get("default"))
         .map(|proposal| (String::new(), proposal.clone()));
     dictated
+        .chain(proposed("refined", |_, proposal| {
+            filled(proposal["dictation"].as_str()?)
+        }))
+        .chain(proposed("fromBrief", |item, _| {
+            filled(
+                item["excerpt"]
+                    .as_str()?
+                    .trim_matches(|c: char| c == '…' || c.is_whitespace()),
+            )
+        }))
         .chain(fallback)
-        .fold(fake, |fake, (holding, proposal)| {
+        .fold(Proposing::new(fake), |fake, (holding, proposal)| {
             fake.with_proposal(holding, proposal)
         })
+}
+
+/// `words` as the words a prompt holds, unless they are blank: blank words
+/// would match any prompt.
+fn filled(words: &str) -> Option<String> {
+    let words = words.trim();
+    (!words.is_empty()).then(|| words.to_owned())
+}
+
+/// `proposal` as `ai.createFromBrief` reads it: the mock-up shows an NPC's
+/// armor class and hit points as `statblock.vitals` (`{"label": "CA",
+/// "value": "11"}`, `{"label": "PV", "value": "18 (4d8)"}`), the unit asks
+/// for `ca` and `pvMax` as whole numbers — so they are taken from there,
+/// unless the proposal gives them.
+fn sheet(proposal: &Value) -> Value {
+    let mut sheet = proposal.clone();
+    for (label, field) in [("CA", "ca"), ("PV", "pvMax")] {
+        let vital = proposal["statblock"]["vitals"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|vital| vital["label"] == label)
+            .and_then(|vital| vital["value"].as_str())
+            .and_then(|value| value.split_whitespace().next()?.parse::<u32>().ok());
+        if let (Some(number), Some(object)) = (vital, sheet.as_object_mut()) {
+            object.entry(field).or_insert_with(|| number.into());
+        }
+    }
+    sheet
 }
 
 /// The `speech-to-text` port as `ports` wires it: its fake, which hears in
@@ -631,6 +693,143 @@ mod tests {
         let anyone: Value =
             serde_json::from_str(&proposed(&llm, "Un druide").await).expect("one JSON object");
         assert_eq!(anyone, editor["proposals"]["default"]);
+    }
+
+    /// The fixture `ToCreateList.json`, read from the mock-up's folder.
+    fn to_create_list() -> (PathBuf, Value) {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let list = serde_json::from_str(
+            &std::fs::read_to_string(fixtures.join("ToCreateList.json")).expect("the fixture"),
+        )
+        .expect("JSON");
+        (fixtures, list)
+    }
+
+    /// The excerpt of the to-create item `id`, as the brief holds it.
+    fn excerpt_of<'a>(list: &'a Value, id: &str) -> &'a str {
+        list["items"]
+            .as_array()
+            .and_then(|items| items.iter().find(|item| item["id"] == id))
+            .and_then(|item| item["excerpt"].as_str())
+            .expect("an excerpt")
+    }
+
+    #[tokio::test]
+    async fn the_fake_llm_answers_a_to_create_prompt_with_the_fixtures_proposals() {
+        let (fixtures, list) = to_create_list();
+        let llm = llm(Ports::Fake, Some(&fixtures));
+        for id in ["tc-odric", "tc-gue"] {
+            let (excerpt, dictation) = (
+                excerpt_of(&list, id),
+                list["proposals"][id]["dictation"].as_str().expect("words"),
+            );
+            // The refinement's prompt holds the excerpt too: the refined one wins.
+            let refined = format!("Extrait du brief : {excerpt}\n\nPrécisions du DM : {dictation}");
+            let answer: Value =
+                serde_json::from_str(&proposed(&llm, &refined).await).expect("one JSON object");
+            let mut expected = list["proposals"][id]["refined"].clone();
+            let brief = format!("Extrait du brief : {excerpt}");
+            let from_brief: Value =
+                serde_json::from_str(&proposed(&llm, &brief).await).expect("one JSON object");
+            assert_ne!(from_brief, answer, "{id}");
+            if id == "tc-odric" {
+                expected["ca"] = 10.into();
+                expected["pvMax"] = 13.into();
+            }
+            assert_eq!(answer, expected, "{id} refined");
+            let mut expected = list["proposals"][id]["fromBrief"].clone();
+            if id == "tc-odric" {
+                expected["ca"] = 11.into();
+                expected["pvMax"] = 18.into();
+            }
+            assert_eq!(from_brief, expected, "{id} from the brief");
+        }
+        // The editor's words and any other prompt keep their answers.
+        let editor: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixtures.join("EntityEditor.json")).expect("the fixture"),
+        )
+        .expect("JSON");
+        let anyone: Value =
+            serde_json::from_str(&proposed(&llm, "Un druide").await).expect("one JSON object");
+        assert_eq!(anyone, editor["proposals"]["default"]);
+        let morlox = editor["dictations"]["morlox"].as_str().expect("words");
+        let answer: Value = serde_json::from_str(&proposed(&llm, morlox).await).expect("JSON");
+        assert_eq!(answer, editor["proposals"]["morlox"]);
+        // An item with no proposal (`tc-vesna`) is not answered one.
+        let vesna = format!("Extrait du brief : {}", excerpt_of(&list, "tc-vesna"));
+        let answer: Value = serde_json::from_str(&proposed(&llm, &vesna).await).expect("JSON");
+        assert_eq!(answer, editor["proposals"]["default"]);
+    }
+
+    #[tokio::test]
+    async fn the_to_create_proposals_do_not_depend_on_the_editors_fixture() {
+        let (_, list) = to_create_list();
+        let dir = folder(
+            "to-create-alone",
+            &[("ToCreateList.json", &list.to_string())],
+        );
+        let alone = llm(Ports::Fake, Some(&dir));
+        std::fs::remove_dir_all(&dir).ok();
+        let odric = format!("Extrait du brief : {}", excerpt_of(&list, "tc-odric"));
+        let answer: Value = serde_json::from_str(&proposed(&alone, &odric).await).expect("JSON");
+        assert_eq!(
+            answer["description"],
+            list["proposals"]["tc-odric"]["fromBrief"]["description"]
+        );
+        let answer = proposed(&alone, "Un druide").await;
+        assert!(answer.starts_with("Réponse simulée de "), "{answer}");
+    }
+
+    #[tokio::test]
+    async fn a_missing_or_malformed_to_create_fixture_leaves_the_fake_as_it_was() {
+        let (fixtures, list) = to_create_list();
+        let editor = std::fs::read_to_string(fixtures.join("EntityEditor.json")).expect("a file");
+        let odric = format!("Extrait du brief : {}", excerpt_of(&list, "tc-odric"));
+        let malformed = folder(
+            "to-create-malformed",
+            &[("EntityEditor.json", &editor), ("ToCreateList.json", "{")],
+        );
+        let blank = folder(
+            "to-create-blank",
+            &[
+                ("EntityEditor.json", &editor),
+                (
+                    "ToCreateList.json",
+                    r#"{"items":[{"id":"a","excerpt":"…"},{"id":"b"}],"proposals":{"a":{"dictation":" ","fromBrief":{}},"b":{"refined":{}}}}"#,
+                ),
+            ],
+        );
+        let missing = folder("to-create-missing", &[("EntityEditor.json", &editor)]);
+        let fakes = [&malformed, &blank, &missing].map(|dir| llm(Ports::Fake, Some(dir)));
+        for dir in [&malformed, &blank, &missing] {
+            std::fs::remove_dir_all(dir).ok();
+        }
+        let editor: Value = serde_json::from_str(&editor).expect("JSON");
+        for fake in fakes {
+            let answer: Value =
+                serde_json::from_str(&proposed(&fake, &odric).await).expect("one JSON object");
+            assert_eq!(answer, editor["proposals"]["default"]);
+        }
+    }
+
+    #[test]
+    fn a_sheets_armor_class_and_hit_points_are_read_from_its_vitals_unless_given() {
+        let vitals = json!({ "statblock": { "vitals": [
+            { "label": "CA", "value": "11" },
+            { "label": "PV", "value": "18 (4d8)" },
+            { "label": "Vitesse", "value": "9 m" },
+        ] } });
+        assert_eq!(sheet(&vitals)["ca"], 11);
+        assert_eq!(sheet(&vitals)["pvMax"], 18);
+        assert_eq!(sheet(&vitals)["statblock"], vitals["statblock"]);
+        let given = json!({ "ca": 14, "statblock": vitals["statblock"] });
+        assert_eq!(sheet(&given)["ca"], 14);
+        assert_eq!(sheet(&given)["pvMax"], 18);
+        let unreadable =
+            json!({ "statblock": { "vitals": [{ "label": "PV", "value": "beaucoup" }] } });
+        assert_eq!(sheet(&unreadable), unreadable);
+        let place = json!({ "description": "Un gué", "aliases": ["le gué"] });
+        assert_eq!(sheet(&place), place);
     }
 
     #[tokio::test]

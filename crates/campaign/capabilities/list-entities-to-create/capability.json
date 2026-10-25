@@ -1,0 +1,9 @@
+{
+  "capability": "campaign.listEntitiesToCreate",
+  "system": "campaign",
+  "version": "1.0.0",
+  "description": "The campaign's to-create list: every NPC, place or event its oral briefs mentioned that the campaign does not hold yet, across all its sessions, in the order of the sessions and then of the briefs. Each entry has its id, its type (pnj, lieu or événement), its name, the id and title of the session it came from (session, sessionTitle), the excerpt of the brief that named it, its status (todo while it is still to create, created once an element was made from it) and that element's id (entity, else null). An entry is created if and only if its element is set. It only reflects what the briefs left: nothing is created here, and another campaign's entries never appear.",
+  "input": { "campaign": "string" },
+  "output": "{ items: { id: string, type: 'pnj' | 'lieu' | 'événement', name: string, session: string | null, sessionTitle: string | null, excerpt: string, status: 'todo' | 'created', entity: string | null }[] }",
+  "reads": ["queries/list-entities-to-create.graphql"]
+}

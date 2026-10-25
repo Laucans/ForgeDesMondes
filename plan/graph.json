@@ -596,7 +596,7 @@
     "OralBrief": {
       "kind": "micro-ui",
       "producer": 24,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "Player": {
@@ -698,7 +698,7 @@
     "ToCreateList": {
       "kind": "micro-ui",
       "producer": 24,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "TokenAppearance@1": {
@@ -716,13 +716,13 @@
     "ai.analyzeBrief": {
       "kind": "data-capability",
       "producer": 24,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "ai.createFromBrief": {
       "kind": "data-capability",
       "producer": 24,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "ai.extractFromNotes": {
@@ -806,7 +806,7 @@
     "campaign.listEntitiesToCreate": {
       "kind": "capability",
       "producer": 24,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "campaign.listEntityVersions": {
@@ -980,7 +980,7 @@
     "session.getLastBrief": {
       "kind": "capability",
       "producer": 24,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "session.getLiveSession": {
