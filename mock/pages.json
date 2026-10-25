@@ -522,7 +522,7 @@
       ],
       "props": {},
       "source": "apps/live/elements-panel",
-      "builtFrom": "bc41366e7e5f18db"
+      "builtFrom": "18c10a38fb3d01f4"
     },
     {
       "name": "TableSheet",
@@ -547,7 +547,7 @@
         "campaign": "string — id de la campagne ; absent, l’envoi en fenêtre ne peut pas nommer la campagne"
       },
       "source": "apps/live/table-sheet",
-      "builtFrom": "5b68ecf9040f8f4c"
+      "builtFrom": "a55178a14be2202d"
     },
     {
       "name": "LiveSoundbox",
