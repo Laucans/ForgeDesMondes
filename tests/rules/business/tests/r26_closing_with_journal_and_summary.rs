@@ -22,7 +22,12 @@ fn r26_closing_with_journal_and_summary() {
         ],
         |s| {
             let session = new_session(s, CAMPAIGN, &["elowen"])?;
-            apply(s, "live.setMicrophone", json!({ "on": true }), None)?;
+            apply(
+                s,
+                "live.setMicrophone",
+                json!({ "on": true }),
+                Some(&session),
+            )?;
 
             // The stand-in transcription speaks: wait for the journal to hold a line.
             let started = std::time::Instant::now();

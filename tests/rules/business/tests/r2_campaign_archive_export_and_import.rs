@@ -25,10 +25,15 @@ fn r2_campaign_archive_export_and_import() {
                     .map(|c| text(c, "id").to_string())
                     .collect();
 
-            apply(s, "campaign.exportCampaign", json!({}), Some(original))?;
-            let exported = s.read("campaign.getCampaign", json!({ "id": original }))?;
-            let archive = text(&exported["archive"], "file").to_string();
-            check(!archive.is_empty(), "the export left no archive")?;
+            // The archive is the export's own answer: the command's result
+            // carries it as `attachment: {file, content}` once applied.
+            let exported = apply(s, "campaign.exportCampaign", json!({}), Some(original))?;
+            let attachment = &exported["attachment"];
+            check(
+                !text(attachment, "file").is_empty() && attachment["content"].is_object(),
+                "the export left no archive",
+            )?;
+            let archive = attachment["content"].clone();
 
             // The campaign exists already: the import makes a copy.
             apply(
@@ -54,18 +59,17 @@ fn r2_campaign_archive_export_and_import() {
 
             let untouched = s.read("campaign.getCampaign", json!({ "id": original }))?;
             check(
-                untouched["campaign"]["name"] == before["campaign"]["name"]
-                    && untouched["campaign"]["counts"] == before["campaign"]["counts"],
+                untouched["name"] == before["name"] && untouched["counts"] == before["counts"],
                 "the original changed",
             )?;
 
-            let shown = text(&untouched["campaign"], "lastExport");
+            let shown = text(&untouched, "lastExport");
             check(
                 !shown.is_empty(),
                 "the date of the last export is not shown",
             )?;
             check(
-                shown > text(&before["campaign"], "lastExport"),
+                shown > text(&before, "lastExport"),
                 "the date of the last export is not the one of the export just made",
             )?;
 
