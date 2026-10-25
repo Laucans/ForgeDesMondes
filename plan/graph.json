@@ -794,8 +794,8 @@
     "campaign.listCampaigns": {
       "kind": "capability",
       "producer": 18,
-      "state": "built",
-      "version": 1
+      "state": "evolving",
+      "version": 2
     },
     "campaign.listCharacters": {
       "kind": "capability",
