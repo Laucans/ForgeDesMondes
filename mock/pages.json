@@ -375,7 +375,7 @@
         "campaign": "string — id de la campagne dont on lit PJ, lieux, événements et médias, quand session.getSession n’en donne pas ; à défaut, ils sont lus sans campagne"
       },
       "source": "apps/session/scene-board",
-      "builtFrom": "7c5c2897d482f3a1"
+      "builtFrom": "603147630bd01f65"
     },
     {
       "name": "Battlemap",

@@ -194,6 +194,39 @@ test('notes the server has queued, not yet applied, stay in the field', async ()
   assert.equal((b.$('#scene-sc2-notes') as HTMLTextAreaElement).value, 'En attente.');
 });
 
+test('notes the server has only queued are no baseline: the same text left again is sent again', async () => {
+  const b = await board({ apply: () => ({ status: 'queued' }) });
+  const field = b.$('#scene-sc2-notes') as HTMLTextAreaElement;
+  field.value = 'En attente.';
+  field.dispatchEvent(new b.dom.window.Event('change', { bubbles: true }));
+  await settle();
+  field.dispatchEvent(new b.dom.window.Event('change', { bubbles: true }));
+  await settle();
+  assert.deepEqual(b.sent.map((s) => s.payload.notes), ['En attente.', 'En attente.']);
+});
+
+test('a note left while a click is sent is not dropped, nor is the click that left it', async () => {
+  const b = await board();
+  const field = b.$('#scene-sc2-notes') as HTMLTextAreaElement;
+  field.value = 'Écrite puis quittée.';
+  // Leaving the field by a click: its change, then the click, before either settles.
+  field.dispatchEvent(new b.dom.window.Event('change', { bubbles: true }));
+  b.$('[data-remove-pj="kael"]').dispatchEvent(new b.dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.deepEqual(b.sent.map((s) => s.dataCapability), ['session.updateSceneNotes@1', 'session.removePresentCharacter@1']);
+});
+
+test('a note left while a command runs is sent after it, and the repainted board shows it', async () => {
+  const b = await board();
+  b.$('[data-remove-pj="kael"]').dispatchEvent(new b.dom.window.MouseEvent('click', { bubbles: true }));
+  const field = b.$('#scene-sc2-notes') as HTMLTextAreaElement;
+  field.value = 'Pendant la relecture.';
+  field.dispatchEvent(new b.dom.window.Event('change', { bubbles: true }));
+  await settle();
+  assert.deepEqual(b.sent.map((s) => s.dataCapability), ['session.removePresentCharacter@1', 'session.updateSceneNotes@1']);
+  assert.equal((b.$('#scene-sc2-notes') as HTMLTextAreaElement).value, 'Pendant la relecture.');
+});
+
 test('notes the server refuses are said, and stay in the field', async () => {
   const b = await board({ apply: () => ({ status: 'rejected', violations: ['scene-not-in-session'] }) });
   const field = b.$('#scene-sc2-notes') as HTMLTextAreaElement;

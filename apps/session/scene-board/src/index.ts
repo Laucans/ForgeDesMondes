@@ -68,7 +68,8 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   // The prop first (`session.getSession` is asked by `id`), the screen's context value when no prop names one.
   const wanted = sessionAsked(props.session, shell.context?.get('session'));
   let board: Board | null = null;
-  let busy = false;
+  // The commands not yet settled, in the order the DM gave them: one runs at a time, none is dropped.
+  let pending: Promise<void> = Promise.resolve();
 
   const say = (text: string): void => {
     part('scenes-notice').textContent = text;
@@ -127,12 +128,17 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     return state;
   }
 
-  /** One command at a time; once applied, the board is read again, so what it shows is what the server holds — unless `applied` says what changed, which keeps the field the DM is in, whatever the server's pace. */
-  async function act(wrong: string, run: () => Promise<Settled>, applied?: () => void): Promise<void> {
-    if (busy || board === null) return;
+  /** One command at a time, each waiting its turn rather than dropped: a note saved as the DM leaves the field, and the click that left it, are both sent. */
+  function act(wrong: string, run: () => Promise<Settled>, applied?: () => void): Promise<void> {
+    pending = pending.then(() => attempt(wrong, run, applied)).catch(() => undefined);
+    return pending;
+  }
+
+  /** Once applied, the board is read again, so what it shows is what the server holds — unless `applied` says what changed, which keeps the field the DM is in; a command not yet applied leaves that field as typed, and `applied` unsaid. */
+  async function attempt(wrong: string, run: () => Promise<Settled>, applied?: () => void): Promise<void> {
+    if (board === null) return;
     // A session the board does not know is one it cannot write to.
     if (board.session.id === '') return say('La séance n’est pas identifiée : rien ne peut être modifié.');
-    busy = true;
     host.querySelector('#scene-board')?.setAttribute('aria-busy', 'true');
     say('');
     try {
@@ -142,8 +148,9 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
         // A command still queued or parked is the server's to apply on its own clock: the board says so, and shows what is held now.
         if (state.status !== 'applied') say(`L’action n’est pas encore appliquée (état : ${state.status || 'inconnu'}).`);
         try {
-          if (applied !== undefined) applied();
-          else {
+          if (applied !== undefined) {
+            if (state.status === 'applied') applied();
+          } else {
             board = await read();
             paint();
           }
@@ -154,7 +161,6 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     } catch {
       say(wrong);
     } finally {
-      busy = false;
       host.querySelector('#scene-board')?.removeAttribute('aria-busy');
     }
   }
@@ -213,7 +219,13 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
       'Impossible d’enregistrer ces notes.',
       () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes }, 'Session', scene.id),
       () => {
-        scene.notes = notes;
+        // The board may have been read again while the note waited its turn: the scene held now is the one updated, and a repainted field shows the note unless the DM is in it.
+        const held = board?.scenes.find((s) => s.id === scene.id);
+        if (held) held.notes = notes;
+        const shown = [...host.querySelectorAll<HTMLElement>('[data-scene]')]
+          .find((item) => item.dataset.scene === scene.id)
+          ?.querySelector<HTMLTextAreaElement>(`textarea[data-writes="${UPDATE_SCENE_NOTES}"]`);
+        if (shown && shown !== field && shown !== host.ownerDocument.activeElement) shown.value = notes;
       },
     );
   });

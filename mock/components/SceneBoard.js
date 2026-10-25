@@ -325,7 +325,7 @@
     };
     const wanted = sessionAsked(props2.session, shell2.context?.get("session"));
     let board = null;
-    let busy = false;
+    let pending = Promise.resolve();
     const say = (text2) => {
       part("scenes-notice").textContent = text2;
     };
@@ -370,10 +370,13 @@
       }
       return state;
     }
-    async function act(wrong, run, applied) {
-      if (busy || board === null) return;
+    function act(wrong, run, applied) {
+      pending = pending.then(() => attempt(wrong, run, applied)).catch(() => void 0);
+      return pending;
+    }
+    async function attempt(wrong, run, applied) {
+      if (board === null) return;
       if (board.session.id === "") return say("La s\xE9ance n\u2019est pas identifi\xE9e : rien ne peut \xEAtre modifi\xE9.");
-      busy = true;
       host2.querySelector("#scene-board")?.setAttribute("aria-busy", "true");
       say("");
       try {
@@ -382,8 +385,9 @@
         else {
           if (state.status !== "applied") say(`L\u2019action n\u2019est pas encore appliqu\xE9e (\xE9tat : ${state.status || "inconnu"}).`);
           try {
-            if (applied !== void 0) applied();
-            else {
+            if (applied !== void 0) {
+              if (state.status === "applied") applied();
+            } else {
               board = await read();
               paint();
             }
@@ -394,7 +398,6 @@
       } catch {
         say(wrong);
       } finally {
-        busy = false;
         host2.querySelector("#scene-board")?.removeAttribute("aria-busy");
       }
     }
@@ -447,7 +450,10 @@
         "Impossible d\u2019enregistrer ces notes.",
         () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes: notes2 }, "Session", scene.id),
         () => {
-          scene.notes = notes2;
+          const held = board?.scenes.find((s) => s.id === scene.id);
+          if (held) held.notes = notes2;
+          const shown2 = [...host2.querySelectorAll("[data-scene]")].find((item) => item.dataset.scene === scene.id)?.querySelector(`textarea[data-writes="${UPDATE_SCENE_NOTES}"]`);
+          if (shown2 && shown2 !== field && shown2 !== host2.ownerDocument.activeElement) shown2.value = notes2;
         }
       );
     });
