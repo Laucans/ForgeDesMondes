@@ -625,6 +625,7 @@ dependencies = [
  "get-last-brief",
  "get-session",
  "get-settings",
+ "get-transcription-vocabulary",
  "harness-dataguard",
  "import-character",
  "list-campaigns",
@@ -899,6 +900,17 @@ version = "0.1.0"
 dependencies = [
  "platform-conformance",
  "serde_json",
+]
+
+[[package]]
+name = "get-transcription-vocabulary"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "platform-test-kit",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1600,6 +1612,17 @@ name = "platform-scratch-db"
 version = "0.1.0"
 dependencies = [
  "harness-dataguard",
+ "tokio",
+]
+
+[[package]]
+name = "platform-test-kit"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "harness-dataguard",
+ "platform-scratch-db",
+ "serde_json",
  "tokio",
 ]
 
