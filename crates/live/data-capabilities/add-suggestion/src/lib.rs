@@ -26,15 +26,24 @@ pub const DATA_CAPABILITY: &str = "live.addSuggestion";
 /// The session and whether the target belongs to its campaign, in one row:
 /// no row when the session is unknown. `$1` is the session, `$2` the element
 /// and `$3` the sound (an empty text when the request names none), each
-/// bound and compared as text.
+/// bound and compared as text. A session, element or sound the engine deleted
+/// (its tombstone) is none.
 const SESSION: &str = "\
 SELECT s.status, s.microphone_on, \
        EXISTS (SELECT 1 FROM entity e \
-               WHERE e.id::text = $2 AND e.campaign_id = s.campaign_id) AS entity_in_campaign, \
+               WHERE e.id::text = $2 AND e.campaign_id = s.campaign_id \
+                 AND NOT EXISTS (SELECT 1 FROM dataguard_rows r \
+                     WHERE r.partition = 'Entity/' || e.id::text AND r.tombstoned)) \
+           AS entity_in_campaign, \
        EXISTS (SELECT 1 FROM sound d \
-               WHERE d.id::text = $3 AND d.campaign_id = s.campaign_id) AS sound_in_campaign \
+               WHERE d.id::text = $3 AND d.campaign_id = s.campaign_id \
+                 AND NOT EXISTS (SELECT 1 FROM dataguard_rows r \
+                     WHERE r.partition = 'Sound/' || d.id::text AND r.tombstoned)) \
+           AS sound_in_campaign \
 FROM session s \
-WHERE s.id::text = $1";
+WHERE s.id::text = $1 \
+  AND NOT EXISTS (SELECT 1 FROM dataguard_rows r \
+      WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned)";
 
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;

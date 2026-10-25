@@ -10,6 +10,8 @@
 use std::sync::Arc;
 
 use harness_dataguard::command::State;
+use harness_dataguard::engine::Engine;
+use harness_dataguard::guard::Caller;
 use harness_dataguard::plugins::RefusalKind;
 use harness_dataguard::store::Ids;
 use platform_test_kit::{Bench, Scratch, Served, file, manifest, refused, uuid};
@@ -70,6 +72,12 @@ impl Ids for One {
 
 /// The tables the foreign keys ask for, over a scratch database.
 async fn seeded(label: &str) -> (Scratch, Served) {
+    seeded_by(label, None).await
+}
+
+/// The same tables, the engine called by `caller` (the bench's approver when
+/// none).
+async fn seeded_by(label: &str, caller: Option<Caller>) -> (Scratch, Served) {
     let scratch = Scratch::new(label).await;
     scratch
         .seed(&format!(
@@ -112,14 +120,17 @@ async fn seeded(label: &str) -> (Scratch, Served) {
             elsewhere = elsewhere(),
         ))
         .await;
-    let served = Bench::new(
+    let bench = Bench::new(
         MANIFEST,
         &file("crates/live/aggregates/Suggestion/aggregate.json"),
         [aggregate_suggestion::plugin(), add_suggestion::plugin()],
     )
-    .ids(Arc::new(One))
-    .postgres(&scratch)
-    .await;
+    .ids(Arc::new(One));
+    let bench = match caller {
+        Some(caller) => bench.caller(caller),
+        None => bench,
+    };
+    let served = bench.postgres(&scratch).await;
     (scratch, served)
 }
 
@@ -141,6 +152,16 @@ async fn refused_422(scratch: &Scratch, served: &Served, answer: Value) -> Strin
     );
     assert!(served.settled().await.is_empty(), "nothing queued");
     assert!(written(scratch).await.is_empty(), "nothing written");
+    message
+}
+
+/// Asserts that `payload` is a 422 and that nothing was queued; the words.
+async fn refused_422_keeping(served: &Served, payload: Value) -> String {
+    let message = refused(
+        served.submit("live.addSuggestion", payload, None).await,
+        RefusalKind::Unprocessable,
+    );
+    assert!(served.settled().await.is_empty(), "nothing queued");
     message
 }
 
@@ -333,4 +354,72 @@ async fn a_suggestion_is_always_new() {
     assert!(message.contains("always new"), "{message}");
     assert!(served.settled().await.is_empty(), "nothing queued");
     assert_eq!(written(&scratch).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_caller_without_a_role_is_applied_not_parked_in_review() {
+    // The mic pipeline holds no role: a pure addition needs no approver.
+    let (scratch, served) = seeded_by(
+        "add_suggestion_no_role",
+        Some(Engine::caller("mic", "live.suggestions", &[], &[])),
+    )
+    .await;
+    let applied = served
+        .applied(
+            "live.addSuggestion",
+            json!({ "sessionId": live(), "entityId": entity(), "matchedText": "la taverne" }),
+            None,
+        )
+        .await;
+    assert_eq!(applied.status, State::Applied, "{applied:?}");
+    assert!(applied.violations.is_empty(), "{:?}", applied.violations);
+    assert_eq!(written(&scratch).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_deleted_session_element_or_sound_is_none() {
+    // The engine's soft delete: the row tombstoned, the table's left as it was.
+    let (scratch, served) = seeded("add_suggestion_tombstoned").await;
+    let payloads = [
+        json!({ "sessionId": live(), "entityId": entity(), "matchedText": "la taverne" }),
+        json!({ "sessionId": live(), "soundId": sound(), "matchedText": "la porte" }),
+    ];
+    // The target deleted, then the session.
+    for (partition, payload) in [
+        (format!("Entity/{}", entity()), &payloads[0]),
+        (format!("Sound/{}", sound()), &payloads[1]),
+    ] {
+        scratch
+            .seed(&format!(
+                "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('{partition}', true)"
+            ))
+            .await;
+        let message = refused_422_keeping(&served, payload.clone()).await;
+        assert!(
+            message.contains("not one of the session's campaign"),
+            "{message}"
+        );
+    }
+    scratch
+        .seed(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Session/{}', true)",
+            live()
+        ))
+        .await;
+    for payload in payloads {
+        let message = refused(
+            served.submit("live.addSuggestion", payload, None).await,
+            RefusalKind::NotFound,
+        );
+        assert!(message.contains("session"), "{message}");
+    }
+    assert!(served.settled().await.is_empty(), "nothing queued");
+    // Only the tombstones themselves: no Suggestion.
+    let rows = written(&scratch).await;
+    assert!(
+        rows.iter().all(|row| row["partition"]
+            .as_str()
+            .is_some_and(|partition| !partition.starts_with("Suggestion/"))),
+        "{rows:?}"
+    );
 }
