@@ -116,8 +116,10 @@ mod tests {
         assert_eq!(answer_rows(&Value::Array(rows)), fixture);
     }
 
-    // The Concept's own computation, local to this Capability (rule 3): the vocabulary of a
-    // campaign and the detection of a phrase, held to the fixtures of DetectionVocabulary@1.
+    // The Concept's own computation, local to this Capability (rule 3), held to the fixtures of
+    // DetectionVocabulary@1. It is not the shipped SQL: this Capability answers `{ terms }`, with
+    // no target to detect a phrase by. The SQL itself is held to the same fixtures, on a real
+    // database, by `tests/vocabulary.rs`.
     mod concept {
         use std::collections::BTreeSet;
 

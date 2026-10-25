@@ -254,6 +254,28 @@
       ]
     },
     {
+      "query": "ListSuggestions",
+      "capability": "live.listSuggestions",
+      "file": "crates/live/queries/list-suggestions.graphql",
+      "sha256": "2d341b516724f375167f5916b077bf7e9d5fc0e0bcf7eb7cf998cd0b8e955f6d",
+      "fields": [
+        "session.status",
+        "session.campaignId",
+        "session.startedAt",
+        "session.position",
+        "live_suggestion.sessionId",
+        "live_suggestion.entityId",
+        "live_suggestion.soundId",
+        "live_suggestion.matchedText",
+        "live_suggestion.detectedAt",
+        "entity.campaignId",
+        "entity.type",
+        "entity.name",
+        "sound.campaignId",
+        "sound.name"
+      ]
+    },
+    {
       "query": "GetBattlemap",
       "capability": "media.getBattlemap",
       "file": "crates/media/queries/getBattlemap.graphql",
