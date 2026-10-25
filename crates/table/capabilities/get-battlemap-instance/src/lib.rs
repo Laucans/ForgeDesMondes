@@ -7,7 +7,10 @@
 //! of `mock/fixtures/table.getBattlemapInstance.json`, comes out:
 //!
 //! - `id`, `battlemap`, `session`, `scene`: the instance as stored, and
-//!   `roster`, the characters that have a token on it;
+//!   `roster`, the characters proposed on it: the PCs ticked present at its
+//!   session, in the order they were ticked — those added later included
+//!   (`present-only-pj`) — then every other character that has a token on
+//!   it;
 //! - `state.tokens`: each token with its character (`char`), `kind` (`pj` or
 //!   `pnj`), `name`, `num`, hex (`q`, `r`), `visible`, `states` (its
 //!   conditions), `status` (its health band), `dead`, and its disc — `color`,
@@ -44,13 +47,19 @@ pub const CAPABILITY: &str = "table.getBattlemapInstance";
 /// instance bound to `$1` (compared as text, so that an id which is not a
 /// uuid finds nothing instead of failing) with its tokens — each joined to
 /// the sheet it stands for — and the combat running, with its initiative
-/// entries in the order of `initiative_order_view`. The tables' generated
+/// entries in the order of `initiative_order_view`, and the PCs ticked
+/// present at its session, in the order they were ticked. The tables' generated
 /// columns (`dead`, `health_band`, `label_initial`) are not read: they are
 /// derived here.
 pub const SQL: &str = r#"SELECT i.id::text AS id,
     i.battlemap_media_id::text AS battlemap,
     i.session_id::text AS session,
     i.scene_id::text AS scene,
+    coalesce((
+        SELECT jsonb_agg(p.character_id::text ORDER BY p.added_at, p.character_id)
+        FROM session_present_character p
+        WHERE p.session_id = i.session_id
+    ), '[]'::jsonb) AS present,
     coalesce((
         SELECT jsonb_agg(jsonb_build_object(
             'id', t.id::text,
@@ -248,7 +257,13 @@ pub fn answer_rows(rows: &Value, view: &str) -> Value {
         .filter(|token| dm || token["visible"] == true)
         .map(|row| token(row, dm))
         .collect();
+    let present = row["present"].as_array().map_or(&[][..], Vec::as_slice);
     let mut roster: Vec<&Value> = Vec::new();
+    for pc in present {
+        if !roster.contains(&pc) {
+            roster.push(pc);
+        }
+    }
     for token in &tokens {
         if !roster.contains(&&token["char"]) {
             roster.push(&token["char"]);
@@ -610,6 +625,30 @@ mod tests {
         let empty = answer_rows(&rows(vec![], Value::Null), "dm");
         assert_eq!(empty["state"], json!({ "tokens": [], "combat": null }));
         assert_eq!(empty["roster"], json!([]));
+    }
+
+    #[test]
+    fn the_roster_proposes_the_present_pcs_first_then_the_tokens_characters() {
+        let mut present = rows(
+            vec![
+                row("t-e", "pj", "Elowen", None, (0, 0)),
+                row("t-b", "pnj", "Bandit", Some(1), (11, 11)),
+            ],
+            Value::Null,
+        );
+        present[0]["present"] = json!(["c-kael", "c-elowen", "c-kael"]);
+        let answer = answer_rows(&present, "dm");
+        assert_eq!(
+            answer["roster"],
+            json!(["c-kael", "c-elowen", "c-bandit"]),
+            "each PC ticked present once, in the order ticked, then the others with a token"
+        );
+        let mut alone = rows(vec![], Value::Null);
+        alone[0]["present"] = json!(["c-sirielle"]);
+        assert_eq!(
+            answer_rows(&alone, "player")["roster"],
+            json!(["c-sirielle"])
+        );
     }
 
     #[test]

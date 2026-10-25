@@ -44,6 +44,7 @@
     },
     {
       "path": "pages/preparation-seance.html",
+      "screen": "preparation-seance",
       "title": "Préparation de séance",
       "objective": "Le DM relit la séance précédente, raconte son brief au micro, vérifie les scènes et les entités détectées, crée les manquantes et place les tokens sur la battlemap d’une scène",
       "components": [
@@ -315,7 +316,11 @@
         "session.getSessionJournal"
       ],
       "actions": [],
-      "props": {}
+      "props": {
+        "session": "string — id de la séance en préparation : on lit la séance close qui la précède ; sans lui, aucune lecture"
+      },
+      "source": "apps/session/previous-summary",
+      "builtFrom": "673f35c57fe2e511"
     },
     {
       "name": "OralBrief",
@@ -335,7 +340,7 @@
         "session": "string — id de la séance dont on raconte le brief"
       },
       "source": "apps/ai/oral-brief",
-      "builtFrom": "76d00048ad390b38"
+      "builtFrom": "c3a2063be8392852"
     },
     {
       "name": "SceneBoard",
@@ -346,6 +351,8 @@
         "fixtures/session.getSession.json",
         "fixtures/session.listScenes.json",
         "fixtures/campaign.listCharacters.json",
+        "fixtures/campaign.listPlaces.json",
+        "fixtures/campaign.listEvents.json",
         "fixtures/media.listMedia.json",
         "fixtures/table.getBattlemapInstance.json"
       ],
@@ -353,6 +360,8 @@
         "session.getSession",
         "session.listScenes",
         "campaign.listCharacters",
+        "campaign.listPlaces",
+        "campaign.listEvents",
         "media.listMedia",
         "table.getBattlemapInstance"
       ],
@@ -361,11 +370,15 @@
         "session.removePresentCharacter",
         "session.addScene",
         "session.reorderScenes",
+        "session.updateSceneNotes",
         "table.createBattlemapInstance"
       ],
-      "props": {},
+      "props": {
+        "session": "string — id de la séance en préparation (lue par session.getSession, passée aux écritures) ; à défaut, la séance du contexte de l’écran ; sans aucune, rien à lire ni à écrire",
+        "campaign": "string — id de la campagne dont on lit PJ, lieux, événements et médias, quand session.getSession n’en donne pas ; à défaut, ils sont lus sans campagne"
+      },
       "source": "apps/session/scene-board",
-      "builtFrom": "23e144be1281f6fb"
+      "builtFrom": "09793b4fddd37003"
     },
     {
       "name": "Battlemap",
@@ -407,7 +420,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "2fcd4b977577f780"
+      "builtFrom": "6d53c84428f9034a"
     },
     {
       "name": "MediaLibrary",
@@ -482,22 +495,30 @@
     {
       "name": "LiveSessionBar",
       "system": "session",
-      "description": "La séance en direct : ses scènes, ce que voient les joueurs, l’ouverture de la player view et la clôture avec le résumé à retoucher",
+      "description": "La séance en direct : ses scènes, ce que voient les joueurs, l’ouverture de la player view et la clôture avec son bilan (lignes de journal, durée, modèle et résumé)",
       "fragment": "components/LiveSessionBar.html",
       "fixtures": [
         "fixtures/session.getLiveSession.json",
-        "fixtures/live.getDiffusion.json"
+        "fixtures/live.getDiffusion.json",
+        "fixtures/session.getSessionJournal.json",
+        "fixtures/session.getPreviousSessionSummary.json"
       ],
       "needs": [
         "session.getLiveSession",
-        "live.getDiffusion"
+        "live.getDiffusion",
+        "session.getSessionJournal",
+        "session.getPreviousSessionSummary"
       ],
       "actions": [
         "live.showCover",
         "live.closeWindow",
         "session.closeSession"
       ],
-      "props": {}
+      "props": {
+        "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
+      },
+      "source": "apps/session/live-session-bar",
+      "builtFrom": "7e599e02415ed597"
     },
     {
       "name": "ElementsPanel",

@@ -566,7 +566,7 @@
     "LiveSessionBar": {
       "kind": "micro-ui",
       "producer": 28,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "LiveSoundbox": {
@@ -614,7 +614,7 @@
     "PreviousSummary": {
       "kind": "micro-ui",
       "producer": 28,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "ProviderApiType@1": {
@@ -968,7 +968,7 @@
     "session.closeSession": {
       "kind": "data-capability",
       "producer": 28,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "session.createSession": {
@@ -986,13 +986,13 @@
     "session.getLiveSession": {
       "kind": "capability",
       "producer": 28,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "session.getPreviousSessionSummary": {
       "kind": "capability",
       "producer": 28,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "session.getSession": {
@@ -1004,7 +1004,7 @@
     "session.getSessionJournal": {
       "kind": "capability",
       "producer": 28,
-      "state": "mocked",
+      "state": "built",
       "version": 1
     },
     "session.listScenes": {

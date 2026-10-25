@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "add-journal-line"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "harness-dataguard",
+ "platform-test-kit",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "add-participant"
 version = "0.1.0"
 dependencies = [
@@ -431,6 +443,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "close-session"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "data",
+ "harness-dataguard",
+ "ports-llm",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "close-window"
 version = "0.1.0"
 dependencies = [
@@ -606,6 +631,7 @@ dependencies = [
 name = "dataguard-registry"
 version = "0.1.0"
 dependencies = [
+ "add-journal-line",
  "add-participant",
  "add-place-to-session",
  "add-present-character",
@@ -626,6 +652,7 @@ dependencies = [
  "aggregate-suggestion",
  "analyze-brief",
  "change-hit-points",
+ "close-session",
  "close-window",
  "create-battlemap-instance",
  "create-campaign",
@@ -641,7 +668,10 @@ dependencies = [
  "get-diffusion",
  "get-entity",
  "get-last-brief",
+ "get-live-session",
+ "get-previous-session-summary",
  "get-session",
+ "get-session-journal",
  "get-settings",
  "get-transcription-vocabulary",
  "harness-dataguard",
@@ -692,6 +722,7 @@ dependencies = [
  "start-combat",
  "stop-all",
  "test-connection",
+ "update-scene-notes",
  "update-sound",
  "upload-media",
 ]
@@ -910,10 +941,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "get-live-session"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-previous-session-summary"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
 name = "get-session"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
+ "serde_json",
+]
+
+[[package]]
+name = "get-session-journal"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
@@ -2892,6 +2946,18 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "update-scene-notes"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "harness-dataguard",
+ "platform-test-kit",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "update-sound"

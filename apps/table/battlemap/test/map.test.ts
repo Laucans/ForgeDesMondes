@@ -152,7 +152,7 @@ test('a token dragged 3 hexes away reads « 3 hex · 15 pi » under the cursor a
     dataCapability: 'table.moveToken@1',
     target: { aggregate: 'BattlemapInstance', id: 'bmi-gue-s4' },
     payload: { token: 't-elowen', q: 3, r: 6 },
-    caller: { by: 'dm', from: 'Battlemap', roles: [] },
+    caller: { by: 'dm', from: 'Battlemap', roles: ['role:approver'] },
   });
   assert.equal(left(token('t-elowen')), px(to.x), 'the map is read again: the token stands where the table keeps it');
   assert.equal(document.querySelectorAll('#battlemap-over polygon').length, 0);
@@ -286,7 +286,7 @@ test('« Envoyer aux joueurs » sends the instance with the zoom and pan as fram
     dataCapability: 'live.showOnPlayerView@1',
     target: { aggregate: 'Diffusion', id: 's4' },
     payload: { kind: 'battlemap', instance: 'bmi-gue-s4', zoom: 1, panX: 0, panY: 0 },
-    caller: { by: 'dm', from: 'Battlemap', roles: [] },
+    caller: { by: 'dm', from: 'Battlemap', roles: ['role:approver'] },
   });
   assert.match(document.querySelector('#battlemap-status')?.textContent ?? '', /Carte envoyée aux joueurs/);
   await click('[data-act="in"]');
@@ -366,6 +366,42 @@ test('the prep view lists the scene’s characters to drop', async () => {
   assert.match(document.querySelector('#battlemap-drop')?.textContent ?? '', /Placer Bandit/);
   assert.equal(fake.sent.length, 0);
   assert.ok(dom.window.document.querySelector('#battlemap-drop-count'));
+});
+
+test('the prep view keeps the roster column from the first paint, so the map is fitted to the width it keeps', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="Battlemap"></div></body></html>');
+  const host = dom.window.document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
+  mount(host, { instance: 'bmi-gue-s4', view: 'prep' }, fakeShell().shell, timing);
+  // Nothing is read yet: the column is already there, empty, and the inspector is an overlay of the map.
+  assert.equal(host.querySelector<HTMLElement>('#battlemap-roster')?.hidden, false);
+  assert.equal(host.querySelector('#battlemap-roster')?.children.length, 0);
+  assert.ok(host.querySelector('.bm.bm--prep'));
+  assert.match(dom.window.document.head.textContent ?? '', /\.bm--prep #token-inspector \{ position: absolute;/);
+  await flush();
+  assert.equal(host.querySelector<HTMLElement>('#battlemap-roster')?.hidden, false);
+  assert.ok(host.querySelector('#battlemap-roster-list'));
+});
+
+test('the dm and player views have no roster column, before or after the read', async () => {
+  for (const view of ['dm', 'player']) {
+    const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="Battlemap"></div></body></html>');
+    const host = dom.window.document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
+    mount(host, { instance: 'bmi-gue-s4', view }, fakeShell().shell, timing);
+    assert.equal(host.querySelector<HTMLElement>('#battlemap-roster')?.hidden, true, `${view} before the read`);
+    assert.equal(host.querySelector('.bm--prep'), null);
+    await flush();
+    assert.equal(host.querySelector<HTMLElement>('#battlemap-roster')?.hidden, true, `${view} after the read`);
+  }
+});
+
+test('placing from the roster is sent as the DM approving their own act, so the position is stored', async () => {
+  const { document, fake } = await battlemap({ view: 'prep' });
+  (document.querySelector('#roster-bandit') as HTMLElement).click();
+  (document.querySelector('#battlemap-drop-ok') as HTMLElement).click();
+  await flush();
+  assert.equal(fake.sent.length, 1);
+  assert.equal(fake.sent[0]?.dataCapability, 'table.placeTokens@1');
+  assert.deepEqual(fake.sent[0]?.caller, { by: 'dm', from: 'Battlemap', roles: ['role:approver'] });
 });
 
 test('a battlemap that cannot be read is told', async () => {
