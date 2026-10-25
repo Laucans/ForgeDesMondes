@@ -309,6 +309,11 @@ impl Project for Observer {
             return;
         };
         if on {
+            // A stream already runs: this write is not the one that opens a
+            // stream, and the staged plan stays for the on that follows an off.
+            if listening.listens(session) {
+                return;
+            }
             if let Some(plan) = self.0.take(session) {
                 listening.start(session, plan);
             }

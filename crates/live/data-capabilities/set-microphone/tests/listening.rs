@@ -308,6 +308,30 @@ async fn an_off_queued_around_an_on_does_not_take_its_plan_away() {
 }
 
 #[tokio::test]
+async fn a_write_of_another_command_while_listening_leaves_the_next_on_its_plan() {
+    // Listening; an unrelated write (microphone still on) is applied, then an
+    // off, then an on whose plan was staged before them all.
+    let (listening, plans, _recorder) = server();
+    let fake = FakeSpeechToText::new("");
+    let every = Duration::from_secs(60);
+    plans.stage(SESSION, &listening, Some(plan(&fake, &["x"], every)));
+    let observer = Observer(Arc::clone(&plans));
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    assert!(listening.listens(SESSION));
+
+    plans.stage(SESSION, &listening, Some(plan(&fake, &["x"], every)));
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(false)));
+    assert!(!listening.listens(SESSION));
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    assert!(
+        listening.listens(SESSION),
+        "the on found its plan: the row says on and a stream listens"
+    );
+    listening.shutdown();
+}
+
+#[tokio::test]
 async fn without_an_engine_to_submit_to_nothing_listens() {
     let listening = Arc::new(Listening::new());
     let plans = Arc::new(Plans::default());
