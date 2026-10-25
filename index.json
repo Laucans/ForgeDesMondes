@@ -17,6 +17,7 @@
     "milestone/27-live-microphone-and-suggestions": "0e2d4d67f265449f2d38fa54ce1f33bad72d05b9",
     "milestone/28-closing-a-session-journal-summary-and-preparation-screen": "cce3b93ac2bff0432f1aee4957e78872457152ba",
     "milestone/29-dm-view-elements-panel-and-table-sheet": "1b123fc5527a46cc3e58d4648acc0325c7d1ffcb",
+    "milestone/30-campaign-home-and-archive-import": "dbc55ed8d61d93fb78322a75d9981f7ff467ee6f",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
   },
@@ -338,6 +339,14 @@
       "sha": "a3823e4efc322799a3192fddd788dbaa1bbd0443",
       "at": "2026-10-24T20:11:37Z",
       "dir": "milestone/27-live-microphone-and-suggestions/20261024T201137Z-a3823e4",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/30-campaign-home-and-archive-import",
+      "sha": "dbc55ed8d61d93fb78322a75d9981f7ff467ee6f",
+      "at": "2026-10-25T14:53:31Z",
+      "dir": "milestone/30-campaign-home-and-archive-import/20261025T145331Z-dbc55ed",
       "schema": true,
       "model": true
     }
