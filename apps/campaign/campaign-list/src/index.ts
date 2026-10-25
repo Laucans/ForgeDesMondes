@@ -125,6 +125,7 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     if (current()) part('campaign-status').textContent = words;
   };
   const paintBusy = (): void => {
+    if (!current()) return;
     for (const button of host.querySelectorAll<HTMLButtonElement>('[data-writes]')) {
       button.disabled = busy || (button.id === 'campaign-import-submit' && archive === undefined);
     }
@@ -199,6 +200,8 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     if (!campaign) return;
     say(`Export de « ${campaign.name} » en cours…`);
     const state = await run(exportCommand(EXPORT_CAMPAIGN, id));
+    // A replaced mount hands nothing over: the one that holds the host answers its own clicks.
+    if (!current()) return;
     if (state.status !== 'applied') return say(unapplied(state, EXPORT_WORDS));
     // What is handed over is the archive the command answered, nothing the list built.
     if (state.archive === null) return say('Export effectué, mais l’archive n’a pas été reçue.');
@@ -252,8 +255,8 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     } catch {
       parsed = undefined;
     }
-    // The dialog that asked is gone, or replaced: what was read is no one's.
-    if (asked !== dialogs) return;
+    // The dialog that asked is gone, or replaced, or so is its mount: what was read is no one's.
+    if (!current() || asked !== dialogs) return;
     archive = parsed;
     if (archive === undefined) {
       drop.classList.remove('has-file', 'is-done');

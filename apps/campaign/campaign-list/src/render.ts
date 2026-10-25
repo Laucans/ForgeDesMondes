@@ -38,12 +38,11 @@ function cover(campaign: CampaignCard): string {
 
 /** The kit's Card: cover, name, pitch, the kind, the sessions, when it was last played and the next one. */
 export function card(campaign: CampaignCard): string {
-  const sessions = sessionsText(campaign.sessions);
   const meta =
     '<div class="mf-campaigns__meta">' +
     `<div class="kit-badge"><span class="${campaign.type === 'oneshot' ? 'accent' : 'primary'}">${campaign.type === 'oneshot' ? 'Oneshot' : 'Campagne'}</span></div>` +
-    (sessions === '' ? '' : `<span>${sessions}</span>`) +
-    `<span>${sessions === '' ? '' : '· '}${esc(lastPlayedText(campaign.lastPlayed))}</span></div>` +
+    `<span>${sessionsText(campaign.sessions)}</span>` +
+    `<span>· ${esc(lastPlayedText(campaign.lastPlayed))}</span></div>` +
     (campaign.next === null ? '' : `<p class="small">Prochaine séance : <b>${esc(dayText(campaign.next))}</b></p>`);
   return (
     `<div id="campaign-${esc(campaign.id)}" ${reads}><article class="kit-card">` +

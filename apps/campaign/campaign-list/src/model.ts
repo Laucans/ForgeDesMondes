@@ -21,7 +21,7 @@ export function parseCampaigns(data: unknown): CampaignCard[] {
       art: text(item.art),
       glyph: text(item.glyph),
       pitch: text(item.pitch),
-      sessions: typeof item.sessions === 'number' ? item.sessions : null,
+      sessions: typeof item.sessions === 'number' ? item.sessions : 0,
       lastPlayed: day(item.lastPlayed),
       next: day(item.next),
     });
@@ -35,10 +35,8 @@ export function dayText(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-/** « 4 séances »; nothing while the count is unknown, never a made-up zero. */
-export function sessionsText(sessions: number | null): string {
-  return sessions === null ? '' : `${sessions} séance${sessions > 1 ? 's' : ''}`;
-}
+/** « 4 séances », « 0 séance » for a campaign with none. */
+export const sessionsText = (sessions: number): string => `${sessions} séance${sessions > 1 ? 's' : ''}`;
 
 export const lastPlayedText = (lastPlayed: string | null): string => (lastPlayed === null ? 'jamais jouée' : `jouée le ${dayText(lastPlayed)}`);
 

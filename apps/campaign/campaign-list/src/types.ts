@@ -16,8 +16,8 @@ export interface CampaignCard {
   art: string;
   glyph: string;
   pitch: string;
-  /** Counted from the sessions: null while the Capability does not know it yet. */
-  sessions: number | null;
+  /** Counted from the campaign's sessions: 0 when it has none. */
+  sessions: number;
   /** The day of the last session played; null before the first. */
   lastPlayed: string | null;
   /** The day of the next session; null when none is planned. */

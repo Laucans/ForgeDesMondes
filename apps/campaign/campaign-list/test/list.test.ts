@@ -489,6 +489,50 @@ test('a read that outlives its mount does not draw over the mount that replaced 
   assert.deepEqual([...element.querySelectorAll('.kit-card h3')].map((h) => h.textContent), ['Les Cendres de Valombre', 'La Nuit du Carnaval Pourpre', 'Les Héritiers de la Tour d’Ébène']);
 });
 
+test('a command that outlives its mount neither frees the buttons of the mount that replaced it nor hands it an archive', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="CampaignList"></div></body></html>', { url: 'http://shell.test/campagnes.html' });
+  const element = dom.window.document.querySelector('[data-component]') as HTMLElement;
+  const exportOn = (id: string) => element.querySelector(`#campaign-${id} [data-action="export"]`)?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  const holding = (answered: (resolve: (value: unknown) => void) => void): Shell => ({
+    capability: async () => ({ asOf: 1, data: structuredClone(fixture) }),
+    command: () => new Promise((resolve) => answered(resolve)),
+    commandResult: async () => ({}),
+  });
+  let late: (value: unknown) => void = () => undefined;
+  const saved: string[] = [];
+  mount(element, {}, holding((resolve) => (late = resolve)), timing, (file) => saved.push(file));
+  await settle();
+  exportOn('cendres-valombre');
+  await settle();
+  // The mount that replaces it follows a command of its own: its buttons are held.
+  mount(element, {}, holding(() => undefined), timing, (file) => saved.push(`second ${file}`));
+  await settle();
+  exportOn('nuit-carnaval');
+  await settle();
+  const held = () => [...element.querySelectorAll<HTMLButtonElement>('[data-writes]')].map((b) => b.disabled);
+  assert.ok(held().length > 0 && held().every(Boolean), 'the second mount holds its buttons');
+  late({ commandId: 'c1', result: { commandId: 'c1', status: 'applied', violations: [], attachment: ARCHIVE } });
+  await settle();
+  assert.ok(held().every(Boolean), 'the first mount frees nothing');
+  assert.deepEqual(saved, [], 'no archive handed over by a mount replaced');
+});
+
+test('a file read for a mount replaced since does not arm the import of the mount that replaced it', async () => {
+  const first = await list();
+  await first.click('#campaign-import');
+  const input = first.document.querySelector<HTMLInputElement>('#campaign-import-file') as HTMLInputElement;
+  Object.defineProperty(input, 'files', { value: [new first.dom.window.File([JSON.stringify(ARCHIVE.content)], 'old.json')], configurable: true });
+  input.dispatchEvent(new first.dom.window.Event('change', { bubbles: true }));
+  // Mounted again, its own import dialog open, before the file is read.
+  const shell = fakeShell().shell;
+  mount(first.element, {}, shell, timing);
+  first.element.querySelector('#campaign-import')?.dispatchEvent(new first.dom.window.MouseEvent('click', { bubbles: true }));
+  await new Promise<void>((resolve) => setTimeout(resolve, 30));
+  assert.ok(first.element.querySelector('#campaign-import-dialog'), 'the second mount’s dialog is open');
+  assert.equal((first.element.querySelector('#campaign-import-submit') as HTMLButtonElement).disabled, true, 'nothing chosen in this mount');
+  assert.equal(first.text('.kit-filedrop__name'), '');
+});
+
 test('the download is the archive as a JSON file under the name the export gave, its address released later', async () => {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://shell.test/campagnes.html' });
   const win = dom.window as unknown as { URL: { createObjectURL(blob: Blob): string; revokeObjectURL(url: string): void } } & Window;

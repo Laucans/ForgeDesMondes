@@ -38,20 +38,19 @@ test('the Capability’s fixture is read as it is: one card per campaign, every 
   });
 });
 
-test('an answer that is no list, an item with no id or no name, is not drawn; an unknown count stays unknown', () => {
+test('an answer that is no list, an item with no id or no name, is not drawn; a count missing is no session', () => {
   assert.deepEqual(parseCampaigns(null), []);
   assert.deepEqual(parseCampaigns({ nope: 1 }), []);
   const kept = parseCampaigns([{ id: '', name: 'x' }, { id: 'a' }, 7, { id: 'b', name: 'B', type: 'whatever', sessions: null, art: null, glyph: null, pitch: null, lastPlayed: '', next: '' }]);
   assert.equal(kept.length, 1);
-  assert.deepEqual(kept[0], { id: 'b', name: 'B', type: 'campagne', art: '', glyph: '', pitch: '', sessions: null, lastPlayed: null, next: null });
+  assert.deepEqual(kept[0], { id: 'b', name: 'B', type: 'campagne', art: '', glyph: '', pitch: '', sessions: 0, lastPlayed: null, next: null });
   assert.equal(parseCampaigns({ campaigns: [{ id: 'c', name: 'C' }] }).length, 1);
 });
 
-test('the words: plural sessions, none while the count is unknown, never played, a day in French', () => {
+test('the words: plural sessions, zero sessions, never played, a day in French', () => {
   assert.equal(sessionsText(0), '0 séance');
   assert.equal(sessionsText(1), '1 séance');
   assert.equal(sessionsText(4), '4 séances');
-  assert.equal(sessionsText(null), '');
   assert.equal(lastPlayedText(null), 'jamais jouée');
   assert.equal(lastPlayedText('2026-10-03'), `jouée le ${dayText('2026-10-03')}`);
   assert.match(dayText('2026-10-03'), /3 octobre 2026/);

@@ -117,7 +117,7 @@
         art: text(item.art),
         glyph: text(item.glyph),
         pitch: text(item.pitch),
-        sessions: typeof item.sessions === "number" ? item.sessions : null,
+        sessions: typeof item.sessions === "number" ? item.sessions : 0,
         lastPlayed: day(item.lastPlayed),
         next: day(item.next)
       });
@@ -128,9 +128,7 @@
     const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   }
-  function sessionsText(sessions) {
-    return sessions === null ? "" : `${sessions} s\xE9ance${sessions > 1 ? "s" : ""}`;
-  }
+  var sessionsText = (sessions) => `${sessions} s\xE9ance${sessions > 1 ? "s" : ""}`;
   var lastPlayedText = (lastPlayed) => lastPlayed === null ? "jamais jou\xE9e" : `jou\xE9e le ${dayText(lastPlayed)}`;
   var glyphOf = (name) => [...name.trim()][0]?.toUpperCase() ?? "";
   var caller = { by: "dm", from: "CampaignList", roles: [] };
@@ -194,8 +192,7 @@
     return `<div class="art art--${art}" role="img" aria-label="${esc(`Couverture : ${campaign.name}`)}">` + (campaign.glyph === "" ? "" : `<span class="art__glyph">${esc(campaign.glyph)}</span>`) + "</div>";
   }
   function card(campaign) {
-    const sessions = sessionsText(campaign.sessions);
-    const meta = `<div class="mf-campaigns__meta"><div class="kit-badge"><span class="${campaign.type === "oneshot" ? "accent" : "primary"}">${campaign.type === "oneshot" ? "Oneshot" : "Campagne"}</span></div>` + (sessions === "" ? "" : `<span>${sessions}</span>`) + `<span>${sessions === "" ? "" : "\xB7 "}${esc(lastPlayedText(campaign.lastPlayed))}</span></div>` + (campaign.next === null ? "" : `<p class="small">Prochaine s\xE9ance : <b>${esc(dayText(campaign.next))}</b></p>`);
+    const meta = `<div class="mf-campaigns__meta"><div class="kit-badge"><span class="${campaign.type === "oneshot" ? "accent" : "primary"}">${campaign.type === "oneshot" ? "Oneshot" : "Campagne"}</span></div><span>${sessionsText(campaign.sessions)}</span><span>\xB7 ${esc(lastPlayedText(campaign.lastPlayed))}</span></div>` + (campaign.next === null ? "" : `<p class="small">Prochaine s\xE9ance : <b>${esc(dayText(campaign.next))}</b></p>`);
     return `<div id="campaign-${esc(campaign.id)}" ${reads}><article class="kit-card"><div class="media">${cover(campaign)}</div><div class="body"><h3>${esc(campaign.name)}</h3>${campaign.pitch === "" ? "" : `<p>${esc(campaign.pitch)}</p>`}${meta}</div><div class="actions"><button type="button" data-href="campagne.html?id=${encodeURIComponent(campaign.id)}">Ouvrir</button><button type="button" class="secondary" data-action="export" data-campaign="${esc(campaign.id)}" data-writes="${EXPORT_CAMPAIGN}">Exporter</button></div></article></div>`;
   }
   var cards = (campaigns) => campaigns.map(card).join("");
@@ -321,6 +318,7 @@
       if (current()) part("campaign-status").textContent = words;
     };
     const paintBusy = () => {
+      if (!current()) return;
       for (const button of host2.querySelectorAll("[data-writes]")) {
         button.disabled = busy || button.id === "campaign-import-submit" && archive === void 0;
       }
@@ -383,6 +381,7 @@
       if (!campaign) return;
       say(`Export de \xAB ${campaign.name} \xBB en cours\u2026`);
       const state = await run(exportCommand(EXPORT_CAMPAIGN, id));
+      if (!current()) return;
       if (state.status !== "applied") return say(unapplied(state, EXPORT_WORDS));
       if (state.archive === null) return say("Export effectu\xE9, mais l\u2019archive n\u2019a pas \xE9t\xE9 re\xE7ue.");
       try {
@@ -430,7 +429,7 @@
       } catch {
         parsed = void 0;
       }
-      if (asked !== dialogs) return;
+      if (!current() || asked !== dialogs) return;
       archive = parsed;
       if (archive === void 0) {
         drop.classList.remove("has-file", "is-done");
