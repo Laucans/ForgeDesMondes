@@ -1,6 +1,6 @@
 //! live.listSuggestions over PostgreSQL (`DATABASE_URL`): the real SQL of the
 //! Capability, run in a READ ONLY transaction on a scratch database migrated
-//! as the server migrates it, and answered by `answer`. The live session's
+//! as the server migrates it and the engine plants its tables, and answered by `answer`. The live session's
 //! `live_suggestion` rows are the pill's stack (the 5 most recent) and its
 //! history (all of them), newest first, each resolved to its element or its
 //! sound; a campaign with no live session has none. Each test works in a
@@ -42,6 +42,11 @@ impl Scratch {
         data::migrate(&mut client, &migrations)
             .await
             .expect("migrated by the Data layer");
+        // The engine's own tables, where a soft delete leaves its tombstone.
+        client
+            .batch_execute(harness_dataguard::postgres::MIGRATION)
+            .await
+            .expect("the engine's tables");
         client
             .batch_execute(&format!(
                 "INSERT INTO campaign (id, name, kind) VALUES \
@@ -236,4 +241,26 @@ async fn a_suggestion_naming_not_exactly_one_target_is_left_out() {
         .expect("the two malformed suggestions");
     let got = db.read(VALOMBRE).await;
     assert_eq!(vias(&got["history"]), ["Gaspard"]);
+}
+
+#[tokio::test]
+async fn a_live_session_the_engine_deleted_is_none() {
+    let mut db = Scratch::new("tombstoned").await;
+    db.suggest(SEANCE, GASPARD, "Gaspard", 1).await;
+    assert_eq!(vias(&db.read(VALOMBRE).await["history"]), ["Gaspard"]);
+    // The engine's soft delete of the live session: its row tombstoned, the
+    // table's left as it was.
+    db.client
+        .batch_execute(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Session/{SEANCE}', true)"
+        ))
+        .await
+        .expect("the live session deleted");
+    for campaign in [VALOMBRE, ""] {
+        assert_eq!(
+            db.read(campaign).await,
+            json!({ "suggestions": [], "history": [] }),
+            "campaign {campaign:?}"
+        );
+    }
 }
