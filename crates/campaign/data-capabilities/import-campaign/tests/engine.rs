@@ -236,3 +236,23 @@ async fn import_creates_copy_an_id_drawn_that_is_the_originals_is_refused() {
     assert!(message.contains("nouveaux"), "{message}");
     assert!(served.settled().await.is_empty(), "nothing was queued");
 }
+
+#[tokio::test]
+async fn the_copy_lands_on_the_id_drawn_whatever_field_the_manifest_names_for_its_row() {
+    let mut manifest: Value =
+        serde_json::from_str(include_str!("../data-capability.json")).expect("the manifest");
+    manifest["target"]["id"] = json!("$nowhere");
+    let served = Bench::new(
+        &manifest.to_string(),
+        &file("crates/campaign/aggregates/Campaign/aggregate.json"),
+        [aggregate_campaign::plugin(), import_campaign::plugin()],
+    )
+    .ids(Arc::new(Draw(AtomicU64::new(0))))
+    .memory()
+    .await;
+    let (partition, status) = imported(&served, archive()).await;
+    assert_eq!(status, State::Applied);
+    let copy = served.row(&partition);
+    assert_eq!(copy["id"], json!(partition.trim_start_matches("Campaign/")));
+    assert_eq!(copy["name"], json!("Les cendres de Valombre"));
+}
