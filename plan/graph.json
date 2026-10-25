@@ -986,8 +986,8 @@
     "session.getLiveSession": {
       "kind": "capability",
       "producer": 28,
-      "state": "built",
-      "version": 1
+      "state": "evolving",
+      "version": 2
     },
     "session.getPreviousSessionSummary": {
       "kind": "capability",
