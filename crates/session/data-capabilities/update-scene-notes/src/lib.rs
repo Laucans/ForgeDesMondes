@@ -13,21 +13,20 @@
 //!   [`Refusal::Unknown`] (404), one of another session
 //!   [`Refusal::OtherSession`] (422), and no notes change.
 //!
-//! The scene's row is the engine's when it holds one (a scene added through
-//! `session.addScene`), else the `scene` table's (a scene the server loaded
-//! from its fixtures). The notes are the one field it changes (`touches`);
-//! it still writes the scene's session, title and links as they are, which
-//! the projection of the scenes needs to find the row in its tables
-//! whichever of the two held it — a scene written again takes its row's
-//! title, notes and links.
+//! The scene's row is the `scene` table's — a scene the server loaded from
+//! its fixtures has no row in the engine — with, laid over it, the engine's
+//! as the commands queued on it will leave it. The notes are the one field
+//! it changes (`touches`); it still writes the scene's session, title and
+//! links as they are, because the projection of the scenes writes a scene
+//! again with its row's title, notes and links, and finds it by its id.
+//! Any field the command does not take is refused ([`Refusal::UnknownField`]).
 
 use std::collections::BTreeMap;
 
-use aggregate_session::{LINKS, NOTES, PARTITION, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE};
+use aggregate_session::{LINKS, NOTES, PARTITION, SCENE_ID, SCENE_SESSION_ID, SCENE_TITLE, uuid};
 use async_trait::async_trait;
 use harness_dataguard::plugins::{self, Context, Plugin, Prepare};
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 /// This DataCapability's id, as `data-capability.json` names it.
 pub const DATA_CAPABILITY: &str = "session.updateSceneNotes";
@@ -35,14 +34,21 @@ pub const DATA_CAPABILITY: &str = "session.updateSceneNotes";
 /// The payload's fields naming the session and the scene.
 const SESSION: &str = "session";
 const SCENE: &str = "scene";
+const FIELDS: [&str; 3] = [SESSION, SCENE, NOTES];
 
-/// The scene `$1` names in its table: its session, its title and the ids of
-/// the elements it links, in order.
+/// The scene `$1` names as the tables hold it live: its session, its title
+/// and the ids of the elements it links, in order, under the fields of a
+/// scene's row. A scene's tombstone takes it out of `scene`; the engine's
+/// own tombstone is checked too.
 const SCENE_ROW: &str =
-    "SELECT sc.id::text AS id, sc.session_id::text AS session, sc.title AS title,
-    coalesce((SELECT jsonb_agg(se.entity_id::text ORDER BY se.position)
-        FROM scene_entity se WHERE se.scene_id = sc.id), '[]'::jsonb) AS links
-    FROM scene sc WHERE sc.id = $1::text::uuid";
+    "SELECT sc.id::text AS \"sceneId\", sc.session_id::text AS \"sceneSessionId\",
+    sc.title AS \"sceneTitle\",
+    coalesce((SELECT jsonb_agg(se.entity_id::text ORDER BY se.position, se.entity_id)
+        FROM scene_entity se WHERE se.scene_id = sc.id), '[]'::jsonb) AS \"entityId\"
+    FROM scene sc
+    WHERE sc.id = $1::text::uuid
+        AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+            WHERE r.partition = 'Session/' || sc.id::text AND r.tombstoned)";
 
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
@@ -61,6 +67,8 @@ pub struct Request {
 /// Why the command is refused before it is queued.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
+    /// The payload carries a field the command does not take.
+    UnknownField(String),
     /// A field that must be a uuid is not one.
     NotAnId(&'static str),
     /// The notes are no text.
@@ -83,6 +91,10 @@ impl Refusal {
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::UnknownField(field) => write!(
+                f,
+                "{field} : une écriture de notes se décrit par session, scene et notes"
+            ),
             Self::NotAnId(field) => write!(f, "{field} : un identifiant"),
             Self::InvalidNotes => f.write_str("notes : un texte, même vide"),
             Self::Unknown => f.write_str("scène introuvable"),
@@ -111,17 +123,21 @@ pub fn plugin() -> Plugin {
 ///
 /// # Errors
 ///
+/// [`Refusal::UnknownField`] for a field the command does not take;
 /// [`Refusal::NotAnId`] for a session or a scene that is no uuid;
 /// [`Refusal::InvalidNotes`] for notes that are no text.
 pub fn request(wire: &Row, target: Option<&str>) -> Result<Request, Refusal> {
+    if let Some(field) = wire.keys().find(|field| !FIELDS.contains(&field.as_str())) {
+        return Err(Refusal::UnknownField(field.clone()));
+    }
     let id = target
         .or_else(|| wire.get(SCENE).and_then(Value::as_str))
-        .and_then(uuid)
+        .and_then(as_id)
         .ok_or(Refusal::NotAnId(SCENE))?;
     let session = wire
         .get(SESSION)
         .and_then(Value::as_str)
-        .and_then(uuid)
+        .and_then(as_id)
         .ok_or(Refusal::NotAnId(SESSION))?;
     let Some(Value::String(notes)) = wire.get(NOTES) else {
         return Err(Refusal::InvalidNotes);
@@ -147,7 +163,7 @@ pub fn prepare(request: &Request, row: &Row) -> Result<Prepared, Refusal> {
     let session = row
         .get(SCENE_SESSION_ID)
         .and_then(Value::as_str)
-        .and_then(uuid);
+        .and_then(as_id);
     if session.as_deref() != Some(request.session.as_str()) {
         return Err(Refusal::OtherSession);
     }
@@ -166,19 +182,9 @@ pub fn prepare(request: &Request, row: &Row) -> Result<Prepared, Refusal> {
 
 /// `text` as a uuid, lowercase and hyphenated as the tables write it; `None`
 /// when it is no uuid.
-fn uuid(text: &str) -> Option<String> {
-    Uuid::parse_str(text.trim()).ok().map(|id| id.to_string())
-}
-
-/// The scene's row as the engine holds it, from the `scene` table's `found`
-/// (`SCENE_ROW`): the fields a scene's row holds.
-fn from_table(found: &Value) -> Row {
-    Row::from([
-        (SCENE_ID.to_owned(), found["id"].clone()),
-        (SCENE_SESSION_ID.to_owned(), found["session"].clone()),
-        (SCENE_TITLE.to_owned(), found["title"].clone()),
-        (LINKS.to_owned(), found["links"].clone()),
-    ])
+fn as_id(text: &str) -> Option<String> {
+    let text = text.trim();
+    uuid(text).then(|| text.to_ascii_lowercase())
 }
 
 /// The command made the row it writes ([`prepare`]), judged against the
@@ -195,12 +201,7 @@ impl Prepare for Prepares {
         target_id: Option<&str>,
     ) -> Result<plugins::Prepared, plugins::Refusal> {
         let request = request(payload, target_id).map_err(refused)?;
-        let held = context.row(&format!("{PARTITION}{}", request.id)).await?;
-        let row = if held.contains_key(SCENE_ID) {
-            held
-        } else {
-            in_table(context, &request.id).await?
-        };
+        let row = scene(context, &request.id).await?;
         let prepared = prepare(&request, &row).map_err(refused)?;
         Ok(plugins::Prepared {
             target_id: Some(prepared.target_id),
@@ -210,22 +211,23 @@ impl Prepare for Prepares {
     }
 }
 
-/// The scene `id` as its table holds it; empty when the table does not, or
-/// when there is no table to read (over memory). A failed read is
-/// unprocessable.
-async fn in_table(context: &Context<'_>, id: &str) -> Result<Row, plugins::Refusal> {
-    let Some(rows) = context.rows else {
-        return Ok(Row::new());
-    };
-    let found = rows
-        .rows(SCENE_ROW, &[Value::from(id)])
-        .await
-        .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?;
-    Ok(found
-        .as_array()
-        .and_then(|rows| rows.first())
-        .map(from_table)
-        .unwrap_or_default())
+/// The scene `id` names as the tables hold it live — the fixtures' among
+/// them — and, laid over it, the engine's row as the commands queued on it
+/// will leave it. Empty when neither holds it; nothing of the tables over
+/// memory. A failed read is unprocessable.
+async fn scene(context: &Context<'_>, id: &str) -> Result<Row, plugins::Refusal> {
+    let mut row = Row::new();
+    if let Some(rows) = context.rows {
+        let found = rows
+            .rows(SCENE_ROW, &[Value::from(id)])
+            .await
+            .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?;
+        if let Some(Value::Object(held)) = found.as_array().and_then(|rows| rows.first()) {
+            row.extend(held.clone());
+        }
+    }
+    row.extend(context.row(&format!("{PARTITION}{id}")).await?);
+    Ok(row)
 }
 
 /// The engine's refusal of `refusal`: 404 for what is not there, 422

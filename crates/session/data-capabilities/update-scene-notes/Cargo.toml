@@ -11,7 +11,6 @@ publish = false
 harness-dataguard = { workspace = true }
 async-trait = "0.1"
 serde_json = "1"
-uuid = { version = "1", default-features = false }
 # The aggregate's field names and its scene partition, which src/ calls.
 aggregate-session = { path = "../../aggregates/Session" }
 

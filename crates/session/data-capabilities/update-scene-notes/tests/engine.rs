@@ -224,3 +224,23 @@ async fn the_same_command_replayed_with_its_key_is_not_applied_twice() {
     assert_eq!(settled.len(), 1, "applied once: {settled:?}");
     assert_eq!(settled[0].status, State::Applied);
 }
+
+#[tokio::test]
+async fn a_field_the_command_does_not_carry_is_refused() {
+    let served = served().await;
+    served
+        .plant(PLANT, [planted(&scene(), &session(), &json!([]))])
+        .await;
+    let mut payload = command(&session(), &scene(), json!("x"));
+    payload["title"] = json!("Autre titre");
+    let answer = served
+        .submit("session.updateSceneNotes", payload, None)
+        .await;
+    let why = refused(answer, RefusalKind::Unprocessable);
+    assert!(why.starts_with("title"), "{why}");
+    assert_eq!(served.settled().await.len(), 0);
+    assert_eq!(
+        served.row(&format!("Session/{}", scene()))["sceneTitle"],
+        json!("La taverne")
+    );
+}

@@ -234,3 +234,23 @@ async fn a_scene_the_table_does_not_hold_is_a_404() {
     assert!(!refused(answer, RefusalKind::NotFound).is_empty());
     assert_eq!(served.settled().await.len(), 0);
 }
+
+#[tokio::test]
+async fn a_scene_the_engine_has_tombstoned_is_a_404_whatever_the_table_holds() {
+    let scratch = seeded("update_scene_notes_tombstoned").await;
+    let served = served(&scratch).await;
+    scratch
+        .seed(&format!(
+            "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ('Session/{}', true)",
+            scene()
+        ))
+        .await;
+    let answer = served
+        .submit(
+            "session.updateSceneNotes",
+            command(&session(), &scene(), json!("revenue")),
+            None,
+        )
+        .await;
+    assert!(!refused(answer, RefusalKind::NotFound).is_empty());
+}

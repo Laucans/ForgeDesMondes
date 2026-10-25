@@ -38,6 +38,7 @@ fn scene() -> Row {
 #[test]
 fn every_refusal_says_why_in_words() {
     for refusal in [
+        Refusal::UnknownField("title".into()),
         Refusal::NotAnId("scene"),
         Refusal::InvalidNotes,
         Refusal::Unknown,
@@ -46,12 +47,18 @@ fn every_refusal_says_why_in_words() {
         assert!(!refusal.to_string().trim().is_empty(), "{refusal:?}");
     }
     assert!(Refusal::NotAnId("scene").to_string().starts_with("scene"));
+    assert!(
+        Refusal::UnknownField("title".into())
+            .to_string()
+            .starts_with("title")
+    );
 }
 
 #[test]
 fn only_what_is_not_there_is_a_404() {
     assert!(Refusal::Unknown.not_found());
     for refusal in [
+        Refusal::UnknownField("title".into()),
         Refusal::NotAnId("scene"),
         Refusal::InvalidNotes,
         Refusal::OtherSession,
@@ -170,4 +177,16 @@ fn the_session_of_the_row_is_read_whatever_its_case() {
     upper.insert("sceneSessionId".into(), json!(SESSION.to_uppercase()));
     let prepared = prepare(&read, &upper).expect("the same session");
     assert_eq!(prepared.payload["sceneSessionId"], json!(SESSION));
+}
+
+#[test]
+fn a_field_the_command_does_not_take_is_refused_by_name() {
+    for field in ["title", "places", "id"] {
+        let mut extra = wire(json!("x"));
+        extra.insert(field.into(), json!("y"));
+        assert_eq!(
+            request(&extra, None),
+            Err(Refusal::UnknownField(field.into()))
+        );
+    }
 }

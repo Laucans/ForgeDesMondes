@@ -2864,7 +2864,6 @@ dependencies = [
  "platform-test-kit",
  "serde_json",
  "tokio",
- "uuid",
 ]
 
 [[package]]
