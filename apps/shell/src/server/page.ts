@@ -3,7 +3,8 @@
 // (`<div data-component="<MicroUi>" data-props='{…}'>`, as the mock-up's
 // pages do). The same screen gives the same page, byte for byte.
 
-import type { Screen } from './screens.js';
+import { FRAMES, type Frame } from './frames.js';
+import type { Placement, Screen } from './screens.js';
 
 const escape = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -32,10 +33,47 @@ export function renderHome(screens: string[]): string {
   return document('ForgeDesMondes', `<main class="shell-home">\n  <h1>ForgeDesMondes</h1>\n${list}</main>\n`, '');
 }
 
-export function renderScreen(screen: Screen): string {
-  const placed = screen.layout
-    .map(({ microUi, props }) => `  <div data-component="${escape(microUi)}" data-props="${escape(JSON.stringify(props))}"></div>`)
+const host = ({ microUi, props }: Placement): string =>
+  `<div data-component="${escape(microUi)}" data-props="${escape(JSON.stringify(props))}"></div>`;
+
+/** A screen with a frame: each Micro-UI where the frame puts it; the ones it does not name close the page, in the screen's order. */
+function framed(screen: Screen, frame: Frame): string {
+  const placed = new Map(screen.layout.map((placement) => [placement.microUi, placement]));
+  const take = (microUis: string[]): Placement[] => microUis.flatMap((name) => placed.get(name) ?? []);
+  const tabs = frame.centre.tabs.flatMap((tab, index) => {
+    const placement = placed.get(tab.microUi);
+    return placement ? [{ tab, index, placement }] : [];
+  });
+  const id = (kind: string, index: number): string => `${screen.screen}-centre-${kind}-${index}`;
+  const buttons = tabs
+    .map(({ tab, index }, at) => {
+      const opens = tab.opens ? ` data-opens="${escape(tab.opens)}"` : '';
+      return `<button type="button" role="tab" id="${id('tab', index)}" aria-controls="${id('panel', index)}" aria-selected="${at === 0}"${opens}>${escape(tab.label)}</button>`;
+    })
+    .join('');
+  const panels = tabs
+    .map(({ index, placement }, at) => `<div role="tabpanel" id="${id('panel', index)}" aria-labelledby="${id('tab', index)}"${at === 0 ? '' : ' hidden'}>${host(placement)}</div>`)
     .join('\n');
-  const main = `<main class="shell-screen" data-screen="${escape(screen.screen)}" data-version="${screen.version}">\n${placed}\n</main>\n`;
-  return document(screen.screen, main, '<script type="module" src="/assets/composer.js"></script>\n');
+  const shown = new Set([...frame.header, ...frame.left.microUis, ...frame.overlay, ...tabs.map(({ tab }) => tab.microUi)]);
+  const rest = screen.layout.filter(({ microUi }) => !shown.has(microUi));
+  const lines = [
+    `<header class="shell-frame__header">${take(frame.header).map(host).join('')}</header>`,
+    `<div class="shell-frame" data-screen="${escape(screen.screen)}" data-version="${screen.version}">`,
+    `<aside class="shell-frame__left" aria-label="${escape(frame.left.label)}">${take(frame.left.microUis).map(host).join('')}</aside>`,
+    `<main class="shell-frame__centre">`,
+    tabs.length ? `<div class="kit-tabs" data-tabs>\n<div role="tablist" aria-label="${escape(frame.centre.label)}">${buttons}</div>\n${panels}\n</div>` : '',
+    `</main>`,
+    `</div>`,
+    ...take(frame.overlay).map(host),
+    ...rest.map(host),
+  ];
+  return lines.filter(Boolean).join('\n') + '\n';
+}
+
+export function renderScreen(screen: Screen): string {
+  const frame = FRAMES[screen.screen];
+  const body = frame
+    ? framed(screen, frame)
+    : `<main class="shell-screen" data-screen="${escape(screen.screen)}" data-version="${screen.version}">\n${screen.layout.map((placement) => `  ${host(placement)}`).join('\n')}\n</main>\n`;
+  return document(screen.screen, body, '<script type="module" src="/assets/composer.js"></script>\n');
 }

@@ -78,6 +78,7 @@
     },
     {
       "path": "pages/dm-view.html",
+      "screen": "dm-view",
       "title": "DM view",
       "objective": "Le DM fait rouler la séance : il ouvre les éléments suggérés par le micro, déplace les tokens, mène le combat, joue les sons et envoie cartes et illustrations aux joueurs",
       "components": [
