@@ -67,6 +67,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "add-suggestion"
+version = "0.1.0"
+dependencies = [
+ "aggregate-suggestion",
+ "async-trait",
+ "harness-dataguard",
+ "platform-test-kit",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
@@ -172,6 +185,7 @@ dependencies = [
  "data",
  "harness-dataguard",
  "platform-scratch-db",
+ "platform-test-kit",
  "serde_json",
  "tokio",
 ]
@@ -198,7 +212,9 @@ dependencies = [
 name = "aggregate-suggestion"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "harness-dataguard",
+ "platform-test-kit",
  "serde_json",
  "tokio",
 ]
@@ -594,6 +610,7 @@ dependencies = [
  "add-present-character",
  "add-scene",
  "add-sound",
+ "add-suggestion",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
  "aggregate-campaign",
@@ -625,6 +642,7 @@ dependencies = [
  "get-last-brief",
  "get-session",
  "get-settings",
+ "get-transcription-vocabulary",
  "harness-dataguard",
  "import-character",
  "list-campaigns",
@@ -639,6 +657,7 @@ dependencies = [
  "list-scenes",
  "list-sessions",
  "list-sounds",
+ "list-suggestions",
  "move-token",
  "move-window",
  "next-turn",
@@ -661,6 +680,7 @@ dependencies = [
  "save-settings",
  "set-master-volume",
  "set-media-place",
+ "set-microphone",
  "set-sound-volume",
  "set-token-condition",
  "set-token-visibility",
@@ -899,6 +919,17 @@ version = "0.1.0"
 dependencies = [
  "platform-conformance",
  "serde_json",
+]
+
+[[package]]
+name = "get-transcription-vocabulary"
+version = "0.1.0"
+dependencies = [
+ "platform-conformance",
+ "platform-test-kit",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1379,6 +1410,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-suggestions"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "harness-dataguard",
+ "platform-scratch-db",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1600,6 +1642,17 @@ name = "platform-scratch-db"
 version = "0.1.0"
 dependencies = [
  "harness-dataguard",
+ "tokio",
+]
+
+[[package]]
+name = "platform-test-kit"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "harness-dataguard",
+ "platform-scratch-db",
+ "serde_json",
  "tokio",
 ]
 
@@ -2294,7 +2347,9 @@ dependencies = [
  "ports-character-sheets",
  "ports-llm",
  "ports-speech-to-text",
+ "ports-speech-to-text-phonon",
  "serde_json",
+ "set-microphone",
  "thiserror",
  "tokio",
  "tower",
@@ -2323,6 +2378,22 @@ dependencies = [
  "harness-dataguard",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "set-microphone"
+version = "0.1.0"
+dependencies = [
+ "aggregate-session",
+ "async-trait",
+ "harness-dataguard",
+ "platform-conformance",
+ "platform-test-kit",
+ "ports-speech-to-text",
+ "serde_json",
+ "tokio",
+ "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]

@@ -1,0 +1,18 @@
+[package]
+name = "get-transcription-vocabulary"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Capability live.getTranscriptionVocabulary: The words the microphone listens for in a campaign: its entities' names and aliases and its sounds' names."
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+# The harness's test kit: the guard checks of the SQL and the query file, the mock-up's fixture.
+platform-test-kit = { path = "../../../platform/test-kit" }
+platform-conformance = { path = "../../../platform/conformance" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+# The Concept's computation, local to this crate (rule 3): AliasMatch@1's decomposition and recomposition.
+unicode-normalization = "0.1"
