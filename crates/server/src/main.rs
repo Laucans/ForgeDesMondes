@@ -14,7 +14,7 @@ use ports_llm::SharedLlm;
 use ports_speech_to_text::SharedSpeechToText;
 use server::{
     Config, Error, Names, Ports, app, applier, character_sheets, fixtures, held_instances,
-    inventory, llm, plant, renaming, shared, speech_to_text, waking,
+    held_versions, inventory, llm, plant, renaming, shared, speech_to_text, waking,
 };
 use tokio::sync::Notify;
 
@@ -83,11 +83,16 @@ async fn run() -> Result<(), Error> {
                     // One transaction: the fixtures are all there, or none is.
                     let loaded = match data::read_write().await {
                         Ok(mut client) => match held_instances(&client).await {
-                            Ok(held) => {
-                                // A scene the DM already gave an instance keeps only that one.
-                                plan.leave_out_taken_scenes(&held);
-                                data::insert_missing(&mut client, &plan.tables).await
-                            }
+                            Ok(held) => match held_versions(&client).await {
+                                Ok(versions) => {
+                                    // A scene the DM already gave an instance keeps only that one.
+                                    plan.leave_out_taken_scenes(&held);
+                                    // An element the app already versioned keeps its history.
+                                    plan.leave_out_taken_versions(&versions);
+                                    data::insert_missing(&mut client, &plan.tables).await
+                                }
+                                Err(e) => Err(e),
+                            },
                             Err(e) => Err(e),
                         },
                         Err(e) => Err(e),
