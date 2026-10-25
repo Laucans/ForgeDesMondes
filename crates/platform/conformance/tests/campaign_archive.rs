@@ -272,6 +272,11 @@ fn copy(input: Value) -> Value {
     })
 }
 
+fn archive_of_the_full_case() -> &'static Value {
+    static ARCHIVE: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    ARCHIVE.get_or_init(|| case("a full archive becomes a new campaign").input["archive"].clone())
+}
+
 fn concept() -> Value {
     let path = repository_root().join("concepts/CampaignArchive/v1/concept.json");
     let text = std::fs::read_to_string(&path).expect("concept.json");
@@ -366,9 +371,46 @@ fn a_wrong_implementation_is_caught_by_the_fixtures() {
         answer
     };
     let sections_missing_stay_missing = |input: Value| {
-        let mut answer = copy(input);
-        if answer["media"] == json!([]) {
-            answer.as_object_mut().expect("copy").remove("media");
+        let mut answer = copy(input.clone());
+        for section in ["media", "sounds", "sessions"] {
+            if input["archive"].get(section).is_none() {
+                answer.as_object_mut().expect("copy").remove(section);
+            }
+        }
+        answer
+    };
+    let outside_links_kept = |input: Value| {
+        let mut answer = copy(input.clone());
+        for session in answer["sessions"].as_array_mut().into_iter().flatten() {
+            session["session_present_character"] = Value::Array(Vec::new());
+        }
+        answer
+    };
+    let grid_keeps_the_old_media = |input: Value| {
+        let mut answer = copy(input.clone());
+        for (medium, was) in answer["media"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .zip(list(&input["archive"], "media"))
+        {
+            if medium["battlemap_grid"].is_object() {
+                medium["battlemap_grid"]["media_id"] = was["id"].clone();
+            }
+        }
+        answer
+    };
+    let place_kept_when_outside = |input: Value| {
+        let mut answer = copy(input.clone());
+        for (medium, was) in answer["media"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .zip(list(&input["archive"], "media"))
+        {
+            if medium["place_id"].is_null() {
+                medium["place_id"] = was["place_id"].clone();
+            }
         }
         answer
     };
@@ -380,6 +422,9 @@ fn a_wrong_implementation_is_caught_by_the_fixtures() {
         &version_ids_left_alone,
         &outside_kept,
         &sections_missing_stay_missing,
+        &outside_links_kept,
+        &grid_keeps_the_old_media,
+        &place_kept_when_outside,
     ] {
         assert!(!failures(&fixtures, wrong).is_empty());
     }
@@ -712,37 +757,39 @@ fn concept_json_points_at_the_fixtures_and_every_output_obeys_it() {
 
     // The definition names every section and every column of the archive.
     let definition = concept["definition"].as_str().expect("definition");
-    let archive = &case("a full archive becomes a new campaign").input["archive"];
-    let mut rows: Vec<&Value> = vec![
-        &archive["campaign"],
-        &archive["players"][0],
-        &archive["media"][0],
-        &archive["sounds"][0],
-    ];
-    rows.extend([
-        &archive["media"][0]["battlemap_grid"],
-        &archive["elements"][0],
-        &archive["elements"][0]["character"],
-        &archive["elements"][0]["versions"][0],
-    ]);
-    let session = &archive["sessions"][0];
-    rows.extend([
-        session,
-        &session["session_present_character"][0],
-        &session["scenes"][0],
-        &session["scenes"][0]["scene_entity"][0],
-        &session["scenes"][0]["scene_media"][0],
-        &session["journal_lines"][0],
-    ]);
+    let words: BTreeSet<&str> = definition
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .collect();
+    let mut rows: Vec<&Value> = vec![&archive_of_the_full_case()["campaign"]];
+    let archive = archive_of_the_full_case();
+    for section in ["players", "media", "sounds", "elements", "sessions"] {
+        for row in list(archive, section) {
+            rows.push(row);
+            rows.extend(row.get("character").filter(|c| c.is_object()));
+            rows.extend(row.get("battlemap_grid").filter(|g| g.is_object()));
+            for member in [
+                "versions",
+                "session_present_character",
+                "scenes",
+                "journal_lines",
+            ] {
+                for inner in list(row, member) {
+                    rows.push(inner);
+                    for link in ["scene_entity", "scene_media"] {
+                        rows.extend(list(inner, link));
+                    }
+                }
+            }
+        }
+    }
     for row in rows {
         for column in row.as_object().expect("row").keys() {
             assert!(
-                definition.contains(column.as_str()),
+                words.contains(column.as_str()),
                 "the definition does not name {column}"
             );
         }
     }
-
     for case in fixtures_of(ID).cases {
         let output = case.output.as_object().expect("an output is an object");
         assert_eq!(output.len(), fields.len(), "{}: fields", case.name);
