@@ -1,0 +1,15 @@
+{
+  "microUi": "SuggestionPill",
+  "system": "live",
+  "description": "La pastille en bas à droite : les 5 dernières entités ou sons entendus au micro, leur historique, et le bouton marche/pause du micro",
+  "needs": [
+    "live.listSuggestions"
+  ],
+  "actions": [
+    "live.setMicrophone",
+    "soundbox.playSound"
+  ],
+  "props": {
+    "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
+  }
+}

@@ -11,6 +11,18 @@
 //!   the campaign's names are not readable in the process list.
 //! - **stdout**: the French text it heard.
 //!
+//! To listen ([`SpeechToText::listen`]) the sidecar is started once for the
+//! whole stream, and the microphone is its own to open: the audio never reaches
+//! this crate.
+//!
+//! - **stdin**: the same line of JSON, with `"mode":"stream"` added, and then
+//!   nothing: the stream is stopped when the process is killed, so a sidecar
+//!   that reads its input sees it close just before.
+//! - **stdout**: one phrase per line, as it is heard; blank lines are skipped.
+//!   The stream ends when the sidecar ends. A sidecar that ends with an error
+//!   leaves that error as the last item of the stream, with what it said on its
+//!   standard error. [`TRANSCRIBE_TIMEOUT`] does not apply: a session is long.
+//!
 //! The sidecar must read its input to the end. The program to run comes from
 //! configuration ([`SIDECAR_VARIABLE`], or [`PhononSidecar::at`]); none is
 //! hard-coded. It is a path — a relative one is taken from the working
@@ -30,12 +42,14 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use ports_speech_to_text::stream::{Phrases, StopSignal};
 use ports_speech_to_text::{
-    Dictation, LANGUAGE, RequestJournal, SpeechToText, SpeechToTextError, Transcript, Vocabulary,
+    Dictation, LANGUAGE, RequestJournal, SpeechToText, SpeechToTextError, Transcript,
+    TranscriptStream, Vocabulary,
 };
-use serde_json::json;
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
+use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 
 /// The environment variable that holds the path of the sidecar program.
 pub const SIDECAR_VARIABLE: &str = "SPEECH_TO_TEXT_SIDECAR";
@@ -45,6 +59,17 @@ pub const TRANSCRIBE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// How much of the sidecar's standard error a reason keeps.
 const DETAIL_LIMIT: usize = 200;
+
+/// How much of the sidecar's standard error a stream keeps to read at its end;
+/// the rest is read and dropped, so a talkative sidecar never blocks on it.
+const STDERR_KEPT: usize = 4096;
+
+/// How long a stream waits for what a sidecar that ended still had to say on
+/// its standard error.
+const STDERR_PATIENCE: Duration = Duration::from_secs(1);
+
+/// How long a stream gives a sidecar that closed its output to end.
+const EXIT_PATIENCE: Duration = Duration::from_secs(2);
 
 /// Why a transcription failed.
 #[derive(Debug, PartialEq, Eq)]
@@ -153,9 +178,9 @@ impl PhononSidecar {
         self
     }
 
-    /// Runs the sidecar on `dictation`, journalling the request once the
-    /// process is started, and returns what it printed.
-    async fn run(&self, dictation: &Dictation, vocabulary: &Vocabulary) -> Result<String, Failure> {
+    /// Starts the sidecar: a process with its three streams piped, not yet
+    /// spoken to.
+    fn start(&self) -> Result<Child, Failure> {
         let configured = self.path.as_deref().ok_or(Failure::NotConfigured)?;
         // The sidecar is run from another directory than the process's own: a
         // relative path is made absolute first, so the check and the start
@@ -165,9 +190,15 @@ impl PhononSidecar {
         if !is_executable(&path) {
             return Err(Failure::NotFound(configured.to_owned()));
         }
-        let mut child = command(&path)
+        command(&path)
             .spawn()
-            .map_err(|error| Failure::Unlaunchable(error.kind()))?;
+            .map_err(|error| Failure::Unlaunchable(error.kind()))
+    }
+
+    /// Runs the sidecar on `dictation`, journalling the request once the
+    /// process is started, and returns what it printed.
+    async fn run(&self, dictation: &Dictation, vocabulary: &Vocabulary) -> Result<String, Failure> {
+        let mut child = self.start()?;
         self.journal.record(dictation, vocabulary);
         let stdin = child.stdin.take();
         let header = header(vocabulary);
@@ -209,7 +240,19 @@ impl PhononSidecar {
 /// The line that opens the sidecar's standard input: the language and the
 /// vocabulary, as passed. JSON escapes every newline, so it is one line.
 fn header(vocabulary: &Vocabulary) -> String {
-    let mut line = json!({
+    line(&payload(vocabulary))
+}
+
+/// The line that opens the sidecar's standard input to listen: the same, and
+/// the mode that tells the sidecar to open the microphone itself.
+fn stream_header(vocabulary: &Vocabulary) -> String {
+    let mut payload = payload(vocabulary);
+    payload["mode"] = json!("stream");
+    line(&payload)
+}
+
+fn payload(vocabulary: &Vocabulary) -> Value {
+    json!({
         "language": LANGUAGE,
         "vocabulary": {
             "campaign_names": vocabulary.campaign_names,
@@ -217,7 +260,10 @@ fn header(vocabulary: &Vocabulary) -> String {
             "sound_names": vocabulary.sound_names,
         },
     })
-    .to_string();
+}
+
+fn line(payload: &Value) -> String {
+    let mut line = payload.to_string();
     line.push('\n');
     line
 }
@@ -266,9 +312,169 @@ impl SpeechToText for PhononSidecar {
             .map_err(|failure| SpeechToTextError::Failed(failure.reason()))
     }
 
+    async fn listen(&self, vocabulary: &Vocabulary) -> Result<TranscriptStream, SpeechToTextError> {
+        let reasoned = |failure: Failure| SpeechToTextError::Failed(failure.reason());
+        let mut child = self.start().map_err(reasoned)?;
+        // `command` pipes all three; the stream owns them from here.
+        let (Some(stdin), Some(stdout), Some(stderr)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
+            return Err(reasoned(Failure::Io(io::ErrorKind::NotConnected)));
+        };
+        self.journal.record_listen(vocabulary);
+        let pipes = Pipes {
+            stdin,
+            stdout,
+            stderr,
+        };
+        let header = stream_header(vocabulary);
+        Ok(TranscriptStream::spawn(move |phrases, stop| {
+            pump(child, pipes, header, phrases, stop)
+        }))
+    }
+
     fn journal(&self) -> &RequestJournal {
         &self.journal
     }
+}
+
+/// How listening to the sidecar came to its end.
+enum Ending {
+    /// The caller stopped the stream, or went away.
+    Stopped,
+    /// The sidecar closed its output.
+    Closed,
+    /// Reading its output failed.
+    Failed(Failure),
+}
+
+/// The three streams of a started sidecar.
+struct Pipes {
+    stdin: ChildStdin,
+    stdout: ChildStdout,
+    stderr: ChildStderr,
+}
+
+/// The task of a stream: gives the sidecar its header, hands the caller each
+/// phrase it prints, and at the end leaves no process behind.
+async fn pump(
+    mut child: Child,
+    pipes: Pipes,
+    header: String,
+    phrases: Phrases,
+    mut stop: StopSignal,
+) {
+    let Pipes {
+        mut stdin,
+        stdout,
+        stderr,
+    } = pipes;
+    let mut output = BufReader::new(stdout).lines();
+    let mut stderr = Some(stderr);
+    let mut said = Vec::new();
+    let mut chunk = [0u8; 512];
+
+    // The header goes in while the output is read, as for a dictation: a
+    // sidecar that talks before it has read its input cannot block on a full
+    // pipe. Then the input stays open: one that stops reading is its own
+    // business, its exit says how it went.
+    let mut sending = std::pin::pin!(async move {
+        let _ = stdin.write_all(header.as_bytes()).await;
+        stdin
+    });
+    let mut stdin = None;
+    let ending = loop {
+        tokio::select! {
+            () = stop.requested() => break Ending::Stopped,
+            sent = &mut sending, if stdin.is_none() => stdin = Some(sent),
+            read = output.next_line() => match read {
+                Ok(Some(text)) => {
+                    let text = text.trim();
+                    if text.is_empty() {
+                        continue;
+                    }
+                    let heard = phrases.say(Transcript::new(text));
+                    if stop.unless_stopped(heard).await != Some(true) {
+                        break Ending::Stopped;
+                    }
+                }
+                Ok(None) => break Ending::Closed,
+                Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                    break Ending::Failed(Failure::NotText);
+                }
+                Err(error) => break Ending::Failed(Failure::Io(error.kind())),
+            },
+            read = read_error(&mut stderr, &mut chunk) => keep(&mut said, &chunk[..read]),
+        }
+    };
+    // Whatever the ending, the process is over before the task is.
+    drop(stdin);
+    let failure = match ending {
+        Ending::Stopped => {
+            let _ = child.kill().await;
+            return;
+        }
+        Ending::Failed(failure) => {
+            let _ = child.kill().await;
+            failure
+        }
+        Ending::Closed => {
+            // It said everything it had to say; it is given a moment to end.
+            let waited = stop
+                .unless_stopped(tokio::time::timeout(EXIT_PATIENCE, child.wait()))
+                .await;
+            let status = match waited {
+                Some(Ok(status)) => status,
+                // Stopped, or still there though it has said all: the stream
+                // is over either way.
+                Some(Err(_)) | None => {
+                    let _ = child.kill().await;
+                    return;
+                }
+            };
+            if let Some(stderr) = stderr.as_mut() {
+                let _ = tokio::time::timeout(STDERR_PATIENCE, async {
+                    while let Ok(read @ 1..) = stderr.read(&mut chunk).await {
+                        keep(&mut said, &chunk[..read]);
+                    }
+                })
+                .await;
+            }
+            match status {
+                Ok(status) if status.success() => return,
+                Ok(status) => Failure::Exited {
+                    code: status.code(),
+                    detail: String::from_utf8_lossy(&said)
+                        .trim()
+                        .chars()
+                        .take(DETAIL_LIMIT)
+                        .collect(),
+                },
+                Err(error) => Failure::Io(error.kind()),
+            }
+        }
+    };
+    let failed = phrases.fail(SpeechToTextError::Failed(failure.reason()));
+    let _ = stop.unless_stopped(failed).await;
+}
+
+/// Reads what the sidecar says on its standard error: how many bytes of
+/// `chunk` are filled. Once it is closed, `stderr` is emptied and this waits
+/// for ever, which leaves the rest of a `select!` to run.
+async fn read_error(stderr: &mut Option<ChildStderr>, chunk: &mut [u8]) -> usize {
+    if let Some(open) = stderr.as_mut() {
+        if let Ok(read @ 1..) = open.read(chunk).await {
+            return read;
+        }
+        *stderr = None;
+    }
+    std::future::pending().await
+}
+
+/// Keeps `read` in `said`, up to [`STDERR_KEPT`] bytes.
+fn keep(said: &mut Vec<u8>, read: &[u8]) {
+    let room = STDERR_KEPT.saturating_sub(said.len());
+    said.extend_from_slice(&read[..read.len().min(room)]);
 }
 
 #[cfg(test)]
@@ -322,6 +528,40 @@ mod tests {
                 "sound_names": [],
             }})
         );
+    }
+
+    #[test]
+    fn the_stream_header_is_the_header_asking_the_sidecar_to_listen() {
+        let vocabulary = Vocabulary {
+            campaign_names: vec!["Élowen".into()],
+            aliases: vec![],
+            sound_names: vec!["orage".into()],
+        };
+        let line = stream_header(&vocabulary);
+        assert!(
+            line.ends_with('\n') && line.matches('\n').count() == 1,
+            "{line:?}"
+        );
+        let mut expected: serde_json::Value = serde_json::from_str(&header(&vocabulary)).unwrap();
+        assert!(expected.get("mode").is_none(), "a dictation has no mode");
+        expected["mode"] = json!("stream");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn what_a_stream_keeps_of_the_standard_error_is_bounded() {
+        let mut said = Vec::new();
+        keep(&mut said, b"boom");
+        keep(&mut said, b"!");
+        assert_eq!(said, b"boom!");
+        keep(&mut said, &vec![b'x'; STDERR_KEPT]);
+        assert_eq!(said.len(), STDERR_KEPT);
+        keep(&mut said, b"more");
+        assert_eq!(said.len(), STDERR_KEPT);
+        assert!(said.starts_with(b"boom!x"));
     }
 
     #[test]

@@ -1,0 +1,30 @@
+[package]
+name = "set-microphone"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability live.setMicrophone: the DM's microphone turned on or off in the campaign's session — a session still in prep goes live and is dated once, a closed one refuses — then the local transcription listens for the campaign's vocabulary (DetectionVocabulary@1) and every element or sound a heard phrase names becomes a suggestion, only while the session is live with the microphone on."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+# Its target: the Session aggregate's field names.
+aggregate-session = { path = "../../../session/aggregates/Session" }
+# The engine's `Prepare` and the suggestions' sink are async traits.
+async-trait = "0.1"
+# The port it listens through: local transcription, the vocabulary injected.
+ports-speech-to-text = { path = "../../../ports/speech-to-text" }
+serde_json = "1"
+# The streams' tasks, kept to be aborted, and the applier they wake.
+tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
+# AliasMatch@1's accents, removed from the decomposed letter.
+unicode-normalization = "0.1"
+uuid = { version = "1", default-features = false }
+
+[dev-dependencies]
+# The Concepts' fixtures the detection is held to (AliasMatch@1, DetectionVocabulary@1).
+platform-conformance = { path = "../../../platform/conformance" }
+# The harness's test kit: the engine planted, the scratch database, planters.
+platform-test-kit = { path = "../../../platform/test-kit" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }

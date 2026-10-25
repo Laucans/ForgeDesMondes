@@ -1,0 +1,10 @@
+{
+  "capability": "live.getTranscriptionVocabulary",
+  "system": "live",
+  "version": "1.0.0",
+  "description": "The words the microphone listens for in a campaign, as DetectionVocabulary@1 defines its vocabulary: every name and alias of the campaign's entities (characters, places and events) and the name of each of its sounds, each term as written and listed once. An alias added on an entity sheet is in it with no other step; an entity or a sound of another campaign never is. The DM and the live detection read it; it starts nothing.",
+  "implements": "DetectionVocabulary@1",
+  "input": { "campaign": "string — the campaign whose vocabulary is read" },
+  "output": "{ terms: string[] }",
+  "reads": ["queries/get-transcription-vocabulary.graphql"]
+}

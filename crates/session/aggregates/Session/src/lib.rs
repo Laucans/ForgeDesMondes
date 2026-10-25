@@ -27,6 +27,12 @@
 //! other (`oneshot-single-session`); the PCs it ticks present are judged
 //! there against its campaign (`present-only-pj`).
 //!
+//! A session the tables hold, written again with its status, its start or
+//! its microphone, has those three columns moved in the transaction that
+//! applies it ([`Microphone`]); the same projection gives the engine the row
+//! of a session only the tables hold, so that `status-lifecycle` judges the
+//! status it moves from.
+//!
 //! A PC ticked present after the session's creation is a row of its own,
 //! the session and the one PC, written into `session_present_character` in
 //! the transaction that applies it ([`Presences`]): judged there against the
@@ -56,6 +62,7 @@ use serde_json::Value;
 
 mod absences;
 mod entries;
+mod microphone;
 mod order;
 mod presences;
 mod scenes;
@@ -63,6 +70,7 @@ mod sessions;
 
 pub use absences::{Absences, presence_of};
 pub use entries::Entries;
+pub use microphone::Microphone;
 pub use order::{SceneOrder, order_id, session_of};
 pub use presences::{ADDED_AT, PRESENT_SESSION_ID, Presences, presence_id};
 pub use scenes::{
@@ -176,7 +184,8 @@ impl Judge for Session {
 
 /// What the aggregate plugs into the engine: its judge, and its sessions,
 /// scenes, scene orders, PCs ticked present later and entries created
-/// written in the transaction that applies them.
+/// written in the transaction that applies them, and a session's status,
+/// start and microphone moved.
 #[must_use]
 pub fn plugin() -> Plugin {
     Plugin::new()
@@ -185,6 +194,8 @@ pub fn plugin() -> Plugin {
         .project_pg(AGGREGATE, Absences)
         .project_pg(AGGREGATE, Entries)
         .project_pg(AGGREGATE, Sessions)
+        // A session's status, start and microphone, moved in its row.
+        .project_pg(AGGREGATE, Microphone)
         .project_pg(AGGREGATE, Scenes)
         .project_pg(AGGREGATE, SceneOrder)
         .project_pg(AGGREGATE, Presences)

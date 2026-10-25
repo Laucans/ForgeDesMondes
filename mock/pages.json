@@ -585,7 +585,11 @@
         "live.setMicrophone",
         "soundbox.playSound"
       ],
-      "props": {}
+      "props": {
+        "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
+      },
+      "source": "apps/live/suggestion-pill",
+      "builtFrom": "72d976a182ec9095"
     },
     {
       "name": "PlayerStage",
