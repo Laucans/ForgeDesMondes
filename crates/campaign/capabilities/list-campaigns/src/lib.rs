@@ -10,11 +10,12 @@
 //! No account is asked and none is answered: a campaign belongs to no owner,
 //! so an item holds neither `account` nor `owner`, whatever a row carries.
 //!
-//! `sessions`, `lastPlayed` and `next` are counted from the sessions, never
-//! stored (`campaign_overview_view`). The Session aggregate's table does not
-//! exist yet and the view holds no session column: they are `null`, an
-//! unknown count, never a made-up zero. A row that carries them
-//! (`session_count`, `last_played`, `next_session`) is answered as it says.
+//! `sessions`, `lastPlayed` and `next` are counted from the campaign's rows
+//! of the `session` table, never stored: `session_count` (0 when it has
+//! none, so `sessions` is never null), `last_played` (the latest day a live
+//! or closed session was played: the UTC day it started, else its planned
+//! day) and `next_session` (the earliest planned day of a session still in
+//! prep, today or later). Each date is an ISO day or `null`.
 
 use std::collections::BTreeMap;
 
@@ -24,20 +25,29 @@ use serde_json::{Value, json};
 pub const CAPABILITY: &str = "campaign.listCampaigns";
 
 /// What the persisted query `list-campaigns.graphql` selects: every campaign,
-/// the newest first. `kind` is the `type` of the answer.
+/// the newest first. `kind` is the `type` of the answer. Each campaign is
+/// joined to its sessions: they are counted, and the two dates are taken over
+/// the ones that qualify, as ISO days.
 pub const SQL: &str = r"SELECT c.id::text AS id,
     c.name,
     c.kind,
     c.art,
     c.glyph,
     c.pitch,
-    c.created_at
+    c.created_at,
+    count(s.id)::int AS session_count,
+    to_char(max(CASE WHEN s.status IN ('live', 'closed')
+        THEN coalesce((s.started_at AT TIME ZONE 'UTC')::date, s.planned_on) END), 'YYYY-MM-DD') AS last_played,
+    to_char(min(CASE WHEN s.status = 'prep' AND s.planned_on >= CURRENT_DATE
+        THEN s.planned_on END), 'YYYY-MM-DD') AS next_session
 FROM campaign c
+LEFT JOIN session s ON s.campaign_id = c.id
+GROUP BY c.id
 ORDER BY c.created_at DESC, c.name, c.id";
 
 /// The campaigns among `rows` — an array of the objects [`SQL`] selects — as
 /// the home page reads them, in the order of the rows. No row is an empty,
-/// well-formed answer.
+/// well-formed answer; a row without a `session_count` has no session.
 #[must_use]
 pub fn answer_rows(rows: &Value) -> Value {
     let campaigns: Vec<Value> = rows
@@ -52,7 +62,7 @@ pub fn answer_rows(rows: &Value) -> Value {
                         "art": row["art"],
                         "glyph": row["glyph"],
                         "pitch": row["pitch"],
-                        "sessions": row["session_count"],
+                        "sessions": row["session_count"].as_u64().unwrap_or(0),
                         "lastPlayed": row["last_played"],
                         "next": row["next_session"],
                     })
@@ -145,11 +155,21 @@ mod tests {
     }
 
     #[test]
-    fn sessions_are_unknown_until_they_are_counted_never_zero() {
+    fn a_campaign_without_session_has_zero_sessions_and_no_date() {
         let listed = answer_rows(&three());
-        assert_eq!(listed[1]["sessions"], Value::Null);
+        assert_eq!(listed[1]["sessions"], json!(0));
         assert_eq!(listed[1]["lastPlayed"], Value::Null);
         assert_eq!(listed[1]["next"], Value::Null);
+    }
+
+    #[test]
+    fn sessions_are_never_null_even_when_the_count_is_null() {
+        let mut rows = three();
+        rows[0]["session_count"] = Value::Null;
+        let listed = answer_rows(&rows);
+        for item in listed.as_array().expect("an array") {
+            assert_eq!(item["sessions"], json!(0), "{item}");
+        }
     }
 
     #[test]
@@ -208,7 +228,18 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             fields,
-            ["id", "name", "kind", "art", "glyph", "pitch", "createdAt"]
+            [
+                "id",
+                "name",
+                "kind",
+                "art",
+                "glyph",
+                "pitch",
+                "createdAt",
+                "sessionCount",
+                "lastPlayed",
+                "nextSession"
+            ]
         );
         for field in fields {
             let column: String = field
@@ -221,8 +252,14 @@ mod tests {
                     }
                 })
                 .collect();
+            // The three counted columns are aliases of the SQL's aggregates.
+            let selected = if ["sessionCount", "lastPlayed", "nextSession"].contains(&field) {
+                format!("AS {column}")
+            } else {
+                format!("c.{column}")
+            };
             assert!(
-                SQL.contains(&format!("c.{column}")),
+                SQL.contains(&selected),
                 "the query names {field}, the SQL does not select it"
             );
         }
