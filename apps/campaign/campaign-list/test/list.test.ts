@@ -105,6 +105,7 @@ async function list(options?: Options, host?: { dom: JSDOM; element: HTMLElement
   return { dom, document, element, text, click, type, choose, names, saved, ...fake };
 }
 
+// AC2: one card per campaign with name, type, glyph, pitch, sessions, last played and next session.
 test('on the fixture, one card per campaign draws what the mock-up draws', async () => {
   const { document, text, names } = await list();
   const drawing = new JSDOM(mock('components/CampaignList.html')).window.document;
@@ -125,6 +126,7 @@ test('on the fixture, one card per campaign draws what the mock-up draws', async
   assert.deepEqual([...document.querySelectorAll('.kit-card .actions button')].slice(0, 2).map((b) => b.textContent), ['Ouvrir', 'Exporter']);
 });
 
+// AC6: the parts carry data-reads / data-writes, by identifier.
 test('the parts name what they show and what they trigger, by identifier', async () => {
   const { document } = await list();
   assert.equal(document.getElementById('campaign-cards')?.dataset.reads, 'campaign.listCampaigns');
@@ -155,6 +157,7 @@ test('a list that cannot be read says so', async () => {
   assert.equal(element.querySelector('#campaign-status')?.textContent, 'Impossible de lire les campagnes.');
 });
 
+// AC3: an applied export offers a download of the archive the command answered.
 test('Exporter sends the export of that campaign alone, and hands over the archive the command answered once applied', async () => {
   const { click, sent, saved, text } = await list();
   await click('#campaign-nuit-carnaval [data-action="export"]');
@@ -280,6 +283,7 @@ test('Importer une archive opens a dialog with a FileDrop; importing is refused 
   assert.equal(submit.disabled, false);
 });
 
+// AC4: the import is sent with the archive; once applied, the list is read again.
 test('dropping an archive and confirming sends campaign.importCampaign with it; once applied the list is read again and shows the copy beside the original', async () => {
   const { document, dom, click, choose, sent, reads, names, text } = await list();
   await click('#campaign-import');
@@ -308,6 +312,7 @@ test('dropping an archive and confirming sends campaign.importCampaign with it; 
   assert.equal(text('.kit-filedrop__name'), 'dropped.json');
 });
 
+// AC5: a rejected import shows its reason and the list is unchanged.
 test('a rejected import shows its reason in the dialog and leaves the list as it was', async () => {
   const { document, click, choose, reads, names, text } = await list({ apply: () => ({ status: 'rejected', violations: ['archive-format-unknown'] }) });
   await click('#campaign-import');
