@@ -413,6 +413,30 @@ test('a creation not settled in time, sent again, is the same command: the serve
   assert.equal(sent[1]?.idempotencyKey, sent[0]?.idempotencyKey, 'the second click is the same command');
 });
 
+test('a creation not settled in time, edited and sent again, is another command: it is not answered for the first name', async () => {
+  const { click, type, sent } = await list({ later: 20 });
+  await click('#campaign-new');
+  type('#campaign-create-name', 'Les Brumes');
+  await click('#campaign-create-submit');
+  type('#campaign-create-name', 'Les Brumes du Nord');
+  await click('#campaign-create-submit');
+  await click('#campaign-create-submit');
+  assert.equal(sent.length, 3);
+  assert.notEqual(sent[1]?.idempotencyKey, sent[0]?.idempotencyKey, 'another name is another command');
+  assert.equal(sent[2]?.idempotencyKey, sent[1]?.idempotencyKey, 'the edited one sent again is still one');
+});
+
+test('an import a server that is down may have queued, sent again with another archive, is another command', async () => {
+  const { click, choose, sent } = await list({ apply: () => ({ offline: true }) });
+  await click('#campaign-import');
+  await choose('archive.json', JSON.stringify(ARCHIVE.content));
+  await click('#campaign-import-submit');
+  await choose('other.json', JSON.stringify({ ...ARCHIVE.content, campaign: { id: 'nuit-carnaval' } }));
+  await click('#campaign-import-submit');
+  assert.equal(sent.length, 2);
+  assert.notEqual(sent[1]?.idempotencyKey, sent[0]?.idempotencyKey);
+});
+
 test('an import a server that is down may have queued, sent again, is the same command; a refused one, sent again, is a new one', async () => {
   let down = true;
   const offline = await list({ apply: (s, c) => (down ? { offline: true } : defaults(s, c)) });
