@@ -172,6 +172,7 @@ dependencies = [
  "data",
  "harness-dataguard",
  "platform-scratch-db",
+ "platform-test-kit",
  "serde_json",
  "tokio",
 ]

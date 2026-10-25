@@ -389,7 +389,12 @@ async fn a_session_the_tables_hold_already_is_another_command_s_to_write() {
     .await;
     let result = applied(&engine).await;
     assert_eq!(result.status, State::Applied, "{result:?}");
-    assert_eq!(scratch.session(QUATRE).await, created);
+    // Its title and its day are not written here; its status and its
+    // microphone are `Microphone`'s (tests/microphone.rs).
+    let mut written = created.clone();
+    written[0]["status"] = json!("live");
+    written[0]["microphone_on"] = json!(true);
+    assert_eq!(scratch.session(QUATRE).await, written);
     // A list of PCs present on it: only a creation writes one into the
     // tables, so this one is rejected, never kept by the engine alone.
     submit(
@@ -401,7 +406,7 @@ async fn a_session_the_tables_hold_already_is_another_command_s_to_write() {
     let result = applied(&engine).await;
     assert_eq!(result.status, State::Rejected, "{result:?}");
     assert_eq!(result.violations, ["text-only-no-audio"], "{result:?}");
-    assert_eq!(scratch.session(QUATRE).await, created);
+    assert_eq!(scratch.session(QUATRE).await, written);
     scratch.drop().await;
 }
 
