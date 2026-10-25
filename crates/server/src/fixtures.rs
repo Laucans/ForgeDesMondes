@@ -54,7 +54,8 @@
 //! (read from `summaryMeta`, « Généré à la clôture par <model>, retouché le
 //! 4 oct. 2026 ») are `session.summary`, `summary_model` and
 //! `summary_edited_at`; `PreviousSummary.json`'s summary wins over
-//! `SessionList.json`'s for that one session. Its journal is one
+//! `SessionList.json`'s for that one session, and the two files carry the
+//! same text for it (a test holds them), so the panel and the list agree. Its journal is one
 //! `session_journal_line` per line, named `session_journal_line:<session
 //! slug>:<n>`, spoken on the session's day at the line's `HH:MM` (UTC), a
 //! microsecond apart so that two lines of one minute keep their order. A journal
@@ -2868,6 +2869,34 @@ mod tests {
             first["summary"], list["sessions"][0]["summary"],
             "the others keep theirs"
         );
+    }
+
+    #[test]
+    fn the_closed_session_has_one_summary_in_the_list_and_the_panel() {
+        let closing = mock_file(CLOSING_FILE);
+        let slug = closing["session"]["id"].as_str().expect("a session");
+        let summary = closing["summary"].as_str().expect("a summary");
+        let in_list = |file: &str, sessions: &Value| -> Value {
+            sessions
+                .as_array()
+                .expect("sessions")
+                .iter()
+                .find(|s| s["id"] == slug)
+                .unwrap_or_else(|| panic!("{slug} in {file}"))["summary"]
+                .clone()
+        };
+        let list = mock_file(SESSIONS);
+        assert_eq!(in_list(SESSIONS, &list["sessions"]), summary);
+        // The Capability's own fixture, which the campaign's list replays.
+        let answer = mock_file("session.listSessions.json");
+        assert_eq!(in_list("session.listSessions.json", &answer), summary);
+        // And the store holds that one text, whichever file wins the load.
+        let plan = mock();
+        let row = rows(&plan, "session")
+            .into_iter()
+            .find(|s| s["id"] == id("session", slug))
+            .expect("the closed session");
+        assert_eq!(row["summary"], summary);
     }
 
     #[test]
