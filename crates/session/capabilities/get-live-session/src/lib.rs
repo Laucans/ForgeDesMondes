@@ -4,12 +4,14 @@
 //! It reads, and only reads. The row of its persisted query
 //! (`crates/session/queries/getLiveSession.graphql`, resolved by [`SQL`]) goes
 //! in; the answer comes out as `{ session, microphone }`: the session's `id`,
-//! its `order` (the number of the session in its campaign), its `title`, its
-//! `date` (`null` while none is planned), its `startedAt` (`HH:MM`, UTC;
-//! `null` before it started), its `status` as stored and its `statusLabel`,
-//! and `present`, the ids of the PCs ticked present, in the order they were
-//! ticked; and `microphone.on`, whether the microphone listens. The header
-//! keys are those of `mock/fixtures/session.getLiveSession.json`.
+//! its `campaign` (the id of the campaign it belongs to, as the store holds
+//! it: the server names it on the wire), its `order` (the number of the
+//! session in its campaign), its `title`, its `date` (`null` while none is
+//! planned), its `startedAt` (`HH:MM`, UTC; `null` before it started), its
+//! `status` as stored and its `statusLabel`, and `present`, the ids of the PCs
+//! ticked present, in the order they were ticked; and `microphone.on`, whether
+//! the microphone listens. The header keys are those of
+//! `mock/fixtures/session.getLiveSession.json`.
 //!
 //! A PC ticked later is a row of the present list like the others, so the next
 //! read lists it (`present-only-pj`). A closed session never listens: its
@@ -33,10 +35,11 @@ pub const CAPABILITY: &str = "session.getLiveSession";
 /// What the persisted query `getLiveSession.graphql` selects: the session
 /// bound to `$1` (compared as text, so that an id which is not a uuid finds
 /// nothing instead of failing) or, when no id is given (`$1` is null), the
-/// live session that started last, its date as `YYYY-MM-DD` text, the time it
-/// started as `HH:MM` in UTC, its microphone flag, and the PCs ticked present
-/// in the order they were ticked.
+/// live session that started last, its campaign's id as text, its date as
+/// `YYYY-MM-DD` text, the time it started as `HH:MM` in UTC, its microphone
+/// flag, and the PCs ticked present in the order they were ticked.
 pub const SQL: &str = r#"SELECT s.id::text AS id,
+    s.campaign_id::text AS campaign_id,
     s.position,
     s.title,
     to_char(s.planned_on, 'YYYY-MM-DD') AS planned_on,
@@ -82,6 +85,7 @@ fn answer_rows(rows: &Value) -> Value {
     json!({
         "session": {
             "id": row["id"],
+            "campaign": row["campaign_id"],
             "order": row["position"],
             "title": row["title"],
             "date": row["planned_on"],
@@ -130,11 +134,12 @@ mod tests {
         serde_json::from_str(&text).expect("JSON")
     }
 
-    /// A row as [`SQL`] selects it: session 4, live, microphone on, two PCs of
-    /// the four ticked present.
+    /// A row as [`SQL`] selects it: session 4 of Les Cendres de Valombre,
+    /// live, microphone on, two PCs of the four ticked present.
     fn session_four() -> Value {
         json!([{
-            "id": "s4", "position": 4, "title": "L’embuscade du Gué",
+            "id": "s4", "campaign_id": "cendres-valombre", "position": 4,
+            "title": "L’embuscade du Gué",
             "planned_on": "2026-10-17", "status": "live", "started_at": "20:02",
             "microphone_on": true, "present": ["elowen", "kael"],
         }])
@@ -168,6 +173,7 @@ mod tests {
         assert_eq!(
             keys(&got["session"]),
             [
+                "campaign",
                 "date",
                 "id",
                 "order",
@@ -323,6 +329,7 @@ mod tests {
             .map(str::trim)
             .collect();
         for (field, column) in [
+            ("campaignId", "s.campaign_id::text AS campaign_id"),
             ("position", "s.position"),
             ("title", "s.title"),
             ("plannedOn", "planned_on"),
