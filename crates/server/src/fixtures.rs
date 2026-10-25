@@ -1825,10 +1825,11 @@ const PROPOSAL_SCOPE: &[&str] = &[
 ];
 
 /// Whether the diff of `row` stays within what its `source` may change: the
-/// database refuses a version that does not, and the whole load with it.
+/// database refuses a version that does not, and the whole load with it. A
+/// `dndbeyond` revision is always a resync: a creation is made `dm` upstream.
 fn in_scope(revision: &Revision, row: &Value) -> Result<(), String> {
     let scope = match revision.source {
-        "dndbeyond" if revision.number > 1 => RESYNC_SCOPE,
+        "dndbeyond" => RESYNC_SCOPE,
         "ia" => PROPOSAL_SCOPE,
         _ => return Ok(()),
     };
@@ -3243,6 +3244,16 @@ mod tests {
         for held in [
             vec![(morlox.clone(), "app-written".to_string())],
             vec![(morlox.clone(), version_of("morlox", 1))],
+            // Every planned version, plus one of the app's: more than planned.
+            [
+                all("morlox", 4),
+                vec![(morlox.clone(), "app-written".to_string())],
+            ]
+            .concat(),
+            // As many as planned, none of them the planned ones.
+            (1..=4)
+                .map(|n| (morlox.clone(), format!("app-{n}")))
+                .collect(),
         ] {
             let mut plan = mock();
             plan.leave_out_taken_versions(&held);
