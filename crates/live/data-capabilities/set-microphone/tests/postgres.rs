@@ -354,6 +354,30 @@ async fn without_a_target_the_command_finds_the_campaigns_session() {
 }
 
 #[tokio::test]
+async fn of_two_live_sessions_with_the_microphone_off_the_last_started_is_the_one() {
+    let rig = rig("set_microphone_last_started", &[], Duration::from_secs(60)).await;
+    rig.scratch
+        .seed(&format!(
+            "UPDATE session SET status = 'live', started_at = '2026-10-17T20:00:00Z' WHERE id = '{}';
+             UPDATE session SET status = 'live', started_at = '2026-10-18T20:00:00Z' WHERE id = '{}'",
+            planned(),
+            prep()
+        ))
+        .await;
+    let found = rig
+        .served
+        .submit("live.setMicrophone", json!({ "on": true }), None)
+        .await
+        .expect("queued")
+        .partition;
+    assert_eq!(
+        found,
+        format!("Session/{}", prep()),
+        "the one started last, though the other was planned after"
+    );
+}
+
+#[tokio::test]
 async fn with_no_session_not_closed_there_is_none_to_listen_in() {
     let rig = rig("set_microphone_none", &[], Duration::from_secs(60)).await;
     rig.scratch

@@ -47,6 +47,9 @@ pub struct Term {
     pub alias: bool,
     /// The term's normalised words.
     words: Vec<String>,
+    /// The characters of its words joined by single spaces: the length of a
+    /// candidate it makes.
+    length: usize,
 }
 
 /// A target a phrase names, and the term of the vocabulary that named it.
@@ -101,6 +104,7 @@ impl Vocabulary {
     #[must_use]
     pub fn from_rows(rows: &Value) -> Self {
         let mut terms: Vec<Term> = Vec::new();
+        let mut seen: BTreeSet<(Kind, String, String)> = BTreeSet::new();
         for row in rows.as_array().map(Vec::as_slice).unwrap_or_default() {
             let text = |key: &str| row.get(key).and_then(Value::as_str);
             let (Some(term), Some(kind), Some(id)) =
@@ -109,18 +113,17 @@ impl Vocabulary {
                 continue;
             };
             let own = normalised(term);
-            let twice = terms
-                .iter()
-                .any(|t| t.kind == kind && t.id == id && normalised(&t.term) == own);
-            if own.is_empty() || twice {
+            if own.is_empty() || !seen.insert((kind, id.to_string(), own)) {
                 continue;
             }
+            let words = words(term);
             terms.push(Term {
                 term: term.to_string(),
                 kind,
                 id: id.to_string(),
                 alias: row.get("alias") == Some(&Value::Bool(true)),
-                words: words(term),
+                length: words.join(" ").chars().count(),
+                words,
             });
         }
         Self { terms }
@@ -133,14 +136,15 @@ impl Vocabulary {
     }
 
     /// What the engine of the speech-to-text port listens for: the elements'
-    /// names, their aliases, the sounds' names — each term once, as written.
+    /// names, their aliases, the sounds' names — each term once, as written,
+    /// a term with no word (only marks and punctuation) to hear nothing of.
     #[must_use]
     pub fn to_hear(&self) -> Heard {
         let of = |wanted: fn(&Term) -> bool| {
             let mut seen = BTreeSet::new();
             self.terms
                 .iter()
-                .filter(|t| wanted(t) && seen.insert(t.term.clone()))
+                .filter(|t| wanted(t) && !t.words.is_empty() && seen.insert(t.term.clone()))
                 .map(|t| t.term.clone())
                 .collect()
         };
@@ -166,7 +170,7 @@ impl Vocabulary {
                 if heard[start..start + n] == term.words[..] {
                     candidates.push(Candidate {
                         start,
-                        length: term.words.join(" ").chars().count(),
+                        length: term.length,
                         entry,
                     });
                 }

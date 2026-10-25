@@ -167,33 +167,53 @@ impl Drop for Listening {
 }
 
 /// The task of a session: the port's stream, each phrase read against the
-/// vocabulary, each target named submitted as a suggestion. It ends with the
-/// stream, or when it is aborted — which drops the stream, and the port's
-/// task with it.
+/// vocabulary, each target named submitted as a suggestion. It ends when it
+/// is aborted — which drops the stream, and the port's task with it — or when
+/// the stream ends by itself (the engine cannot start, fails, or stops): the
+/// row says the microphone is on while nothing listens, so the microphone is
+/// turned off, as its author would.
 async fn listen(session: String, plan: Plan, sink: Arc<dyn Submit>) {
+    let why = hear(&session, &plan, sink.as_ref()).await;
+    eprintln!("microphone: session {session} listens to nothing: {why}");
+    if let Err(why) = sink.submit(turn_off(&session, &plan.caller)).await {
+        eprintln!("microphone: session {session}: {why}");
+    }
+}
+
+/// Listens until the stream ends; why it did.
+async fn hear(session: &str, plan: &Plan, sink: &dyn Submit) -> String {
     let mut stream = match plan.speech.listen(&plan.vocabulary.to_hear()).await {
         Ok(stream) => stream,
-        Err(e) => {
-            eprintln!("microphone: session {session} cannot listen: {e}");
-            return;
-        }
+        Err(e) => return format!("it cannot listen: {e}"),
     };
     while let Some(heard) = stream.next().await {
         let phrase = match heard {
             Ok(transcript) => transcript.text,
-            Err(e) => {
-                eprintln!("microphone: session {session} stopped listening: {e}");
-                return;
-            }
+            Err(e) => return format!("it failed: {e}"),
         };
         for detection in plan.vocabulary.detect(&phrase) {
             if let Err(why) = sink
-                .submit(suggestion(&session, &plan.caller, &detection))
+                .submit(suggestion(session, &plan.caller, &detection))
                 .await
             {
                 eprintln!("microphone: session {session}: {why}");
             }
         }
+    }
+    "its stream ended".to_string()
+}
+
+/// The command that turns the microphone of `session` off, for `author`.
+fn turn_off(session: &str, author: &Caller) -> Submission {
+    Submission {
+        data_capability: DATA_CAPABILITY.to_string(),
+        payload: BTreeMap::from([("on".to_string(), json!(false))]),
+        target_id: Some(session.to_string()),
+        caller: Caller {
+            from: DATA_CAPABILITY.to_string(),
+            ..author.clone()
+        },
+        ..Submission::default()
     }
 }
 
@@ -234,17 +254,20 @@ pub struct Plans {
 
 impl Plans {
     /// Remembers the server's [`Listening`], and stages `plan` for the
-    /// session when there is one: the microphone about to be turned on.
+    /// session when there is one: the microphone about to be turned on. A
+    /// command that turns it off stages none and takes none away — the plan
+    /// of a command queued before it is still that command's.
     pub fn stage(&self, session: &str, listening: &Arc<Listening>, plan: Option<Plan>) {
         *self
             .listening
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(listening));
-        let mut staged = self.staged.lock().unwrap_or_else(PoisonError::into_inner);
-        match plan {
-            Some(plan) => staged.insert(session.to_string(), plan),
-            None => staged.remove(session),
-        };
+        if let Some(plan) = plan {
+            self.staged
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(session.to_string(), plan);
+        }
     }
 
     fn listening(&self) -> Option<Arc<Listening>> {
@@ -290,7 +313,6 @@ impl Project for Observer {
                 listening.start(session, plan);
             }
         } else {
-            self.0.take(session);
             listening.stop(session);
         }
     }

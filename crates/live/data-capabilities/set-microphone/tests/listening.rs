@@ -282,35 +282,29 @@ async fn a_write_that_is_not_a_microphone_turned_on_listens_to_nothing() {
 }
 
 #[tokio::test]
-async fn a_microphone_turned_off_drops_what_was_staged() {
+async fn an_off_queued_around_an_on_does_not_take_its_plan_away() {
+    // Off, then on: the off is applied first and the on still finds its plan.
     let (listening, plans, _recorder) = server();
     let fake = FakeSpeechToText::new("");
-    plans.stage(
-        SESSION,
-        &listening,
-        Some(plan(&fake, &["x"], Duration::from_secs(60))),
-    );
-    let observer = Observer(plans);
+    let every = Duration::from_secs(60);
+    plans.stage(SESSION, &listening, None);
+    plans.stage(SESSION, &listening, Some(plan(&fake, &["x"], every)));
+    let observer = Observer(Arc::clone(&plans));
     observer.observe(&written(&format!("Session/{SESSION}"), Some(false)));
     observer.observe(&written(&format!("Session/{SESSION}"), Some(true)));
-    assert!(
-        !listening.listens(SESSION),
-        "the plan of a command long gone is not used"
-    );
-}
-
-#[tokio::test]
-async fn a_prepare_that_stages_nothing_leaves_nothing_to_start() {
-    let (listening, plans, _recorder) = server();
-    let fake = FakeSpeechToText::new("");
-    plans.stage(
-        SESSION,
-        &listening,
-        Some(plan(&fake, &["x"], Duration::from_secs(60))),
-    );
-    plans.stage(SESSION, &listening, None);
-    Observer(plans).observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    assert!(listening.listens(SESSION), "the on listens");
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(false)));
     assert!(!listening.listens(SESSION));
+
+    // On, then an off prepared before the on is applied: the plan is still the on's.
+    plans.stage(SESSION, &listening, Some(plan(&fake, &["x"], every)));
+    plans.stage(SESSION, &listening, None);
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    assert!(
+        listening.listens(SESSION),
+        "the off prepared after did not take the plan"
+    );
+    listening.shutdown();
 }
 
 #[tokio::test]
@@ -390,7 +384,8 @@ impl SpeechToText for Broken {
 }
 
 #[tokio::test]
-async fn a_port_that_cannot_listen_leaves_no_task_and_one_that_fails_ends_it() {
+async fn a_port_that_cannot_listen_leaves_no_task_and_one_that_fails_ends_it_and_turns_the_microphone_off()
+ {
     for fails_after_a_phrase in [false, true] {
         let (listening, plans, recorder) = server();
         let speech = SharedSpeechToText::new(Broken {
@@ -403,7 +398,11 @@ async fn a_port_that_cannot_listen_leaves_no_task_and_one_that_fails_ends_it() {
             Some(Plan {
                 vocabulary: vocabulary(),
                 speech,
-                caller: Caller::default(),
+                caller: Caller {
+                    by: "dm".to_string(),
+                    roles: vec!["role:approver".to_string()],
+                    ..Caller::default()
+                },
             }),
         );
         Observer(plans).observe(&written(&format!("Session/{SESSION}"), Some(true)));
@@ -411,7 +410,30 @@ async fn a_port_that_cannot_listen_leaves_no_task_and_one_that_fails_ends_it() {
             until(|| !listening.listens(SESSION)).await,
             "the task ends (fails after a phrase: {fails_after_a_phrase})"
         );
-        // What was heard before the failure is suggested.
-        assert_eq!(recorder.kept().len(), usize::from(fails_after_a_phrase));
+        // What was heard before the failure is suggested; then the microphone, which
+        // the row still says is on, is turned off, for the DM who turned it on.
+        let expected = 1 + usize::from(fails_after_a_phrase);
+        assert!(
+            until(|| recorder.kept().len() == expected).await,
+            "{:?}",
+            recorder.kept()
+        );
+        let kept = recorder.kept();
+        let last = kept.last().expect("the microphone turned off");
+        assert_eq!(last.data_capability, DATA_CAPABILITY);
+        assert_eq!(
+            last.payload,
+            BTreeMap::from([("on".to_string(), json!(false))])
+        );
+        assert_eq!(last.target_id.as_deref(), Some(SESSION));
+        assert_eq!(last.caller.from, DATA_CAPABILITY);
+        assert_eq!(last.caller.by, "dm");
+        assert_eq!(last.caller.roles, ["role:approver"]);
+        assert_eq!(
+            kept.iter()
+                .filter(|s| s.data_capability == "live.addSuggestion")
+                .count(),
+            usize::from(fails_after_a_phrase)
+        );
     }
 }

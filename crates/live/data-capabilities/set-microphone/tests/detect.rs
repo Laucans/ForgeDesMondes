@@ -134,6 +134,27 @@ fn the_port_listens_for_names_aliases_and_sound_names_each_once() {
 }
 
 #[test]
+fn a_term_with_no_word_is_in_the_vocabulary_but_the_port_has_nothing_to_hear_of_it() {
+    let vocabulary = Vocabulary::from_rows(&json!([
+        { "term": "???", "kind": "entity", "id": "a", "alias": true },
+        { "term": "Morlox", "kind": "entity", "id": "a", "alias": false },
+    ]));
+    assert_eq!(
+        vocabulary.terms().len(),
+        2,
+        "DetectionVocabulary@1 keeps it"
+    );
+    assert!(
+        vocabulary
+            .detect("??? Morlox")
+            .iter()
+            .all(|d| d.via == "Morlox")
+    );
+    assert_eq!(vocabulary.to_hear().aliases, Vec::<String>::new());
+    assert_eq!(vocabulary.to_hear().campaign_names, ["Morlox"]);
+}
+
+#[test]
 fn a_phrase_naming_an_alias_names_its_element() {
     let vocabulary = Vocabulary::from_rows(&json!([
         { "term": "Vesna la Balafrée", "kind": "entity", "id": "vesna", "alias": false },

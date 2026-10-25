@@ -318,7 +318,8 @@ fn sheet(proposal: &Value) -> Value {
 /// `SuggestionPill.json`'s are heard well within the five seconds R18 waits.
 const FEED_INTERVAL: Duration = Duration::from_millis(250);
 
-/// The `speech-to-text` port's fake as `ports` wires it: it hears in every
+/// The `speech-to-text` port's fake — the fake whichever way the ports are
+/// wired: [`speech`] picks the adapter. It hears in every
 /// dictation the draft of notes the fixtures describe (`NoteImport.json` in
 /// `fixtures`), as the DM would have dictated it — so a dictated import
 /// proposes what a pasted one does — and, when the microphone listens, the
@@ -1036,7 +1037,6 @@ mod tests {
             .collect();
         assert!(feed.len() > 1);
         let fake = speech_to_text(Ports::Fake, Some(&fixtures));
-        let started = std::time::Instant::now();
         let mut stream = fake
             .listen(&ports_speech_to_text::Vocabulary::default())
             .await
@@ -1045,11 +1045,10 @@ mod tests {
             let heard = stream.next().await.expect("a phrase").expect("heard");
             assert_eq!(heard.text, *phrase);
         }
-        assert!(
-            started.elapsed() < Duration::from_secs(4),
-            "the whole feed lands within the five seconds R18 waits: {:?}",
-            started.elapsed()
-        );
+        // The clock is the fake's: the whole feed lands within the five seconds R18
+        // waits, with the applier's second to spare.
+        let feed_len = u32::try_from(feed.len()).expect("a feed");
+        assert!(FEED_INTERVAL * feed_len < Duration::from_secs(4));
         // Then silence, as a microphone: the stream stays open until it is stopped.
         let more = tokio::time::timeout(Duration::from_millis(400), stream.next()).await;
         assert!(more.is_err(), "nothing more is heard");

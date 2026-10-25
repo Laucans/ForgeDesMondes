@@ -46,7 +46,8 @@ const STARTED_AT: &str = "startedAt";
 /// The session the command is for, in one row: the one `$1` names (the empty
 /// text names none), whatever its status; else, of the sessions not closed,
 /// the live one — of two, the one whose microphone is on, then the last one
-/// planned, as `live.listSuggestions` finds it. No row when there is none. A
+/// started, then the last one planned, as `live.listSuggestions` finds it
+/// without a campaign. No row when there is none. A
 /// session the engine deleted (its tombstone) is none; `$1` is compared as
 /// text, so that an id which is no uuid finds nothing instead of failing.
 const SESSION: &str = "\
@@ -56,7 +57,8 @@ FROM session s \
 WHERE (($1 = '' AND s.status <> 'closed') OR s.id::text = $1) \
   AND NOT EXISTS (SELECT 1 FROM dataguard_rows r \
       WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned) \
-ORDER BY (s.status = 'live') DESC, s.microphone_on DESC, s.position DESC, s.id \
+ORDER BY (s.status = 'live') DESC, s.microphone_on DESC, \
+         s.started_at DESC NULLS LAST, s.position DESC, s.id \
 LIMIT 1";
 
 /// What the microphone of the campaign `$1` listens for, in the order
