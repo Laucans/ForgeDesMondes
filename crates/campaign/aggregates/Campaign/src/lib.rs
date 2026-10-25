@@ -15,8 +15,9 @@
 //! that exists — the original's least of all.
 //!
 //! Over PostgreSQL, the aggregate also projects its writes into the
-//! `campaign` table — a creation's campaign, with a oneshot's session, and
-//! the exports' stamps — and hydrates the campaigns the fixtures wrote there
+//! `campaign` table — a creation's campaign, with a oneshot's session, an
+//! import's copy with its players, elements, media, sounds and sessions,
+//! and the exports' stamps — and hydrates the campaigns the fixtures wrote there
 //! ([`projection`]).
 
 use std::collections::BTreeMap;
@@ -25,6 +26,7 @@ use harness_dataguard::command::{Effect, Entry};
 use harness_dataguard::plugins::{Judge, Plugin};
 use serde_json::Value;
 
+mod import;
 mod projection;
 
 const AGGREGATE: &str = "Campaign";
