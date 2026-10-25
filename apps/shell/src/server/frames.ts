@@ -8,6 +8,8 @@ export interface Tab {
   label: string;
   microUi: string;
   opens?: string;
+  /** The screen's context value the event sets, read from the event's `detail`: the Micro-UIs that follow it update. */
+  sets?: { context: string; from: string };
 }
 
 export interface Frame {
@@ -30,7 +32,8 @@ export const FRAMES: Readonly<Record<string, Frame>> = {
       tabs: [
         // An element opened from the panel, the sheet or the suggestions shows its sheet; the map asked for shows the battlemap.
         { label: 'Fiche', microUi: 'TableSheet', opens: 'fdm:open' },
-        { label: 'Battlemap', microUi: 'Battlemap', opens: 'fdm:open-map' },
+        // The map asked for by instance (`detail.id`) is the one the Battlemap's `$ctx.battlemap` follows.
+        { label: 'Battlemap', microUi: 'Battlemap', opens: 'fdm:open-map', sets: { context: 'battlemap', from: 'id' } },
         { label: 'Soundbox', microUi: 'LiveSoundbox' },
       ],
     },

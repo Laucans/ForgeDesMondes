@@ -69,6 +69,7 @@ export async function composeScreen(root: ParentNode, shell: Shell, loader: Load
 }
 
 if (typeof document !== 'undefined') {
-  wireTabs(document);
-  void composeScreen(document, createShell());
+  const shell = createShell();
+  wireTabs(document, shell.context);
+  void composeScreen(document, shell);
 }

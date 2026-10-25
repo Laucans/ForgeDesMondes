@@ -43,7 +43,7 @@ test('the centre tabs are Fiche, Battlemap and Soundbox, the sheet shown, the ot
   const tabs = [...html.matchAll(/<button type="button" role="tab"[^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
   assert.deepEqual(tabs, ['Fiche', 'Battlemap', 'Soundbox']);
   assert.match(html, /aria-selected="true" data-opens="fdm:open">Fiche/);
-  assert.match(html, /aria-selected="false" data-opens="fdm:open-map">Battlemap/);
+  assert.match(html, /aria-selected="false" data-opens="fdm:open-map" data-sets="battlemap:id">Battlemap/);
   assert.equal([...html.matchAll(/role="tabpanel"[^>]*hidden/g)].length, 2);
   const panels = [...html.matchAll(/role="tabpanel"[^>]*>(<div data-component="(\w+)")/g)].map((m) => m[2]);
   assert.deepEqual(panels, ['TableSheet', 'Battlemap', 'LiveSoundbox']);

@@ -48,7 +48,8 @@ function framed(screen: Screen, frame: Frame): string {
   const buttons = tabs
     .map(({ tab, index }, at) => {
       const opens = tab.opens ? ` data-opens="${escape(tab.opens)}"` : '';
-      return `<button type="button" role="tab" id="${id('tab', index)}" aria-controls="${id('panel', index)}" aria-selected="${at === 0}"${opens}>${escape(tab.label)}</button>`;
+      const sets = tab.sets ? ` data-sets="${escape(`${tab.sets.context}:${tab.sets.from}`)}"` : '';
+      return `<button type="button" role="tab" id="${id('tab', index)}" aria-controls="${id('panel', index)}" aria-selected="${at === 0}"${opens}${sets}>${escape(tab.label)}</button>`;
     })
     .join('');
   const panels = tabs
