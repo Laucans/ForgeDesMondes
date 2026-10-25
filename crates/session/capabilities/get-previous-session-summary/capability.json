@@ -1,0 +1,10 @@
+{
+  "capability": "session.getPreviousSessionSummary",
+  "system": "session",
+  "version": "1.0.0",
+  "description": "What happened last time, for the DM who prepares a session: the closed session before the one given (the given one itself when it is closed) — its id, order (the session number), title and date — with the summary generated at its closing and summaryMeta, one line saying which model wrote it and when it was edited (null while there is no summary). Only a session in status closed has one (SessionLifecycle@1). A campaign with no closed session yet has no summary: session, summary and summaryMeta are null, never an error. The journal lines are another read. mentions and threads are always empty: no table keeps them.",
+  "implements": "SessionLifecycle@1",
+  "input": { "session": "string" },
+  "output": "{ session: { id: string, order: number, title: string, date: string | null } | null, summary: string | null, summaryMeta: string | null, mentions: { id: string, type: string, name: string }[], threads: string[] }",
+  "reads": ["queries/getPreviousSessionSummary.graphql"]
+}

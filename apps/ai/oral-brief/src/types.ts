@@ -62,4 +62,11 @@ export interface Timing {
 export interface Dictation {
   /** The text heard since the last call — only the new part, never the whole dictation again; '' when there is none. */
   transcript(): string;
+  /** Begins a take, when the host records one; a host that only hears words has nothing to start. */
+  start?(): void;
+  /**
+   * The audio recorded since the last call, base64, or '' when there is none; ending the take in progress.
+   * Only a dictation that gave no text is sent as audio (`dictation`): the port transcribes it, the audio goes no further.
+   */
+  audio(): string | Promise<string>;
 }

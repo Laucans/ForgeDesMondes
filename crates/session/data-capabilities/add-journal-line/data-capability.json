@@ -1,0 +1,25 @@
+{
+  "dataCapability": "session.addJournalLine",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "update",
+  "target": {
+    "aggregate": "Session"
+  },
+  "touches": [
+    "Session.sessionJournalLineId",
+    "Session.spokenAt",
+    "Session.text"
+  ],
+  "payload": {
+    "text": "string — a phrase the local transcription heard while the session's microphone runs, kept as the journal's next line, dated by the engine's clock; never blank. The session is the command's target: it must be live with its microphone on (a closed one takes no more lines, status-lifecycle)"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "status-lifecycle",
+    "text-only-no-audio"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

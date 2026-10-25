@@ -1,8 +1,8 @@
 // What the board knows, with no DOM: the answers of the Capabilities, the
 // order of the scenes, the commands a click becomes.
 
-import { DATA_CAPABILITY_VERSION } from './ids.ts';
-import type { Board, Character, Instance, Media, Medias, Scene, Session } from './types.ts';
+import { APPROVER, DATA_CAPABILITY_VERSION } from './ids.ts';
+import type { Board, Character, Entity, Instance, Media, Medias, Scene, Session } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
@@ -49,6 +49,13 @@ export function parseCharacters(data: unknown): Character[] {
     .map((character): Character => ({ id: text(character.id), name: text(character.name) || text(character.id), kind: character.kind === 'pj' ? 'pj' : 'pnj' }));
 }
 
+/** The places or the events of the campaign: an id, and the name a scene shows for it (the id when the answer gives none). */
+export function parseEntities(data: unknown): Entity[] {
+  return records(data)
+    .filter((entity) => text(entity.id) !== '')
+    .map((entity): Entity => ({ id: text(entity.id), name: text(entity.name) || text(entity.id) }));
+}
+
 const medias = (value: unknown): Media[] =>
   records(value)
     .filter((media) => text(media.id) !== '')
@@ -66,8 +73,17 @@ export function parseInstance(data: unknown): Instance | null {
   return { id: text(data.id), battlemap: text(data.battlemap), tokens: tokens.length, hidden: tokens.filter((token) => token.visible === false).length };
 }
 
-/** The Capabilities' variables: the session of the screen's context, when the screen has set one. */
-export const sessionVariables = (session: string | undefined): Record<string, unknown> => (session ? { session } : {});
+/** The campaign the Capabilities are read for: the one session.getSession gives, else the `campaign` prop; null when neither names one. */
+export const campaignAsked = (fromSession: string | null, prop: unknown): string | null => {
+  if (fromSession !== null && fromSession !== '') return fromSession;
+  return typeof prop === 'string' && prop !== '' ? prop : null;
+};
+
+/** The session the board is for: its `session` prop, else the screen's context value; '' when neither names one. */
+export const sessionAsked = (prop: unknown, context: unknown): string => {
+  if (typeof prop === 'string' && prop !== '') return prop;
+  return typeof context === 'string' ? context : '';
+};
 
 // present-only-pj: a PC of the session's campaign is the only one that can be ticked.
 export const pcs = (board: Pick<Board, 'characters'>): Character[] => board.characters.filter((character) => character.kind === 'pj');
@@ -79,7 +95,7 @@ export const presentPcs = (board: Pick<Board, 'characters' | 'session'>): Charac
 /** The PCs of the campaign still to tick. */
 export const absentPcs = (board: Pick<Board, 'characters' | 'session'>): Character[] => pcs(board).filter((character) => !board.session.present.includes(character.id));
 
-/** The scene ids with the scene `id` moved by `delta` places; null when it cannot move that way. */
+/** scene-order-contiguous: every scene id once, in the order they play (the server ranks them 1 to n); the scene `id` moved by `delta` places, null when it cannot move that way. */
 export function moved(scenes: readonly Scene[], id: string, delta: number): string[] | null {
   const from = scenes.findIndex((scene) => scene.id === id);
   const to = from + delta;
@@ -89,9 +105,6 @@ export function moved(scenes: readonly Scene[], id: string, delta: number): stri
   return order;
 }
 
-/** scene-order-contiguous: every scene gets its rank again, from 1 to n. */
-export const ranks = (order: readonly string[]): Array<{ scene: string; rank: number }> => order.map((scene, index) => ({ scene, rank: index + 1 }));
-
 /** `POST /commands` for one DataCapability, by identifier. */
 export function commandBody(dataCapability: string, payload: Record<string, unknown>, target: { aggregate: string; id: string }, idempotencyKey?: string): unknown {
   return {
@@ -99,7 +112,7 @@ export function commandBody(dataCapability: string, payload: Record<string, unkn
     payload,
     target,
     ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-    caller: { by: 'dm', from: 'SceneBoard', roles: [] },
+    caller: { by: 'dm', from: 'SceneBoard', roles: [APPROVER] },
   };
 }
 
