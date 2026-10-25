@@ -20,7 +20,8 @@ use ports_speech_to_text::SharedSpeechToText;
 use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Value, json};
 use server::{
-    Config, Names, app, fixtures, held_instances, id as uuid_of, plant, renaming, shared,
+    Config, Names, app, fixtures, held_instances, held_versions, id as uuid_of, plant, renaming,
+    shared,
 };
 use tower::ServiceExt;
 
@@ -573,6 +574,79 @@ async fn an_instance_the_dm_made_on_a_scene_is_left_alone_by_the_load() {
         .expect("a count");
     assert_eq!(row.get::<_, i64>(0), 1, "one instance on the scene");
     assert_eq!(row.get::<_, i64>(1), 0, "no token of the fixture's");
+    drop(client);
+    admin
+        .batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+        .await
+        .expect("the scratch database is dropped");
+}
+
+#[tokio::test]
+async fn an_element_the_app_already_versioned_keeps_its_versions_through_the_load() {
+    let name = format!("fixture_app_versions_{}", std::process::id());
+    let admin = connect(&url()).await;
+    for sql in [
+        format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
+        format!("CREATE DATABASE {name}"),
+    ] {
+        admin.batch_execute(&sql).await.expect("a scratch database");
+    }
+    let mut client = connect(&named(&name)).await;
+    let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/migrations");
+    data::migrate(&mut client, &migrations)
+        .await
+        .expect("migrated");
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+    let (morlox, elowen) = (uuid_of("entity", "morlox"), uuid_of("entity", "elowen"));
+    // The app wrote Morlox: its first version is under a random id, and it has no other.
+    let mut first = fixtures(&folder).expect("the fixtures");
+    for table in first
+        .tables
+        .iter_mut()
+        .filter(|t| t.name == "entity_version")
+    {
+        table
+            .rows
+            .retain(|row| row["entity_id"] != json!(morlox) || row["version_number"] == json!(1));
+        for row in &mut table.rows {
+            if row["entity_id"] == json!(morlox) {
+                row["id"] = json!("a99a0000-0000-4000-8000-000000000001");
+            }
+        }
+    }
+    data::insert_missing(&mut client, &first.tables)
+        .await
+        .expect("the store as the app left it");
+    // The restart plans Morlox's four versions: the second would be refused by the
+    // version trigger, and with it the whole load.
+    let unguarded = fixtures(&folder).expect("the fixtures");
+    assert!(
+        data::insert_missing(&mut client, &unguarded.tables)
+            .await
+            .is_err(),
+        "the trigger refuses a second version beside the app's first"
+    );
+    let mut again = fixtures(&folder).expect("the fixtures");
+    let held = held_versions(&client).await.expect("the versions held");
+    again.leave_out_taken_versions(&held);
+    data::insert_missing(&mut client, &again.tables)
+        .await
+        .expect("the load goes through, Morlox left alone");
+    let count = |entity: String| {
+        let client = &client;
+        async move {
+            client
+                .query_one(
+                    &format!("SELECT count(*) FROM entity_version WHERE entity_id = '{entity}'"),
+                    &[],
+                )
+                .await
+                .expect("a count")
+                .get::<_, i64>(0)
+        }
+    };
+    assert_eq!(count(morlox).await, 1, "the app's version alone");
+    assert_eq!(count(elowen).await, 3, "the history of the others");
     drop(client);
     admin
         .batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))

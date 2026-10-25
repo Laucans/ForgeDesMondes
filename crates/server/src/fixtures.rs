@@ -26,7 +26,13 @@
 //! comes to a `source`: an import and the DM's hand are `dm`, a brief is
 //! `brief`, the rest of the AI's work `ia`, a resync `dndbeyond` — and the
 //! first version is always the DM's, a creation being no resync. The elements
-//! with no history have the one version they always had. The versions go in
+//! with no history have the one version they always had. A version whose
+//! changes go beyond what its source may change (a resync's stats, a
+//! proposal's sheet fields: the version trigger's scopes) skips the file
+//! whole. An element the store already versioned otherwise (the app's own
+//! versions, or the lone first version of an earlier load) keeps what it has:
+//! [`Fixtures::leave_out_taken_versions`] drops the fixture's versions of it
+//! before the load, the trigger taking only the next number. The versions go in
 //! by round, every first version before any second: a version must be the
 //! next of its element, and one statement inserts its rows in no order.
 //! `campaign.getEntity.json` and the three lists repeat `entities.json`.
@@ -419,6 +425,70 @@ impl Fixtures {
         );
     }
 
+    /// Leaves out the versions planned for an element whose store already
+    /// holds versions other than the planned ones (the app's own, under
+    /// random ids, or the lone first version of an earlier load): the version
+    /// trigger takes only the next number of an element, so a planned second
+    /// version would be refused and roll the whole load back. An element the
+    /// store holds none of, or exactly the planned ones (a restart), is left
+    /// alone. `held` is the `(element id, version id)` of every version of the
+    /// store, see [`held_versions`].
+    pub fn leave_out_taken_versions(&mut self, held: &[(String, String)]) {
+        let mut planned: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for table in self.tables.iter().filter(|t| t.name == "entity_version") {
+            for row in &table.rows {
+                if let (Some(entity), Some(version)) =
+                    (row["entity_id"].as_str(), row["id"].as_str())
+                {
+                    planned
+                        .entry(entity.to_string())
+                        .or_default()
+                        .insert(version.to_string());
+                }
+            }
+        }
+        let mut stored: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        for (entity, version) in held {
+            stored.entry(entity).or_default().insert(version);
+        }
+        let taken: BTreeSet<String> = planned
+            .iter()
+            .filter(|(entity, versions)| {
+                stored.get(entity.as_str()).is_some_and(|held| {
+                    held.len() != versions.len()
+                        || !versions.iter().all(|v| held.contains(v.as_str()))
+                })
+            })
+            .map(|(entity, _)| entity.clone())
+            .collect();
+        if taken.is_empty() {
+            return;
+        }
+        let mut left = BTreeSet::new();
+        for table in self
+            .tables
+            .iter_mut()
+            .filter(|t| t.name == "entity_version")
+        {
+            table.rows.retain(|row| {
+                let gone = row["entity_id"]
+                    .as_str()
+                    .is_some_and(|entity| taken.contains(entity));
+                if gone && let Some(version) = row["id"].as_str() {
+                    left.insert(version.to_string());
+                }
+                !gone
+            });
+        }
+        self.skipped.push((
+            HISTORY_FILE.to_string(),
+            format!(
+                "{} element(s) keep the versions the store already holds",
+                taken.len()
+            ),
+        ));
+    }
+
     fn withdraw_with(&mut self, file: &str, why: &str) {
         self.loaded.retain(|name| name != file);
         self.skipped.push((file.to_string(), why.to_string()));
@@ -436,6 +506,19 @@ pub async fn held_instances(client: &data::Client) -> Result<Vec<(String, String
             "SELECT id::text, scene_id::text FROM battlemap_instance",
             &[],
         )
+        .await
+        .map_err(data::Error::Database)?;
+    Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
+}
+
+/// The `(element id, version id)` of every entity version the store holds.
+///
+/// # Errors
+///
+/// [`data::Error::Database`] when the query fails.
+pub async fn held_versions(client: &data::Client) -> Result<Vec<(String, String)>, data::Error> {
+    let rows = client
+        .query("SELECT entity_id::text, id::text FROM entity_version", &[])
         .await
         .map_err(data::Error::Database)?;
     Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
@@ -469,7 +552,7 @@ struct Read {
     history: Option<History>,
     /// The version rows of each element `history` gives a history, by slug,
     /// made once the elements are known ([`Read::history_fits`]).
-    versions: BTreeMap<String, Vec<Value>>,
+    versions: BTreeMap<String, Vec<(u64, Value)>>,
     library: Option<Library>,
     sessions: Option<Sessions>,
     board: Option<Board>,
@@ -1337,13 +1420,8 @@ impl Read {
             // A version must be the next of its element, and a table goes in
             // by one statement, whose rows come in no order: the Nth versions
             // of the elements go in together, the first before the second.
-            let mut rounds: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
-            for version in rows.versions {
-                let number = version["version_number"].as_u64().unwrap_or_default();
-                rounds.entry(number).or_default().push(version);
-            }
             tables.extend(
-                rounds
+                rows.versions
                     .into_values()
                     .map(|round| table("entity_version", "id", VERSION, round)),
             );
@@ -1530,7 +1608,8 @@ struct Rows {
     entities: Vec<Value>,
     characters: Vec<Value>,
     aliases: Vec<Value>,
-    versions: Vec<Value>,
+    /// The version rows by number: the rounds they go in.
+    versions: BTreeMap<u64, Vec<Value>>,
 }
 
 impl Rows {
@@ -1543,7 +1622,7 @@ impl Rows {
         campaign: &str,
         index: usize,
         element: &Element,
-        history: Option<&Vec<Value>>,
+        history: Option<&Vec<(u64, Value)>>,
     ) {
         let entity = id("entity", &element.slug);
         let at = stamp(FIRST, index);
@@ -1561,8 +1640,12 @@ impl Rows {
         let (snapshot, sheet) = state_of(element, &entity);
         self.characters.extend(sheet.map(Value::Object));
         match history {
-            Some(versions) => self.versions.extend(versions.iter().cloned()),
-            None => self.versions.push(version_row(
+            Some(versions) => {
+                for (number, row) in versions {
+                    self.versions.entry(*number).or_default().push(row.clone());
+                }
+            }
+            None => self.versions.entry(1).or_default().push(version_row(
                 &element.slug,
                 &entity,
                 1,
@@ -1671,7 +1754,7 @@ fn revision_of(slug: &str, value: &Value) -> Result<Revision, String> {
 }
 
 /// The version rows of `element`, one per revision, oldest first.
-fn history_rows(element: &Element, revisions: &[Revision]) -> Result<Vec<Value>, String> {
+fn history_rows(element: &Element, revisions: &[Revision]) -> Result<Vec<(u64, Value)>, String> {
     let entity = id("entity", &element.slug);
     let (current, _) = state_of(element, &entity);
     // Newest first: each state is the one after it with its changes put back.
@@ -1689,7 +1772,7 @@ fn history_rows(element: &Element, revisions: &[Revision]) -> Result<Vec<Value>,
     let mut before = Map::new();
     let mut rows = Vec::new();
     for (revision, snapshot) in revisions.iter().zip(&states) {
-        rows.push(version_row(
+        let row = version_row(
             &element.slug,
             &entity,
             revision.number,
@@ -1697,10 +1780,69 @@ fn history_rows(element: &Element, revisions: &[Revision]) -> Result<Vec<Value>,
             &revision.at,
             &before,
             snapshot,
-        ));
+        );
+        in_scope(revision, &row)
+            .map_err(|why| format!("version {} of {}: {why}", revision.number, element.slug))?;
+        rows.push((revision.number, row));
         before = snapshot.clone();
     }
     Ok(rows)
+}
+
+/// The fields a D&D Beyond resync (not the first version) may change, as the
+/// version trigger of `0013_entity_dndbeyond_creation.sql` allows them.
+const RESYNC_SCOPE: &[&str] = &[
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "wisdom",
+    "charisma",
+    "armorClass",
+    "hpMax",
+    "spells",
+    "actions",
+    "dndbeyondId",
+    "dndbeyondSyncedAt",
+    "updatedAt",
+];
+
+/// The fields an AI proposal may change, as the same trigger allows them.
+const PROPOSAL_SCOPE: &[&str] = &[
+    "background",
+    "behavior",
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "wisdom",
+    "charisma",
+    "armorClass",
+    "hpMax",
+    "actions",
+    "initialPrompt",
+    "updatedAt",
+];
+
+/// Whether the diff of `row` stays within what its `source` may change: the
+/// database refuses a version that does not, and the whole load with it.
+fn in_scope(revision: &Revision, row: &Value) -> Result<(), String> {
+    let scope = match revision.source {
+        "dndbeyond" if revision.number > 1 => RESYNC_SCOPE,
+        "ia" => PROPOSAL_SCOPE,
+        _ => return Ok(()),
+    };
+    let changes = row["diff"].as_array().into_iter().flatten();
+    match changes
+        .filter_map(|change| change["field"].as_str())
+        .find(|field| !scope.contains(field))
+    {
+        Some(field) => Err(format!(
+            "a version of origin {:?} cannot change {field}",
+            revision.source
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Puts back in `state` what the screen's field `label` held before a
@@ -3055,6 +3197,70 @@ mod tests {
             "no sheet",
         );
         hurt(json!(["pc"]), "not an object");
+    }
+
+    #[test]
+    fn a_version_beyond_the_scope_of_its_source_skips_the_history_whole() {
+        // The database refuses it, and the whole load with it: it is skipped here.
+        for (origin, field, change) in [
+            ("ia", "Notes", "notes"),
+            ("dndbeyond", "Background", "background"),
+        ] {
+            let history = json!({ "pc": account("Pc", &[
+                version(2, origin, "x", &json!([{ "field": field, "old": "", "new": "d" }])),
+                created()]) });
+            let plan = small(&history);
+            assert!(!plan.loaded.contains(&HISTORY_FILE.to_string()), "{origin}");
+            assert!(
+                plan.skipped
+                    .iter()
+                    .any(|(file, why)| file == HISTORY_FILE && why.contains(change)),
+                "{origin}: {:?}",
+                plan.skipped
+            );
+            assert_eq!(rows(&plan, "entity_version").len(), 2, "{origin}");
+        }
+    }
+
+    #[test]
+    fn an_element_the_store_versioned_itself_keeps_its_versions_only() {
+        let (morlox, elowen) = (id("entity", "morlox"), id("entity", "elowen"));
+        let version_of = |slug: &str, n: u64| id("entity_version", &format!("{slug}:{n}"));
+        let planned = |plan: &Fixtures| -> usize { rows(plan, "entity_version").len() };
+        let all = |slug: &str, n: u64| -> Vec<(String, String)> {
+            (1..=n)
+                .map(|v| (id("entity", slug), version_of(slug, v)))
+                .collect()
+        };
+        // Nothing held, or exactly the planned versions (a restart): planned as is.
+        for held in [vec![], [all("morlox", 4), all("elowen", 3)].concat()] {
+            let mut plan = mock();
+            plan.leave_out_taken_versions(&held);
+            assert_eq!(plan, mock(), "{held:?}");
+        }
+        // The app's own version under a random id, or only the first of an
+        // earlier load: the element's versions are left out, the others' stay.
+        for held in [
+            vec![(morlox.clone(), "app-written".to_string())],
+            vec![(morlox.clone(), version_of("morlox", 1))],
+        ] {
+            let mut plan = mock();
+            plan.leave_out_taken_versions(&held);
+            assert_eq!(planned(&plan), 16 + 2 + 1 - 1, "{held:?}");
+            assert!(
+                history_of(&plan, "morlox").is_empty(),
+                "{held:?}: Morlox keeps the store's"
+            );
+            assert_eq!(history_of(&plan, "elowen").len(), 3);
+            assert!(
+                plan.skipped
+                    .iter()
+                    .any(|(file, why)| file == HISTORY_FILE && why.contains("1 element(s)")),
+                "{:?}",
+                plan.skipped
+            );
+        }
+        assert_ne!(morlox, elowen);
     }
 
     #[test]
