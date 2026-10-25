@@ -749,6 +749,14 @@
         return left === right;
     }
   }
+  function undeclaredKeys(manifest, payload) {
+    const declared = Object.keys(manifest && manifest.payload || {});
+    if (!declared.length) return [];
+    const id = manifest.target && typeof manifest.target.id === "string" ? manifest.target.id.replace(/^\$+/, "") : null;
+    const declares = (key) => declared.some((d) => d === key || d.startsWith(key) && d[key.length] === ".");
+    return Object.keys(payload || {}).filter((key) => key !== id && !declares(key)).sort();
+  }
+  var undeclaredWarning = (keys, dataCapability) => `payload key(s) ${keys.join(", ")} not declared by ${dataCapability}`;
   function mockServer() {
     if (window.__mockServer) return window.__mockServer;
     const s = { dataVersion: 1, fixtures: /* @__PURE__ */ new Map(), listeners: /* @__PURE__ */ new Set(), commands: /* @__PURE__ */ new Map(), queue: /* @__PURE__ */ new Map(), messages: [], tick: 1e3, parkAfterMs: 3e4 };
@@ -806,9 +814,25 @@
     };
     s.uuid = uuid;
     s.next = () => s.tick++;
+    s.productFiles = /* @__PURE__ */ new Map();
+    s.product = (path) => {
+      if (!s.productFiles.has(path)) {
+        const at = (base) => fetch(new URL(base + path, location.href)).then((r) => r.ok ? r.json() : void 0).catch(() => void 0);
+        s.productFiles.set(path, at("../__product/").then((found) => found === void 0 ? at("../../") : found));
+      }
+      return s.productFiles.get(path);
+    };
+    s.manifests = async () => {
+      const index = await s.product("data-capabilities.json");
+      if (index && !s.manifestsSaid) {
+        s.manifestsSaid = true;
+        for (const problem of index.problems || []) console.error(`mock server: ${problem}`);
+      }
+      return index && index.manifests || {};
+    };
+    s.undeclared = [];
     s.planned = async (id) => {
-      if (!s.graph) s.graph = fetch(new URL("../../plan/graph.json", location.href)).then((r) => r.ok ? r.json() : void 0).catch(() => void 0);
-      const graph = await s.graph;
+      const graph = await s.product("plan/graph.json");
       const entry2 = graph && graph.ids && graph.ids[id];
       return Boolean(entry2 && entry2.kind === "data-capability" && entry2.producer != null);
     };
@@ -855,7 +879,7 @@
     };
     s.confirmed = /* @__PURE__ */ new Map();
     const resultOf = (entry2) => ({ commandId: entry2.commandId, status: entry2.state, dataVersion: entry2.dataVersion || null, violations: entry2.violations || [], reviewId: entry2.reviewId || null });
-    const answer = (entry2, replayed = false) => json({ commandId: entry2.commandId, partition: entry2.partition, replayed, warnings: entry2.warnings || [], result: resultOf(entry2) }, 202);
+    const answer = (entry2, replayed = false) => json({ commandId: entry2.commandId, partition: entry2.partition, replayed, warnings: replayed ? [] : entry2.warnings || [], result: resultOf(entry2) }, 202);
     const drive = async () => {
       for (const partition of new Set([...s.queue.values()].filter((e) => !FINAL.has(e.state)).map((e) => e.partition))) {
         for (; ; ) {
@@ -917,14 +941,25 @@
       const entry2 = { commandId, dataCapability, version: Number(version) || 1, aggregate, partition, targetId, by, payload, basedOn: body.basedOn, idempotencyKey: body.idempotencyKey, handler, position: s.next(), state: "queued", warnings: [] };
       s.queue.set(commandId, entry2);
       s.commands.set(commandId, entry2);
+      const known = (await s.manifests())[dataCapability];
+      const keys = known ? undeclaredKeys(known.manifest, payload) : [];
+      const warnUndeclared = () => {
+        if (!keys.length) return;
+        const warning = undeclaredWarning(keys, dataCapability);
+        entry2.warnings.push(warning);
+        s.undeclared.push({ commandId, dataCapability, keys, manifest: known.path, warning });
+        console.error(`mock server: ${warning} (${known.path}) \u2014 the real server accepts it with this warning and the journeys fail on it: send only what the manifest's payload declares`);
+      };
       if (!handler && await s.planned(dataCapability)) {
         entry2.state = "applied";
         entry2.warnings.push(`mocked-data-capability: ${dataCapability} is planned, not built`);
+        warnUndeclared();
         s.tell("CommandApplied", by, commandId, { mocked: true });
         s.bump();
         return answer(entry2);
       }
       if (!handler) {
+        warnUndeclared();
         entry2.state = "rejected";
         entry2.violations = ["unhandled-data-capability"];
         s.tell("CommandRejected", by, commandId, { violations: entry2.violations, reason: `${dataCapability} has no handler: write mock/handlers/${dataCapability}.js` });
@@ -935,6 +970,7 @@
         entry2.warnings.push(`invariant(s) at risk: ${verdict.reject.concat(verdict.review).join(", ")}`);
         s.tell("InvariantAtRisk", by, commandId, { violations: verdict.reject.concat(verdict.review) });
       }
+      warnUndeclared();
       const needsReview = verdict.review.length > 0 || Object.keys(payload).some((f) => declared[f] && declared[f].criticality === "critical");
       const merging = new Set(Object.keys(declared).filter((f) => declared[f].merge));
       const ahead = declaredAhead(entry2, merging);
