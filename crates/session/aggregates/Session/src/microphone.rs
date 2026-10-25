@@ -9,6 +9,10 @@
 //!
 //! - `started_at` is stamped once: a session that has its start keeps it,
 //!   whatever a later write says.
+//! - A write that leaves the session closed is its close, which
+//!   `session.closeSession`'s projection lands whole — status, close,
+//!   microphone off, summary, playbacks stopped — on a row it finds still
+//!   live: this writes nothing of it, whichever projection runs first.
 //! - Any other row of the aggregate — a scene's, an order's, a presence's, an
 //!   entry « à créer » — carries none of the three, and a tombstone, or a
 //!   session the tables do not hold, writes nothing: the command is not
@@ -30,10 +34,10 @@ use harness_dataguard::store::Write;
 use harness_dataguard::tokio_postgres::{Client, Transaction};
 use serde_json::Value;
 
-use crate::rank;
 use crate::scenes::judged;
 use crate::sessions::{MICROPHONE_ON, SESSION_STATUS};
 use crate::uuid;
+use crate::{CLOSED, rank};
 
 /// When a session went live: in milliseconds since the epoch, or as the
 /// timestamp text a DataCapability stamps.
@@ -60,15 +64,20 @@ const HELD: &str = "SELECT status FROM session WHERE id = $1::text::uuid FOR UPD
 /// none.
 const MIGRATED: &str = "SELECT to_regclass('session') IS NOT NULL";
 
-/// The session `$1` as its row holds it, under the aggregate's fields, unless
-/// the engine keeps a tombstone for it: what the judges ask of a session the
-/// engine never wrote.
+/// The session `$1` as its row holds it, every column under the aggregate's
+/// field, unless the engine keeps a tombstone for it: what the judges and the
+/// `Prepare`s ask of a session the engine never wrote. The engine takes the
+/// first projection's hydrate that knows the row, so this one names the whole
+/// row — its title included, which a close's summary is headed with.
 const SESSION_ROW: &str = "SELECT jsonb_strip_nulls(jsonb_build_object(
         'sessionId', s.id, 'sessionCampaignId', s.campaign_id,
+        'sessionPosition', s.position, 'sessionTitle', s.title,
+        'plannedOn', s.planned_on,
         'sessionStatus', s.status, 'microphoneOn', s.microphone_on,
         'startedAt', floor(extract(epoch FROM s.started_at) * 1000)::int8,
         'closedAt', floor(extract(epoch FROM s.closed_at) * 1000)::int8,
-        'summary', s.summary, 'summaryModel', s.summary_model
+        'summary', s.summary, 'summaryModel', s.summary_model,
+        'summaryEditedAt', floor(extract(epoch FROM s.summary_edited_at) * 1000)::int8
     ))::text
     FROM session s
     WHERE s.id = $1::text::uuid
@@ -82,13 +91,18 @@ pub struct Microphone;
 #[async_trait]
 impl ProjectPg for Microphone {
     /// The status, the start and the microphone a write of a session
-    /// carries. A tombstone, a row that is no session's, or a session the
-    /// tables do not hold writes nothing.
+    /// carries. A tombstone, a row that is no session's, a session the
+    /// tables do not hold, or a close writes nothing.
     async fn project(&self, write: &Write, tx: &Transaction<'_>) -> Result<(), ProjectionError> {
         let Some(session) = session_id(&write.partition).filter(|_| !write.tombstone) else {
             return Ok(());
         };
         let status = write.values.get(SESSION_STATUS).and_then(Value::as_str);
+        // The close is the close's projection to land: moved here first, the
+        // row would no longer be live when it looks for it.
+        if status == Some(CLOSED) {
+            return Ok(());
+        }
         let microphone = write.values.get(MICROPHONE_ON).and_then(Value::as_bool);
         let started = write.values.get(STARTED_AT);
         let (millis, text) = (
@@ -179,9 +193,13 @@ mod tests {
             SESSION_STATUS,
             MICROPHONE_ON,
             STARTED_AT,
+            "sessionPosition",
+            "sessionTitle",
+            "plannedOn",
             "closedAt",
             "summary",
             "summaryModel",
+            "summaryEditedAt",
         ] {
             assert!(aggregate["fields"][field].is_object(), "{field}");
             assert!(SESSION_ROW.contains(&format!("'{field}'")), "{field}");

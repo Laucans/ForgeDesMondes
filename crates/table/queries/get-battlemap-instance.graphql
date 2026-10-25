@@ -1,9 +1,10 @@
-# fields: battlemapInstance.id, battlemapInstance.battlemapMediaId, battlemapInstance.sessionId, battlemapInstance.sceneId, token.id, token.characterId, token.number, token.name, token.q, token.r, token.visible, token.hpCurrent, token.hpMax, token.conditions, entity.type, character.tokenColor, character.portraitMediaId, character.tokenCrop, combat.id, combat.round, combat.currentEntryId, combat.endedAt, initiativeEntry.id, initiativeEntry.tokenId, initiativeEntry.initiative, initiativeOrderView.entryId, initiativeOrderView.orderIndex, initiativeOrderView.shownToPlayers, initiativeOrderView.skipped
+# fields: battlemapInstance.id, battlemapInstance.battlemapMediaId, battlemapInstance.sessionId, battlemapInstance.sceneId, token.id, token.characterId, token.number, token.name, token.q, token.r, token.visible, token.hpCurrent, token.hpMax, token.conditions, entity.type, character.tokenColor, character.portraitMediaId, character.tokenCrop, combat.id, combat.round, combat.currentEntryId, combat.endedAt, initiativeEntry.id, initiativeEntry.tokenId, initiativeEntry.initiative, initiativeOrderView.entryId, initiativeOrderView.orderIndex, initiativeOrderView.shownToPlayers, initiativeOrderView.skipped, sessionPresentCharacter.sessionId, sessionPresentCharacter.characterId, sessionPresentCharacter.addedAt
 # The battlemap screens' read: one instance of a battlemap, its tokens with the
-# sheet each stands for (kind, token colour, portrait and crop), and its open
-# combat with the carousel's order. The band, the death and the initial are not
-# read: they are derived from the hit points and the name (HealthBand@1,
-# dead-derived). The Capability keeps what the view it is asked for may show
+# sheet each stands for (kind, token colour, portrait and crop), its open
+# combat with the carousel's order, and the PCs ticked present at its session,
+# in the order they were ticked — the characters it proposes (present-only-pj).
+# The band, the death and the initial are not read: they are derived from the
+# hit points and the name (HealthBand@1, dead-derived). The Capability keeps what the view it is asked for may show
 # (crates/table/capabilities/get-battlemap-instance).
 query GetBattlemapInstance($instance: ID!) {
   battlemapInstance(id: $instance) {
@@ -11,6 +12,12 @@ query GetBattlemapInstance($instance: ID!) {
     battlemapMediaId
     sessionId
     sceneId
+    session {
+      presentCharacters {
+        characterId
+        addedAt
+      }
+    }
     tokens {
       id
       characterId

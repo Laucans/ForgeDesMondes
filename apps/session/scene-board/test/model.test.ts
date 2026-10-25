@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { absentPcs, commandBody, moved, parseCharacters, parseInstance, parseScenes, parseSession, presentPcs, ranks, reasons, settled } from '../src/model.ts';
+import { absentPcs, campaignAsked, commandBody, moved, parseCharacters, parseEntities, parseInstance, parseScenes, parseSession, presentPcs, reasons, sessionAsked, settled } from '../src/model.ts';
 import type { Scene } from '../src/types.ts';
 
 const scene = (id: string): Scene => ({ id, title: id, places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: '' });
@@ -32,8 +32,10 @@ test('moving a scene swaps it with its neighbour, and no scene leaves the list',
   assert.equal(moved(scenes, 'zz', 1), null);
 });
 
-test('scene-order-contiguous: a reorder gives every scene its rank, from 1 to n', () => {
-  assert.deepEqual(ranks(['c', 'a', 'b']), [{ scene: 'c', rank: 1 }, { scene: 'a', rank: 2 }, { scene: 'b', rank: 3 }]);
+test('scene-order-contiguous: a reorder is every scene id once, in play order, never a rank', () => {
+  const order = moved(['a', 'b', 'c'].map(scene), 'c', -2);
+  assert.deepEqual(order, ['c', 'a', 'b']);
+  assert.ok(order?.every((id) => typeof id === 'string'));
 });
 
 test('an instance counts its tokens and the hidden ones', () => {
@@ -48,7 +50,37 @@ test('a command names its DataCapability and its version, and keeps its idempote
   assert.equal((commandBody('x.y', {}, { aggregate: 'A', id: 'i' }, 'k') as Record<string, unknown>).idempotencyKey, 'k');
 });
 
+test('a command is the DM\'s as approver of the Session\'s critical fields, so it applies instead of waiting in review', () => {
+  const body = commandBody('session.addScene', {}, { aggregate: 'Session', id: 's' }) as { caller: unknown };
+  assert.deepEqual(body.caller, { by: 'dm', from: 'SceneBoard', roles: ['role:approver'] });
+});
+
 test('a rejection is told in words, an unknown violation as it is', () => {
   assert.equal(reasons(['present-only-pj', 'other']), 'seul un PJ de la campagne peut être présent, other');
   assert.deepEqual(settled({ result: { status: 'rejected', violations: ['v'] } }), { status: 'rejected', violations: ['v'] });
+});
+
+test('the session asked is the prop, else the context value, else none', () => {
+  assert.equal(sessionAsked('s4', 's3'), 's4');
+  assert.equal(sessionAsked(undefined, 's3'), 's3');
+  assert.equal(sessionAsked('', 's3'), 's3');
+  assert.equal(sessionAsked(42, undefined), '');
+  assert.equal(sessionAsked(undefined, undefined), '');
+});
+
+test('the campaign asked is the session\'s, else the prop, else none', () => {
+  assert.equal(campaignAsked('c1', 'c2'), 'c1');
+  assert.equal(campaignAsked(null, 'c2'), 'c2');
+  assert.equal(campaignAsked('', 'c2'), 'c2');
+  assert.equal(campaignAsked(null, ''), null);
+  assert.equal(campaignAsked(null, 42), null);
+  assert.equal(campaignAsked(null, undefined), null);
+});
+
+test('places and events keep their id and name, the id standing in for a missing name; an answer without id is dropped', () => {
+  assert.deepEqual(parseEntities([{ id: 'p1', name: 'La Taverne' }, { id: 'p2' }, { name: 'sans id' }, 'x']), [
+    { id: 'p1', name: 'La Taverne' },
+    { id: 'p2', name: 'p2' },
+  ]);
+  assert.deepEqual(parseEntities(undefined), []);
 });

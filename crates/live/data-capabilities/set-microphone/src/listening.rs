@@ -1,9 +1,11 @@
 //! The microphone's streams: one task per session whose microphone is on.
 //!
 //! [`Listening`] is what the server shares with the unit. It opens the
-//! speech-to-text port's stream with the campaign's vocabulary, reads each
-//! phrase heard against it ([`Vocabulary::detect`]) and submits one
-//! `live.addSuggestion` per target named — through the DataGuard, whose
+//! speech-to-text port's stream with the campaign's vocabulary; each phrase
+//! heard becomes the next line of the session's journal (one
+//! `session.addJournalLine`, its text only), then is read against the
+//! vocabulary ([`Vocabulary::detect`]) and one `live.addSuggestion` is
+//! submitted per target named — through the DataGuard, whose
 //! `Prepare` reads the session before it writes (live, microphone on, the
 //! target of its campaign) and whose judge keeps the Suggestion's
 //! invariants. The task's `JoinHandle` is kept: the microphone turned off,
@@ -33,10 +35,14 @@ use crate::detect::{Detection, Kind, Vocabulary};
 /// The DataCapability that records a suggestion.
 const ADD_SUGGESTION: &str = "live.addSuggestion";
 
+/// The DataCapability that adds a phrase heard to the session's journal.
+const ADD_JOURNAL_LINE: &str = "session.addJournalLine";
+
 /// The aggregate whose writes tell the microphone on or off.
 const SESSION: &str = "Session/";
 
-/// Where suggestions are submitted: the engine, in a run.
+/// Where the journal lines and the suggestions are submitted: the engine, in
+/// a run.
 #[async_trait]
 pub trait Submit: Send + Sync {
     /// Submits `submission`, or says why it could not be.
@@ -166,8 +172,9 @@ impl Drop for Listening {
     }
 }
 
-/// The task of a session: the port's stream, each phrase read against the
-/// vocabulary, each target named submitted as a suggestion. It ends when it
+/// The task of a session: the port's stream, each phrase a line of the
+/// session's journal, then read against the vocabulary, each target named
+/// submitted as a suggestion. It ends when it
 /// is aborted — which drops the stream, and the port's task with it — or when
 /// the stream ends by itself (the engine cannot start, fails, or stops): the
 /// row says the microphone is on while nothing listens, so the microphone is
@@ -191,6 +198,13 @@ async fn hear(session: &str, plan: &Plan, sink: &dyn Submit) -> String {
             Ok(transcript) => transcript.text,
             Err(e) => return format!("it failed: {e}"),
         };
+        if !phrase.trim().is_empty()
+            && let Err(why) = sink
+                .submit(journal_line(session, &plan.caller, &phrase))
+                .await
+        {
+            eprintln!("microphone: session {session}: {why}");
+        }
         for detection in plan.vocabulary.detect(&phrase) {
             if let Err(why) = sink
                 .submit(suggestion(session, &plan.caller, &detection))
@@ -208,6 +222,21 @@ fn turn_off(session: &str, author: &Caller) -> Submission {
     Submission {
         data_capability: DATA_CAPABILITY.to_string(),
         payload: BTreeMap::from([("on".to_string(), json!(false))]),
+        target_id: Some(session.to_string()),
+        caller: Caller {
+            from: DATA_CAPABILITY.to_string(),
+            ..author.clone()
+        },
+        ..Submission::default()
+    }
+}
+
+/// The line `phrase` adds to the journal of `session` for `author`, who
+/// turned the microphone on: the text heard, never a recording.
+fn journal_line(session: &str, author: &Caller, phrase: &str) -> Submission {
+    Submission {
+        data_capability: ADD_JOURNAL_LINE.to_string(),
+        payload: BTreeMap::from([("text".to_string(), json!(phrase))]),
         target_id: Some(session.to_string()),
         caller: Caller {
             from: DATA_CAPABILITY.to_string(),

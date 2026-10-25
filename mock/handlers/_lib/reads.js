@@ -8,6 +8,14 @@
 //   'campagne.listerPjs': async (server, { campagneId }) =>
 //     (await server.load('pjs')).filter((p) => p.campagneId === campagneId),
 
+// The session the bar closes is the one of fixtures/LiveSessionBar.json: its journal and its summary are
+// the `closing` block of that fixture, which the bar's recap reads right after the close. Any other
+// session answers its own fixture.
+export async function closedBySession(server, variables) {
+  const bar = await server.load('LiveSessionBar');
+  return bar && variables.session === bar.session.id ? bar : null;
+}
+
 export const bridged = new WeakSet();
 
 /**

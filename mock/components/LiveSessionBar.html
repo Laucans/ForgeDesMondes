@@ -3,6 +3,7 @@
     <h1 id="session-bar-title"></h1>
     <span class="small muted" id="session-bar-meta"></span>
   </div>
+  <div class="kit-badge" id="session-bar-badges" data-reads="session.getLiveSession"></div>
   <nav class="mf-live-bar__scenes" id="session-bar-scenes" aria-label="Scènes de la séance"></nav>
   <div class="mf-live-bar__broadcast" id="session-bar-broadcast" data-reads="live.getDiffusion">
     <span class="small" id="session-bar-showing"></span>
@@ -18,63 +19,14 @@
   .mf-live-bar__broadcast { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; padding: var(--space-1) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-pill); }
   .mf-live-bar__broadcast b { color: var(--color-accent); }
   .mf-live-bar__summary { display: grid; gap: var(--space-2); }
+  .mf-live-bar__error { color: var(--color-danger); }
 </style>
 <script>
+// The Micro-UI's real code (apps/session/live-session-bar), bundled by mock/build.sh: it fills this bar on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  const DEFAULT = { base: { kind: 'cover' }, window: null, view: null };
-  let data, media, maps, current = 0;
-
-  function scenes() {
-    $('#session-bar-scenes').innerHTML = data.scenes.map((s, i) => `<button type="button" class="chip${i === current ? ' is-on' : ''}" data-scene="${i}" id="session-bar-scene-${i + 1}" title="${esc(s.title)}">Scène ${s.order} · ${esc(s.title)}</button>`).join('');
-  }
-  function showing() {
-    const d = Mock.store.get('diffusion', DEFAULT);
-    const b = d.base || DEFAULT.base;
-    let what = 'la couverture de la campagne';
-    if (b.kind === 'illustration') what = '« ' + ((media.illustrations.find(i => i.id === b.id) || {}).title || b.id) + ' » (scène)';
-    if (b.kind === 'battlemap') what = 'la battlemap « ' + ((maps.find(i => i.id === b.id) || {}).title || b.id) + ' »';
-    const win = d.window ? (media.illustrations.find(i => i.id === d.window.id) || {}).title : null;
-    $('#session-bar-showing').innerHTML = `Les joueurs voient <b>${esc(what)}</b>` + (win ? ` + fenêtre <b>« ${esc(win)} »</b>` : '');
-    $('#session-bar-broadcast-actions').innerHTML = Mock.kitHTML('Button', { small: true, items: [].concat(b.kind !== 'cover' ? [{ id: 'session-bar-cover', label: 'Revenir à la couverture', variant: 'ghost', 'data-writes': 'live.showCover' }] : [], win ? [{ id: 'session-bar-close-window', label: 'Fermer la fenêtre', variant: 'ghost', 'data-writes': 'live.closeWindow' }] : []) });
-    Mock.mount($('#session-bar-broadcast-actions'));
-  }
-
-  function closeSession() {
-    const c = data.closing;
-    const mic = document.getElementById('suggestions-mic-button');
-    if (mic) { const host = mic.closest('[data-kit]'); if (host.mic && host.mic.state === 'recording') host.mic.set('paused'); }
-    Mock.dialog({ title: 'Clore la séance ' + data.session.order, id: 'session-close-dialog', wide: true,
-      html: `<p class="kit-dialog__text">Le micro est en pause. Le journal transcrit est conservé sur cette machine : ${c.journalLines} lignes, ${esc(c.duration)}. Résumé généré avec ${esc(c.summaryModel)} — retouchez-le avant de l’enregistrer.</p>` +
-        Mock.kitHTML('TextArea', { id: 'session-close-summary', label: 'Résumé de la séance', value: c.summary, rows: 7, wide: true, max: 1500 }) +
-        `<div class="mf-live-bar__summary"><h3>Entités mentionnées</h3><div class="row">${c.mentions.map(m => `<span class="chip">${esc(m)}</span>`).join('')}</div>` +
-        `<h3>Fils ouverts</h3><ul class="list">${c.threads.map((t, i) => `<li class="item" id="session-close-thread-${i + 1}">${esc(t)}</li>`).join('')}</ul></div>` +
-        '<p class="small muted">Ce résumé apparaîtra en tête de la préparation de la séance suivante.</p>',
-      actions: [{ label: 'Continuer la séance', variant: 'ghost' }, { label: 'Enregistrer et clore', id: 'session-close-submit', 'data-writes': 'session.closeSession', onClick(api) {
-        api.close();
-        Mock.command('session.closeSession', { id: data.session.id }, { label: 'Clore la séance et enregistrer le résumé' }).then(() => { location.href = 'campagne.html'; });
-      } }] });
-  }
-
-  root.addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.dataset.scene) { current = +b.dataset.scene; scenes(); Mock.emit('scene', { index: current }); }
-    if (b.id === 'session-bar-cover') { const d = Mock.store.get('diffusion', DEFAULT); d.base = { kind: 'cover' }; d.view = null; Mock.store.set('diffusion', d); Mock.command('live.showCover', {}, { label: 'Revenir à la couverture' }); }
-    if (b.id === 'session-bar-close-window') { const d = Mock.store.get('diffusion', DEFAULT); d.window = null; Mock.store.set('diffusion', d); Mock.command('live.closeWindow', {}, { label: 'Fermer la fenêtre d’illustration' }); }
-    if (b.id === 'session-bar-close') closeSession();
-  });
-  Mock.store.on('diffusion', () => { if (data) showing(); });
-
-  Mock.fixture(['fixtures/LiveSessionBar.json', 'fixtures/media.json', 'fixtures/Battlemap.json']).then(([d, m, b]) => {
-    data = d; media = m; current = d.currentScene;
-    maps = b.instances.map(i => ({ id: i.id, title: m.battlemaps.find(x => x.id === i.battlemap).title }));
-    $('#session-bar-title').textContent = 'Séance ' + d.session.order + ' — ' + d.session.title;
-    $('#session-bar-meta').textContent = 'En direct depuis ' + d.session.startedAt;
-    scenes();
-    showing();
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/LiveSessionBar.js';
+  root.appendChild(bundle);
 })();
 </script>

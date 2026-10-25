@@ -1,0 +1,20 @@
+[package]
+name = "update-scene-notes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "DataCapability session.updateSceneNotes: the DM writes the notes of a scene already in its session, and the scene keeps them."
+publish = false
+
+[dependencies]
+# The engine is the workspace's: one engine, one `Plugin` type (scripts/register.sh).
+harness-dataguard = { workspace = true }
+async-trait = "0.1"
+serde_json = "1"
+# The aggregate's field names and its scene partition, which src/ calls.
+aggregate-session = { path = "../../aggregates/Session" }
+
+[dev-dependencies]
+# The harness's test kit: the engine planted, the scratch database, planters.
+platform-test-kit = { path = "../../../platform/test-kit" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

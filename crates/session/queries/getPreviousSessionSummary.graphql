@@ -1,0 +1,18 @@
+# fields: session.id, session.position, session.title, session.plannedOn, session.status, session.summary, session.summaryModel, session.summaryEditedAt
+# The closed session before the session being prepared — or that session itself
+# when it is closed — with the summary generated at its closing, the model that
+# wrote it and the day the DM last edited it. Only a closed session has a
+# previous summary (status-lifecycle); a campaign with no closed session yet
+# answers nothing. The journal lines are another read.
+query GetPreviousSessionSummary($session: ID!) {
+  previousClosedSession(session: $session) {
+    id
+    position
+    title
+    plannedOn
+    status
+    summary
+    summaryModel
+    summaryEditedAt
+  }
+}

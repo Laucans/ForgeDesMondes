@@ -17,7 +17,28 @@
 //! `entity_alias:<element slug>:<alias>`, `entity_version:<element slug>:<n>`,
 //! `oral_brief:<session slug>`.
 //!
-//! What the tables have no column for is not loaded: the portrait and the
+//! The history of an element (`campaign.listEntityVersions.json`) is its
+//! versions, from the first: the last is the element as `entities.json` has
+//! it, and each earlier one the state before the changes of the next, put
+//! back field by field from the labels of the screen (`Notes`, `Alias`,
+//! `Statblock`…). A label the tables hold no column for (`Niveau`, `Token`)
+//! moves nothing, and a version's date is the fixture's, in UTC. Its origin
+//! comes to a `source`: an import and the DM's hand are `dm`, a brief is
+//! `brief`, the rest of the AI's work `ia`, a resync `dndbeyond` — and the
+//! first version is always the DM's, a creation being no resync. The elements
+//! with no history have the one version they always had. A version whose
+//! changes go beyond what its source may change (a resync's stats, a
+//! proposal's sheet fields: the version trigger's scopes) skips the file
+//! whole. An element the store already versioned otherwise (the app's own
+//! versions, or the lone first version of an earlier load) keeps what it has:
+//! [`Fixtures::leave_out_taken_versions`] drops the fixture's versions of it
+//! before the load, the trigger taking only the next number. The versions go in
+//! by round, every first version before any second: a version must be the
+//! next of its element, and one statement inserts its rows in no order.
+//! `campaign.getEntity.json` and the three lists repeat `entities.json`.
+//!
+//! What the tables have no column for is not loaded: the `seen` flag and the
+//! free text of a version's `source`; the portrait and the
 //! crop, the speed and the descriptive `type` line of a sheet, the art and
 //! illustration of a place, the links between places and characters; of a
 //! media, its weight, its terrain and its art. Nor is the campaign's cover:
@@ -25,13 +46,41 @@
 //! campaign, so the one cannot be inserted before the other. An illustration
 //! is described by its ratio alone: it is loaded as 1000 pixels high, and as
 //! wide as its ratio says. Of a session, the `played` status is the table's
-//! `closed`, and no scene, no journal line, no start or close time is loaded:
-//! the fixtures of the Session aggregate give the sessions, the PCs present at
-//! each, the last brief and the to-create list, and nothing of the brief's
-//! scenes. A oneshot those fixtures do not describe gets the one session its
-//! creation writes (`oneshot-single-session`), titled after it: closed on the
-//! day the campaign list says it was last played, else in preparation for
-//! its next day.
+//! `closed`, and no start or close time is loaded: the fixtures of the Session
+//! aggregate give the sessions, the PCs present at each, the scenes of
+//! `SceneBoard.json`, the closed session's journal and summary of
+//! `PreviousSummary.json`, the last brief and the to-create list.
+//!
+//! A scene is one row of `scene` (its order is its rank, from 1 to n), and
+//! each place, character, event and medium it lists one row of `scene_entity`
+//! (ranked from 1 in the order of the fixture: places, characters, events) or
+//! `scene_media`. What a scene lists is of the session's campaign. The scene's
+//! `toCreate` is another row's link: not loaded here. Its `battlemap` is the
+//! instance below, which names the scene.
+//!
+//! The instance of a scene's battlemap (`table.getBattlemapInstance.json`; the
+//! same one is in `Battlemap.json`, not read) is one `battlemap_instance` row of
+//! the scene and the battlemap medium it is a copy of, and one `token` row per
+//! token, at its hex: the scene names it as its `battlemap`, and
+//! `session.listScenes` answers the row. Its roster and the initiative of its
+//! PCs belong to a combat starting; one already running is not loaded, and a
+//! file that has one is skipped. The tokens obey the aggregate's invariants as
+//! a command would (`token-roster`, `multi-drop-numbering`, `pj-hp-not-tracked`,
+//! `dead-derived`): a file that breaks one is skipped, not loaded.
+//! A scene the store already gave an instance, under another id (the DM's), is
+//! left that one alone: [`Fixtures::leave_out_taken_scenes`] drops the
+//! fixture's instance and its tokens before the load.
+//!
+//! The summary of the closed session, its model and the day it was edited
+//! (read from `summaryMeta`, « Généré à la clôture par <model>, retouché le
+//! 4 oct. 2026 ») are `session.summary`, `summary_model` and
+//! `summary_edited_at`; `PreviousSummary.json`'s summary wins over
+//! `SessionList.json`'s for that one session, and the two files carry the
+//! same text for it (a test holds them), so the panel and the list agree. Its journal is one
+//! `session_journal_line` per line, named `session_journal_line:<session
+//! slug>:<n>`, spoken on the session's day at the line's `HH:MM` (UTC), a
+//! microsecond apart so that two lines of one minute keep their order. A journal
+//! that runs past midnight does not map: its lines would sort before the evening's.
 //!
 //! A PC present at a session is one row of `session_present_character`, keyed
 //! by the pair `session_id,character_id`: a row the DM changed since is left
@@ -154,8 +203,14 @@ const SESSION: &[&str] = &[
     "status",
     "microphone_on",
     "summary",
+    "summary_model",
+    "summary_edited_at",
 ];
 const PRESENCE: &[&str] = &["session_id", "character_id", "added_at"];
+const SCENE: &[&str] = &["id", "session_id", "position", "title", "notes"];
+const SCENE_ENTITY: &[&str] = &["scene_id", "entity_id", "position"];
+const SCENE_MEDIA: &[&str] = &["scene_id", "media_id"];
+const JOURNAL: &[&str] = &["id", "session_id", "spoken_at", "text"];
 const BRIEF: &[&str] = &[
     "id",
     "session_id",
@@ -163,6 +218,20 @@ const BRIEF: &[&str] = &[
     "duration_seconds",
     "recorded_at",
     "analyzed_at",
+];
+const INSTANCE: &[&str] = &["id", "battlemap_media_id", "session_id", "scene_id"];
+const TOKEN: &[&str] = &[
+    "id",
+    "instance_id",
+    "character_id",
+    "number",
+    "name",
+    "q",
+    "r",
+    "visible",
+    "hp_current",
+    "hp_max",
+    "conditions",
 ];
 const TO_CREATE: &[&str] = &[
     "id",
@@ -228,9 +297,13 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             "campaign.getCampaign.json" => read.campaign_details(&value),
             "entities.json" => read.entities(&value),
             "media.json" => read.media(&value),
+            HISTORY_FILE => read.history(&value),
             SESSIONS => read.sessions(&value),
+            BOARD_FILE => read.board(&value),
+            CLOSING_FILE => read.closing(&value),
             BRIEF_FILE => read.brief(&value),
             TO_CREATE_FILE => read.creations(&value),
+            INSTANCE_FILE => read.instance(&value),
             _ => {
                 plan.skipped
                     .push((name, "no aggregate holds it".to_string()));
@@ -251,9 +324,22 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
         read.library = None;
         withdraw(&mut plan, LIBRARY, &why);
     }
+    if let Err(why) = read.history_fits() {
+        read.history = None;
+        read.versions.clear();
+        withdraw(&mut plan, HISTORY_FILE, &why);
+    }
     if let Err(why) = read.sessions_fit() {
         read.sessions = None;
         withdraw(&mut plan, SESSIONS, &why);
+    }
+    if let Err(why) = read.board_fits() {
+        read.board = None;
+        withdraw(&mut plan, BOARD_FILE, &why);
+    }
+    if let Err(why) = read.closing_fits() {
+        read.closing = None;
+        withdraw(&mut plan, CLOSING_FILE, &why);
     }
     if let Err(why) = read.brief_fits() {
         read.brief = None;
@@ -263,17 +349,180 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
         read.to_create = None;
         withdraw(&mut plan, TO_CREATE_FILE, &why);
     }
+    if let Err(why) = read.instance_fits() {
+        read.instance = None;
+        withdraw(&mut plan, INSTANCE_FILE, &why);
+    }
     read.plan(&mut plan);
     Ok(plan)
 }
 
 /// The fixture of a campaign's media.
 const LIBRARY: &str = "media.json";
+/// The fixture of the Entity aggregate's version history: the versions of
+/// some elements, newest first. `campaign.getEntity.json` and the three lists
+/// repeat `entities.json`, which holds them, and are not read.
+const HISTORY_FILE: &str = "campaign.listEntityVersions.json";
 /// The fixtures of the Session aggregate: a campaign's sessions, a session's
-/// last brief, a campaign's to-create list.
+/// scenes, a closed session's summary and journal, a session's last brief, a
+/// campaign's to-create list.
 const SESSIONS: &str = "SessionList.json";
+const BOARD_FILE: &str = "SceneBoard.json";
+const CLOSING_FILE: &str = "PreviousSummary.json";
 const BRIEF_FILE: &str = "OralBrief.json";
 const TO_CREATE_FILE: &str = "ToCreateList.json";
+/// The fixture of the BattlemapInstance aggregate: the instance of a scene's
+/// battlemap, with its tokens. `Battlemap.json` holds the same instance for
+/// the Micro-UI, and is not read: it would name the same rows twice.
+const INSTANCE_FILE: &str = "table.getBattlemapInstance.json";
+
+impl Fixtures {
+    /// Leaves out the instance planned for a scene where the store already
+    /// holds an instance under another id (`one-instance-per-scene`): the
+    /// DM's own would be hidden by a second, more recent one. `held` is the
+    /// `(instance id, scene id)` of every instance of the store, see
+    /// [`held_instances`]; its tokens go with it.
+    pub fn leave_out_taken_scenes(&mut self, held: &[(String, String)]) {
+        let Some(instances) = self
+            .tables
+            .iter_mut()
+            .find(|t| t.name == "battlemap_instance")
+        else {
+            return;
+        };
+        let mut left = BTreeSet::new();
+        instances.rows.retain(|row| {
+            let (row_id, scene) = (row["id"].as_str(), row["scene_id"].as_str());
+            let taken = held.iter().any(|(held_id, held_scene)| {
+                Some(held_scene.as_str()) == scene && Some(held_id.as_str()) != row_id
+            });
+            if taken && let Some(row_id) = row_id {
+                left.insert(row_id.to_string());
+            }
+            !taken
+        });
+        if left.is_empty() {
+            return;
+        }
+        for table in self.tables.iter_mut().filter(|t| t.name == "token") {
+            let (gone, kept): (Vec<Value>, Vec<Value>) = std::mem::take(&mut table.rows)
+                .into_iter()
+                .partition(|row| {
+                    row["instance_id"]
+                        .as_str()
+                        .is_some_and(|o| left.contains(o))
+                });
+            left.extend(
+                gone.iter()
+                    .filter_map(|row| row["id"].as_str().map(str::to_string)),
+            );
+            table.rows = kept;
+        }
+        self.names.retain(|(_, row)| !left.contains(row));
+        self.withdraw_with(
+            INSTANCE_FILE,
+            "its scene already has an instance in the store",
+        );
+    }
+
+    /// Leaves out the versions planned for an element whose store already
+    /// holds versions other than the planned ones (the app's own, under
+    /// random ids, or the lone first version of an earlier load): the version
+    /// trigger takes only the next number of an element, so a planned second
+    /// version would be refused and roll the whole load back. An element the
+    /// store holds none of, or exactly the planned ones (a restart), is left
+    /// alone. `held` is the `(element id, version id)` of every version of the
+    /// store, see [`held_versions`].
+    pub fn leave_out_taken_versions(&mut self, held: &[(String, String)]) {
+        let mut planned: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for table in self.tables.iter().filter(|t| t.name == "entity_version") {
+            for row in &table.rows {
+                if let (Some(entity), Some(version)) =
+                    (row["entity_id"].as_str(), row["id"].as_str())
+                {
+                    planned
+                        .entry(entity.to_string())
+                        .or_default()
+                        .insert(version.to_string());
+                }
+            }
+        }
+        let mut stored: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        for (entity, version) in held {
+            stored.entry(entity).or_default().insert(version);
+        }
+        let taken: BTreeSet<String> = planned
+            .iter()
+            .filter(|(entity, versions)| {
+                stored.get(entity.as_str()).is_some_and(|held| {
+                    held.len() != versions.len()
+                        || !versions.iter().all(|v| held.contains(v.as_str()))
+                })
+            })
+            .map(|(entity, _)| entity.clone())
+            .collect();
+        if taken.is_empty() {
+            return;
+        }
+        let mut left = BTreeSet::new();
+        for table in self
+            .tables
+            .iter_mut()
+            .filter(|t| t.name == "entity_version")
+        {
+            table.rows.retain(|row| {
+                let gone = row["entity_id"]
+                    .as_str()
+                    .is_some_and(|entity| taken.contains(entity));
+                if gone && let Some(version) = row["id"].as_str() {
+                    left.insert(version.to_string());
+                }
+                !gone
+            });
+        }
+        self.skipped.push((
+            HISTORY_FILE.to_string(),
+            format!(
+                "{} element(s) keep the versions the store already holds",
+                taken.len()
+            ),
+        ));
+    }
+
+    fn withdraw_with(&mut self, file: &str, why: &str) {
+        self.loaded.retain(|name| name != file);
+        self.skipped.push((file.to_string(), why.to_string()));
+    }
+}
+
+/// The `(instance id, scene id)` of every battlemap instance the store holds.
+///
+/// # Errors
+///
+/// [`data::Error::Database`] when the query fails.
+pub async fn held_instances(client: &data::Client) -> Result<Vec<(String, String)>, data::Error> {
+    let rows = client
+        .query(
+            "SELECT id::text, scene_id::text FROM battlemap_instance",
+            &[],
+        )
+        .await
+        .map_err(data::Error::Database)?;
+    Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
+}
+
+/// The `(element id, version id)` of every entity version the store holds.
+///
+/// # Errors
+///
+/// [`data::Error::Database`] when the query fails.
+pub async fn held_versions(client: &data::Client) -> Result<Vec<(String, String)>, data::Error> {
+    let rows = client
+        .query("SELECT entity_id::text, id::text FROM entity_version", &[])
+        .await
+        .map_err(data::Error::Database)?;
+    Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
+}
 
 /// Takes `file` back out of the files planned: it is skipped, with `why`.
 fn withdraw(plan: &mut Fixtures, file: &str, why: &str) {
@@ -299,14 +548,18 @@ struct Read {
     /// The campaigns by slug: name, kind, pitch, art, glyph, and the dates
     /// when a fixture gives them.
     campaigns: BTreeMap<String, Map<String, Value>>,
-    /// The days the campaign list gives each campaign, by slug: the last it
-    /// was played, and the next.
-    days: BTreeMap<String, (Value, Value)>,
     entities: Option<Entities>,
+    history: Option<History>,
+    /// The version rows of each element `history` gives a history, by slug,
+    /// made once the elements are known ([`Read::history_fits`]).
+    versions: BTreeMap<String, Vec<(u64, Value)>>,
     library: Option<Library>,
     sessions: Option<Sessions>,
+    board: Option<Board>,
+    closing: Option<Closing>,
     brief: Option<Brief>,
     to_create: Option<ToCreate>,
+    instance: Option<Instance>,
 }
 
 /// The `SessionList.json` document, mapped: a campaign's sessions.
@@ -325,6 +578,41 @@ struct Session {
     summary: Value,
     /// The PCs present, by slug.
     present: Vec<String>,
+}
+
+/// The `SceneBoard.json` document, mapped: the scenes of a session.
+struct Board {
+    session: String,
+    scenes: Vec<Scene>,
+}
+
+struct Scene {
+    slug: String,
+    /// Its rank, from 1.
+    position: i32,
+    title: String,
+    /// A text, or null.
+    notes: Value,
+    /// What it links, by slug, each once.
+    places: Vec<String>,
+    characters: Vec<String>,
+    events: Vec<String>,
+    media: Vec<String>,
+    /// Its battlemap instance, by slug.
+    battlemap: Option<String>,
+}
+
+/// The `PreviousSummary.json` document, mapped: how a closed session ended.
+struct Closing {
+    session: String,
+    /// The day it was played.
+    day: String,
+    summary: String,
+    model: String,
+    /// The day the DM last edited the summary.
+    edited_on: Option<String>,
+    /// The journal's lines: the `HH:MM` they were spoken at, and their text.
+    journal: Vec<(String, String)>,
 }
 
 /// The `OralBrief.json` document, mapped: the last brief of a session.
@@ -354,6 +642,34 @@ struct Entry {
     created: Option<String>,
 }
 
+/// The `table.getBattlemapInstance.json` document, mapped: a scene's working
+/// copy of a battlemap.
+struct Instance {
+    slug: String,
+    /// The battlemap's medium, the session and the scene, by slug.
+    battlemap: String,
+    session: String,
+    scene: String,
+    tokens: Vec<Token>,
+}
+
+struct Token {
+    slug: String,
+    /// Its character, by slug, and whether that is a « pj » or a « pnj ».
+    character: String,
+    kind: &'static str,
+    name: String,
+    /// Its number among the tokens of its character; null for a PC.
+    number: Value,
+    q: i32,
+    r: i32,
+    visible: bool,
+    /// Hit points, or null: a PC's are not tracked.
+    hp: Value,
+    hp_max: Value,
+    conditions: Value,
+}
+
 /// The `media.json` document, mapped: a campaign's battlemaps and
 /// illustrations.
 struct Library {
@@ -374,6 +690,28 @@ struct Medium {
     place: Option<String>,
     /// A battlemap's grid: the columns of `battlemap_grid` but its media.
     grid: Option<Value>,
+}
+
+/// The `campaign.listEntityVersions.json` document, mapped: the history of
+/// some elements, by slug.
+type History = BTreeMap<String, Account>;
+
+/// One element's history, from its first version to its last.
+struct Account {
+    name: String,
+    revisions: Vec<Revision>,
+}
+
+/// One version of an element, as the fixture tells it.
+struct Revision {
+    number: u64,
+    /// When it was made: a time with no zone, which is UTC.
+    at: String,
+    /// The table's `source` the fixture's origin comes to.
+    source: &'static str,
+    /// What it changed: the screen's label of the field, and what it held
+    /// before.
+    changes: Vec<(String, Value)>,
 }
 
 /// The `entities.json` document, mapped.
@@ -410,12 +748,10 @@ impl Read {
                 required(row, "id")?.to_string(),
                 json!({ "name": required(row, "name")?, "kind": required(row, "type")?,
                         "pitch": row["pitch"], "art": row["art"], "glyph": row["glyph"] }),
-                (day(row, "lastPlayed")?, day(row, "next")?),
             ));
         }
-        for (slug, row, days) in rows {
+        for (slug, row) in rows {
             self.campaign(&slug, &row);
-            self.days.insert(slug, days);
         }
         Ok(())
     }
@@ -484,6 +820,34 @@ impl Read {
         Ok(())
     }
 
+    fn history(&mut self, value: &Value) -> Result<(), String> {
+        let mut history = History::new();
+        for (slug, entry) in value.as_object().ok_or("the histories are not an object")? {
+            let mut revisions = Vec::new();
+            for version in array(&entry["versions"], "versions")? {
+                revisions.push(revision_of(slug, version)?);
+            }
+            if revisions.is_empty() {
+                return Err(format!("{slug} has no version"));
+            }
+            revisions.sort_by_key(|revision| revision.number);
+            if !revisions.iter().zip(1..).all(|(r, n)| r.number == n) {
+                return Err(format!(
+                    "the versions of {slug} do not run from 1 without a gap or a repeat"
+                ));
+            }
+            history.insert(
+                slug.clone(),
+                Account {
+                    name: required(entry, "name")?.to_string(),
+                    revisions,
+                },
+            );
+        }
+        self.history = Some(history);
+        Ok(())
+    }
+
     fn media(&mut self, value: &Value) -> Result<(), String> {
         let campaign = required(value, "campaign")?.to_string();
         let mut media = Vec::new();
@@ -514,6 +878,50 @@ impl Read {
             return Err(format!("the slug {:?} names two rows", twice.slug));
         }
         self.sessions = Some(Sessions { campaign, sessions });
+        Ok(())
+    }
+
+    fn board(&mut self, value: &Value) -> Result<(), String> {
+        let session = required(&value["session"], "id")?.to_string();
+        let mut scenes = Vec::new();
+        for (index, scene) in array(&value["scenes"], "scenes")?.iter().enumerate() {
+            scenes.push(scene_of(scene, index)?);
+        }
+        let mut slugs = BTreeSet::new();
+        if let Some(twice) = scenes.iter().find(|s| !slugs.insert(&s.slug)) {
+            return Err(format!("the slug {:?} names two rows", twice.slug));
+        }
+        self.board = Some(Board { session, scenes });
+        Ok(())
+    }
+
+    fn closing(&mut self, value: &Value) -> Result<(), String> {
+        let day = required(&value["session"], "date")?;
+        if !is_day(day) {
+            return Err(format!("the date {day:?} is not a day"));
+        }
+        let (model, edited_on) = meta_of(required(value, "summaryMeta")?)?;
+        let mut journal = Vec::new();
+        let mut last = "";
+        for line in array(&value["journal"], "the journal")? {
+            let at = required(line, "t")?;
+            if !is_clock(at) {
+                return Err(format!("the time {at:?} of a line is not an HH:MM"));
+            }
+            if at < last {
+                return Err(format!("the line at {at} is out of time order"));
+            }
+            last = at;
+            journal.push((at.to_string(), required(line, "text")?.to_string()));
+        }
+        self.closing = Some(Closing {
+            session: required(&value["session"], "id")?.to_string(),
+            day: day.to_string(),
+            summary: required(value, "summary")?.to_string(),
+            model,
+            edited_on,
+            journal,
+        });
         Ok(())
     }
 
@@ -549,6 +957,11 @@ impl Read {
             return Err(format!("the slug {:?} names two rows", twice.slug));
         }
         self.to_create = Some(ToCreate { entries });
+        Ok(())
+    }
+
+    fn instance(&mut self, value: &Value) -> Result<(), String> {
+        self.instance = Some(instance_of(value)?);
         Ok(())
     }
 
@@ -604,6 +1017,219 @@ impl Read {
                     session.slug
                 ));
             }
+        }
+        Ok(())
+    }
+
+    /// Whether the scenes read fit what the other files say: their session is
+    /// one the sessions read give, each place a « lieu », each character a
+    /// « pj » or a « pnj », each event an « evenement » and each medium one of
+    /// that session's campaign, and no slug of theirs names another row.
+    fn board_fits(&self) -> Result<(), String> {
+        let Some(board) = &self.board else {
+            return Ok(());
+        };
+        let Some(campaign) = self.session(&board.session) else {
+            return Err(format!(
+                "no fixture describes the session {:?}",
+                board.session
+            ));
+        };
+        let in_sessions = |slug: &str| {
+            self.sessions
+                .iter()
+                .flat_map(|s| &s.sessions)
+                .any(|s| s.slug == slug)
+        };
+        let in_list = |slug: &str| {
+            self.to_create
+                .iter()
+                .flat_map(|l| &l.entries)
+                .any(|e| e.slug == slug)
+        };
+        for scene in &board.scenes {
+            if self.named(&scene.slug) || in_sessions(&scene.slug) || in_list(&scene.slug) {
+                return Err(format!("the slug {:?} names two rows", scene.slug));
+            }
+            let links = [
+                (&scene.places, &["lieu"][..]),
+                (&scene.characters, &["pj", "pnj"][..]),
+                (&scene.events, &["evenement"][..]),
+            ];
+            for (slugs, kinds) in links {
+                if let Some(slug) = slugs
+                    .iter()
+                    .find(|slug| !kinds.iter().any(|kind| self.element(campaign, slug, kind)))
+                {
+                    return Err(format!(
+                        "{slug:?}, linked to {:?}, is none of {kinds:?} of its campaign",
+                        scene.slug
+                    ));
+                }
+            }
+            let holds = |slug: &str| {
+                self.library.as_ref().is_some_and(|l| {
+                    l.campaign == campaign && l.media.iter().any(|m| m.slug == slug)
+                })
+            };
+            if let Some(slug) = scene.media.iter().find(|slug| !holds(slug)) {
+                return Err(format!(
+                    "the medium {slug:?}, linked to {:?}, is none of its campaign",
+                    scene.slug
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `slug` names a row of the sessions, the scenes or the to-create
+    /// list as well as one `named` does.
+    fn claimed(&self, slug: &str) -> bool {
+        self.named(slug)
+            || self
+                .sessions
+                .iter()
+                .flat_map(|s| &s.sessions)
+                .any(|s| s.slug == slug)
+            || self
+                .board
+                .iter()
+                .flat_map(|b| &b.scenes)
+                .any(|s| s.slug == slug)
+            || self
+                .to_create
+                .iter()
+                .flat_map(|l| &l.entries)
+                .any(|e| e.slug == slug)
+    }
+
+    /// Whether the instance read fits what the other files say: its scene is
+    /// one the scenes read give, which names it as its battlemap and links
+    /// the battlemap it is the copy of, a battlemap of the session's
+    /// campaign (`one-instance-per-scene`); each token stands for a « pj »
+    /// present at the session or for a « pnj » of that campaign, whose hit
+    /// points are capped by its sheet's (`token-roster`, `pj-hp-not-tracked`);
+    /// and no slug of its own names another row.
+    fn instance_fits(&self) -> Result<(), String> {
+        let Some(instance) = &self.instance else {
+            return Ok(());
+        };
+        let Some(board) = self
+            .board
+            .as_ref()
+            .filter(|b| b.session == instance.session)
+        else {
+            return Err(format!(
+                "no fixture describes the session {:?} and its scenes",
+                instance.session
+            ));
+        };
+        let scene = board.scenes.iter().find(|s| s.slug == instance.scene);
+        let Some(scene) = scene else {
+            return Err(format!(
+                "{:?} is no scene of the session {:?}",
+                instance.scene, instance.session
+            ));
+        };
+        if scene.battlemap.as_deref() != Some(instance.slug.as_str()) {
+            return Err(format!(
+                "the scene {:?} does not name {:?} as its battlemap",
+                scene.slug, instance.slug
+            ));
+        }
+        if !scene.media.contains(&instance.battlemap) {
+            return Err(format!(
+                "the battlemap {:?} is not linked to {:?}",
+                instance.battlemap, scene.slug
+            ));
+        }
+        let campaign = self.session(&instance.session).unwrap_or_default();
+        let holds = self.library.as_ref().is_some_and(|l| {
+            l.campaign == campaign
+                && l.media
+                    .iter()
+                    .any(|m| m.slug == instance.battlemap && m.kind == "battlemap")
+        });
+        if !holds {
+            return Err(format!(
+                "{:?} is no battlemap of its campaign",
+                instance.battlemap
+            ));
+        }
+        let present = self
+            .sessions
+            .iter()
+            .flat_map(|s| &s.sessions)
+            .find(|s| s.slug == instance.session)
+            .map(|s| &s.present);
+        for slug in std::iter::once(&instance.slug).chain(instance.tokens.iter().map(|t| &t.slug)) {
+            if self.claimed(slug) {
+                return Err(format!("the slug {slug:?} names two rows"));
+            }
+        }
+        for token in &instance.tokens {
+            let sheet = self
+                .entities
+                .iter()
+                .filter(|e| e.campaign == campaign)
+                .flat_map(|e| &e.elements)
+                .find(|e| e.slug == token.character && e.kind == token.kind);
+            let Some(sheet) = sheet else {
+                return Err(format!(
+                    "{:?}, the character of {:?}, is no {:?} of its campaign",
+                    token.character, token.slug, token.kind
+                ));
+            };
+            if token.kind == "pj" && !present.is_some_and(|p| p.contains(&token.character)) {
+                return Err(format!(
+                    "{:?}, with a token, is not present at {:?}",
+                    token.character, instance.session
+                ));
+            }
+            let capped = sheet.sheet.as_ref().and_then(|s| s.get("hp_max"));
+            if token.kind == "pnj" && capped != Some(&token.hp_max) {
+                return Err(format!(
+                    "the hit points of {:?} are not those of the sheet of {:?}",
+                    token.slug, token.character
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the closing read fits what the sessions say: its session is a
+    /// closed one of theirs, played on the day of its journal.
+    fn closing_fits(&self) -> Result<(), String> {
+        let Some(closing) = &self.closing else {
+            return Ok(());
+        };
+        let Some(session) = self
+            .sessions
+            .iter()
+            .flat_map(|s| &s.sessions)
+            .find(|s| s.slug == closing.session)
+        else {
+            return Err(format!(
+                "no fixture describes the session {:?}",
+                closing.session
+            ));
+        };
+        if session.status != "closed" {
+            return Err(format!(
+                "the session {:?} is {}, not closed",
+                closing.session, session.status
+            ));
+        }
+        // A session with no day of its own takes the journal's.
+        if session
+            .planned_on
+            .as_str()
+            .is_some_and(|day| day != closing.day)
+        {
+            return Err(format!(
+                "the journal of {:?} is of {}, not of its day",
+                closing.session, closing.day
+            ));
         }
         Ok(())
     }
@@ -668,6 +1294,36 @@ impl Read {
             .then_some(sessions.campaign.as_str())
     }
 
+    /// The history of each element it names is made into the version rows of
+    /// that element: the last version is the element as `entities.json` has
+    /// it, each earlier one the state before the changes of the next.
+    fn history_fits(&mut self) -> Result<(), String> {
+        let Some(history) = &self.history else {
+            return Ok(());
+        };
+        let entities = self
+            .entities
+            .as_ref()
+            .ok_or("no fixture holds the elements")?;
+        let mut versions = BTreeMap::new();
+        for (slug, account) in history {
+            let element = entities
+                .elements
+                .iter()
+                .find(|element| &element.slug == slug)
+                .ok_or_else(|| format!("{slug} is no element of the campaign"))?;
+            if element.name != json!(account.name) {
+                return Err(format!(
+                    "{slug} is called {} here and {:?} there",
+                    element.name, account.name
+                ));
+            }
+            versions.insert(slug.clone(), history_rows(element, &account.revisions)?);
+        }
+        self.versions = versions;
+        Ok(())
+    }
+
     /// Whether the media read fit what the other files say: their campaign
     /// is one of them, each place a « lieu » of that campaign, and no slug
     /// of theirs names another row. Checked once every file is read.
@@ -711,35 +1367,8 @@ impl Read {
         Ok(())
     }
 
-    /// The one session of each oneshot no session fixture describes, as its
-    /// creation writes it: the first, the microphone off, titled after the
-    /// oneshot. Closed on the day it was last played, else in preparation
-    /// for its next day; named `session:<oneshot slug>:1`.
-    fn oneshot_sessions(&self) -> Vec<Value> {
-        let described = self.sessions.as_ref().map(|s| s.campaign.as_str());
-        let mut rows = Vec::new();
-        for (slug, row) in &self.campaigns {
-            if row.get("kind") != Some(&json!("oneshot")) || described == Some(slug) {
-                continue;
-            }
-            let (played, next) = self.days.get(slug).cloned().unwrap_or_default();
-            let (status, planned_on) = if played.is_null() {
-                ("prep", next)
-            } else {
-                ("closed", played)
-            };
-            rows.push(json!({
-                "id": id("session", &format!("{slug}:1")), "campaign_id": id("campaign", slug),
-                "position": 1, "title": row.get("name"), "planned_on": planned_on,
-                "status": status, "microphone_on": false, "summary": null,
-            }));
-        }
-        rows
-    }
-
     /// The rows of everything read, in the order they are inserted.
     fn plan(self, plan: &mut Fixtures) {
-        let oneshots = self.oneshot_sessions();
         let campaign_row = |slug: &String, row: &Map<String, Value>| {
             let mut out = json!({ "id": id("campaign", slug) });
             for column in CAMPAIGN_DATED.iter().skip(1) {
@@ -781,14 +1410,21 @@ impl Read {
             let mut rows = Rows::default();
             for (index, element) in entities.elements.iter().enumerate() {
                 names.push((element.slug.clone(), id("entity", &element.slug)));
-                rows.add(&campaign, index, element);
+                rows.add(&campaign, index, element, self.versions.get(&element.slug));
             }
             tables.extend([
                 table("entity", "id", ENTITY, rows.entities),
                 table("character", "entity_id", CHARACTER, rows.characters),
                 table("entity_alias", "id", ALIAS, rows.aliases),
-                table("entity_version", "id", VERSION, rows.versions),
             ]);
+            // A version must be the next of its element, and a table goes in
+            // by one statement, whose rows come in no order: the Nth versions
+            // of the elements go in together, the first before the second.
+            tables.extend(
+                rows.versions
+                    .into_values()
+                    .map(|round| table("entity_version", "id", VERSION, round)),
+            );
         }
         if let Some(library) = self.library {
             let campaign = id("campaign", &library.campaign);
@@ -814,20 +1450,23 @@ impl Read {
                 table("battlemap_grid", "media_id", GRID, grids),
             ]);
         }
-        if !oneshots.is_empty() {
-            tables.push(table("session", "id", SESSION, oneshots));
-        }
         if let Some(sessions) = &self.sessions {
             let campaign = id("campaign", &sessions.campaign);
             let mut rows = Vec::new();
             let mut present = Vec::new();
             for session in &sessions.sessions {
                 let row = id("session", &session.slug);
+                // How a closed session ended is the closing's, when the fixtures have it.
+                let closing = self.closing.as_ref().filter(|c| c.session == session.slug);
                 rows.push(json!({
                     "id": row, "campaign_id": campaign, "position": session.position,
                     "title": session.title, "planned_on": session.planned_on,
                     "status": session.status, "microphone_on": false,
-                    "summary": session.summary,
+                    "summary": closing.map_or(session.summary.clone(), |c| json!(c.summary)),
+                    "summary_model": closing.map(|c| &c.model),
+                    "summary_edited_at": closing
+                        .and_then(|c| c.edited_on.as_ref())
+                        .map(|day| format!("{day}T00:00:00Z")),
                 }));
                 for pc in &session.present {
                     // A list reads them by `added_at`: the stamps keep the fixture's order.
@@ -847,6 +1486,79 @@ impl Read {
                     present,
                 ),
             ]);
+            if let Some(board) = &self.board {
+                let session = id("session", &board.session);
+                let (mut scenes, mut entities, mut media) = (Vec::new(), Vec::new(), Vec::new());
+                for scene in &board.scenes {
+                    let row = id("scene", &scene.slug);
+                    scenes.push(json!({
+                        "id": row, "session_id": session, "position": scene.position,
+                        "title": scene.title, "notes": scene.notes,
+                    }));
+                    let linked = [&scene.places, &scene.characters, &scene.events];
+                    for (rank, slug) in linked.into_iter().flatten().enumerate() {
+                        entities.push(json!({
+                            "scene_id": row, "entity_id": id("entity", slug), "position": rank + 1,
+                        }));
+                    }
+                    for slug in &scene.media {
+                        media.push(json!({ "scene_id": row, "media_id": id("media", slug) }));
+                    }
+                    names.push((scene.slug.clone(), row));
+                }
+                tables.extend([
+                    table("scene", "id", SCENE, scenes),
+                    table("scene_entity", "scene_id,entity_id", SCENE_ENTITY, entities),
+                    table("scene_media", "scene_id,media_id", SCENE_MEDIA, media),
+                ]);
+                // Fitted: its scene, its battlemap and its characters are planned above.
+                if let Some(instance) = &self.instance {
+                    let row = id("battlemap_instance", &instance.slug);
+                    let tokens = instance.tokens.iter().map(|token| {
+                        let token_row = id("token", &token.slug);
+                        names.push((token.slug.clone(), token_row.clone()));
+                        json!({
+                            "id": token_row, "instance_id": row,
+                            "character_id": id("entity", &token.character),
+                            "number": token.number, "name": token.name,
+                            "q": token.q, "r": token.r, "visible": token.visible,
+                            "hp_current": token.hp, "hp_max": token.hp_max,
+                            "conditions": token.conditions,
+                        })
+                    });
+                    let tokens: Vec<Value> = tokens.collect();
+                    tables.extend([
+                        table(
+                            "battlemap_instance",
+                            "id",
+                            INSTANCE,
+                            vec![json!({
+                                "id": row, "battlemap_media_id": id("media", &instance.battlemap),
+                                "session_id": id("session", &instance.session),
+                                "scene_id": id("scene", &instance.scene),
+                            })],
+                        ),
+                        table("token", "id", TOKEN, tokens),
+                    ]);
+                    names.push((instance.slug.clone(), row));
+                }
+            }
+            if let Some(closing) = &self.closing {
+                let lines = closing.journal.iter().enumerate().map(|(index, (at, text))| {
+                    json!({
+                        "id": id("session_journal_line", &format!("{}:{}", closing.session, index + 1)),
+                        "session_id": id("session", &closing.session),
+                        "spoken_at": stamp(&format!("{}T{at}:00", closing.day), index),
+                        "text": text,
+                    })
+                });
+                tables.push(table(
+                    "session_journal_line",
+                    "id",
+                    JOURNAL,
+                    lines.collect(),
+                ));
+            }
         }
         let brief = self.brief;
         if let Some(brief) = &brief {
@@ -896,14 +1608,22 @@ struct Rows {
     entities: Vec<Value>,
     characters: Vec<Value>,
     aliases: Vec<Value>,
-    versions: Vec<Value>,
+    /// The version rows by number: the rounds they go in.
+    versions: BTreeMap<u64, Vec<Value>>,
 }
 
 impl Rows {
     /// The rows of `element`, the `index`th of its campaign: its row, its
-    /// sheet, its aliases, and the first version of its history — the Entity
-    /// aggregate refuses an element that no version records.
-    fn add(&mut self, campaign: &str, index: usize, element: &Element) {
+    /// sheet, its aliases, and its versions — those of its `history` when it
+    /// has one, else the first of them: the Entity aggregate refuses an
+    /// element that no version records.
+    fn add(
+        &mut self,
+        campaign: &str,
+        index: usize,
+        element: &Element,
+        history: Option<&Vec<(u64, Value)>>,
+    ) {
         let entity = id("entity", &element.slug);
         let at = stamp(FIRST, index);
         self.entities.push(json!({
@@ -917,38 +1637,286 @@ impl Rows {
                 "entity_id": entity, "alias": alias,
             }));
         }
-        // EntityVersion@1: the snapshot is the whole state, and the first
-        // version's diff compares it with nothing.
-        let mut snapshot = Map::new();
-        snapshot.insert("name".into(), element.name.clone());
-        snapshot.insert("type".into(), json!(element.kind));
-        snapshot.insert("description".into(), element.description.clone());
-        snapshot.insert("notes".into(), element.notes.clone());
-        snapshot.insert("aliases".into(), json!(element.aliases));
-        if let Some(sheet) = &element.sheet {
-            let player = element.player.as_deref().map(|p| id("player", p));
-            let mut row = sheet.clone();
-            row.insert("entity_id".into(), json!(entity));
-            row.insert("player_id".into(), json!(player));
-            for (column, value) in &row {
-                if column != "entity_id" {
-                    snapshot.insert(camel(column), value.clone());
+        let (snapshot, sheet) = state_of(element, &entity);
+        self.characters.extend(sheet.map(Value::Object));
+        match history {
+            Some(versions) => {
+                for (number, row) in versions {
+                    self.versions.entry(*number).or_default().push(row.clone());
                 }
             }
-            snapshot.insert("spells".into(), json!([]));
-            self.characters.push(Value::Object(row));
+            None => self.versions.entry(1).or_default().push(version_row(
+                &element.slug,
+                &entity,
+                1,
+                "dm",
+                &at,
+                &Map::new(),
+                &snapshot,
+            )),
         }
-        snapshot.retain(|_, value| !value.is_null());
-        let diff: Vec<Value> = snapshot
-            .iter()
-            .map(|(field, new)| json!({ "field": field, "old": null, "new": new }))
-            .collect();
-        self.versions.push(json!({
-            "id": id("entity_version", &format!("{}:1", element.slug)),
-            "entity_id": entity, "version_number": 1, "source": "dm",
-            "snapshot": snapshot, "diff": diff, "created_at": at,
-        }));
     }
+}
+
+/// The state of `element` now, as a version's snapshot (EntityVersion@1: the
+/// whole state), and the row of its sheet, if it has one.
+fn state_of(element: &Element, entity: &str) -> (Map<String, Value>, Option<Map<String, Value>>) {
+    let mut snapshot = Map::new();
+    snapshot.insert("name".into(), element.name.clone());
+    snapshot.insert("type".into(), json!(element.kind));
+    snapshot.insert("description".into(), element.description.clone());
+    snapshot.insert("notes".into(), element.notes.clone());
+    snapshot.insert("aliases".into(), json!(element.aliases));
+    let sheet = element.sheet.as_ref().map(|sheet| {
+        let player = element.player.as_deref().map(|p| id("player", p));
+        let mut row = sheet.clone();
+        row.insert("entity_id".into(), json!(entity));
+        row.insert("player_id".into(), json!(player));
+        for (column, value) in &row {
+            if column != "entity_id" {
+                snapshot.insert(camel(column), value.clone());
+            }
+        }
+        snapshot.insert("spells".into(), json!([]));
+        row
+    });
+    snapshot.retain(|_, value| !value.is_null());
+    (snapshot, sheet)
+}
+
+/// One row of `entity_version`: version `number` of the element `slug`, whose
+/// snapshot is `snapshot` and whose diff is what moved since `before`.
+fn version_row(
+    slug: &str,
+    entity: &str,
+    number: u64,
+    source: &str,
+    at: &str,
+    before: &Map<String, Value>,
+    snapshot: &Map<String, Value>,
+) -> Value {
+    json!({
+        "id": id("entity_version", &format!("{slug}:{number}")),
+        "entity_id": entity, "version_number": number, "source": source,
+        "snapshot": snapshot, "diff": diff(before, snapshot), "created_at": at,
+    })
+}
+
+/// EntityVersion@1: one `{ field, old, new }` per field whose value differs
+/// between the two snapshots (an absent field is null), sorted by field.
+fn diff(before: &Map<String, Value>, after: &Map<String, Value>) -> Vec<Value> {
+    let fields: BTreeSet<&String> = before.keys().chain(after.keys()).collect();
+    fields
+        .into_iter()
+        .filter_map(|field| {
+            let old = before.get(field).unwrap_or(&Value::Null);
+            let new = after.get(field).unwrap_or(&Value::Null);
+            (old != new).then(|| json!({ "field": field, "old": old, "new": new }))
+        })
+        .collect()
+}
+
+/// One version of `slug`'s history, mapped.
+fn revision_of(slug: &str, value: &Value) -> Result<Revision, String> {
+    let number = value["v"]
+        .as_u64()
+        .ok_or_else(|| format!("a version of {slug} has no number"))?;
+    let at = required(value, "date")?;
+    if !is_time(at) {
+        return Err(format!("version {number} of {slug} is dated {at:?}"));
+    }
+    // The table has no `import` source: an import is the DM's. A proposal is
+    // the AI's, and a brief's is the brief's, which the table lets change what
+    // an AI proposal may not (the sheet alone).
+    let source = match (required(value, "origin")?, required(value, "source")?) {
+        ("ia", label) if label.starts_with("Brief") => "brief",
+        ("ia", _) => "ia",
+        ("dndbeyond", _) => "dndbeyond",
+        ("manuelle" | "import", _) => "dm",
+        (other, _) => return Err(format!("version {number} of {slug} is of origin {other:?}")),
+    };
+    // A creation is no resync: a D&D Beyond import is the first version of
+    // the element, which the DM made, whole.
+    let source = if number == 1 { "dm" } else { source };
+    let mut changes = Vec::new();
+    for change in array(&value["changes"], "changes")? {
+        changes.push((
+            required(change, "field")?.to_string(),
+            change["old"].clone(),
+        ));
+    }
+    Ok(Revision {
+        number,
+        at: format!("{at}Z"),
+        source,
+        changes,
+    })
+}
+
+/// The version rows of `element`, one per revision, oldest first.
+fn history_rows(element: &Element, revisions: &[Revision]) -> Result<Vec<(u64, Value)>, String> {
+    let entity = id("entity", &element.slug);
+    let (current, _) = state_of(element, &entity);
+    // Newest first: each state is the one after it with its changes put back.
+    let mut states = vec![current.clone()];
+    let mut state = current;
+    for revision in revisions.iter().skip(1).rev() {
+        for (label, old) in &revision.changes {
+            undo(element, label, old, &mut state)
+                .map_err(|why| format!("version {} of {}: {why}", revision.number, element.slug))?;
+        }
+        state.retain(|_, value| !value.is_null());
+        states.push(state.clone());
+    }
+    states.reverse();
+    let mut before = Map::new();
+    let mut rows = Vec::new();
+    for (revision, snapshot) in revisions.iter().zip(&states) {
+        let row = version_row(
+            &element.slug,
+            &entity,
+            revision.number,
+            revision.source,
+            &revision.at,
+            &before,
+            snapshot,
+        );
+        in_scope(revision, &row)
+            .map_err(|why| format!("version {} of {}: {why}", revision.number, element.slug))?;
+        rows.push((revision.number, row));
+        before = snapshot.clone();
+    }
+    Ok(rows)
+}
+
+/// The fields a D&D Beyond resync (not the first version) may change, as the
+/// version trigger of `0013_entity_dndbeyond_creation.sql` allows them.
+const RESYNC_SCOPE: &[&str] = &[
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "wisdom",
+    "charisma",
+    "armorClass",
+    "hpMax",
+    "spells",
+    "actions",
+    "dndbeyondId",
+    "dndbeyondSyncedAt",
+    "updatedAt",
+];
+
+/// The fields an AI proposal may change, as the same trigger allows them.
+const PROPOSAL_SCOPE: &[&str] = &[
+    "background",
+    "behavior",
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "wisdom",
+    "charisma",
+    "armorClass",
+    "hpMax",
+    "actions",
+    "initialPrompt",
+    "updatedAt",
+];
+
+/// Whether the diff of `row` stays within what its `source` may change: the
+/// database refuses a version that does not, and the whole load with it. A
+/// `dndbeyond` revision is always a resync: a creation is made `dm` upstream.
+fn in_scope(revision: &Revision, row: &Value) -> Result<(), String> {
+    let scope = match revision.source {
+        "dndbeyond" => RESYNC_SCOPE,
+        "ia" => PROPOSAL_SCOPE,
+        _ => return Ok(()),
+    };
+    let changes = row["diff"].as_array().into_iter().flatten();
+    match changes
+        .filter_map(|change| change["field"].as_str())
+        .find(|field| !scope.contains(field))
+    {
+        Some(field) => Err(format!(
+            "a version of origin {:?} cannot change {field}",
+            revision.source
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Puts back in `state` what the screen's field `label` held before a
+/// change, `old` in the words of the screen. A label the tables hold no
+/// column for (a level, a token's look) or the creation moves nothing: the
+/// version has one change less.
+fn undo(
+    element: &Element,
+    label: &str,
+    old: &Value,
+    state: &mut Map<String, Value>,
+) -> Result<(), String> {
+    let sheet = matches!(
+        label,
+        "Comportement" | "Background" | "PV max" | "Statblock" | "Sorts et capacités"
+    );
+    if sheet && element.sheet.is_none() {
+        return Err(format!("{label:?} changed an element with no sheet"));
+    }
+    let text = || {
+        old.as_str()
+            .ok_or_else(|| format!("{label:?} held {old}, not a text"))
+    };
+    match label {
+        "Notes" => state.insert("notes".into(), json!(text()?)),
+        "Comportement" => state.insert("behavior".into(), json!(text()?)),
+        "Background" => state.insert("background".into(), json!(text()?)),
+        "Alias" => {
+            let aliases: Vec<&str> = text()?.split(", ").filter(|a| !a.is_empty()).collect();
+            state.insert("aliases".into(), json!(aliases))
+        }
+        "PV max" => {
+            let hp = old
+                .as_i64()
+                .or_else(|| text().ok()?.trim().parse().ok())
+                .ok_or_else(|| format!("{label:?} held {old}, not a number"))?;
+            state.insert("hpMax".into(), json!(hp))
+        }
+        "Statblock" => {
+            if !text()?.is_empty() {
+                return Err(format!(
+                    "{label:?} held {old}: only a first one is put back"
+                ));
+            }
+            for field in ["armorClass", "hpMax", "dexterity"] {
+                state.remove(field);
+            }
+            state.insert("actions".into(), json!([]))
+        }
+        "Sorts et capacités" => {
+            let kept: Vec<&str> = text()?.split(", ").filter(|a| !a.is_empty()).collect();
+            let actions: Vec<Value> = state
+                .get("actions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|action| {
+                    // « Ennemi juré » is « Ennemi juré (morts-vivants) », not « Ennemi juré-né ».
+                    let name = action["name"].as_str().unwrap_or_default();
+                    kept.iter().any(|kept| {
+                        name == *kept
+                            || name
+                                .strip_prefix(kept)
+                                .is_some_and(|rest| rest.starts_with(" ("))
+                    })
+                })
+                .cloned()
+                .collect();
+            state.insert("actions".into(), json!(actions))
+        }
+        _ => None,
+    };
+    Ok(())
 }
 
 /// One element of `entities.json`, mapped; `kind` is none for a character,
@@ -1062,6 +2030,204 @@ fn session_of(value: &Value) -> Result<Session, String> {
         status,
         present,
     })
+}
+
+/// One scene of `SceneBoard.json`, mapped: the `index`th (from 0), which says
+/// its order (`scene-order-contiguous`: from 1 to n, no hole).
+fn scene_of(value: &Value, index: usize) -> Result<Scene, String> {
+    let slug = required(value, "id")?.to_string();
+    let position = i32::try_from(index + 1).map_err(|_| format!("{slug} is too far"))?;
+    if value["order"] != position {
+        return Err(format!("{slug} is not the scene {position}"));
+    }
+    if !(value["notes"].is_null() || value["notes"].is_string()) {
+        return Err(format!("the notes of {slug} are not a text"));
+    }
+    // An element or a medium is linked once per scene: one listed twice is linked once.
+    let links = |key: &str| -> Result<Vec<String>, String> {
+        let mut linked: Vec<String> = Vec::new();
+        for link in array(&value[key], key)? {
+            let link = link
+                .as_str()
+                .ok_or_else(|| format!("a {key} of {slug} is not a text"))?;
+            if !linked.iter().any(|known| known == link) {
+                linked.push(link.to_string());
+            }
+        }
+        Ok(linked)
+    };
+    Ok(Scene {
+        title: required(value, "title")?.to_string(),
+        notes: value["notes"].clone(),
+        places: links("places")?,
+        characters: links("characters")?,
+        events: links("events")?,
+        media: links("media")?,
+        battlemap: match &value["battlemap"] {
+            Value::Null => None,
+            Value::String(slug) => Some(slug.clone()),
+            _ => return Err(format!("the battlemap of {slug} is not a text")),
+        },
+        slug,
+        position,
+    })
+}
+
+/// The instance of `table.getBattlemapInstance.json`, mapped. Its roster is
+/// derived from the PCs present and the tokens, and the initiative of its PCs
+/// is what a combat starts from: no table holds either before one runs, and a
+/// combat running is not loaded, the fixture giving no moment it started.
+fn instance_of(value: &Value) -> Result<Instance, String> {
+    let slug = required(value, "id")?.to_string();
+    if !value["state"]["combat"].is_null() {
+        return Err(format!("{slug} has a combat running, which is not loaded"));
+    }
+    let mut tokens: Vec<Token> = Vec::new();
+    for token in array(&value["state"]["tokens"], "tokens")? {
+        let token = token_of(token)?;
+        if token.slug == slug || tokens.iter().any(|known| known.slug == token.slug) {
+            return Err(format!("the slug {:?} names two rows", token.slug));
+        }
+        // One token per PC (`token-roster`), numbers unique per character
+        // (`multi-drop-numbering`).
+        if tokens
+            .iter()
+            .any(|k| k.character == token.character && k.number == token.number)
+        {
+            return Err(format!(
+                "{:?} stands twice for {:?} with the number {}",
+                token.slug, token.character, token.number
+            ));
+        }
+        tokens.push(token);
+    }
+    Ok(Instance {
+        battlemap: required(value, "battlemap")?.to_string(),
+        session: required(value, "session")?.to_string(),
+        scene: required(value, "scene")?.to_string(),
+        slug,
+        tokens,
+    })
+}
+
+/// One token of an instance, mapped, in the bounds of the columns and of the
+/// aggregate's invariants: a PC has no number and no hit points
+/// (`pj-hp-not-tracked`), an NPC a number from 1 and hit points from 0 to its
+/// maximum, and is dead if and only if it has none left (`dead-derived`).
+fn token_of(value: &Value) -> Result<Token, String> {
+    let slug = required(value, "id")?.to_string();
+    let kind = match value["kind"].as_str() {
+        Some("pj") => "pj",
+        Some("pnj") => "pnj",
+        other => return Err(format!("{slug} is of kind {other:?}")),
+    };
+    let whole = |key: &str, low: i64, high: i64| -> Result<Option<i64>, String> {
+        match &value[key] {
+            Value::Null => Ok(None),
+            number => number
+                .as_i64()
+                .filter(|n| (low..=high).contains(n))
+                .map(Some)
+                .ok_or_else(|| {
+                    format!("{key} of {slug} is not a whole number from {low} to {high}")
+                }),
+        }
+    };
+    let (number, hp, hp_max) = (
+        whole("num", 1, i64::from(i16::MAX))?,
+        whole("hp", 0, i64::from(i16::MAX))?,
+        whole("hpMax", 1, i64::from(i16::MAX))?,
+    );
+    if kind == "pj" && (number, hp, hp_max) != (None, None, None) {
+        return Err(format!("{slug}, a PC's, has a number or hit points"));
+    }
+    if kind == "pnj"
+        && (number.is_none() || hp_max.is_none() || hp.is_none_or(|h| Some(h) > hp_max))
+    {
+        return Err(format!(
+            "{slug}, an NPC's, has no number or no hit points within its maximum"
+        ));
+    }
+    if value["dead"] != json!(hp == Some(0)) {
+        return Err(format!(
+            "{slug} is dead if and only if it has no hit point left"
+        ));
+    }
+    let wide = |key: &str| -> Result<i32, String> {
+        value[key]
+            .as_i64()
+            .and_then(|n| i32::try_from(n).ok())
+            .ok_or_else(|| format!("{key} of {slug} is not a whole number"))
+    };
+    let mut conditions = Vec::new();
+    for state in array(&value["states"], "states")? {
+        conditions.push(
+            state
+                .as_str()
+                .ok_or_else(|| format!("a state of {slug} is not a text"))?,
+        );
+    }
+    let name = required(value, "name")?;
+    if name.is_empty() {
+        return Err(format!("{slug} has no name"));
+    }
+    Ok(Token {
+        character: required(value, "char")?.to_string(),
+        name: name.to_string(),
+        number: json!(number),
+        q: wide("q")?,
+        r: wide("r")?,
+        visible: value["visible"]
+            .as_bool()
+            .ok_or_else(|| format!("visible of {slug} is not a boolean"))?,
+        hp: json!(hp),
+        hp_max: json!(hp_max),
+        conditions: json!(conditions),
+        slug,
+        kind,
+    })
+}
+
+/// The model and the day of the last edit a `summaryMeta` says: « Généré à la
+/// clôture par <model>, retouché le 4 oct. 2026 » — the edit is optional.
+fn meta_of(text: &str) -> Result<(String, Option<String>), String> {
+    let rest = text
+        .strip_prefix("Généré à la clôture par ")
+        .ok_or_else(|| format!("summaryMeta {text:?} names no model"))?;
+    let (model, edited) = match rest.split_once(", retouché le ") {
+        Some((model, day)) => (
+            model,
+            Some(french_day(day).ok_or_else(|| format!("{day:?} is not a day"))?),
+        ),
+        None => (rest, None),
+    };
+    match model.trim() {
+        "" => Err(format!("summaryMeta {text:?} names no model")),
+        model => Ok((model.to_string(), edited)),
+    }
+}
+
+/// `4 oct. 2026` (`1er janv. 2026`) as `2026-10-04`; none for anything else
+/// than a day of the calendar.
+fn french_day(text: &str) -> Option<String> {
+    const MONTHS: [&str; 12] = [
+        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
+        "déc.",
+    ];
+    let mut parts = text.split(' ');
+    let (day, month, year) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    // `1er` is the only ordinal; the rest is digits.
+    let day: u32 = match day {
+        "1er" => 1,
+        digits if digits.bytes().all(|b| b.is_ascii_digit()) => digits.parse().ok()?,
+        _ => return None,
+    };
+    let month = MONTHS.iter().position(|known| *known == month)? + 1;
+    let day = format!("{year}-{month:02}-{day:02}");
+    is_day(&day).then_some(day)
 }
 
 /// A duration written `mm:ss` (`04:12`), in seconds.
@@ -1260,13 +2426,12 @@ fn is_time(text: &str) -> bool {
         && second < 60
 }
 
-/// The day `key` of `value` (`2026-07-11`), as a `date` column holds it, or
-/// null when it has none.
-fn day(value: &Value, key: &str) -> Result<Value, String> {
-    Ok(match date(value, key)? {
-        Value::String(at) => json!(&at[..10]),
-        other => other,
-    })
+/// Whether `text` is a time of the day, written `20:04`.
+fn is_clock(text: &str) -> bool {
+    let (Some(hour), Some(minute)) = (digits(text, 0..2), digits(text, 3..5)) else {
+        return false;
+    };
+    text.len() == 5 && text.as_bytes()[2] == b':' && hour < 24 && minute < 60
 }
 
 /// A day (`2026-08-20`) as the midnight UTC the column holds; null stays null.
@@ -1362,12 +2527,16 @@ mod tests {
             plan.loaded,
             [
                 "OralBrief.json",
+                "PreviousSummary.json",
+                "SceneBoard.json",
                 "SessionList.json",
                 "ToCreateList.json",
                 "campaign.getCampaign.json",
                 "campaign.listCampaigns.json",
+                "campaign.listEntityVersions.json",
                 "entities.json",
-                "media.json"
+                "media.json",
+                "table.getBattlemapInstance.json"
             ]
         );
         assert!(plan.skipped.len() > 30, "{}", plan.skipped.len());
@@ -1389,11 +2558,19 @@ mod tests {
                 "character",
                 "entity_alias",
                 "entity_version",
+                "entity_version",
+                "entity_version",
+                "entity_version",
                 "media",
                 "battlemap_grid",
                 "session",
-                "session",
                 "session_present_character",
+                "scene",
+                "scene_entity",
+                "scene_media",
+                "battlemap_instance",
+                "token",
+                "session_journal_line",
                 "oral_brief",
                 "entity_to_create"
             ]
@@ -1673,27 +2850,31 @@ mod tests {
     fn every_element_starts_its_history_with_a_complete_first_version() {
         let plan = mock();
         let versions = rows(&plan, "entity_version");
+        // Sixteen elements; the history adds three versions to Morlox, two to
+        // Elowen and one to Gaspard.
         assert_eq!(
             versions.len(),
-            16,
+            16 + 3 + 2 + 1,
             "the Entity aggregate refuses an element no version records"
         );
-        let morlox = versions
-            .iter()
-            .find(|v| v["entity_id"] == id("entity", "morlox"))
-            .expect("a version");
-        assert_eq!(morlox["version_number"], 1);
-        assert_eq!(morlox["source"], "dm");
-        let snapshot = morlox["snapshot"].as_object().expect("a snapshot");
-        assert_eq!(snapshot["type"], "pnj");
-        assert_eq!(
-            snapshot["aliases"],
-            json!(["le gobelin", "le marchand", "Morlo"])
-        );
-        assert_eq!(snapshot["armorClass"], 13);
+        let of = |slug: &str| -> Vec<&&Value> {
+            versions
+                .iter()
+                .filter(|v| v["entity_id"] == id("entity", slug))
+                .collect()
+        };
+        // Kael has no history of his own: his one version is his state now.
+        let kael = of("kael");
+        assert_eq!(kael.len(), 1);
+        let first = kael[0];
+        assert_eq!(first["version_number"], 1);
+        assert_eq!(first["source"], "dm");
+        let snapshot = first["snapshot"].as_object().expect("a snapshot");
+        assert_eq!(snapshot["type"], "pj");
+        assert!(snapshot.contains_key("armorClass"));
         // EntityVersion@1: the first diff compares the snapshot with nothing,
         // one entry per field, sorted.
-        let diff = morlox["diff"].as_array().expect("a diff");
+        let diff = first["diff"].as_array().expect("a diff");
         let fields: Vec<&str> = diff.iter().filter_map(|c| c["field"].as_str()).collect();
         let mut sorted = fields.clone();
         sorted.sort_unstable();
@@ -1702,6 +2883,413 @@ mod tests {
         assert!(
             diff.iter().all(|c| c["old"].is_null()
                 && c["new"] == snapshot[c["field"].as_str().unwrap_or_default()])
+        );
+    }
+
+    #[test]
+    fn the_versions_go_in_by_round_so_that_each_is_the_next_of_its_element() {
+        let plan = mock();
+        let rounds: Vec<&data::Table> = plan
+            .tables
+            .iter()
+            .filter(|t| t.name == "entity_version")
+            .collect();
+        // Morlox has four versions.
+        assert_eq!(rounds.len(), 4);
+        for (round, table) in rounds.iter().zip(1..) {
+            let numbers: BTreeSet<u64> = round
+                .rows
+                .iter()
+                .filter_map(|v| v["version_number"].as_u64())
+                .collect();
+            assert_eq!(numbers, BTreeSet::from([table]));
+        }
+        // The first round holds every element, the last Morlox alone.
+        assert_eq!(rounds[0].rows.len(), 16);
+        assert_eq!(rounds[3].rows.len(), 1);
+        assert_eq!(rounds[3].rows[0]["entity_id"], id("entity", "morlox"));
+    }
+
+    /// The `(number, source, created_at, snapshot, diff)` of the versions of
+    /// `slug` in `plan`, oldest first.
+    fn history_of<'a>(plan: &'a Fixtures, slug: &str) -> Vec<&'a Value> {
+        rows(plan, "entity_version")
+            .into_iter()
+            .filter(|v| v["entity_id"] == id("entity", slug))
+            .collect()
+    }
+
+    fn fields(version: &Value) -> Vec<&str> {
+        version["diff"]
+            .as_array()
+            .expect("a diff")
+            .iter()
+            .filter_map(|c| c["field"].as_str())
+            .collect()
+    }
+
+    fn change<'a>(version: &'a Value, field: &str) -> &'a Value {
+        version["diff"]
+            .as_array()
+            .expect("a diff")
+            .iter()
+            .find(|c| c["field"] == field)
+            .expect("a change")
+    }
+
+    #[test]
+    fn the_history_of_the_mock_up_is_planned_version_by_version() {
+        let plan = mock();
+        let described = mock_file("campaign.listEntityVersions.json");
+        for (slug, account) in described.as_object().expect("histories") {
+            let planned = history_of(&plan, slug);
+            // The versions of the fixture, from the first, dated as it dates them.
+            let numbers: Vec<&Value> = planned.iter().map(|v| &v["version_number"]).collect();
+            let expected: Vec<Value> = (1..=planned.len()).map(|n| json!(n)).collect();
+            assert_eq!(numbers, expected.iter().collect::<Vec<_>>(), "{slug}");
+            let mut told: Vec<&Value> = account["versions"]
+                .as_array()
+                .expect("versions")
+                .iter()
+                .collect();
+            told.reverse();
+            assert_eq!(planned.len(), told.len(), "{slug}");
+            for (version, fixture) in planned.iter().zip(told) {
+                let date = format!("{}Z", fixture["date"].as_str().expect("a date"));
+                assert_eq!(version["created_at"], date, "{slug} {fixture}");
+            }
+            // Each version's diff is what moved from the one before it: the
+            // snapshots chain.
+            let mut state = Map::new();
+            for version in &planned {
+                for c in version["diff"].as_array().expect("a diff") {
+                    let field = c["field"].as_str().expect("a field").to_string();
+                    assert_eq!(state.get(&field).unwrap_or(&Value::Null), &c["old"]);
+                    state.insert(field, c["new"].clone());
+                }
+                state.retain(|_, value| !value.is_null());
+                assert_eq!(
+                    &Value::Object(state.clone()),
+                    &version["snapshot"],
+                    "{slug}"
+                );
+            }
+        }
+        // The last version is the element as `entities.json` has it.
+        let morlox = history_of(&plan, "morlox");
+        let current = mock_file("entities.json");
+        let fixture = current["characters"]
+            .as_array()
+            .expect("characters")
+            .iter()
+            .find(|c| c["id"] == "morlox")
+            .expect("morlox");
+        let last = morlox[3]["snapshot"].as_object().expect("a snapshot");
+        assert_eq!(last["notes"], fixture["notes"]);
+        assert_eq!(last["aliases"], fixture["aliases"]);
+        assert_eq!(last["background"], fixture["background"]);
+        assert_eq!(last["armorClass"], fixture["ca"]);
+    }
+
+    #[test]
+    fn what_a_version_changed_is_what_the_fixture_says_it_changed() {
+        let plan = mock();
+        let morlox = history_of(&plan, "morlox");
+        let sources: Vec<&Value> = morlox.iter().map(|v| &v["source"]).collect();
+        // Imported, then dictated to the AI, edited by hand, found in a brief.
+        assert_eq!(sources, ["dm", "ia", "dm", "brief"]);
+        assert_eq!(fields(morlox[3]), ["aliases", "behavior", "notes"]);
+        assert_eq!(
+            change(morlox[3], "aliases")["old"],
+            json!(["le gobelin", "le marchand"])
+        );
+        assert_eq!(change(morlox[2], "notes")["old"], "Doit 40 po à Vesna.");
+        assert_eq!(fields(morlox[2]), ["notes"]);
+        assert_eq!(
+            fields(morlox[1]),
+            ["actions", "armorClass", "background", "dexterity", "hpMax"]
+        );
+        assert_eq!(change(morlox[1], "background")["old"], "");
+        assert_eq!(change(morlox[1], "hpMax")["old"], Value::Null);
+        // Before the statblock the element had none.
+        assert!(morlox[0]["snapshot"].get("armorClass").is_none());
+        assert_eq!(morlox[0]["snapshot"]["actions"], json!([]));
+
+        let elowen = history_of(&plan, "elowen");
+        let sources: Vec<&Value> = elowen.iter().map(|v| &v["source"]).collect();
+        assert_eq!(sources, ["dm", "dm", "dndbeyond"]);
+        // The level and the token's look have no column: the resync changed two fields.
+        assert_eq!(fields(elowen[2]), ["actions", "hpMax"]);
+        assert_eq!(change(elowen[2], "hpMax")["old"], 36);
+        assert_eq!(change(elowen[2], "hpMax")["new"], 44);
+        assert_eq!(
+            elowen[1]["snapshot"]["actions"].as_array().map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(fields(elowen[1]), ["aliases"]);
+
+        let gaspard = history_of(&plan, "gaspard");
+        assert_eq!(gaspard[1]["source"], "ia");
+        assert_eq!(fields(gaspard[1]), ["background"]);
+    }
+
+    /// An `entities.json` of a PNJ and a place, and `history` as the history
+    /// fixture; what is planned.
+    fn small(history: &Value) -> Fixtures {
+        static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let entities = json!({
+            "campaign": { "id": "c", "name": "C" }, "players": [],
+            "characters": [{
+                "id": "pc", "name": "Pc", "kind": "pnj", "aliases": ["a", "b"],
+                "description": "d", "prompt": "", "background": "bg", "behavior": "agité",
+                "stats": { "FOR": 10, "DEX": 11, "CON": 12, "INT": 13, "SAG": 14, "CHA": 15 },
+                "ca": 12, "pvMax": 10, "color": "success", "notes": "n",
+                "features": [{ "name": "Rage", "text": "x" }, { "name": "Rageur", "text": "z" },
+                    { "name": "Rune (rare)", "text": "y" }]
+            }],
+            "places": [{ "id": "lieu", "name": "Lieu", "aliases": [], "description": "d" }],
+            "events": []
+        });
+        let n = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = folder(
+            &format!("small-{n}"),
+            &[
+                ("entities.json", &entities.to_string()),
+                (HISTORY_FILE, &history.to_string()),
+            ],
+        );
+        let plan = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        plan
+    }
+
+    fn version(v: u64, origin: &str, source: &str, changes: &Value) -> Value {
+        json!({ "v": v, "date": format!("2026-09-{:02}T10:00:00", v + 10), "origin": origin,
+                "source": source, "seen": true, "changes": changes })
+    }
+
+    fn account(name: &str, versions: &[Value]) -> Value {
+        json!({ "name": name, "versions": versions })
+    }
+
+    fn created() -> Value {
+        version(
+            1,
+            "import",
+            "Import",
+            &json!([{ "field": "Création", "old": "", "new": "x" }]),
+        )
+    }
+
+    #[test]
+    fn each_label_of_the_screen_is_put_back_in_the_state_before_its_change() {
+        let history = json!({ "pc": account("Pc", &[
+            version(5, "ia", "Brief oral — séance 4", &json!([
+                { "field": "Comportement", "old": "calme", "new": "agité" }])),
+            version(4, "dndbeyond", "Resynchronisation", &json!([
+                { "field": "PV max", "old": "8", "new": "10" },
+                { "field": "Sorts et capacités", "old": "Rage", "new": "Rage, Rune" }])),
+            version(3, "manuelle", "À la main", &json!([
+                { "field": "Notes", "old": "avant", "new": "n" },
+                { "field": "Alias", "old": "a", "new": "a, b" },
+                { "field": "Niveau", "old": "4", "new": "5" }])),
+            version(2, "ia", "Prompt initial dicté", &json!([
+                { "field": "Statblock", "old": "", "new": "CA 12" },
+                { "field": "Background", "old": "", "new": "bg" }])),
+            created(),
+        ]) });
+        let plan = small(&history);
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        assert!(plan.loaded.contains(&HISTORY_FILE.to_string()));
+        let pc = history_of(&plan, "pc");
+        let numbers: Vec<&Value> = pc.iter().map(|v| &v["version_number"]).collect();
+        assert_eq!(numbers, [1, 2, 3, 4, 5]);
+        let sources: Vec<&Value> = pc.iter().map(|v| &v["source"]).collect();
+        assert_eq!(sources, ["dm", "ia", "dm", "dndbeyond", "brief"]);
+        assert_eq!(pc[1]["created_at"], "2026-09-12T10:00:00Z");
+        // The last version is the element now.
+        assert_eq!(pc[4]["snapshot"]["behavior"], "agité");
+        assert_eq!(fields(pc[4]), ["behavior"]);
+        assert_eq!(change(pc[4], "behavior")["old"], "calme");
+        // A resync: the hit points and the capabilities, the Rune not yet known.
+        assert_eq!(fields(pc[3]), ["actions", "hpMax"]);
+        assert_eq!(change(pc[3], "hpMax")["old"], 8);
+        assert_eq!(
+            change(pc[3], "actions")["old"],
+            json!([{ "name": "Rage", "text": "x" }])
+        );
+        // By hand: the level moves no column.
+        assert_eq!(fields(pc[2]), ["aliases", "notes"]);
+        assert_eq!(change(pc[2], "aliases")["old"], json!(["a"]));
+        assert_eq!(change(pc[2], "notes")["old"], "avant");
+        // The statblock and the background were new.
+        assert_eq!(
+            fields(pc[1]),
+            ["actions", "armorClass", "background", "dexterity", "hpMax"]
+        );
+        assert_eq!(change(pc[1], "actions")["old"], json!([]));
+        assert_eq!(change(pc[1], "armorClass")["old"], Value::Null);
+        assert_eq!(change(pc[1], "background")["old"], "");
+        // And the place, with no history of its own, has the one version.
+        assert_eq!(history_of(&plan, "lieu").len(), 1);
+    }
+
+    #[test]
+    fn a_history_that_does_not_fit_the_elements_is_skipped_whole() {
+        let hurt = |history: Value, why: &str| {
+            let plan = small(&history);
+            assert!(!plan.loaded.contains(&HISTORY_FILE.to_string()), "{why}");
+            let (_, skipped) = plan
+                .skipped
+                .iter()
+                .find(|(file, _)| file == HISTORY_FILE)
+                .unwrap_or_else(|| panic!("{why}: {:?}", plan.skipped));
+            assert!(skipped.contains(why), "{why}: {skipped}");
+            // The elements keep their one version each, and the rest is loaded.
+            assert_eq!(rows(&plan, "entity_version").len(), 2, "{why}");
+            assert!(plan.loaded.contains(&"entities.json".to_string()), "{why}");
+        };
+        let one = |changes: Value| json!({ "pc": account("Pc", &[version(2, "manuelle", "x", &changes), created()]) });
+        hurt(
+            json!({ "ghost": account("Pc", &[created()]) }),
+            "is no element of the campaign",
+        );
+        hurt(json!({ "pc": account("Autre", &[created()]) }), "is called");
+        hurt(
+            json!({ "pc": account("Pc", &[version(3, "manuelle", "x", &json!([])), created()]) }),
+            "do not run from 1 without a gap or a repeat",
+        );
+        hurt(
+            json!({ "pc": account("Pc", &[version(2, "manuelle", "x", &json!([])),
+                version(2, "manuelle", "x", &json!([])), created()]) }),
+            "or a repeat",
+        );
+        hurt(json!({ "pc": account("Pc", &[]) }), "has no version");
+        hurt(
+            json!({ "pc": account("Pc", &[json!({ "v": 1, "date": "2026-13-01T10:00:00",
+                "origin": "import", "source": "x", "changes": [] })]) }),
+            "is dated",
+        );
+        hurt(
+            json!({ "pc": account("Pc", &[version(1, "magie", "x", &json!([]))]) }),
+            "is of origin",
+        );
+        hurt(
+            json!({ "pc": account("Pc", &[json!({ "date": "2026-09-11T10:00:00", "origin": "import",
+                "source": "x", "changes": [] })]) }),
+            "has no number",
+        );
+        hurt(
+            one(json!([{ "field": "Statblock", "old": "CA 9", "new": "CA 12" }])),
+            "only a first one",
+        );
+        hurt(
+            one(json!([{ "field": "PV max", "old": "beaucoup", "new": "10" }])),
+            "not a number",
+        );
+        hurt(
+            one(json!([{ "field": "Notes", "old": 4, "new": "n" }])),
+            "not a text",
+        );
+        hurt(
+            json!({ "lieu": account("Lieu", &[
+                version(2, "manuelle", "x", &json!([{ "field": "Background", "old": "", "new": "d" }])),
+                created()]) }),
+            "no sheet",
+        );
+        hurt(json!(["pc"]), "not an object");
+    }
+
+    #[test]
+    fn a_version_beyond_the_scope_of_its_source_skips_the_history_whole() {
+        // The database refuses it, and the whole load with it: it is skipped here.
+        for (origin, field, change) in [
+            ("ia", "Notes", "notes"),
+            ("dndbeyond", "Background", "background"),
+        ] {
+            let history = json!({ "pc": account("Pc", &[
+                version(2, origin, "x", &json!([{ "field": field, "old": "", "new": "d" }])),
+                created()]) });
+            let plan = small(&history);
+            assert!(!plan.loaded.contains(&HISTORY_FILE.to_string()), "{origin}");
+            assert!(
+                plan.skipped
+                    .iter()
+                    .any(|(file, why)| file == HISTORY_FILE && why.contains(change)),
+                "{origin}: {:?}",
+                plan.skipped
+            );
+            assert_eq!(rows(&plan, "entity_version").len(), 2, "{origin}");
+        }
+    }
+
+    #[test]
+    fn an_element_the_store_versioned_itself_keeps_its_versions_only() {
+        let (morlox, elowen) = (id("entity", "morlox"), id("entity", "elowen"));
+        let version_of = |slug: &str, n: u64| id("entity_version", &format!("{slug}:{n}"));
+        let planned = |plan: &Fixtures| -> usize { rows(plan, "entity_version").len() };
+        let all = |slug: &str, n: u64| -> Vec<(String, String)> {
+            (1..=n)
+                .map(|v| (id("entity", slug), version_of(slug, v)))
+                .collect()
+        };
+        // Nothing held, or exactly the planned versions (a restart): planned as is.
+        for held in [vec![], [all("morlox", 4), all("elowen", 3)].concat()] {
+            let mut plan = mock();
+            plan.leave_out_taken_versions(&held);
+            assert_eq!(plan, mock(), "{held:?}");
+        }
+        // The app's own version under a random id, or only the first of an
+        // earlier load: the element's versions are left out, the others' stay.
+        for held in [
+            vec![(morlox.clone(), "app-written".to_string())],
+            vec![(morlox.clone(), version_of("morlox", 1))],
+            // Every planned version, plus one of the app's: more than planned.
+            [
+                all("morlox", 4),
+                vec![(morlox.clone(), "app-written".to_string())],
+            ]
+            .concat(),
+            // As many as planned, none of them the planned ones.
+            (1..=4)
+                .map(|n| (morlox.clone(), format!("app-{n}")))
+                .collect(),
+        ] {
+            let mut plan = mock();
+            plan.leave_out_taken_versions(&held);
+            assert_eq!(planned(&plan), 16 + 2 + 1 - 1, "{held:?}");
+            assert!(
+                history_of(&plan, "morlox").is_empty(),
+                "{held:?}: Morlox keeps the store's"
+            );
+            assert_eq!(history_of(&plan, "elowen").len(), 3);
+            assert!(
+                plan.skipped
+                    .iter()
+                    .any(|(file, why)| file == HISTORY_FILE && why.contains("1 element(s)")),
+                "{:?}",
+                plan.skipped
+            );
+        }
+        assert_ne!(morlox, elowen);
+    }
+
+    #[test]
+    fn a_history_with_no_elements_is_skipped() {
+        let history = json!({ "pc": account("Pc", &[created()]) });
+        let dir = folder("alone", &[(HISTORY_FILE, &history.to_string())]);
+        let plan = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(plan.loaded.is_empty());
+        assert!(
+            plan.skipped[0].1.contains("no fixture holds the elements"),
+            "{:?}",
+            plan.skipped
+        );
+        assert!(
+            plan.tables
+                .iter()
+                .all(|t| t.name != "entity_version" || t.rows.is_empty())
         );
     }
 
@@ -1914,79 +3502,6 @@ mod tests {
     }
 
     /// The mock-up's fixtures, the files named in `over` replaced by theirs.
-    /// The sessions planned for the campaign `slug`.
-    fn sessions_of<'a>(plan: &'a Fixtures, slug: &str) -> Vec<&'a Value> {
-        let campaign = id("campaign", slug);
-        rows(plan, "session")
-            .into_iter()
-            .filter(|s| s["campaign_id"] == campaign)
-            .collect()
-    }
-
-    #[test]
-    fn the_oneshot_of_the_mock_up_has_its_one_session_closed_on_its_last_day() {
-        let plan = mock();
-        let oneshot = sessions_of(&plan, "nuit-carnaval");
-        assert_eq!(
-            oneshot,
-            [&json!({ "id": id("session", "nuit-carnaval:1"),
-                "campaign_id": id("campaign", "nuit-carnaval"), "position": 1,
-                "title": "La Nuit du Carnaval Pourpre", "planned_on": "2026-07-11",
-                "status": "closed", "microphone_on": false, "summary": null })]
-        );
-        assert!(
-            sessions_of(&plan, "heritiers-ebene").is_empty(),
-            "a campagne no session fixture describes has none"
-        );
-    }
-
-    #[test]
-    fn a_oneshot_never_played_is_in_preparation_for_its_next_day() {
-        let list = json!([
-            { "id": "o", "name": "O", "type": "oneshot", "lastPlayed": null, "next": "2026-11-02" },
-            { "id": "p", "name": "P", "type": "oneshot" },
-        ]);
-        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
-        let next = sessions_of(&plan, "o");
-        assert_eq!(next.len(), 1, "{next:?}");
-        assert_eq!(next[0]["status"], "prep");
-        assert_eq!(next[0]["planned_on"], "2026-11-02");
-        assert_eq!(next[0]["title"], "O");
-        let undated = sessions_of(&plan, "p");
-        assert_eq!(undated.len(), 1, "{undated:?}");
-        assert_eq!(undated[0]["status"], "prep");
-        assert!(undated[0]["planned_on"].is_null());
-    }
-
-    #[test]
-    fn a_oneshot_the_session_fixture_describes_gets_no_other_session() {
-        let mut list = mock_file("campaign.listCampaigns.json");
-        list[0]["type"] = json!("oneshot");
-        list[0]["lastPlayed"] = json!("2026-10-03");
-        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
-        let sessions = sessions_of(&plan, "cendres-valombre");
-        assert_eq!(sessions.len(), 4, "the fixture's, and none added");
-        assert!(
-            sessions
-                .iter()
-                .all(|s| s["title"] != "Les Cendres de Valombre")
-        );
-    }
-
-    #[test]
-    fn a_campaign_list_with_a_day_that_is_none_is_skipped() {
-        let list = json!([{ "id": "o", "name": "O", "type": "oneshot", "lastPlayed": "hier" }]);
-        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
-        assert!(
-            plan.skipped
-                .iter()
-                .any(|(n, why)| n == "campaign.listCampaigns.json" && why.contains("not a day")),
-            "{:?}",
-            plan.skipped
-        );
-        assert!(sessions_of(&plan, "o").is_empty());
-    }
-
     fn replaced(over: &[(&str, Value)]) -> Fixtures {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
         let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
@@ -2032,8 +3547,10 @@ mod tests {
     #[test]
     fn the_sessions_of_the_mock_up_are_planned_with_the_pcs_present() {
         let plan = mock();
-        let sessions = sessions_of(&plan, "cendres-valombre");
+        let sessions = rows(&plan, "session");
         assert_eq!(sessions.len(), 4);
+        let campaign = id("campaign", "cendres-valombre");
+        assert!(sessions.iter().all(|s| s["campaign_id"] == campaign));
         assert!(sessions.iter().all(|s| s["microphone_on"] == false));
         let session = |slug: &str| {
             sessions
@@ -2100,6 +3617,457 @@ mod tests {
         for (slug, uuid) in [("s1", id("session", "s1")), ("s4", id("session", "s4"))] {
             assert!(plan.names.contains(&(slug.to_string(), uuid)), "{slug}");
         }
+    }
+
+    #[test]
+    fn the_scenes_of_the_mock_up_are_planned_with_their_links() {
+        let plan = mock();
+        let board = mock_file(BOARD_FILE);
+        let scenes = rows(&plan, "scene");
+        assert_eq!(scenes.len(), 3);
+        for (index, (row, fixture)) in scenes
+            .iter()
+            .zip(board["scenes"].as_array().expect("scenes"))
+            .enumerate()
+        {
+            let slug = fixture["id"].as_str().expect("an id");
+            assert_eq!(row["id"], id("scene", slug));
+            assert_eq!(row["session_id"], id("session", "s4"));
+            assert_eq!(row["position"], index + 1, "the rank is the order");
+            assert_eq!(row["title"], fixture["title"]);
+            assert_eq!(row["notes"], fixture["notes"]);
+            assert!(plan.names.contains(&(slug.to_string(), id("scene", slug))));
+        }
+        let linked = |table: &str, scene: &str, column: &str| -> Vec<Value> {
+            let mut rows: Vec<&Value> = rows(&plan, table)
+                .into_iter()
+                .filter(|r| r["scene_id"] == id("scene", scene))
+                .collect();
+            rows.sort_by_key(|r| r["position"].as_i64());
+            rows.iter().map(|r| r[column].clone()).collect()
+        };
+        // Places, then characters, then events, each in the fixture's order.
+        assert_eq!(
+            linked("scene_entity", "sc3", "entity_id"),
+            [
+                id("entity", "bandit"),
+                id("entity", "vesna"),
+                id("entity", "morlox"),
+                id("entity", "embuscade-gue"),
+            ]
+        );
+        assert_eq!(
+            linked("scene_entity", "sc1", "entity_id"),
+            [
+                id("entity", "taverne-sanglier"),
+                id("entity", "gaspard"),
+                id("entity", "morlox"),
+                id("entity", "marche-noir"),
+            ]
+        );
+        assert_eq!(
+            linked("scene_media", "sc1", "media_id").len(),
+            2,
+            "both illustrations"
+        );
+        assert_eq!(
+            linked("scene_media", "sc3", "media_id"),
+            [id("media", "bm-gue")]
+        );
+        assert_eq!(rows(&plan, "scene_entity").len(), 4 + 2 + 4);
+        let first: Vec<_> = rows(&plan, "scene_entity")
+            .into_iter()
+            .filter(|r| r["scene_id"] == id("scene", "sc2"))
+            .filter_map(|r| r["position"].as_i64())
+            .collect();
+        assert_eq!(first, [1, 2], "ranked from 1");
+        let keyed = |table: &str| plan.tables.iter().find(|t| t.name == table).map(|t| t.key);
+        assert_eq!(keyed("scene_entity"), Some("scene_id,entity_id"));
+        assert_eq!(keyed("scene_media"), Some("scene_id,media_id"));
+    }
+
+    #[test]
+    fn the_journal_and_the_summary_of_the_closed_session_are_planned() {
+        let plan = mock();
+        let closing = mock_file(CLOSING_FILE);
+        let lines = rows(&plan, "session_journal_line");
+        let fixture = closing["journal"].as_array().expect("a journal");
+        assert_eq!(lines.len(), 14);
+        assert_eq!(lines.len(), fixture.len());
+        for (index, (row, line)) in lines.iter().zip(fixture).enumerate() {
+            assert_eq!(
+                row["id"],
+                id("session_journal_line", &format!("s3:{}", index + 1))
+            );
+            assert_eq!(row["session_id"], id("session", "s3"));
+            assert_eq!(row["text"], line["text"]);
+            let at = row["spoken_at"].as_str().expect("a time");
+            let clock = line["t"].as_str().expect("a time");
+            assert_eq!(&at[..10], "2026-10-03", "the session's day");
+            assert_eq!(&at[11..16], clock, "the line's HH:MM");
+            assert_eq!(&at[at.len() - 1..], "Z", "UTC");
+        }
+        let stamps: Vec<&str> = lines
+            .iter()
+            .filter_map(|l| l["spoken_at"].as_str())
+            .collect();
+        assert!(stamps.windows(2).all(|w| w[0] < w[1]), "in spoken order");
+
+        let sessions = rows(&plan, "session");
+        let third = sessions
+            .iter()
+            .find(|s| s["id"] == id("session", "s3"))
+            .expect("a session");
+        assert_eq!(
+            third["summary"], closing["summary"],
+            "PreviousSummary's wins"
+        );
+        assert_eq!(
+            third["summary_model"],
+            "qwen2.5-14b-instruct (opencode maison)"
+        );
+        assert_eq!(third["summary_edited_at"], "2026-10-04T00:00:00Z");
+        for other in sessions.iter().filter(|s| s["id"] != id("session", "s3")) {
+            assert!(other["summary_model"].is_null() && other["summary_edited_at"].is_null());
+        }
+        let list = mock_file(SESSIONS);
+        let first = sessions
+            .iter()
+            .find(|s| s["id"] == id("session", "s1"))
+            .expect("a session");
+        assert_eq!(
+            first["summary"], list["sessions"][0]["summary"],
+            "the others keep theirs"
+        );
+    }
+
+    #[test]
+    fn the_closed_session_has_one_summary_in_the_list_and_the_panel() {
+        let closing = mock_file(CLOSING_FILE);
+        let slug = closing["session"]["id"].as_str().expect("a session");
+        let summary = closing["summary"].as_str().expect("a summary");
+        let in_list = |file: &str, sessions: &Value| -> Value {
+            sessions
+                .as_array()
+                .expect("sessions")
+                .iter()
+                .find(|s| s["id"] == slug)
+                .unwrap_or_else(|| panic!("{slug} in {file}"))["summary"]
+                .clone()
+        };
+        let list = mock_file(SESSIONS);
+        assert_eq!(in_list(SESSIONS, &list["sessions"]), summary);
+        // The Capability's own fixture, which the campaign's list replays.
+        let answer = mock_file("session.listSessions.json");
+        assert_eq!(in_list("session.listSessions.json", &answer), summary);
+        // And the store holds that one text, whichever file wins the load.
+        let plan = mock();
+        let row = rows(&plan, "session")
+            .into_iter()
+            .find(|s| s["id"] == id("session", slug))
+            .expect("the closed session");
+        assert_eq!(row["summary"], summary);
+    }
+
+    #[test]
+    fn a_summary_meta_says_a_model_and_maybe_the_day_of_an_edit() {
+        assert_eq!(
+            meta_of(
+                "Généré à la clôture par qwen2.5-14b-instruct (opencode maison), retouché le 4 oct. 2026"
+            ),
+            Ok((
+                "qwen2.5-14b-instruct (opencode maison)".to_string(),
+                Some("2026-10-04".to_string())
+            ))
+        );
+        assert_eq!(
+            meta_of("Généré à la clôture par claude"),
+            Ok(("claude".to_string(), None))
+        );
+        assert_eq!(
+            meta_of("Généré à la clôture par claude, retouché le 1er janv. 2026"),
+            Ok(("claude".to_string(), Some("2026-01-01".to_string())))
+        );
+        for bad in [
+            "Écrit par un humain",
+            "Généré à la clôture par ",
+            "Généré à la clôture par  , retouché le 4 oct. 2026",
+            "Généré à la clôture par x, retouché le 4 octobre 2026",
+            "Généré à la clôture par x, retouché le 31 févr. 2026",
+            "Généré à la clôture par x, retouché le 4 oct. 2026 à 10 h",
+            "Généré à la clôture par x, retouché le 4 oct.",
+        ] {
+            assert!(meta_of(bad).is_err(), "{bad}");
+        }
+        assert_eq!(french_day("30 déc. 2025").as_deref(), Some("2025-12-30"));
+        assert_eq!(french_day("29 févr. 2028").as_deref(), Some("2028-02-29"));
+        assert_eq!(french_day("29 févr. 2027"), None);
+        assert_eq!(french_day("0 mars 2026"), None);
+        for bad in [
+            "+4 oct. 2026",
+            "2er oct. 2026",
+            "4er oct. 2026",
+            "-4 oct. 2026",
+            " oct. 2026",
+        ] {
+            assert_eq!(french_day(bad), None, "{bad}");
+        }
+        assert_eq!(french_day("04 oct. 2026").as_deref(), Some("2026-10-04"));
+    }
+
+    #[test]
+    fn a_time_of_the_day_is_hours_and_minutes() {
+        for good in ["00:00", "20:04", "23:59"] {
+            assert!(is_clock(good), "{good}");
+        }
+        for bad in [
+            "24:00", "20:60", "2:04", "20-04", "20:4", "20:04:00", "ab:cd", "20:0é", "",
+        ] {
+            assert!(!is_clock(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_scene_file_that_does_not_fit_is_skipped_alone() {
+        let board = |edit: &dyn Fn(&mut Value)| {
+            let mut board = mock_file(BOARD_FILE);
+            edit(&mut board);
+            board
+        };
+        let cases = [
+            (
+                "a session nobody describes",
+                board(&|b| b["session"]["id"] = json!("s9")),
+                "no fixture describes the session",
+            ),
+            (
+                "a place that is a character",
+                board(&|b| b["scenes"][0]["places"] = json!(["morlox"])),
+                "is none of",
+            ),
+            (
+                "a character that is a place",
+                board(&|b| b["scenes"][0]["characters"] = json!(["valombre"])),
+                "is none of",
+            ),
+            (
+                "an event that is a character",
+                board(&|b| b["scenes"][0]["events"] = json!(["gaspard"])),
+                "is none of",
+            ),
+            (
+                "an element nobody describes",
+                board(&|b| b["scenes"][0]["characters"] = json!(["nobody"])),
+                "is none of",
+            ),
+            (
+                "a medium nobody describes",
+                board(&|b| b["scenes"][0]["media"] = json!(["nothing"])),
+                "is none of its campaign",
+            ),
+            (
+                "a slug an element has",
+                board(&|b| b["scenes"][0]["id"] = json!("elowen")),
+                "names two rows",
+            ),
+            (
+                "a slug a session has",
+                board(&|b| b["scenes"][0]["id"] = json!("s1")),
+                "names two rows",
+            ),
+            (
+                "a slug an entry has",
+                board(&|b| b["scenes"][0]["id"] = json!("tc-gue")),
+                "names two rows",
+            ),
+            (
+                "a slug twice",
+                board(&|b| b["scenes"][1]["id"] = json!("sc1")),
+                "names two rows",
+            ),
+            (
+                "a hole in the orders",
+                board(&|b| b["scenes"][1]["order"] = json!(3)),
+                "is not the scene 2",
+            ),
+            (
+                "notes that are no text",
+                board(&|b| b["scenes"][0]["notes"] = json!(7)),
+                "are not a text",
+            ),
+            (
+                "a link that is no text",
+                board(&|b| b["scenes"][0]["media"] = json!([7])),
+                "is not a text",
+            ),
+            (
+                "no title",
+                board(&|b| b["scenes"][0]["title"] = json!(null)),
+                "title is not a text",
+            ),
+        ];
+        for (what, scenes, why) in cases {
+            let plan = replaced(&[(BOARD_FILE, scenes)]);
+            let left = unmapped(&plan);
+            // The instance hangs on its scene: it goes with the board.
+            let files: Vec<&str> = left.iter().map(|(n, _)| n.as_str()).collect();
+            assert_eq!(files, [BOARD_FILE, INSTANCE_FILE], "{what}: {left:?}");
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            for table in [
+                "scene",
+                "scene_entity",
+                "scene_media",
+                "battlemap_instance",
+                "token",
+            ] {
+                assert!(rows(&plan, table).is_empty(), "{what}: {table}");
+            }
+            assert!(plan.names.iter().all(|(slug, _)| slug != "sc1"), "{what}");
+            assert!(plan.loaded.iter().any(|n| n == SESSIONS), "{what}");
+            assert_eq!(rows(&plan, "session_journal_line").len(), 14, "{what}");
+        }
+    }
+
+    #[test]
+    fn a_link_listed_twice_in_a_scene_is_linked_once() {
+        let mut board = mock_file(BOARD_FILE);
+        board["scenes"][0]["characters"] = json!(["gaspard", "morlox", "gaspard"]);
+        board["scenes"][0]["media"] = json!(["ill-gaspard", "ill-gaspard", "ill-salle-sanglier"]);
+        let plan = replaced(&[(BOARD_FILE, board)]);
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        let of_scene = |table: &str| {
+            rows(&plan, table)
+                .into_iter()
+                .filter(|r| r["scene_id"] == id("scene", "sc1"))
+                .count()
+        };
+        assert_eq!(of_scene("scene_entity"), 4);
+        assert_eq!(of_scene("scene_media"), 2);
+    }
+
+    #[test]
+    fn a_closing_file_that_does_not_fit_is_skipped_and_the_sessions_summary_stays() {
+        let closing = |edit: &dyn Fn(&mut Value)| {
+            let mut closing = mock_file(CLOSING_FILE);
+            edit(&mut closing);
+            closing
+        };
+        let cases = [
+            (
+                "a session nobody describes",
+                closing(&|c| c["session"]["id"] = json!("s9")),
+                "no fixture describes the session",
+            ),
+            (
+                "a session that is not closed",
+                closing(&|c| c["session"]["id"] = json!("s4")),
+                "is prep, not closed",
+            ),
+            (
+                "a day that is not a day",
+                closing(&|c| c["session"]["date"] = json!("3 octobre")),
+                "is not a day",
+            ),
+            (
+                "a meta with no model",
+                closing(&|c| c["summaryMeta"] = json!("retouché le 4 oct. 2026")),
+                "names no model",
+            ),
+            (
+                "no summary",
+                closing(&|c| c["summary"] = json!(null)),
+                "summary is not a text",
+            ),
+            (
+                "another day than the session's",
+                closing(&|c| c["session"]["date"] = json!("2026-10-04")),
+                "not of its day",
+            ),
+            (
+                "a time that is not a time",
+                closing(&|c| c["journal"][2]["t"] = json!("25:00")),
+                "is not an HH:MM",
+            ),
+            (
+                "a line out of time order",
+                closing(&|c| c["journal"][3]["t"] = json!("19:59")),
+                "out of time order",
+            ),
+            (
+                "a line with no text",
+                closing(&|c| c["journal"][3]["text"] = json!(null)),
+                "text is not a text",
+            ),
+            (
+                "a journal that is no list",
+                closing(&|c| c["journal"] = json!("none")),
+                "is not a list",
+            ),
+        ];
+        let list = mock_file(SESSIONS);
+        for (what, document, why) in cases {
+            let plan = replaced(&[(CLOSING_FILE, document)]);
+            let left = unmapped(&plan);
+            assert_eq!(left.len(), 1, "{what}: {left:?}");
+            assert_eq!(left[0].0, CLOSING_FILE, "{what}");
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            assert!(rows(&plan, "session_journal_line").is_empty(), "{what}");
+            let sessions = rows(&plan, "session");
+            let third = sessions
+                .iter()
+                .find(|s| s["id"] == id("session", "s3"))
+                .expect("a session");
+            assert_eq!(third["summary"], list["sessions"][2]["summary"], "{what}");
+            assert!(third["summary_model"].is_null(), "{what}");
+            assert!(plan.loaded.iter().any(|n| n == BOARD_FILE), "{what}");
+        }
+    }
+
+    #[test]
+    fn two_lines_of_one_minute_keep_their_order() {
+        let mut closing = mock_file(CLOSING_FILE);
+        closing["journal"] = json!([
+            { "t": "20:04", "text": "a" },
+            { "t": "20:04", "text": "b" },
+            { "t": "20:04", "text": "c" },
+        ]);
+        let plan = replaced(&[(CLOSING_FILE, closing)]);
+        let stamps: Vec<&str> = rows(&plan, "session_journal_line")
+            .iter()
+            .filter_map(|l| l["spoken_at"].as_str())
+            .collect();
+        assert_eq!(stamps.len(), 3);
+        assert!(stamps.windows(2).all(|w| w[0] < w[1]), "{stamps:?}");
+    }
+
+    #[test]
+    fn a_session_with_no_day_takes_the_day_of_its_journal() {
+        let mut list = mock_file(SESSIONS);
+        list["sessions"][2]["date"] = Value::Null;
+        let plan = replaced(&[(SESSIONS, list)]);
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        let lines = rows(&plan, "session_journal_line");
+        assert_eq!(lines.len(), 14);
+        assert!(lines.iter().all(|l| {
+            l["spoken_at"]
+                .as_str()
+                .is_some_and(|at| at.starts_with("2026-10-03"))
+        }));
+    }
+
+    #[test]
+    fn a_closing_without_an_edit_leaves_the_edit_day_null() {
+        let mut closing = mock_file(CLOSING_FILE);
+        closing["summaryMeta"] = json!("Généré à la clôture par claude");
+        let plan = replaced(&[(CLOSING_FILE, closing)]);
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        let sessions = rows(&plan, "session");
+        let third = sessions
+            .iter()
+            .find(|s| s["id"] == id("session", "s3"))
+            .expect("a session");
+        assert_eq!(third["summary_model"], "claude");
+        assert!(third["summary_edited_at"].is_null());
     }
 
     #[test]
@@ -2274,21 +4242,46 @@ mod tests {
             let plan = replaced(&[(SESSIONS, list)]);
             let left = unmapped(&plan);
             let names: Vec<&str> = left.iter().map(|(n, _)| n.as_str()).collect();
-            // The brief and the list name a session: they go with the sessions.
-            assert_eq!(names, [SESSIONS, BRIEF_FILE, TO_CREATE_FILE], "{what}");
+            // The scenes, the closing, the brief and the list name a session: they go with the sessions.
+            let hanging = [
+                BOARD_FILE,
+                CLOSING_FILE,
+                BRIEF_FILE,
+                TO_CREATE_FILE,
+                INSTANCE_FILE,
+            ];
+            assert_eq!(
+                names,
+                [
+                    SESSIONS,
+                    BOARD_FILE,
+                    CLOSING_FILE,
+                    BRIEF_FILE,
+                    TO_CREATE_FILE,
+                    INSTANCE_FILE
+                ],
+                "{what}"
+            );
             assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
-            assert!(left[1].1.contains("no fixture describes the session"));
-            for file in [SESSIONS, BRIEF_FILE, TO_CREATE_FILE] {
+            for hung in &left[1..] {
+                assert!(
+                    hung.1.contains("no fixture describes the session"),
+                    "{hung:?}"
+                );
+            }
+            for file in [SESSIONS].iter().chain(&hanging) {
                 assert!(!plan.loaded.iter().any(|n| n == file), "{what}: {file}");
             }
             assert!(plan.loaded.iter().any(|n| n == "entities.json"), "{what}");
-            // The oneshot's own session hangs on no file.
-            assert!(
-                sessions_of(&plan, "cendres-valombre").is_empty(),
-                "{what}: session"
-            );
             for table in [
+                "session",
                 "session_present_character",
+                "scene",
+                "scene_entity",
+                "scene_media",
+                "battlemap_instance",
+                "token",
+                "session_journal_line",
                 "oral_brief",
                 "entity_to_create",
             ] {
@@ -2298,7 +4291,7 @@ mod tests {
                 !plan
                     .names
                     .iter()
-                    .any(|(slug, _)| slug == "s4" || slug == "tc-odric")
+                    .any(|(slug, _)| slug == "s4" || slug == "tc-odric" || slug == "sc1")
             );
         }
     }
@@ -2394,7 +4387,7 @@ mod tests {
             assert_eq!(left[0].0, file, "{what}");
             assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
             assert_eq!(
-                sessions_of(&plan, "cendres-valombre").len(),
+                rows(&plan, "session").len(),
                 4,
                 "{what}: the sessions are loaded"
             );
@@ -2493,5 +4486,397 @@ mod tests {
         ] {
             assert!(!is_time(time), "{time:?}");
         }
+    }
+
+    #[test]
+    fn the_instance_of_the_mock_up_is_planned_with_its_tokens_at_their_hexes() {
+        let plan = mock();
+        let fixture = mock_file(INSTANCE_FILE);
+        assert_eq!(
+            fixture,
+            mock_file("Battlemap.json")["instances"][0],
+            "the Micro-UI's fixture is the same instance"
+        );
+        let instances = rows(&plan, "battlemap_instance");
+        assert_eq!(instances.len(), 1);
+        let instance = id("battlemap_instance", "bmi-gue-s4");
+        assert_eq!(
+            instances[0],
+            &json!({
+                "id": instance,
+                "battlemap_media_id": id("media", "bm-gue"),
+                "session_id": id("session", "s4"),
+                "scene_id": id("scene", "sc3"),
+            })
+        );
+        let tokens = rows(&plan, "token");
+        let fixture = fixture["state"]["tokens"].as_array().expect("tokens");
+        assert_eq!(tokens.len(), 8);
+        assert_eq!(tokens.len(), fixture.len());
+        for (row, token) in tokens.iter().zip(fixture) {
+            let slug = token["id"].as_str().expect("an id");
+            assert_eq!(row["id"], id("token", slug));
+            assert_eq!(row["instance_id"], instance);
+            assert_eq!(
+                row["character_id"],
+                id("entity", token["char"].as_str().unwrap())
+            );
+            for (column, key) in [
+                ("number", "num"),
+                ("name", "name"),
+                ("q", "q"),
+                ("r", "r"),
+                ("visible", "visible"),
+                ("hp_current", "hp"),
+                ("hp_max", "hpMax"),
+                ("conditions", "states"),
+            ] {
+                assert_eq!(row[column], token[key], "{slug}.{column}");
+            }
+            assert!(plan.names.contains(&(slug.to_string(), id("token", slug))));
+        }
+        assert!(plan.names.contains(&("bmi-gue-s4".to_string(), instance)));
+        let tables: Vec<&str> = plan.tables.iter().map(|t| t.name).collect();
+        let at = |name: &str| tables.iter().position(|t| *t == name).expect(name);
+        assert!(at("scene_media") < at("battlemap_instance"), "{tables:?}");
+        assert_eq!(at("battlemap_instance") + 1, at("token"));
+        let keyed = |table: &str| plan.tables.iter().find(|t| t.name == table).map(|t| t.key);
+        assert_eq!(keyed("battlemap_instance"), Some("id"));
+        assert_eq!(keyed("token"), Some("id"));
+        // The scene's battlemap is not a column: the instance row names the scene.
+        assert!(
+            rows(&plan, "scene")
+                .iter()
+                .all(|s| s.get("battlemap").is_none())
+        );
+    }
+
+    #[test]
+    fn a_scene_the_store_gave_another_instance_loads_neither_instance_nor_tokens() {
+        let (instance, scene) = (id("battlemap_instance", "bmi-gue-s4"), id("scene", "sc3"));
+        let table_rows = |plan: &Fixtures| {
+            (
+                rows(plan, "battlemap_instance").len(),
+                rows(plan, "token").len(),
+            )
+        };
+        // Another scene's instance, and the fixture's own after a restart: planned as is.
+        for held in [
+            vec![],
+            vec![("dm".to_string(), id("scene", "sc1"))],
+            vec![(instance.clone(), scene.clone())],
+        ] {
+            let mut plan = mock();
+            let before = mock();
+            plan.leave_out_taken_scenes(&held);
+            assert_eq!(plan, before, "{held:?}");
+            assert_eq!(table_rows(&plan), (1, 8));
+        }
+        // The DM's own instance on sc3, with or without the fixture's.
+        for held in [
+            vec![("dm".to_string(), scene.clone())],
+            vec![(instance.clone(), scene.clone()), ("dm".to_string(), scene)],
+        ] {
+            let mut plan = mock();
+            plan.leave_out_taken_scenes(&held);
+            assert_eq!(table_rows(&plan), (0, 0), "{held:?}");
+            assert!(!plan.loaded.iter().any(|f| f == INSTANCE_FILE));
+            assert_eq!(plan.skipped.len(), mock().skipped.len() + 1);
+            assert!(
+                plan.skipped
+                    .iter()
+                    .any(|(f, why)| f == INSTANCE_FILE && why.contains("already has an instance")),
+                "{:?}",
+                plan.skipped
+            );
+            assert!(
+                plan.names
+                    .iter()
+                    .all(|(slug, _)| { slug != "bmi-gue-s4" && !slug.starts_with("t-") }),
+                "{:?}",
+                plan.names
+            );
+            // The scenes and the rest stay planned.
+            assert_eq!(rows(&plan, "scene").len(), rows(&mock(), "scene").len());
+        }
+    }
+
+    #[test]
+    fn an_instance_that_does_not_fit_is_skipped_alone_and_loads_no_row() {
+        let edited = |file: &str, edit: &dyn Fn(&mut Value)| {
+            let mut value = mock_file(file);
+            edit(&mut value);
+            (file.to_string(), value)
+        };
+        let instance = |edit: &dyn Fn(&mut Value)| edited(INSTANCE_FILE, edit);
+        let token =
+            |n: usize, edit: &dyn Fn(&mut Value)| instance(&|v| edit(&mut v["state"]["tokens"][n]));
+        // Each case replaces one or two files, and says why the instance is left out.
+        type Case = (&'static str, Vec<(String, Value)>, &'static str);
+        let cases: Vec<Case> = vec![
+            (
+                "a combat running",
+                vec![instance(&|v| v["state"]["combat"] = json!({ "round": 1 }))],
+                "combat running",
+            ),
+            (
+                "a session nobody gives scenes to",
+                vec![instance(&|v| v["session"] = json!("s3"))],
+                "no fixture describes the session",
+            ),
+            (
+                "a scene the session lacks",
+                vec![instance(&|v| v["scene"] = json!("sc9"))],
+                "is no scene of the session",
+            ),
+            (
+                "a scene that names no battlemap",
+                vec![edited(BOARD_FILE, &|v| {
+                    v["scenes"][2]["battlemap"] = json!(null)
+                })],
+                "does not name",
+            ),
+            (
+                "a scene that names another",
+                vec![edited(BOARD_FILE, &|v| {
+                    v["scenes"][2]["battlemap"] = json!("bmi-x")
+                })],
+                "does not name",
+            ),
+            (
+                "a battlemap the scene does not link",
+                vec![instance(&|v| v["battlemap"] = json!("bm-moulin"))],
+                "is not linked to",
+            ),
+            (
+                "an illustration for a battlemap",
+                vec![
+                    instance(&|v| v["battlemap"] = json!("ill-moulin")),
+                    edited(BOARD_FILE, &|v| {
+                        v["scenes"][2]["media"] = json!(["ill-moulin"])
+                    }),
+                ],
+                "is no battlemap of its campaign",
+            ),
+            (
+                "a slug an element has",
+                vec![
+                    instance(&|v| v["id"] = json!("elowen")),
+                    edited(BOARD_FILE, &|v| {
+                        v["scenes"][2]["battlemap"] = json!("elowen")
+                    }),
+                ],
+                "names two rows",
+            ),
+            (
+                "a slug a session has",
+                vec![token(0, &|t| t["id"] = json!("s1"))],
+                "names two rows",
+            ),
+            (
+                "a slug a scene has",
+                vec![token(0, &|t| t["id"] = json!("sc1"))],
+                "names two rows",
+            ),
+            (
+                "a slug an entry has",
+                vec![token(0, &|t| t["id"] = json!("tc-gue"))],
+                "names two rows",
+            ),
+            (
+                "a slug a medium has",
+                vec![token(0, &|t| t["id"] = json!("bm-gue"))],
+                "names two rows",
+            ),
+            (
+                "a token named as the instance",
+                vec![token(0, &|t| t["id"] = json!("bmi-gue-s4"))],
+                "names two rows",
+            ),
+            (
+                "a token twice",
+                vec![token(1, &|t| t["id"] = json!("t-elowen"))],
+                "names two rows",
+            ),
+            (
+                "a character nobody describes",
+                vec![token(0, &|t| t["char"] = json!("nobody"))],
+                "is no \"pj\"",
+            ),
+            (
+                "an NPC that is a PC",
+                vec![token(4, &|t| t["char"] = json!("elowen"))],
+                "is no \"pnj\"",
+            ),
+            (
+                "a PC that is not present",
+                vec![edited(SESSIONS, &|v| {
+                    v["sessions"][3]["present"] = json!(["elowen", "brannoc", "sirielle"]);
+                })],
+                "is not present at",
+            ),
+            (
+                "hit points the sheet does not give",
+                vec![token(4, &|t| {
+                    t["hp"] = json!(12);
+                    t["hpMax"] = json!(12);
+                })],
+                "are not those of the sheet",
+            ),
+            (
+                "a PC twice",
+                vec![token(1, &|t| t["char"] = json!("elowen"))],
+                "stands twice",
+            ),
+            (
+                "an NPC numbered twice",
+                vec![token(5, &|t| t["num"] = json!(1))],
+                "stands twice",
+            ),
+            (
+                "a kind of nobody's",
+                vec![token(0, &|t| t["kind"] = json!("monster"))],
+                "is of kind",
+            ),
+            (
+                "a PC with a number",
+                vec![token(0, &|t| t["num"] = json!(1))],
+                "has a number or hit points",
+            ),
+            (
+                "a PC with hit points",
+                vec![token(0, &|t| t["hp"] = json!(10))],
+                "has a number or hit points",
+            ),
+            (
+                "an NPC with no number",
+                vec![token(4, &|t| t["num"] = json!(null))],
+                "has no number",
+            ),
+            (
+                "an NPC with no hit points",
+                vec![token(4, &|t| t["hp"] = json!(null))],
+                "has no number or no hit points",
+            ),
+            (
+                "an NPC with more hit points than its maximum",
+                vec![token(4, &|t| t["hp"] = json!(12))],
+                "within its maximum",
+            ),
+            (
+                "an NPC dead with hit points left",
+                vec![token(4, &|t| t["dead"] = json!(true))],
+                "if and only if",
+            ),
+            (
+                "an NPC at no hit point who is not dead",
+                vec![token(4, &|t| t["hp"] = json!(0))],
+                "if and only if",
+            ),
+            (
+                "a number that is no whole number",
+                vec![token(4, &|t| t["num"] = json!(1.5))],
+                "num of t-bandit-1 is not a whole number from 1",
+            ),
+            (
+                "a number of zero",
+                vec![token(4, &|t| t["num"] = json!(0))],
+                "num of t-bandit-1 is not a whole number from 1",
+            ),
+            (
+                "negative hit points",
+                vec![token(4, &|t| t["hp"] = json!(-1))],
+                "hp of t-bandit-1 is not a whole number from 0",
+            ),
+            (
+                "a hex out of the column",
+                vec![token(0, &|t| t["q"] = json!(3_000_000_000_u64))],
+                "q of t-elowen is not a whole number",
+            ),
+            (
+                "a hex that is no number",
+                vec![token(0, &|t| t["r"] = json!("six"))],
+                "r of t-elowen is not a whole number",
+            ),
+            (
+                "a visibility that is no boolean",
+                vec![token(0, &|t| t["visible"] = json!("yes"))],
+                "visible of t-elowen is not a boolean",
+            ),
+            (
+                "a state that is no text",
+                vec![token(0, &|t| t["states"] = json!([7]))],
+                "is not a text",
+            ),
+            (
+                "no states",
+                vec![token(0, &|t| t["states"] = json!(null))],
+                "states is not a list",
+            ),
+            (
+                "no name",
+                vec![token(0, &|t| t["name"] = json!(""))],
+                "has no name",
+            ),
+            (
+                "no tokens list",
+                vec![instance(&|v| v["state"]["tokens"] = json!(null))],
+                "tokens is not a list",
+            ),
+        ];
+        for (what, over, why) in cases {
+            let over: Vec<(&str, Value)> =
+                over.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+            let plan = replaced(&over);
+            let left: Vec<&Skipped> = unmapped(&plan)
+                .into_iter()
+                .filter(|(name, _)| name == INSTANCE_FILE)
+                .collect();
+            assert_eq!(left.len(), 1, "{what}: {:?}", plan.skipped);
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            assert!(left[0].1.starts_with("cannot be mapped"), "{what}");
+            assert!(!plan.loaded.iter().any(|n| n == INSTANCE_FILE), "{what}");
+            for table in ["battlemap_instance", "token"] {
+                assert!(rows(&plan, table).is_empty(), "{what}: {table}");
+            }
+            assert!(
+                plan.names.iter().all(|(slug, _)| slug != "bmi-gue-s4"),
+                "{what}"
+            );
+            assert!(
+                plan.names.iter().all(|(slug, _)| slug != "t-elowen"),
+                "{what}"
+            );
+            // Nothing else is left out: the scenes load, and the media stay.
+            assert_eq!(unmapped(&plan).len(), 1, "{what}: {:?}", plan.skipped);
+            assert_eq!(rows(&plan, "scene").len(), 3, "{what}");
+            assert_eq!(rows(&plan, "media").len(), 7, "{what}");
+        }
+    }
+
+    #[test]
+    fn a_file_with_no_instance_leaves_the_scenes_and_the_rest_loaded() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
+            .expect("the fixtures folder")
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let name = path.file_name()?.to_str()?.to_string();
+                (name != INSTANCE_FILE && path.extension().is_some_and(|e| e == "json"))
+                    .then(|| (name, std::fs::read_to_string(&path).expect("a fixture")))
+            })
+            .collect();
+        files.sort();
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(n, t)| (n.as_str(), t.as_str()))
+            .collect();
+        let folder = folder("no-instance", &files);
+        let plan = fixtures(&folder).expect("the folder is listed");
+        std::fs::remove_dir_all(&folder).ok();
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        assert_eq!(rows(&plan, "scene").len(), 3);
+        assert!(rows(&plan, "battlemap_instance").is_empty());
+        assert!(rows(&plan, "token").is_empty());
     }
 }

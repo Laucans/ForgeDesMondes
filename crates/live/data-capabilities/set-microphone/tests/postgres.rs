@@ -4,7 +4,8 @@
 //! (`platform_test_kit::Scratch`). What the tables hold after the command — the status,
 //! the start, the microphone — the session the query finds, the vocabulary it reads
 //! (the campaign's alone), and the stream that opens once the command is applied: each
-//! phrase heard becomes a suggestion only while the microphone is on, and off ends it.
+//! phrase heard becomes a line of the session's journal and its suggestions only while
+//! the microphone is on, and off ends it.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -59,13 +60,26 @@ fn door() -> String {
     uuid(0x50, 1)
 }
 
-/// Where the suggestions go: kept.
+/// Where the submissions go: the journal lines (`session.addJournalLine`)
+/// kept apart from the rest.
 #[derive(Default)]
-struct Recorder(Mutex<Vec<Submission>>);
+struct Recorder {
+    kept: Mutex<Vec<Submission>>,
+    lines: Mutex<Vec<Submission>>,
+}
 
 impl Recorder {
+    /// What was submitted but the journal lines.
     fn kept(&self) -> Vec<Submission> {
-        self.0
+        self.kept
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The journal lines submitted, in order.
+    fn lines(&self) -> Vec<Submission> {
+        self.lines
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
@@ -75,8 +89,12 @@ impl Recorder {
 #[async_trait]
 impl Submit for Recorder {
     async fn submit(&self, submission: Submission) -> Result<(), String> {
-        self.0
-            .lock()
+        let kept = if submission.data_capability == "session.addJournalLine" {
+            &self.lines
+        } else {
+            &self.kept
+        };
+        kept.lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(submission);
         Ok(())
@@ -489,6 +507,20 @@ async fn a_phrase_names_a_target_of_the_campaign_only_while_the_microphone_is_on
                 "sessionId": planned(), "soundId": door(), "matchedText": "Porte qui grince" } }),
         ],
         "Gaspard le Rouge, of another campaign, names nothing"
+    );
+    // Every phrase heard, a target named or not, is a line of the session's journal.
+    assert_eq!(
+        rig.recorder
+            .lines()
+            .iter()
+            .map(|l| (l.target_id.clone(), json!(l.payload)))
+            .collect::<Vec<_>>(),
+        [
+            "Gaspard le Rouge salue la salle.",
+            "La Balafrée ? Jamais entendu parler.",
+            "Derrière le comptoir, la porte qui grince.",
+        ]
+        .map(|text| (Some(planned()), json!({ "text": text })))
     );
 
     rig.turn(false, None).await;
