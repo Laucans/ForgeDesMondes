@@ -365,9 +365,10 @@
       "query": "GetLiveSession",
       "capability": "session.getLiveSession",
       "file": "crates/session/queries/getLiveSession.graphql",
-      "sha256": "7cc41a0620841781675c22c36b81ee1139901741b1f084914ac50388e104b36e",
+      "sha256": "5d5410c54a5352638ae097e65c961944dc9a7503fcd5cb333414c2b671954598",
       "fields": [
         "session.id",
+        "session.campaignId",
         "session.position",
         "session.title",
         "session.plannedOn",
