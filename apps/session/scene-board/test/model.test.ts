@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { absentPcs, campaignAsked, commandBody, moved, parseCharacters, parseEntities, parseInstance, parseScenes, parseSession, presentPcs, ranks, reasons, sessionAsked, settled } from '../src/model.ts';
+import { absentPcs, campaignAsked, commandBody, moved, parseCharacters, parseEntities, parseInstance, parseScenes, parseSession, presentPcs, reasons, sessionAsked, settled } from '../src/model.ts';
 import type { Scene } from '../src/types.ts';
 
 const scene = (id: string): Scene => ({ id, title: id, places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: '' });
@@ -32,8 +32,10 @@ test('moving a scene swaps it with its neighbour, and no scene leaves the list',
   assert.equal(moved(scenes, 'zz', 1), null);
 });
 
-test('scene-order-contiguous: a reorder gives every scene its rank, from 1 to n', () => {
-  assert.deepEqual(ranks(['c', 'a', 'b']), [{ scene: 'c', rank: 1 }, { scene: 'a', rank: 2 }, { scene: 'b', rank: 3 }]);
+test('scene-order-contiguous: a reorder is every scene id once, in play order, never a rank', () => {
+  const order = moved(['a', 'b', 'c'].map(scene), 'c', -2);
+  assert.deepEqual(order, ['c', 'a', 'b']);
+  assert.ok(order?.every((id) => typeof id === 'string'));
 });
 
 test('an instance counts its tokens and the hidden ones', () => {
@@ -46,6 +48,11 @@ test('a command names its DataCapability and its version, and keeps its idempote
   assert.equal(body.dataCapability, 'session.addScene@1');
   assert.equal('idempotencyKey' in body, false);
   assert.equal((commandBody('x.y', {}, { aggregate: 'A', id: 'i' }, 'k') as Record<string, unknown>).idempotencyKey, 'k');
+});
+
+test('a command is the DM\'s as approver of the Session\'s critical fields, so it applies instead of waiting in review', () => {
+  const body = commandBody('session.addScene', {}, { aggregate: 'Session', id: 's' }) as { caller: unknown };
+  assert.deepEqual(body.caller, { by: 'dm', from: 'SceneBoard', roles: ['role:approver'] });
 });
 
 test('a rejection is told in words, an unknown violation as it is', () => {

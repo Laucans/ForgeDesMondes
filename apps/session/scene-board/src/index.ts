@@ -5,9 +5,12 @@
 // `campaign.listPlaces`, `campaign.listEvents`, `media.listMedia` and
 // `table.getBattlemapInstance`, and triggers
 // `session.addPresentCharacter`, `session.removePresentCharacter`,
-// `session.addScene`, `session.reorderScenes` and
+// `session.addScene`, `session.reorderScenes`, `session.updateSceneNotes` and
 // `table.createBattlemapInstance`, by identifier, through the shell it is
-// handed: no network call of its own. It does not show or drive the map. The
+// handed: no network call of its own. Every command is the DM's, as the
+// approver of the Session's critical fields, so it applies rather than
+// waits in review; a reorder sends the scene ids in their new order, and a
+// scene's notes are written when the DM leaves the field. It does not show or drive the map. The
 // session is its `session` prop, else the screen's `session` context value;
 // with neither it reads nothing and writes nothing. The campaign its
 // campaign reads are for is the one session.getSession gives, else its
@@ -26,8 +29,9 @@ import {
   LIST_SCENES,
   REMOVE_PRESENT_CHARACTER,
   REORDER_SCENES,
+  UPDATE_SCENE_NOTES,
 } from './ids.ts';
-import { campaignAsked, commandBody, commandId, isFinal, moved, parseCharacters, parseEntities, parseInstance, parseMedias, parseScenes, parseSession, ranks, reasons, sessionAsked, settled, type Settled } from './model.ts';
+import { campaignAsked, commandBody, commandId, isFinal, moved, parseCharacters, parseEntities, parseInstance, parseMedias, parseScenes, parseSession, reasons, sessionAsked, settled, type Settled } from './model.ts';
 import { presentAdd, presentCount, presentList, sceneList, sceneTitle, skeleton } from './render.ts';
 import { STYLE } from './style.ts';
 import type { Board, Instance, Shell } from './types.ts';
@@ -64,7 +68,8 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   // The prop first (`session.getSession` is asked by `id`), the screen's context value when no prop names one.
   const wanted = sessionAsked(props.session, shell.context?.get('session'));
   let board: Board | null = null;
-  let busy = false;
+  // The commands not yet settled, in the order the DM gave them: one runs at a time, none is dropped.
+  let pending: Promise<void> = Promise.resolve();
 
   const say = (text: string): void => {
     part('scenes-notice').textContent = text;
@@ -123,23 +128,34 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     return state;
   }
 
-  /** One command at a time; once applied, the board is read again, so what it shows is what the server holds. */
-  async function act(wrong: string, run: () => Promise<Settled>): Promise<void> {
-    if (busy || board === null) return;
+  /** One command at a time, each waiting its turn rather than dropped: a note saved as the DM leaves the field, and the click that left it, are both sent. */
+  function act(wrong: string, run: (current: Board) => (() => Promise<Settled>) | null, applied?: () => void): Promise<void> {
+    pending = pending.then(() => attempt(wrong, run, applied)).catch(() => undefined);
+    return pending;
+  }
+
+  /** The command is built from the board as it is when its turn comes, not as it was clicked: a command the board no longer allows is not sent. Once applied, the board is read again, so what it shows is what the server holds — unless `applied` says what changed, which keeps the field the DM is in; a command not yet applied leaves that field as typed, and `applied` unsaid. */
+  async function attempt(wrong: string, run: (current: Board) => (() => Promise<Settled>) | null, applied?: () => void): Promise<void> {
+    if (board === null) return;
     // A session the board does not know is one it cannot write to.
     if (board.session.id === '') return say('La séance n’est pas identifiée : rien ne peut être modifié.');
-    busy = true;
+    const sending = run(board);
+    if (sending === null) return;
     host.querySelector('#scene-board')?.setAttribute('aria-busy', 'true');
     say('');
     try {
-      const state = await run();
+      const state = await sending();
       if (state.status === 'rejected') say(`Action refusée : ${reasons(state.violations)}.`);
       else {
         // A command still queued or parked is the server's to apply on its own clock: the board says so, and shows what is held now.
         if (state.status !== 'applied') say(`L’action n’est pas encore appliquée (état : ${state.status || 'inconnu'}).`);
         try {
-          board = await read();
-          paint();
+          if (applied !== undefined) {
+            if (state.status === 'applied') applied();
+          } else {
+            board = await read();
+            paint();
+          }
         } catch {
           say('L’action a eu lieu, mais la séance n’a pas pu être relue.');
         }
@@ -147,7 +163,6 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     } catch {
       say(wrong);
     } finally {
-      busy = false;
       host.querySelector('#scene-board')?.removeAttribute('aria-busy');
     }
   }
@@ -155,42 +170,76 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   host.addEventListener('click', (event) => {
     const clicked = (event.target as Element | null)?.closest('button');
     if (!clicked || board === null) return;
-    const current = board;
-    const session = current.session.id;
     // The actuator says which DataCapability it triggers: that, and nothing else, is what it sends.
     switch (clicked.dataset.writes) {
       case REMOVE_PRESENT_CHARACTER: {
         const character = clicked.dataset.removePj ?? '';
-        void act('Impossible de retirer ce PJ.', () => send(REMOVE_PRESENT_CHARACTER, { session, character }, 'Session', session));
+        void act('Impossible de retirer ce PJ.', ({ session: { id: session } }) => () => send(REMOVE_PRESENT_CHARACTER, { session, character }, 'Session', session));
         return;
       }
       case ADD_PRESENT_CHARACTER: {
         const character = host.querySelector<HTMLSelectElement>('#scenes-present-select')?.value ?? '';
         if (character === '') return;
-        void act('Impossible d’ajouter ce PJ.', () => send(ADD_PRESENT_CHARACTER, { session, character }, 'Session', session));
+        void act('Impossible d’ajouter ce PJ.', ({ session: { id: session } }) => () => send(ADD_PRESENT_CHARACTER, { session, character }, 'Session', session));
         return;
       }
       case ADD_SCENE:
-        void act('Impossible d’ajouter une scène.', () => send(ADD_SCENE, { session, title: 'Nouvelle scène' }, 'Session', session));
+        void act('Impossible d’ajouter une scène.', ({ session: { id: session } }) => () => send(ADD_SCENE, { session, title: 'Nouvelle scène' }, 'Session', session));
         return;
       case REORDER_SCENES: {
-        const order = moved(current.scenes, clicked.closest<HTMLElement>('[data-scene]')?.dataset.scene ?? '', Number(clicked.dataset.move));
-        if (order === null) return;
-        void act('Impossible de réordonner les scènes.', () => send(REORDER_SCENES, { session, order: ranks(order) }, 'Session', session));
+        const scene = clicked.closest<HTMLElement>('[data-scene]')?.dataset.scene ?? '';
+        const delta = Number(clicked.dataset.move);
+        if (moved(board.scenes, scene, delta) === null) return;
+        // The move is made on the order the server holds when it is sent, so two quick moves add up rather than the second undoing the first.
+        void act('Impossible de réordonner les scènes.', (current) => {
+          const order = moved(current.scenes, scene, delta);
+          const session = current.session.id;
+          return order === null ? null : () => send(REORDER_SCENES, { session, order }, 'Session', session);
+        });
         return;
       }
       case CREATE_BATTLEMAP_INSTANCE: {
         const item = clicked.closest<HTMLElement>('[data-scene]');
-        const scene = current.scenes.find((s) => s.id === item?.dataset.scene);
+        const id = item?.dataset.scene;
         const battlemap = item?.querySelector<HTMLSelectElement>('select[data-map-select]')?.value ?? '';
-        // one-instance-per-scene: a scene that has its instance offers no second one. The key is one click's: a retry after a refusal is a new command, never the first one's replayed result.
-        if (!scene || scene.battlemap !== null || battlemap === '') return;
-        void act('Impossible de créer l’instance.', () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, 'BattlemapInstance', scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}:${Date.now()}`));
+        if (battlemap === '') return;
+        // one-instance-per-scene: a scene that has its instance, by the time the command is sent, offers no second one. The key is one click's: a retry after a refusal is a new command, never the first one's replayed result.
+        const key = `${CREATE_BATTLEMAP_INSTANCE}:${id ?? ''}:${Date.now()}`;
+        void act('Impossible de créer l’instance.', (current) => {
+          const scene = current.scenes.find((s) => s.id === id);
+          const session = current.session.id;
+          return !scene || scene.battlemap !== null ? null : () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, 'BattlemapInstance', scene.id, key);
+        });
         return;
       }
     }
     // « Placer les personnages » only leads to the map, which the Battlemap Micro-UI shows; it writes nothing.
     if (clicked.dataset.action === 'place') host.ownerDocument.getElementById('scene-battlemap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // A scene's notes are written when the DM leaves the field, once, and only when they differ from what the board holds when their turn comes.
+  host.addEventListener('change', (event) => {
+    const field = event.target as HTMLTextAreaElement | null;
+    if (field?.tagName !== 'TEXTAREA' || field.dataset.writes !== UPDATE_SCENE_NOTES || board === null) return;
+    const id = field.closest<HTMLElement>('[data-scene]')?.dataset.scene;
+    const notes = field.value;
+    void act(
+      'Impossible d’enregistrer ces notes.',
+      (current) => {
+        const scene = current.scenes.find((s) => s.id === id);
+        const session = current.session.id;
+        return !scene || notes === scene.notes ? null : () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes }, 'Session', scene.id);
+      },
+      () => {
+        // The board may have been read again while the note waited its turn: the scene held now is the one updated, and a repainted field shows the note unless the DM is in it.
+        const held = board?.scenes.find((s) => s.id === id);
+        if (held) held.notes = notes;
+        const shown = [...host.querySelectorAll<HTMLElement>('[data-scene]')]
+          .find((item) => item.dataset.scene === id)
+          ?.querySelector<HTMLTextAreaElement>(`textarea[data-writes="${UPDATE_SCENE_NOTES}"]`);
+        if (shown && shown !== field && shown !== host.ownerDocument.activeElement) shown.value = notes;
+      },
+    );
   });
 
   // No session named, nothing to read: the board stays empty and writes nothing.

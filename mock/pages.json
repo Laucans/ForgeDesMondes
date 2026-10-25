@@ -367,6 +367,7 @@
         "session.removePresentCharacter",
         "session.addScene",
         "session.reorderScenes",
+        "session.updateSceneNotes",
         "table.createBattlemapInstance"
       ],
       "props": {
@@ -374,7 +375,7 @@
         "campaign": "string — id de la campagne dont on lit PJ, lieux, événements et médias, quand session.getSession n’en donne pas ; à défaut, ils sont lus sans campagne"
       },
       "source": "apps/session/scene-board",
-      "builtFrom": "e879a45d9efd9da3"
+      "builtFrom": "09793b4fddd37003"
     },
     {
       "name": "Battlemap",

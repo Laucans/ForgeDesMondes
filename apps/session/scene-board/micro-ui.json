@@ -3,7 +3,7 @@
   "system": "session",
   "description": "Les PJ présents et les scènes ordonnées de la séance, avec leurs lieux, PNJ, événements, médias, notes et instance de battlemap",
   "needs": ["session.getSession", "session.listScenes", "campaign.listCharacters", "campaign.listPlaces", "campaign.listEvents", "media.listMedia", "table.getBattlemapInstance"],
-  "actions": ["session.addPresentCharacter", "session.removePresentCharacter", "session.addScene", "session.reorderScenes", "table.createBattlemapInstance"],
+  "actions": ["session.addPresentCharacter", "session.removePresentCharacter", "session.addScene", "session.reorderScenes", "session.updateSceneNotes", "table.createBattlemapInstance"],
   "props": {
     "session": "string — id de la séance en préparation (lue par session.getSession, passée aux écritures) ; à défaut, la séance du contexte de l’écran ; sans aucune, rien à lire ni à écrire",
     "campaign": "string — id de la campagne dont on lit PJ, lieux, événements et médias, quand session.getSession n’en donne pas ; à défaut, ils sont lus sans campagne"

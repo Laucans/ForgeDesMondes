@@ -2,7 +2,7 @@
 // (mock/kit/<Name>.html): the same ids, the same classes. Every part names
 // the unit it shows (`data-reads`) or triggers (`data-writes`) by identifier.
 
-import { ADD_PRESENT_CHARACTER, ADD_SCENE, CREATE_BATTLEMAP_INSTANCE, GET_BATTLEMAP_INSTANCE, GET_SESSION, LIST_CHARACTERS, LIST_EVENTS, LIST_MEDIA, LIST_PLACES, LIST_SCENES, REMOVE_PRESENT_CHARACTER, REORDER_SCENES } from './ids.ts';
+import { ADD_PRESENT_CHARACTER, ADD_SCENE, CREATE_BATTLEMAP_INSTANCE, GET_BATTLEMAP_INSTANCE, GET_SESSION, LIST_CHARACTERS, LIST_EVENTS, LIST_MEDIA, LIST_PLACES, LIST_SCENES, REMOVE_PRESENT_CHARACTER, REORDER_SCENES, UPDATE_SCENE_NOTES } from './ids.ts';
 import { absentPcs, pcs, presentPcs } from './model.ts';
 import type { Board, Scene } from './types.ts';
 
@@ -81,7 +81,7 @@ function chips(scene: Scene, board: Board): string {
 
 const notes = (scene: Scene): string =>
   `<div class="kit-textarea is-wide"><label class="kit-textarea__label" for="scene-${esc(scene.id)}-notes">Notes</label>` +
-  `<textarea class="kit-textarea__field" id="scene-${esc(scene.id)}-notes" rows="2" readonly>${esc(scene.notes)}</textarea>` +
+  `<textarea class="kit-textarea__field" id="scene-${esc(scene.id)}-notes" rows="2" data-writes="${UPDATE_SCENE_NOTES}">${esc(scene.notes)}</textarea>` +
   '<div class="kit-textarea__footer"><p class="kit-textarea__hint"></p></div></div>';
 
 const plural = (n: number, one: string, many: string): string => (n > 1 ? many : one);

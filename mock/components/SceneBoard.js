@@ -107,6 +107,8 @@
   var ADD_SCENE = "session.addScene";
   var REORDER_SCENES = "session.reorderScenes";
   var CREATE_BATTLEMAP_INSTANCE = "table.createBattlemapInstance";
+  var UPDATE_SCENE_NOTES = "session.updateSceneNotes";
+  var APPROVER = "role:approver";
   var DATA_CAPABILITY_VERSION = 1;
 
   // apps/session/scene-board/src/model.ts
@@ -175,14 +177,13 @@
     order.splice(to, 0, ...order.splice(from, 1));
     return order;
   }
-  var ranks = (order) => order.map((scene, index) => ({ scene, rank: index + 1 }));
   function commandBody(dataCapability, payload, target, idempotencyKey) {
     return {
       dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
       payload,
       target,
       ...idempotencyKey === void 0 ? {} : { idempotencyKey },
-      caller: { by: "dm", from: "SceneBoard", roles: [] }
+      caller: { by: "dm", from: "SceneBoard", roles: [APPROVER] }
     };
   }
   var VIOLATIONS = {
@@ -239,7 +240,7 @@
     const shown2 = rows.filter(([, items]) => items.length > 0);
     return shown2.length === 0 ? "" : `<dl class="mf-scenes__links">${shown2.map(([name, items]) => `<dt>${name}</dt><dd>${items.join("")}</dd>`).join("")}</dl>`;
   }
-  var notes = (scene) => `<div class="kit-textarea is-wide"><label class="kit-textarea__label" for="scene-${esc(scene.id)}-notes">Notes</label><textarea class="kit-textarea__field" id="scene-${esc(scene.id)}-notes" rows="2" readonly>${esc(scene.notes)}</textarea><div class="kit-textarea__footer"><p class="kit-textarea__hint"></p></div></div>`;
+  var notes = (scene) => `<div class="kit-textarea is-wide"><label class="kit-textarea__label" for="scene-${esc(scene.id)}-notes">Notes</label><textarea class="kit-textarea__field" id="scene-${esc(scene.id)}-notes" rows="2" data-writes="${UPDATE_SCENE_NOTES}">${esc(scene.notes)}</textarea><div class="kit-textarea__footer"><p class="kit-textarea__hint"></p></div></div>`;
   var plural = (n, one, many) => n > 1 ? many : one;
   function mapLine(scene, board) {
     const id = `${esc(scene.id)}-battlemap`;
@@ -324,7 +325,7 @@
     };
     const wanted = sessionAsked(props2.session, shell2.context?.get("session"));
     let board = null;
-    let busy = false;
+    let pending = Promise.resolve();
     const say = (text2) => {
       part("scenes-notice").textContent = text2;
     };
@@ -369,20 +370,29 @@
       }
       return state;
     }
-    async function act(wrong, run) {
-      if (busy || board === null) return;
+    function act(wrong, run, applied) {
+      pending = pending.then(() => attempt(wrong, run, applied)).catch(() => void 0);
+      return pending;
+    }
+    async function attempt(wrong, run, applied) {
+      if (board === null) return;
       if (board.session.id === "") return say("La s\xE9ance n\u2019est pas identifi\xE9e : rien ne peut \xEAtre modifi\xE9.");
-      busy = true;
+      const sending = run(board);
+      if (sending === null) return;
       host2.querySelector("#scene-board")?.setAttribute("aria-busy", "true");
       say("");
       try {
-        const state = await run();
+        const state = await sending();
         if (state.status === "rejected") say(`Action refus\xE9e : ${reasons(state.violations)}.`);
         else {
           if (state.status !== "applied") say(`L\u2019action n\u2019est pas encore appliqu\xE9e (\xE9tat : ${state.status || "inconnu"}).`);
           try {
-            board = await read();
-            paint();
+            if (applied !== void 0) {
+              if (state.status === "applied") applied();
+            } else {
+              board = await read();
+              paint();
+            }
           } catch {
             say("L\u2019action a eu lieu, mais la s\xE9ance n\u2019a pas pu \xEAtre relue.");
           }
@@ -390,46 +400,73 @@
       } catch {
         say(wrong);
       } finally {
-        busy = false;
         host2.querySelector("#scene-board")?.removeAttribute("aria-busy");
       }
     }
     host2.addEventListener("click", (event) => {
       const clicked = event.target?.closest("button");
       if (!clicked || board === null) return;
-      const current = board;
-      const session = current.session.id;
       switch (clicked.dataset.writes) {
         case REMOVE_PRESENT_CHARACTER: {
           const character = clicked.dataset.removePj ?? "";
-          void act("Impossible de retirer ce PJ.", () => send(REMOVE_PRESENT_CHARACTER, { session, character }, "Session", session));
+          void act("Impossible de retirer ce PJ.", ({ session: { id: session } }) => () => send(REMOVE_PRESENT_CHARACTER, { session, character }, "Session", session));
           return;
         }
         case ADD_PRESENT_CHARACTER: {
           const character = host2.querySelector("#scenes-present-select")?.value ?? "";
           if (character === "") return;
-          void act("Impossible d\u2019ajouter ce PJ.", () => send(ADD_PRESENT_CHARACTER, { session, character }, "Session", session));
+          void act("Impossible d\u2019ajouter ce PJ.", ({ session: { id: session } }) => () => send(ADD_PRESENT_CHARACTER, { session, character }, "Session", session));
           return;
         }
         case ADD_SCENE:
-          void act("Impossible d\u2019ajouter une sc\xE8ne.", () => send(ADD_SCENE, { session, title: "Nouvelle sc\xE8ne" }, "Session", session));
+          void act("Impossible d\u2019ajouter une sc\xE8ne.", ({ session: { id: session } }) => () => send(ADD_SCENE, { session, title: "Nouvelle sc\xE8ne" }, "Session", session));
           return;
         case REORDER_SCENES: {
-          const order = moved(current.scenes, clicked.closest("[data-scene]")?.dataset.scene ?? "", Number(clicked.dataset.move));
-          if (order === null) return;
-          void act("Impossible de r\xE9ordonner les sc\xE8nes.", () => send(REORDER_SCENES, { session, order: ranks(order) }, "Session", session));
+          const scene = clicked.closest("[data-scene]")?.dataset.scene ?? "";
+          const delta = Number(clicked.dataset.move);
+          if (moved(board.scenes, scene, delta) === null) return;
+          void act("Impossible de r\xE9ordonner les sc\xE8nes.", (current) => {
+            const order = moved(current.scenes, scene, delta);
+            const session = current.session.id;
+            return order === null ? null : () => send(REORDER_SCENES, { session, order }, "Session", session);
+          });
           return;
         }
         case CREATE_BATTLEMAP_INSTANCE: {
           const item = clicked.closest("[data-scene]");
-          const scene = current.scenes.find((s) => s.id === item?.dataset.scene);
+          const id = item?.dataset.scene;
           const battlemap = item?.querySelector("select[data-map-select]")?.value ?? "";
-          if (!scene || scene.battlemap !== null || battlemap === "") return;
-          void act("Impossible de cr\xE9er l\u2019instance.", () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, "BattlemapInstance", scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}:${Date.now()}`));
+          if (battlemap === "") return;
+          const key = `${CREATE_BATTLEMAP_INSTANCE}:${id ?? ""}:${Date.now()}`;
+          void act("Impossible de cr\xE9er l\u2019instance.", (current) => {
+            const scene = current.scenes.find((s) => s.id === id);
+            const session = current.session.id;
+            return !scene || scene.battlemap !== null ? null : () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, "BattlemapInstance", scene.id, key);
+          });
           return;
         }
       }
       if (clicked.dataset.action === "place") host2.ownerDocument.getElementById("scene-battlemap")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    host2.addEventListener("change", (event) => {
+      const field = event.target;
+      if (field?.tagName !== "TEXTAREA" || field.dataset.writes !== UPDATE_SCENE_NOTES || board === null) return;
+      const id = field.closest("[data-scene]")?.dataset.scene;
+      const notes2 = field.value;
+      void act(
+        "Impossible d\u2019enregistrer ces notes.",
+        (current) => {
+          const scene = current.scenes.find((s) => s.id === id);
+          const session = current.session.id;
+          return !scene || notes2 === scene.notes ? null : () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes: notes2 }, "Session", scene.id);
+        },
+        () => {
+          const held = board?.scenes.find((s) => s.id === id);
+          if (held) held.notes = notes2;
+          const shown2 = [...host2.querySelectorAll("[data-scene]")].find((item) => item.dataset.scene === id)?.querySelector(`textarea[data-writes="${UPDATE_SCENE_NOTES}"]`);
+          if (shown2 && shown2 !== field && shown2 !== host2.ownerDocument.activeElement) shown2.value = notes2;
+        }
+      );
     });
     if (wanted === "") {
       say("Aucune s\xE9ance n\u2019est indiqu\xE9e : rien \xE0 afficher.");
