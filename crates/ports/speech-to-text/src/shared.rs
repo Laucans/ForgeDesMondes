@@ -12,7 +12,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::{Dictation, RequestJournal, SpeechToText, SpeechToTextError, Transcript, Vocabulary};
+use crate::{
+    Dictation, RequestJournal, SpeechToText, SpeechToTextError, Transcript, TranscriptStream,
+    Vocabulary,
+};
 
 /// A future of the port, boxed.
 type Boxed<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -25,6 +28,11 @@ trait Erased: Send + Sync {
         vocabulary: &'a Vocabulary,
     ) -> Boxed<'a, Result<Transcript, SpeechToTextError>>;
 
+    fn listen<'a>(
+        &'a self,
+        vocabulary: &'a Vocabulary,
+    ) -> Boxed<'a, Result<TranscriptStream, SpeechToTextError>>;
+
     fn journal(&self) -> &RequestJournal;
 }
 
@@ -35,6 +43,13 @@ impl<P: SpeechToText> Erased for P {
         vocabulary: &'a Vocabulary,
     ) -> Boxed<'a, Result<Transcript, SpeechToTextError>> {
         Box::pin(SpeechToText::transcribe(self, dictation, vocabulary))
+    }
+
+    fn listen<'a>(
+        &'a self,
+        vocabulary: &'a Vocabulary,
+    ) -> Boxed<'a, Result<TranscriptStream, SpeechToTextError>> {
+        Box::pin(SpeechToText::listen(self, vocabulary))
     }
 
     fn journal(&self) -> &RequestJournal {
@@ -62,6 +77,10 @@ impl SpeechToText for SharedSpeechToText {
         vocabulary: &Vocabulary,
     ) -> Result<Transcript, SpeechToTextError> {
         self.0.transcribe(dictation, vocabulary).await
+    }
+
+    async fn listen(&self, vocabulary: &Vocabulary) -> Result<TranscriptStream, SpeechToTextError> {
+        self.0.listen(vocabulary).await
     }
 
     fn journal(&self) -> &RequestJournal {
