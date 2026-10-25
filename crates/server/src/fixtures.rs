@@ -34,7 +34,21 @@
 //! each place, character, event and medium it lists one row of `scene_entity`
 //! (ranked from 1 in the order of the fixture: places, characters, events) or
 //! `scene_media`. What a scene lists is of the session's campaign. The scene's
-//! `toCreate` and `battlemap` are other rows' links: not loaded here.
+//! `toCreate` is another row's link: not loaded here. Its `battlemap` is the
+//! instance below, which names the scene.
+//!
+//! The instance of a scene's battlemap (`table.getBattlemapInstance.json`; the
+//! same one is in `Battlemap.json`, not read) is one `battlemap_instance` row of
+//! the scene and the battlemap medium it is a copy of, and one `token` row per
+//! token, at its hex: the scene names it as its `battlemap`, and
+//! `session.listScenes` answers the row. Its roster and the initiative of its
+//! PCs belong to a combat starting; one already running is not loaded, and a
+//! file that has one is skipped. The tokens obey the aggregate's invariants as
+//! a command would (`token-roster`, `multi-drop-numbering`, `pj-hp-not-tracked`,
+//! `dead-derived`): a file that breaks one is skipped, not loaded.
+//! A scene the store already gave an instance, under another id (the DM's), is
+//! left that one alone: [`Fixtures::leave_out_taken_scenes`] drops the
+//! fixture's instance and its tokens before the load.
 //!
 //! The summary of the closed session, its model and the day it was edited
 //! (read from `summaryMeta`, « Généré à la clôture par <model>, retouché le
@@ -183,6 +197,20 @@ const BRIEF: &[&str] = &[
     "recorded_at",
     "analyzed_at",
 ];
+const INSTANCE: &[&str] = &["id", "battlemap_media_id", "session_id", "scene_id"];
+const TOKEN: &[&str] = &[
+    "id",
+    "instance_id",
+    "character_id",
+    "number",
+    "name",
+    "q",
+    "r",
+    "visible",
+    "hp_current",
+    "hp_max",
+    "conditions",
+];
 const TO_CREATE: &[&str] = &[
     "id",
     "campaign_id",
@@ -252,6 +280,7 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             CLOSING_FILE => read.closing(&value),
             BRIEF_FILE => read.brief(&value),
             TO_CREATE_FILE => read.creations(&value),
+            INSTANCE_FILE => read.instance(&value),
             _ => {
                 plan.skipped
                     .push((name, "no aggregate holds it".to_string()));
@@ -292,6 +321,10 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
         read.to_create = None;
         withdraw(&mut plan, TO_CREATE_FILE, &why);
     }
+    if let Err(why) = read.instance_fits() {
+        read.instance = None;
+        withdraw(&mut plan, INSTANCE_FILE, &why);
+    }
     read.plan(&mut plan);
     Ok(plan)
 }
@@ -306,6 +339,81 @@ const BOARD_FILE: &str = "SceneBoard.json";
 const CLOSING_FILE: &str = "PreviousSummary.json";
 const BRIEF_FILE: &str = "OralBrief.json";
 const TO_CREATE_FILE: &str = "ToCreateList.json";
+/// The fixture of the BattlemapInstance aggregate: the instance of a scene's
+/// battlemap, with its tokens. `Battlemap.json` holds the same instance for
+/// the Micro-UI, and is not read: it would name the same rows twice.
+const INSTANCE_FILE: &str = "table.getBattlemapInstance.json";
+
+impl Fixtures {
+    /// Leaves out the instance planned for a scene where the store already
+    /// holds an instance under another id (`one-instance-per-scene`): the
+    /// DM's own would be hidden by a second, more recent one. `held` is the
+    /// `(instance id, scene id)` of every instance of the store, see
+    /// [`held_instances`]; its tokens go with it.
+    pub fn leave_out_taken_scenes(&mut self, held: &[(String, String)]) {
+        let Some(instances) = self
+            .tables
+            .iter_mut()
+            .find(|t| t.name == "battlemap_instance")
+        else {
+            return;
+        };
+        let mut left = BTreeSet::new();
+        instances.rows.retain(|row| {
+            let (row_id, scene) = (row["id"].as_str(), row["scene_id"].as_str());
+            let taken = held.iter().any(|(held_id, held_scene)| {
+                Some(held_scene.as_str()) == scene && Some(held_id.as_str()) != row_id
+            });
+            if taken && let Some(row_id) = row_id {
+                left.insert(row_id.to_string());
+            }
+            !taken
+        });
+        if left.is_empty() {
+            return;
+        }
+        for table in self.tables.iter_mut().filter(|t| t.name == "token") {
+            let (gone, kept): (Vec<Value>, Vec<Value>) = std::mem::take(&mut table.rows)
+                .into_iter()
+                .partition(|row| {
+                    row["instance_id"]
+                        .as_str()
+                        .is_some_and(|o| left.contains(o))
+                });
+            left.extend(
+                gone.iter()
+                    .filter_map(|row| row["id"].as_str().map(str::to_string)),
+            );
+            table.rows = kept;
+        }
+        self.names.retain(|(_, row)| !left.contains(row));
+        self.withdraw_with(
+            INSTANCE_FILE,
+            "its scene already has an instance in the store",
+        );
+    }
+
+    fn withdraw_with(&mut self, file: &str, why: &str) {
+        self.loaded.retain(|name| name != file);
+        self.skipped.push((file.to_string(), why.to_string()));
+    }
+}
+
+/// The `(instance id, scene id)` of every battlemap instance the store holds.
+///
+/// # Errors
+///
+/// [`data::Error::Database`] when the query fails.
+pub async fn held_instances(client: &data::Client) -> Result<Vec<(String, String)>, data::Error> {
+    let rows = client
+        .query(
+            "SELECT id::text, scene_id::text FROM battlemap_instance",
+            &[],
+        )
+        .await
+        .map_err(data::Error::Database)?;
+    Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
+}
 
 /// Takes `file` back out of the files planned: it is skipped, with `why`.
 fn withdraw(plan: &mut Fixtures, file: &str, why: &str) {
@@ -338,6 +446,7 @@ struct Read {
     closing: Option<Closing>,
     brief: Option<Brief>,
     to_create: Option<ToCreate>,
+    instance: Option<Instance>,
 }
 
 /// The `SessionList.json` document, mapped: a campaign's sessions.
@@ -376,6 +485,8 @@ struct Scene {
     characters: Vec<String>,
     events: Vec<String>,
     media: Vec<String>,
+    /// Its battlemap instance, by slug.
+    battlemap: Option<String>,
 }
 
 /// The `PreviousSummary.json` document, mapped: how a closed session ended.
@@ -416,6 +527,34 @@ struct Entry {
     session: String,
     /// The element created from it, by slug.
     created: Option<String>,
+}
+
+/// The `table.getBattlemapInstance.json` document, mapped: a scene's working
+/// copy of a battlemap.
+struct Instance {
+    slug: String,
+    /// The battlemap's medium, the session and the scene, by slug.
+    battlemap: String,
+    session: String,
+    scene: String,
+    tokens: Vec<Token>,
+}
+
+struct Token {
+    slug: String,
+    /// Its character, by slug, and whether that is a « pj » or a « pnj ».
+    character: String,
+    kind: &'static str,
+    name: String,
+    /// Its number among the tokens of its character; null for a PC.
+    number: Value,
+    q: i32,
+    r: i32,
+    visible: bool,
+    /// Hit points, or null: a PC's are not tracked.
+    hp: Value,
+    hp_max: Value,
+    conditions: Value,
 }
 
 /// The `media.json` document, mapped: a campaign's battlemaps and
@@ -658,6 +797,11 @@ impl Read {
         Ok(())
     }
 
+    fn instance(&mut self, value: &Value) -> Result<(), String> {
+        self.instance = Some(instance_of(value)?);
+        Ok(())
+    }
+
     /// Whether a campaign, a player, an element or a medium of the files
     /// read is named `slug`: the slugs of the rows planned before the
     /// sessions.
@@ -769,6 +913,121 @@ impl Read {
                 return Err(format!(
                     "the medium {slug:?}, linked to {:?}, is none of its campaign",
                     scene.slug
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `slug` names a row of the sessions, the scenes or the to-create
+    /// list as well as one `named` does.
+    fn claimed(&self, slug: &str) -> bool {
+        self.named(slug)
+            || self
+                .sessions
+                .iter()
+                .flat_map(|s| &s.sessions)
+                .any(|s| s.slug == slug)
+            || self
+                .board
+                .iter()
+                .flat_map(|b| &b.scenes)
+                .any(|s| s.slug == slug)
+            || self
+                .to_create
+                .iter()
+                .flat_map(|l| &l.entries)
+                .any(|e| e.slug == slug)
+    }
+
+    /// Whether the instance read fits what the other files say: its scene is
+    /// one the scenes read give, which names it as its battlemap and links
+    /// the battlemap it is the copy of, a battlemap of the session's
+    /// campaign (`one-instance-per-scene`); each token stands for a « pj »
+    /// present at the session or for a « pnj » of that campaign, whose hit
+    /// points are capped by its sheet's (`token-roster`, `pj-hp-not-tracked`);
+    /// and no slug of its own names another row.
+    fn instance_fits(&self) -> Result<(), String> {
+        let Some(instance) = &self.instance else {
+            return Ok(());
+        };
+        let Some(board) = self
+            .board
+            .as_ref()
+            .filter(|b| b.session == instance.session)
+        else {
+            return Err(format!(
+                "no fixture describes the session {:?} and its scenes",
+                instance.session
+            ));
+        };
+        let scene = board.scenes.iter().find(|s| s.slug == instance.scene);
+        let Some(scene) = scene else {
+            return Err(format!(
+                "{:?} is no scene of the session {:?}",
+                instance.scene, instance.session
+            ));
+        };
+        if scene.battlemap.as_deref() != Some(instance.slug.as_str()) {
+            return Err(format!(
+                "the scene {:?} does not name {:?} as its battlemap",
+                scene.slug, instance.slug
+            ));
+        }
+        if !scene.media.contains(&instance.battlemap) {
+            return Err(format!(
+                "the battlemap {:?} is not linked to {:?}",
+                instance.battlemap, scene.slug
+            ));
+        }
+        let campaign = self.session(&instance.session).unwrap_or_default();
+        let holds = self.library.as_ref().is_some_and(|l| {
+            l.campaign == campaign
+                && l.media
+                    .iter()
+                    .any(|m| m.slug == instance.battlemap && m.kind == "battlemap")
+        });
+        if !holds {
+            return Err(format!(
+                "{:?} is no battlemap of its campaign",
+                instance.battlemap
+            ));
+        }
+        let present = self
+            .sessions
+            .iter()
+            .flat_map(|s| &s.sessions)
+            .find(|s| s.slug == instance.session)
+            .map(|s| &s.present);
+        for slug in std::iter::once(&instance.slug).chain(instance.tokens.iter().map(|t| &t.slug)) {
+            if self.claimed(slug) {
+                return Err(format!("the slug {slug:?} names two rows"));
+            }
+        }
+        for token in &instance.tokens {
+            let sheet = self
+                .entities
+                .iter()
+                .filter(|e| e.campaign == campaign)
+                .flat_map(|e| &e.elements)
+                .find(|e| e.slug == token.character && e.kind == token.kind);
+            let Some(sheet) = sheet else {
+                return Err(format!(
+                    "{:?}, the character of {:?}, is no {:?} of its campaign",
+                    token.character, token.slug, token.kind
+                ));
+            };
+            if token.kind == "pj" && !present.is_some_and(|p| p.contains(&token.character)) {
+                return Err(format!(
+                    "{:?}, with a token, is not present at {:?}",
+                    token.character, instance.session
+                ));
+            }
+            let capped = sheet.sheet.as_ref().and_then(|s| s.get("hp_max"));
+            if token.kind == "pnj" && capped != Some(&token.hp_max) {
+                return Err(format!(
+                    "the hit points of {:?} are not those of the sheet of {:?}",
+                    token.slug, token.character
                 ));
             }
         }
@@ -1052,6 +1311,37 @@ impl Read {
                     table("scene_entity", "scene_id,entity_id", SCENE_ENTITY, entities),
                     table("scene_media", "scene_id,media_id", SCENE_MEDIA, media),
                 ]);
+                // Fitted: its scene, its battlemap and its characters are planned above.
+                if let Some(instance) = &self.instance {
+                    let row = id("battlemap_instance", &instance.slug);
+                    let tokens = instance.tokens.iter().map(|token| {
+                        let token_row = id("token", &token.slug);
+                        names.push((token.slug.clone(), token_row.clone()));
+                        json!({
+                            "id": token_row, "instance_id": row,
+                            "character_id": id("entity", &token.character),
+                            "number": token.number, "name": token.name,
+                            "q": token.q, "r": token.r, "visible": token.visible,
+                            "hp_current": token.hp, "hp_max": token.hp_max,
+                            "conditions": token.conditions,
+                        })
+                    });
+                    let tokens: Vec<Value> = tokens.collect();
+                    tables.extend([
+                        table(
+                            "battlemap_instance",
+                            "id",
+                            INSTANCE,
+                            vec![json!({
+                                "id": row, "battlemap_media_id": id("media", &instance.battlemap),
+                                "session_id": id("session", &instance.session),
+                                "scene_id": id("scene", &instance.scene),
+                            })],
+                        ),
+                        table("token", "id", TOKEN, tokens),
+                    ]);
+                    names.push((instance.slug.clone(), row));
+                }
             }
             if let Some(closing) = &self.closing {
                 let lines = closing.journal.iter().enumerate().map(|(index, (at, text))| {
@@ -1317,8 +1607,128 @@ fn scene_of(value: &Value, index: usize) -> Result<Scene, String> {
         characters: links("characters")?,
         events: links("events")?,
         media: links("media")?,
+        battlemap: match &value["battlemap"] {
+            Value::Null => None,
+            Value::String(slug) => Some(slug.clone()),
+            _ => return Err(format!("the battlemap of {slug} is not a text")),
+        },
         slug,
         position,
+    })
+}
+
+/// The instance of `table.getBattlemapInstance.json`, mapped. Its roster is
+/// derived from the PCs present and the tokens, and the initiative of its PCs
+/// is what a combat starts from: no table holds either before one runs, and a
+/// combat running is not loaded, the fixture giving no moment it started.
+fn instance_of(value: &Value) -> Result<Instance, String> {
+    let slug = required(value, "id")?.to_string();
+    if !value["state"]["combat"].is_null() {
+        return Err(format!("{slug} has a combat running, which is not loaded"));
+    }
+    let mut tokens: Vec<Token> = Vec::new();
+    for token in array(&value["state"]["tokens"], "tokens")? {
+        let token = token_of(token)?;
+        if token.slug == slug || tokens.iter().any(|known| known.slug == token.slug) {
+            return Err(format!("the slug {:?} names two rows", token.slug));
+        }
+        // One token per PC (`token-roster`), numbers unique per character
+        // (`multi-drop-numbering`).
+        if tokens
+            .iter()
+            .any(|k| k.character == token.character && k.number == token.number)
+        {
+            return Err(format!(
+                "{:?} stands twice for {:?} with the number {}",
+                token.slug, token.character, token.number
+            ));
+        }
+        tokens.push(token);
+    }
+    Ok(Instance {
+        battlemap: required(value, "battlemap")?.to_string(),
+        session: required(value, "session")?.to_string(),
+        scene: required(value, "scene")?.to_string(),
+        slug,
+        tokens,
+    })
+}
+
+/// One token of an instance, mapped, in the bounds of the columns and of the
+/// aggregate's invariants: a PC has no number and no hit points
+/// (`pj-hp-not-tracked`), an NPC a number from 1 and hit points from 0 to its
+/// maximum, and is dead if and only if it has none left (`dead-derived`).
+fn token_of(value: &Value) -> Result<Token, String> {
+    let slug = required(value, "id")?.to_string();
+    let kind = match value["kind"].as_str() {
+        Some("pj") => "pj",
+        Some("pnj") => "pnj",
+        other => return Err(format!("{slug} is of kind {other:?}")),
+    };
+    let whole = |key: &str, low: i64, high: i64| -> Result<Option<i64>, String> {
+        match &value[key] {
+            Value::Null => Ok(None),
+            number => number
+                .as_i64()
+                .filter(|n| (low..=high).contains(n))
+                .map(Some)
+                .ok_or_else(|| {
+                    format!("{key} of {slug} is not a whole number from {low} to {high}")
+                }),
+        }
+    };
+    let (number, hp, hp_max) = (
+        whole("num", 1, i64::from(i16::MAX))?,
+        whole("hp", 0, i64::from(i16::MAX))?,
+        whole("hpMax", 1, i64::from(i16::MAX))?,
+    );
+    if kind == "pj" && (number, hp, hp_max) != (None, None, None) {
+        return Err(format!("{slug}, a PC's, has a number or hit points"));
+    }
+    if kind == "pnj"
+        && (number.is_none() || hp_max.is_none() || hp.is_none_or(|h| Some(h) > hp_max))
+    {
+        return Err(format!(
+            "{slug}, an NPC's, has no number or no hit points within its maximum"
+        ));
+    }
+    if value["dead"] != json!(hp == Some(0)) {
+        return Err(format!(
+            "{slug} is dead if and only if it has no hit point left"
+        ));
+    }
+    let wide = |key: &str| -> Result<i32, String> {
+        value[key]
+            .as_i64()
+            .and_then(|n| i32::try_from(n).ok())
+            .ok_or_else(|| format!("{key} of {slug} is not a whole number"))
+    };
+    let mut conditions = Vec::new();
+    for state in array(&value["states"], "states")? {
+        conditions.push(
+            state
+                .as_str()
+                .ok_or_else(|| format!("a state of {slug} is not a text"))?,
+        );
+    }
+    let name = required(value, "name")?;
+    if name.is_empty() {
+        return Err(format!("{slug} has no name"));
+    }
+    Ok(Token {
+        character: required(value, "char")?.to_string(),
+        name: name.to_string(),
+        number: json!(number),
+        q: wide("q")?,
+        r: wide("r")?,
+        visible: value["visible"]
+            .as_bool()
+            .ok_or_else(|| format!("visible of {slug} is not a boolean"))?,
+        hp: json!(hp),
+        hp_max: json!(hp_max),
+        conditions: json!(conditions),
+        slug,
+        kind,
     })
 }
 
@@ -1668,7 +2078,8 @@ mod tests {
                 "campaign.getCampaign.json",
                 "campaign.listCampaigns.json",
                 "entities.json",
-                "media.json"
+                "media.json",
+                "table.getBattlemapInstance.json"
             ]
         );
         assert!(plan.skipped.len() > 30, "{}", plan.skipped.len());
@@ -1697,6 +2108,8 @@ mod tests {
                 "scene",
                 "scene_entity",
                 "scene_media",
+                "battlemap_instance",
+                "token",
                 "session_journal_line",
                 "oral_brief",
                 "entity_to_create"
@@ -2597,10 +3010,17 @@ mod tests {
         for (what, scenes, why) in cases {
             let plan = replaced(&[(BOARD_FILE, scenes)]);
             let left = unmapped(&plan);
-            assert_eq!(left.len(), 1, "{what}: {left:?}");
-            assert_eq!(left[0].0, BOARD_FILE, "{what}");
+            // The instance hangs on its scene: it goes with the board.
+            let files: Vec<&str> = left.iter().map(|(n, _)| n.as_str()).collect();
+            assert_eq!(files, [BOARD_FILE, INSTANCE_FILE], "{what}: {left:?}");
             assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
-            for table in ["scene", "scene_entity", "scene_media"] {
+            for table in [
+                "scene",
+                "scene_entity",
+                "scene_media",
+                "battlemap_instance",
+                "token",
+            ] {
                 assert!(rows(&plan, table).is_empty(), "{what}: {table}");
             }
             assert!(plan.names.iter().all(|(slug, _)| slug != "sc1"), "{what}");
@@ -2924,7 +3344,13 @@ mod tests {
             let left = unmapped(&plan);
             let names: Vec<&str> = left.iter().map(|(n, _)| n.as_str()).collect();
             // The scenes, the closing, the brief and the list name a session: they go with the sessions.
-            let hanging = [BOARD_FILE, CLOSING_FILE, BRIEF_FILE, TO_CREATE_FILE];
+            let hanging = [
+                BOARD_FILE,
+                CLOSING_FILE,
+                BRIEF_FILE,
+                TO_CREATE_FILE,
+                INSTANCE_FILE,
+            ];
             assert_eq!(
                 names,
                 [
@@ -2932,7 +3358,8 @@ mod tests {
                     BOARD_FILE,
                     CLOSING_FILE,
                     BRIEF_FILE,
-                    TO_CREATE_FILE
+                    TO_CREATE_FILE,
+                    INSTANCE_FILE
                 ],
                 "{what}"
             );
@@ -2953,6 +3380,8 @@ mod tests {
                 "scene",
                 "scene_entity",
                 "scene_media",
+                "battlemap_instance",
+                "token",
                 "session_journal_line",
                 "oral_brief",
                 "entity_to_create",
@@ -3158,5 +3587,397 @@ mod tests {
         ] {
             assert!(!is_time(time), "{time:?}");
         }
+    }
+
+    #[test]
+    fn the_instance_of_the_mock_up_is_planned_with_its_tokens_at_their_hexes() {
+        let plan = mock();
+        let fixture = mock_file(INSTANCE_FILE);
+        assert_eq!(
+            fixture,
+            mock_file("Battlemap.json")["instances"][0],
+            "the Micro-UI's fixture is the same instance"
+        );
+        let instances = rows(&plan, "battlemap_instance");
+        assert_eq!(instances.len(), 1);
+        let instance = id("battlemap_instance", "bmi-gue-s4");
+        assert_eq!(
+            instances[0],
+            &json!({
+                "id": instance,
+                "battlemap_media_id": id("media", "bm-gue"),
+                "session_id": id("session", "s4"),
+                "scene_id": id("scene", "sc3"),
+            })
+        );
+        let tokens = rows(&plan, "token");
+        let fixture = fixture["state"]["tokens"].as_array().expect("tokens");
+        assert_eq!(tokens.len(), 8);
+        assert_eq!(tokens.len(), fixture.len());
+        for (row, token) in tokens.iter().zip(fixture) {
+            let slug = token["id"].as_str().expect("an id");
+            assert_eq!(row["id"], id("token", slug));
+            assert_eq!(row["instance_id"], instance);
+            assert_eq!(
+                row["character_id"],
+                id("entity", token["char"].as_str().unwrap())
+            );
+            for (column, key) in [
+                ("number", "num"),
+                ("name", "name"),
+                ("q", "q"),
+                ("r", "r"),
+                ("visible", "visible"),
+                ("hp_current", "hp"),
+                ("hp_max", "hpMax"),
+                ("conditions", "states"),
+            ] {
+                assert_eq!(row[column], token[key], "{slug}.{column}");
+            }
+            assert!(plan.names.contains(&(slug.to_string(), id("token", slug))));
+        }
+        assert!(plan.names.contains(&("bmi-gue-s4".to_string(), instance)));
+        let tables: Vec<&str> = plan.tables.iter().map(|t| t.name).collect();
+        let at = |name: &str| tables.iter().position(|t| *t == name).expect(name);
+        assert!(at("scene_media") < at("battlemap_instance"), "{tables:?}");
+        assert_eq!(at("battlemap_instance") + 1, at("token"));
+        let keyed = |table: &str| plan.tables.iter().find(|t| t.name == table).map(|t| t.key);
+        assert_eq!(keyed("battlemap_instance"), Some("id"));
+        assert_eq!(keyed("token"), Some("id"));
+        // The scene's battlemap is not a column: the instance row names the scene.
+        assert!(
+            rows(&plan, "scene")
+                .iter()
+                .all(|s| s.get("battlemap").is_none())
+        );
+    }
+
+    #[test]
+    fn a_scene_the_store_gave_another_instance_loads_neither_instance_nor_tokens() {
+        let (instance, scene) = (id("battlemap_instance", "bmi-gue-s4"), id("scene", "sc3"));
+        let table_rows = |plan: &Fixtures| {
+            (
+                rows(plan, "battlemap_instance").len(),
+                rows(plan, "token").len(),
+            )
+        };
+        // Another scene's instance, and the fixture's own after a restart: planned as is.
+        for held in [
+            vec![],
+            vec![("dm".to_string(), id("scene", "sc1"))],
+            vec![(instance.clone(), scene.clone())],
+        ] {
+            let mut plan = mock();
+            let before = mock();
+            plan.leave_out_taken_scenes(&held);
+            assert_eq!(plan, before, "{held:?}");
+            assert_eq!(table_rows(&plan), (1, 8));
+        }
+        // The DM's own instance on sc3, with or without the fixture's.
+        for held in [
+            vec![("dm".to_string(), scene.clone())],
+            vec![(instance.clone(), scene.clone()), ("dm".to_string(), scene)],
+        ] {
+            let mut plan = mock();
+            plan.leave_out_taken_scenes(&held);
+            assert_eq!(table_rows(&plan), (0, 0), "{held:?}");
+            assert!(!plan.loaded.iter().any(|f| f == INSTANCE_FILE));
+            assert_eq!(plan.skipped.len(), mock().skipped.len() + 1);
+            assert!(
+                plan.skipped
+                    .iter()
+                    .any(|(f, why)| f == INSTANCE_FILE && why.contains("already has an instance")),
+                "{:?}",
+                plan.skipped
+            );
+            assert!(
+                plan.names
+                    .iter()
+                    .all(|(slug, _)| { slug != "bmi-gue-s4" && !slug.starts_with("t-") }),
+                "{:?}",
+                plan.names
+            );
+            // The scenes and the rest stay planned.
+            assert_eq!(rows(&plan, "scene").len(), rows(&mock(), "scene").len());
+        }
+    }
+
+    #[test]
+    fn an_instance_that_does_not_fit_is_skipped_alone_and_loads_no_row() {
+        let edited = |file: &str, edit: &dyn Fn(&mut Value)| {
+            let mut value = mock_file(file);
+            edit(&mut value);
+            (file.to_string(), value)
+        };
+        let instance = |edit: &dyn Fn(&mut Value)| edited(INSTANCE_FILE, edit);
+        let token =
+            |n: usize, edit: &dyn Fn(&mut Value)| instance(&|v| edit(&mut v["state"]["tokens"][n]));
+        // Each case replaces one or two files, and says why the instance is left out.
+        type Case = (&'static str, Vec<(String, Value)>, &'static str);
+        let cases: Vec<Case> = vec![
+            (
+                "a combat running",
+                vec![instance(&|v| v["state"]["combat"] = json!({ "round": 1 }))],
+                "combat running",
+            ),
+            (
+                "a session nobody gives scenes to",
+                vec![instance(&|v| v["session"] = json!("s3"))],
+                "no fixture describes the session",
+            ),
+            (
+                "a scene the session lacks",
+                vec![instance(&|v| v["scene"] = json!("sc9"))],
+                "is no scene of the session",
+            ),
+            (
+                "a scene that names no battlemap",
+                vec![edited(BOARD_FILE, &|v| {
+                    v["scenes"][2]["battlemap"] = json!(null)
+                })],
+                "does not name",
+            ),
+            (
+                "a scene that names another",
+                vec![edited(BOARD_FILE, &|v| {
+                    v["scenes"][2]["battlemap"] = json!("bmi-x")
+                })],
+                "does not name",
+            ),
+            (
+                "a battlemap the scene does not link",
+                vec![instance(&|v| v["battlemap"] = json!("bm-moulin"))],
+                "is not linked to",
+            ),
+            (
+                "an illustration for a battlemap",
+                vec![
+                    instance(&|v| v["battlemap"] = json!("ill-moulin")),
+                    edited(BOARD_FILE, &|v| {
+                        v["scenes"][2]["media"] = json!(["ill-moulin"])
+                    }),
+                ],
+                "is no battlemap of its campaign",
+            ),
+            (
+                "a slug an element has",
+                vec![
+                    instance(&|v| v["id"] = json!("elowen")),
+                    edited(BOARD_FILE, &|v| {
+                        v["scenes"][2]["battlemap"] = json!("elowen")
+                    }),
+                ],
+                "names two rows",
+            ),
+            (
+                "a slug a session has",
+                vec![token(0, &|t| t["id"] = json!("s1"))],
+                "names two rows",
+            ),
+            (
+                "a slug a scene has",
+                vec![token(0, &|t| t["id"] = json!("sc1"))],
+                "names two rows",
+            ),
+            (
+                "a slug an entry has",
+                vec![token(0, &|t| t["id"] = json!("tc-gue"))],
+                "names two rows",
+            ),
+            (
+                "a slug a medium has",
+                vec![token(0, &|t| t["id"] = json!("bm-gue"))],
+                "names two rows",
+            ),
+            (
+                "a token named as the instance",
+                vec![token(0, &|t| t["id"] = json!("bmi-gue-s4"))],
+                "names two rows",
+            ),
+            (
+                "a token twice",
+                vec![token(1, &|t| t["id"] = json!("t-elowen"))],
+                "names two rows",
+            ),
+            (
+                "a character nobody describes",
+                vec![token(0, &|t| t["char"] = json!("nobody"))],
+                "is no \"pj\"",
+            ),
+            (
+                "an NPC that is a PC",
+                vec![token(4, &|t| t["char"] = json!("elowen"))],
+                "is no \"pnj\"",
+            ),
+            (
+                "a PC that is not present",
+                vec![edited(SESSIONS, &|v| {
+                    v["sessions"][3]["present"] = json!(["elowen", "brannoc", "sirielle"]);
+                })],
+                "is not present at",
+            ),
+            (
+                "hit points the sheet does not give",
+                vec![token(4, &|t| {
+                    t["hp"] = json!(12);
+                    t["hpMax"] = json!(12);
+                })],
+                "are not those of the sheet",
+            ),
+            (
+                "a PC twice",
+                vec![token(1, &|t| t["char"] = json!("elowen"))],
+                "stands twice",
+            ),
+            (
+                "an NPC numbered twice",
+                vec![token(5, &|t| t["num"] = json!(1))],
+                "stands twice",
+            ),
+            (
+                "a kind of nobody's",
+                vec![token(0, &|t| t["kind"] = json!("monster"))],
+                "is of kind",
+            ),
+            (
+                "a PC with a number",
+                vec![token(0, &|t| t["num"] = json!(1))],
+                "has a number or hit points",
+            ),
+            (
+                "a PC with hit points",
+                vec![token(0, &|t| t["hp"] = json!(10))],
+                "has a number or hit points",
+            ),
+            (
+                "an NPC with no number",
+                vec![token(4, &|t| t["num"] = json!(null))],
+                "has no number",
+            ),
+            (
+                "an NPC with no hit points",
+                vec![token(4, &|t| t["hp"] = json!(null))],
+                "has no number or no hit points",
+            ),
+            (
+                "an NPC with more hit points than its maximum",
+                vec![token(4, &|t| t["hp"] = json!(12))],
+                "within its maximum",
+            ),
+            (
+                "an NPC dead with hit points left",
+                vec![token(4, &|t| t["dead"] = json!(true))],
+                "if and only if",
+            ),
+            (
+                "an NPC at no hit point who is not dead",
+                vec![token(4, &|t| t["hp"] = json!(0))],
+                "if and only if",
+            ),
+            (
+                "a number that is no whole number",
+                vec![token(4, &|t| t["num"] = json!(1.5))],
+                "num of t-bandit-1 is not a whole number from 1",
+            ),
+            (
+                "a number of zero",
+                vec![token(4, &|t| t["num"] = json!(0))],
+                "num of t-bandit-1 is not a whole number from 1",
+            ),
+            (
+                "negative hit points",
+                vec![token(4, &|t| t["hp"] = json!(-1))],
+                "hp of t-bandit-1 is not a whole number from 0",
+            ),
+            (
+                "a hex out of the column",
+                vec![token(0, &|t| t["q"] = json!(3_000_000_000_u64))],
+                "q of t-elowen is not a whole number",
+            ),
+            (
+                "a hex that is no number",
+                vec![token(0, &|t| t["r"] = json!("six"))],
+                "r of t-elowen is not a whole number",
+            ),
+            (
+                "a visibility that is no boolean",
+                vec![token(0, &|t| t["visible"] = json!("yes"))],
+                "visible of t-elowen is not a boolean",
+            ),
+            (
+                "a state that is no text",
+                vec![token(0, &|t| t["states"] = json!([7]))],
+                "is not a text",
+            ),
+            (
+                "no states",
+                vec![token(0, &|t| t["states"] = json!(null))],
+                "states is not a list",
+            ),
+            (
+                "no name",
+                vec![token(0, &|t| t["name"] = json!(""))],
+                "has no name",
+            ),
+            (
+                "no tokens list",
+                vec![instance(&|v| v["state"]["tokens"] = json!(null))],
+                "tokens is not a list",
+            ),
+        ];
+        for (what, over, why) in cases {
+            let over: Vec<(&str, Value)> =
+                over.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+            let plan = replaced(&over);
+            let left: Vec<&Skipped> = unmapped(&plan)
+                .into_iter()
+                .filter(|(name, _)| name == INSTANCE_FILE)
+                .collect();
+            assert_eq!(left.len(), 1, "{what}: {:?}", plan.skipped);
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            assert!(left[0].1.starts_with("cannot be mapped"), "{what}");
+            assert!(!plan.loaded.iter().any(|n| n == INSTANCE_FILE), "{what}");
+            for table in ["battlemap_instance", "token"] {
+                assert!(rows(&plan, table).is_empty(), "{what}: {table}");
+            }
+            assert!(
+                plan.names.iter().all(|(slug, _)| slug != "bmi-gue-s4"),
+                "{what}"
+            );
+            assert!(
+                plan.names.iter().all(|(slug, _)| slug != "t-elowen"),
+                "{what}"
+            );
+            // Nothing else is left out: the scenes load, and the media stay.
+            assert_eq!(unmapped(&plan).len(), 1, "{what}: {:?}", plan.skipped);
+            assert_eq!(rows(&plan, "scene").len(), 3, "{what}");
+            assert_eq!(rows(&plan, "media").len(), 7, "{what}");
+        }
+    }
+
+    #[test]
+    fn a_file_with_no_instance_leaves_the_scenes_and_the_rest_loaded() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
+            .expect("the fixtures folder")
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let name = path.file_name()?.to_str()?.to_string();
+                (name != INSTANCE_FILE && path.extension().is_some_and(|e| e == "json"))
+                    .then(|| (name, std::fs::read_to_string(&path).expect("a fixture")))
+            })
+            .collect();
+        files.sort();
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(n, t)| (n.as_str(), t.as_str()))
+            .collect();
+        let folder = folder("no-instance", &files);
+        let plan = fixtures(&folder).expect("the folder is listed");
+        std::fs::remove_dir_all(&folder).ok();
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        assert_eq!(rows(&plan, "scene").len(), 3);
+        assert!(rows(&plan, "battlemap_instance").is_empty());
+        assert!(rows(&plan, "token").is_empty());
     }
 }
