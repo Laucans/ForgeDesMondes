@@ -195,7 +195,8 @@
     style.textContent = STYLE;
     doc.head.append(style);
   }
-  function mount(host2, _props, shell2) {
+  var textOf = (props2, name) => typeof props2[name] === "string" ? props2[name] : "";
+  function mount(host2, props2, shell2) {
     ensureStyle(host2.ownerDocument);
     host2.innerHTML = skeleton();
     const part = (id) => {
@@ -203,7 +204,9 @@
       if (!found) throw new Error(`PreviousSummary: #${id} is not in the card`);
       return found;
     };
+    let session = textOf(props2, "session");
     let previous = null;
+    let generation = 0;
     let journalRead = false;
     const paintSummary = (summary) => {
       part("previous-title").textContent = summary === null ? "S\xE9ance pr\xE9c\xE9dente" : heading(summary);
@@ -214,13 +217,16 @@
       part("previous-journal-open").disabled = summary === null;
     };
     const readJournal = async (summary) => {
+      const mine = generation;
       journalRead = true;
       part("previous-journal-meta").textContent = "Lecture du journal\u2026";
       try {
         const journal = parseJournal((await shell2.capability(GET_SESSION_JOURNAL, void 0, { session: summary.session.id })).data);
+        if (mine !== generation) return;
         part("previous-journal-meta").textContent = journal.journal.length === 0 ? "Le journal de cette s\xE9ance est vide." : journal.journalStats;
         part("previous-journal-lines").innerHTML = lines(journal);
       } catch {
+        if (mine !== generation) return;
         journalRead = false;
         part("previous-journal-meta").textContent = "Impossible de lire le journal.";
         part("previous-journal-lines").innerHTML = "";
@@ -233,14 +239,35 @@
         if (previous !== null && !journalRead) void readJournal(previous);
       } else if (target?.closest("#previous-journal-close")) part("previous-journal").hidden = true;
     });
-    paintSummary(null);
-    part("previous-summary-text").textContent = "Lecture de la s\xE9ance pr\xE9c\xE9dente\u2026";
-    shell2.capability(GET_PREVIOUS_SESSION_SUMMARY, void 0).then((answer) => {
-      previous = parseSummary(answer.data);
-      paintSummary(previous);
-    }).catch(() => {
-      part("previous-summary-text").textContent = "Impossible de lire la s\xE9ance pr\xE9c\xE9dente.";
-    });
+    const load = () => {
+      generation += 1;
+      const mine = generation;
+      previous = null;
+      journalRead = false;
+      part("previous-journal").hidden = true;
+      part("previous-journal-meta").textContent = "";
+      part("previous-journal-lines").innerHTML = "";
+      paintSummary(null);
+      if (session === "") return;
+      part("previous-summary-text").textContent = "Lecture de la s\xE9ance pr\xE9c\xE9dente\u2026";
+      shell2.capability(GET_PREVIOUS_SESSION_SUMMARY, void 0, { session }).then((answer) => {
+        if (mine !== generation) return;
+        previous = parseSummary(answer.data);
+        paintSummary(previous);
+      }).catch(() => {
+        if (mine !== generation) return;
+        part("previous-summary-text").textContent = "Impossible de lire la s\xE9ance pr\xE9c\xE9dente.";
+      });
+    };
+    load();
+    return {
+      update(next) {
+        const chosen = textOf(next, "session");
+        if (chosen === session) return;
+        session = chosen;
+        load();
+      }
+    };
   }
 
   // mock/src/screen.js

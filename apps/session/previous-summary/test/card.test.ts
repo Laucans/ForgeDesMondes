@@ -28,12 +28,12 @@ function fakeShell(answers: Record<string, () => unknown> = {}) {
   return { shell, reads };
 }
 
-async function card(shell: Shell) {
+async function card(shell: Shell, props: Record<string, unknown> = { session: 's4' }) {
   const { window } = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const host = window.document.getElementById('host') as HTMLElement;
-  mount(host, {}, shell);
+  const mounted = mount(host, props, shell);
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { host, document: window.document, click: (id: string) => host.querySelector<HTMLElement>(`#${id}`)?.click() };
+  return { host, mounted, document: window.document, click: (id: string) => host.querySelector<HTMLElement>(`#${id}`)?.click() };
 }
 
 test('the card shows the previous session’s number, title, date, summary and source', async () => {
@@ -134,4 +134,75 @@ test('an empty journal says it is empty', async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(host.querySelector('#previous-journal-meta')?.textContent, 'Le journal de cette séance est vide.');
   assert.equal(host.querySelectorAll('#previous-journal-lines li').length, 0);
+});
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('the summary is read for the session the card is given', async () => {
+  const { shell, reads } = fakeShell();
+  const { host } = await card(shell, { session: 's4' });
+  assert.deepEqual(reads, [{ id: 'session.getPreviousSessionSummary', sha256: undefined, variables: { session: 's4' } }]);
+  assert.equal(host.querySelector('#previous-summary-text')?.textContent, summary.summary);
+});
+
+test('with no session given nothing is read, and the card says there is no closed session', async () => {
+  for (const props of [{}, { session: '' }, { session: 4 }]) {
+    const { shell, reads } = fakeShell();
+    const { host, click } = await card(shell, props);
+    assert.equal(reads.length, 0);
+    assert.equal(host.querySelector('#previous-summary-text')?.textContent, 'Aucune séance précédente n’est encore close.');
+    assert.equal(host.querySelector<HTMLButtonElement>('#previous-journal-open')?.disabled, true);
+    click('previous-journal-open');
+    assert.equal(reads.length, 0);
+  }
+});
+
+test('a session that arrives later, or changes, is read again; the same one is not', async () => {
+  const other = { ...summary, session: { ...summary.session, id: 's2', order: 2, title: 'Avant' } };
+  const { shell, reads } = fakeShell({
+    'session.getPreviousSessionSummary': () => (reads.at(-1)?.variables?.session === 's5' ? other : summary),
+  });
+  const { host, mounted, click } = await card(shell, {});
+  assert.equal(reads.length, 0);
+
+  mounted.update({ session: 's4' });
+  await settle();
+  assert.equal(host.querySelector('#previous-title')?.textContent, `Séance ${summary.session.order} — ${summary.session.title}`);
+  mounted.update({ session: 's4' });
+  await settle();
+  assert.equal(reads.length, 1);
+
+  click('previous-journal-open');
+  await settle();
+  assert.equal(host.querySelectorAll('#previous-journal-lines li').length, journal.journal.length);
+
+  mounted.update({ session: 's5' });
+  await settle();
+  assert.deepEqual(reads.at(-1)?.variables, { session: 's5' });
+  assert.equal(host.querySelector('#previous-title')?.textContent, 'Séance 2 — Avant');
+  // The last session’s journal is gone, and the panel closed, until it is opened for this one.
+  assert.equal(host.querySelector<HTMLElement>('#previous-journal')?.hidden, true);
+  assert.equal(host.querySelectorAll('#previous-journal-lines li').length, 0);
+
+  mounted.update({});
+  await settle();
+  assert.equal(host.querySelector('#previous-summary-text')?.textContent, 'Aucune séance précédente n’est encore close.');
+});
+
+test('an answer to a session the card has left is not drawn', async () => {
+  let release: () => void = () => undefined;
+  const slow = new Promise<void>((resolve) => (release = resolve));
+  const { shell } = fakeShell();
+  const reading = shell.capability.bind(shell);
+  const late: Shell = {
+    async capability(id, sha256, variables) {
+      if (variables?.session === 's4') await slow;
+      return reading(id, sha256, variables);
+    },
+  };
+  const { host, mounted } = await card(late, { session: 's4' });
+  mounted.update({});
+  release();
+  await settle();
+  assert.equal(host.querySelector('#previous-summary-text')?.textContent, 'Aucune séance précédente n’est encore close.');
 });

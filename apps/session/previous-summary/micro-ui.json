@@ -4,5 +4,7 @@
   "description": "Le résumé de la séance précédente, ses entités mentionnées, ses fils ouverts et son journal transcrit en panneau latéral",
   "needs": ["session.getPreviousSessionSummary", "session.getSessionJournal"],
   "actions": [],
-  "props": {}
+  "props": {
+    "session": "string — id de la séance en préparation : on lit la séance close qui la précède ; sans lui, aucune lecture"
+  }
 }

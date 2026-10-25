@@ -1,7 +1,8 @@
 // PreviousSummary on the mock-up's page: the Micro-UI's real code, over the page's
 // shell client and the mock server (mock/src/server.js), which answers the
 // wire protocol from the fixtures. mock/build.sh bundles this file into
-// mock/components/PreviousSummary.js, which the fragment loads.
+// mock/components/PreviousSummary.js, which the fragment loads. The session is the
+// page's (`data-props`, or `$ctx.session`): the mock-up names the one in preparation.
 
 import { createShell } from '../../apps/shell/src/client/shell.ts';
 import { mount } from '../../apps/session/previous-summary/src/index.ts';
