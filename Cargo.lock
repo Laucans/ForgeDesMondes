@@ -198,7 +198,9 @@ dependencies = [
 name = "aggregate-suggestion"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "harness-dataguard",
+ "platform-test-kit",
  "serde_json",
  "tokio",
 ]
