@@ -533,3 +533,41 @@ fn the_copy_keeps_the_order_of_the_archive() {
         );
     }
 }
+
+#[test]
+fn a_diff_entry_is_rewritten_only_on_a_reference_field_and_only_in_the_members_it_has() {
+    let ids: Map<String, Value> = serde_json::from_value(json!({
+        "m1": "n1", "m2": "n2",
+    }))
+    .expect("an object");
+    let version = |diff: Value| {
+        json!({
+            "campaign": { "id": "c" },
+            "elements": [{ "versions": [{ "diff": diff }] }],
+        })
+    };
+    let archive = version(json!([
+        // Not a reference field: untouched, even when old and new are alike.
+        { "field": "name", "old": "x", "new": "x" },
+        // A field set for the first time: no `old` is added.
+        { "field": "portraitMediaId", "new": "m1" },
+        // A reference field: both ends followed.
+        { "field": "tokenMediaId", "old": "m1", "new": "m2" },
+        // Both ends outside the archive: the same once followed, left out.
+        { "field": "playerId", "old": "p1", "new": "p2" },
+        // No field at all: untouched.
+        { "old": "m1", "new": "m1" },
+    ]));
+    let mut with_ids = ids;
+    with_ids.insert("c".to_owned(), json!("nc"));
+    let copied = copy(&archive, AT, &with_ids);
+    assert_eq!(
+        copied["elements"][0]["versions"][0]["diff"],
+        json!([
+            { "field": "name", "old": "x", "new": "x" },
+            { "field": "portraitMediaId", "new": "n1" },
+            { "field": "tokenMediaId", "old": "n1", "new": "n2" },
+            { "old": "m1", "new": "m1" },
+        ])
+    );
+}

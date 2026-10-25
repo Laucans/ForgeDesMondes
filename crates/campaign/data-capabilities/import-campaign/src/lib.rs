@@ -414,19 +414,25 @@ impl Copy<'_> {
             ),
             other => other.cloned().unwrap_or(Value::Null),
         };
+        // Only an entry on a reference field is rewritten, and only in the
+        // members it has; it goes when both ends come out the same.
         let diff = list(version, "diff")
             .iter()
-            .map(|entry| match entry["field"].as_str() {
-                Some(field) => with(
-                    entry,
-                    &[
-                        ("old", follow(field, &entry["old"])),
-                        ("new", follow(field, &entry["new"])),
-                    ],
-                ),
-                None => entry.clone(),
+            .filter_map(|entry| {
+                let Some(field) = entry["field"].as_str() else {
+                    return Some(entry.clone());
+                };
+                if !VERSION_REFERENCES.contains(&field) {
+                    return Some(entry.clone());
+                }
+                let mut followed = entry.as_object().cloned().unwrap_or_default();
+                for member in ["old", "new"] {
+                    if let Some(value) = followed.get_mut(member) {
+                        *value = self.reference(value);
+                    }
+                }
+                (followed.get("old") != followed.get("new")).then_some(Value::Object(followed))
             })
-            .filter(|entry| entry["old"] != entry["new"])
             .collect();
         with(
             version,
