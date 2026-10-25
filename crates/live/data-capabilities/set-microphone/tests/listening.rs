@@ -437,3 +437,76 @@ async fn a_port_that_cannot_listen_leaves_no_task_and_one_that_fails_ends_it_and
         );
     }
 }
+
+/// A port whose stream tells when its task is gone.
+struct Watched {
+    gone: Arc<std::sync::atomic::AtomicBool>,
+    journal: RequestJournal,
+}
+
+/// Sets the flag when dropped: the task that held it ended.
+struct Gone(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for Gone {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl SpeechToText for Watched {
+    async fn transcribe(
+        &self,
+        _dictation: &Dictation,
+        _vocabulary: &Heard,
+    ) -> Result<Transcript, SpeechToTextError> {
+        Err(SpeechToTextError::EmptyAudio)
+    }
+
+    async fn listen(&self, _vocabulary: &Heard) -> Result<TranscriptStream, SpeechToTextError> {
+        let guard = Gone(Arc::clone(&self.gone));
+        Ok(TranscriptStream::spawn(|phrases, mut stop| async move {
+            // A microphone that hears nothing keeps its stream open until it is stopped.
+            let _open = phrases;
+            let _guard = guard;
+            stop.requested().await;
+        }))
+    }
+
+    fn journal(&self) -> &RequestJournal {
+        &self.journal
+    }
+}
+
+#[tokio::test]
+async fn the_server_going_away_ends_the_streams_and_the_ports_tasks_with_them() {
+    let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (listening, plans, _recorder) = server();
+    plans.stage(
+        SESSION,
+        &listening,
+        Some(Plan {
+            vocabulary: vocabulary(),
+            speech: SharedSpeechToText::new(Watched {
+                gone: Arc::clone(&gone),
+                journal: RequestJournal::new(),
+            }),
+            caller: Caller::default(),
+        }),
+    );
+    let observer = Observer(Arc::clone(&plans));
+    observer.observe(&written(&format!("Session/{SESSION}"), Some(true)));
+    assert!(listening.listens(SESSION));
+    tokio::task::yield_now().await;
+    assert!(
+        !gone.load(std::sync::atomic::Ordering::SeqCst),
+        "the port's task runs"
+    );
+    // Nobody holds the streams any more.
+    drop(observer);
+    drop(plans);
+    drop(listening);
+    assert!(
+        until(|| gone.load(std::sync::atomic::Ordering::SeqCst)).await,
+        "the port's task is gone"
+    );
+}

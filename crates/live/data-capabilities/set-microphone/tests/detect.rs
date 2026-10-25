@@ -170,6 +170,30 @@ fn a_phrase_naming_an_alias_names_its_element() {
 }
 
 #[test]
+fn a_longer_term_blocks_the_shorter_one_it_overlaps_wherever_the_phrase_puts_it() {
+    // « sanglier » is a word of « la taverne du sanglier », which starts the phrase's
+    // second word: the longer term wins, the boar is not named.
+    let vocabulary = Vocabulary::from_rows(&json!([
+        { "term": "la taverne du sanglier", "kind": "entity", "id": "taverne", "alias": false },
+        { "term": "sanglier", "kind": "entity", "id": "boar", "alias": false },
+        { "term": "Morlox", "kind": "entity", "id": "morlox", "alias": false },
+    ]));
+    let found: Vec<String> = vocabulary
+        .detect("Dans la Taverne du Sanglier, Morlox attend.")
+        .into_iter()
+        .map(|d| d.id)
+        .collect();
+    assert_eq!(found, ["taverne", "morlox"]);
+    // Taken apart, both are named.
+    let found: Vec<String> = vocabulary
+        .detect("Le sanglier est dans la taverne du sanglier.")
+        .into_iter()
+        .map(|d| d.id)
+        .collect();
+    assert_eq!(found, ["boar", "taverne"]);
+}
+
+#[test]
 fn a_phrase_naming_nothing_names_nothing() {
     let vocabulary = Vocabulary::from_rows(&json!([
         { "term": "Morlox", "kind": "entity", "id": "m", "alias": false },
