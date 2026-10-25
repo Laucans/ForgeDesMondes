@@ -25,10 +25,26 @@
 //! campaign, so the one cannot be inserted before the other. An illustration
 //! is described by its ratio alone: it is loaded as 1000 pixels high, and as
 //! wide as its ratio says. Of a session, the `played` status is the table's
-//! `closed`, and no scene, no journal line, no start or close time is loaded:
-//! the fixtures of the Session aggregate give the sessions, the PCs present at
-//! each, the last brief and the to-create list, and nothing of the brief's
-//! scenes.
+//! `closed`, and no start or close time is loaded: the fixtures of the Session
+//! aggregate give the sessions, the PCs present at each, the scenes of
+//! `SceneBoard.json`, the closed session's journal and summary of
+//! `PreviousSummary.json`, the last brief and the to-create list.
+//!
+//! A scene is one row of `scene` (its order is its rank, from 1 to n), and
+//! each place, character, event and medium it lists one row of `scene_entity`
+//! (ranked from 1 in the order of the fixture: places, characters, events) or
+//! `scene_media`. What a scene lists is of the session's campaign. The scene's
+//! `toCreate` and `battlemap` are other rows' links: not loaded here.
+//!
+//! The summary of the closed session, its model and the day it was edited
+//! (read from `summaryMeta`, « Généré à la clôture par <model>, retouché le
+//! 4 oct. 2026 ») are `session.summary`, `summary_model` and
+//! `summary_edited_at`; `PreviousSummary.json`'s summary wins over
+//! `SessionList.json`'s for that one session. Its journal is one
+//! `session_journal_line` per line, named `session_journal_line:<session
+//! slug>:<n>`, spoken on the session's day at the line's `HH:MM` (UTC), a
+//! microsecond apart so that two lines of one minute keep their order. A journal
+//! that runs past midnight does not map: its lines would sort before the evening's.
 //!
 //! A PC present at a session is one row of `session_present_character`, keyed
 //! by the pair `session_id,character_id`: a row the DM changed since is left
@@ -151,8 +167,14 @@ const SESSION: &[&str] = &[
     "status",
     "microphone_on",
     "summary",
+    "summary_model",
+    "summary_edited_at",
 ];
 const PRESENCE: &[&str] = &["session_id", "character_id", "added_at"];
+const SCENE: &[&str] = &["id", "session_id", "position", "title", "notes"];
+const SCENE_ENTITY: &[&str] = &["scene_id", "entity_id", "position"];
+const SCENE_MEDIA: &[&str] = &["scene_id", "media_id"];
+const JOURNAL: &[&str] = &["id", "session_id", "spoken_at", "text"];
 const BRIEF: &[&str] = &[
     "id",
     "session_id",
@@ -226,6 +248,8 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             "entities.json" => read.entities(&value),
             "media.json" => read.media(&value),
             SESSIONS => read.sessions(&value),
+            BOARD_FILE => read.board(&value),
+            CLOSING_FILE => read.closing(&value),
             BRIEF_FILE => read.brief(&value),
             TO_CREATE_FILE => read.creations(&value),
             _ => {
@@ -252,6 +276,14 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
         read.sessions = None;
         withdraw(&mut plan, SESSIONS, &why);
     }
+    if let Err(why) = read.board_fits() {
+        read.board = None;
+        withdraw(&mut plan, BOARD_FILE, &why);
+    }
+    if let Err(why) = read.closing_fits() {
+        read.closing = None;
+        withdraw(&mut plan, CLOSING_FILE, &why);
+    }
     if let Err(why) = read.brief_fits() {
         read.brief = None;
         withdraw(&mut plan, BRIEF_FILE, &why);
@@ -267,8 +299,11 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
 /// The fixture of a campaign's media.
 const LIBRARY: &str = "media.json";
 /// The fixtures of the Session aggregate: a campaign's sessions, a session's
-/// last brief, a campaign's to-create list.
+/// scenes, a closed session's summary and journal, a session's last brief, a
+/// campaign's to-create list.
 const SESSIONS: &str = "SessionList.json";
+const BOARD_FILE: &str = "SceneBoard.json";
+const CLOSING_FILE: &str = "PreviousSummary.json";
 const BRIEF_FILE: &str = "OralBrief.json";
 const TO_CREATE_FILE: &str = "ToCreateList.json";
 
@@ -299,6 +334,8 @@ struct Read {
     entities: Option<Entities>,
     library: Option<Library>,
     sessions: Option<Sessions>,
+    board: Option<Board>,
+    closing: Option<Closing>,
     brief: Option<Brief>,
     to_create: Option<ToCreate>,
 }
@@ -319,6 +356,39 @@ struct Session {
     summary: Value,
     /// The PCs present, by slug.
     present: Vec<String>,
+}
+
+/// The `SceneBoard.json` document, mapped: the scenes of a session.
+struct Board {
+    session: String,
+    scenes: Vec<Scene>,
+}
+
+struct Scene {
+    slug: String,
+    /// Its rank, from 1.
+    position: i32,
+    title: String,
+    /// A text, or null.
+    notes: Value,
+    /// What it links, by slug, each once.
+    places: Vec<String>,
+    characters: Vec<String>,
+    events: Vec<String>,
+    media: Vec<String>,
+}
+
+/// The `PreviousSummary.json` document, mapped: how a closed session ended.
+struct Closing {
+    session: String,
+    /// The day it was played.
+    day: String,
+    summary: String,
+    model: String,
+    /// The day the DM last edited the summary.
+    edited_on: Option<String>,
+    /// The journal's lines: the `HH:MM` they were spoken at, and their text.
+    journal: Vec<(String, String)>,
 }
 
 /// The `OralBrief.json` document, mapped: the last brief of a session.
@@ -509,6 +579,50 @@ impl Read {
         Ok(())
     }
 
+    fn board(&mut self, value: &Value) -> Result<(), String> {
+        let session = required(&value["session"], "id")?.to_string();
+        let mut scenes = Vec::new();
+        for (index, scene) in array(&value["scenes"], "scenes")?.iter().enumerate() {
+            scenes.push(scene_of(scene, index)?);
+        }
+        let mut slugs = BTreeSet::new();
+        if let Some(twice) = scenes.iter().find(|s| !slugs.insert(&s.slug)) {
+            return Err(format!("the slug {:?} names two rows", twice.slug));
+        }
+        self.board = Some(Board { session, scenes });
+        Ok(())
+    }
+
+    fn closing(&mut self, value: &Value) -> Result<(), String> {
+        let day = required(&value["session"], "date")?;
+        if !is_day(day) {
+            return Err(format!("the date {day:?} is not a day"));
+        }
+        let (model, edited_on) = meta_of(required(value, "summaryMeta")?)?;
+        let mut journal = Vec::new();
+        let mut last = "";
+        for line in array(&value["journal"], "the journal")? {
+            let at = required(line, "t")?;
+            if !is_clock(at) {
+                return Err(format!("the time {at:?} of a line is not an HH:MM"));
+            }
+            if at < last {
+                return Err(format!("the line at {at} is out of time order"));
+            }
+            last = at;
+            journal.push((at.to_string(), required(line, "text")?.to_string()));
+        }
+        self.closing = Some(Closing {
+            session: required(&value["session"], "id")?.to_string(),
+            day: day.to_string(),
+            summary: required(value, "summary")?.to_string(),
+            model,
+            edited_on,
+            journal,
+        });
+        Ok(())
+    }
+
     fn brief(&mut self, value: &Value) -> Result<(), String> {
         let at = required(value, "lastRun")?;
         if !is_time(at) {
@@ -596,6 +710,104 @@ impl Read {
                     session.slug
                 ));
             }
+        }
+        Ok(())
+    }
+
+    /// Whether the scenes read fit what the other files say: their session is
+    /// one the sessions read give, each place a « lieu », each character a
+    /// « pj » or a « pnj », each event an « evenement » and each medium one of
+    /// that session's campaign, and no slug of theirs names another row.
+    fn board_fits(&self) -> Result<(), String> {
+        let Some(board) = &self.board else {
+            return Ok(());
+        };
+        let Some(campaign) = self.session(&board.session) else {
+            return Err(format!(
+                "no fixture describes the session {:?}",
+                board.session
+            ));
+        };
+        let in_sessions = |slug: &str| {
+            self.sessions
+                .iter()
+                .flat_map(|s| &s.sessions)
+                .any(|s| s.slug == slug)
+        };
+        let in_list = |slug: &str| {
+            self.to_create
+                .iter()
+                .flat_map(|l| &l.entries)
+                .any(|e| e.slug == slug)
+        };
+        for scene in &board.scenes {
+            if self.named(&scene.slug) || in_sessions(&scene.slug) || in_list(&scene.slug) {
+                return Err(format!("the slug {:?} names two rows", scene.slug));
+            }
+            let links = [
+                (&scene.places, &["lieu"][..]),
+                (&scene.characters, &["pj", "pnj"][..]),
+                (&scene.events, &["evenement"][..]),
+            ];
+            for (slugs, kinds) in links {
+                if let Some(slug) = slugs
+                    .iter()
+                    .find(|slug| !kinds.iter().any(|kind| self.element(campaign, slug, kind)))
+                {
+                    return Err(format!(
+                        "{slug:?}, linked to {:?}, is none of {kinds:?} of its campaign",
+                        scene.slug
+                    ));
+                }
+            }
+            let holds = |slug: &str| {
+                self.library.as_ref().is_some_and(|l| {
+                    l.campaign == campaign && l.media.iter().any(|m| m.slug == slug)
+                })
+            };
+            if let Some(slug) = scene.media.iter().find(|slug| !holds(slug)) {
+                return Err(format!(
+                    "the medium {slug:?}, linked to {:?}, is none of its campaign",
+                    scene.slug
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the closing read fits what the sessions say: its session is a
+    /// closed one of theirs, played on the day of its journal.
+    fn closing_fits(&self) -> Result<(), String> {
+        let Some(closing) = &self.closing else {
+            return Ok(());
+        };
+        let Some(session) = self
+            .sessions
+            .iter()
+            .flat_map(|s| &s.sessions)
+            .find(|s| s.slug == closing.session)
+        else {
+            return Err(format!(
+                "no fixture describes the session {:?}",
+                closing.session
+            ));
+        };
+        if session.status != "closed" {
+            return Err(format!(
+                "the session {:?} is {}, not closed",
+                closing.session, session.status
+            ));
+        }
+        // A session with no day of its own takes the journal's.
+        if session
+            .planned_on
+            .as_str()
+            .is_some_and(|day| day != closing.day)
+        {
+            return Err(format!(
+                "the journal of {:?} is of {}, not of its day",
+                closing.session, closing.day
+            ));
         }
         Ok(())
     }
@@ -785,11 +997,17 @@ impl Read {
             let mut present = Vec::new();
             for session in &sessions.sessions {
                 let row = id("session", &session.slug);
+                // How a closed session ended is the closing's, when the fixtures have it.
+                let closing = self.closing.as_ref().filter(|c| c.session == session.slug);
                 rows.push(json!({
                     "id": row, "campaign_id": campaign, "position": session.position,
                     "title": session.title, "planned_on": session.planned_on,
                     "status": session.status, "microphone_on": false,
-                    "summary": session.summary,
+                    "summary": closing.map_or(session.summary.clone(), |c| json!(c.summary)),
+                    "summary_model": closing.map(|c| &c.model),
+                    "summary_edited_at": closing
+                        .and_then(|c| c.edited_on.as_ref())
+                        .map(|day| format!("{day}T00:00:00Z")),
                 }));
                 for pc in &session.present {
                     // A list reads them by `added_at`: the stamps keep the fixture's order.
@@ -809,6 +1027,48 @@ impl Read {
                     present,
                 ),
             ]);
+            if let Some(board) = &self.board {
+                let session = id("session", &board.session);
+                let (mut scenes, mut entities, mut media) = (Vec::new(), Vec::new(), Vec::new());
+                for scene in &board.scenes {
+                    let row = id("scene", &scene.slug);
+                    scenes.push(json!({
+                        "id": row, "session_id": session, "position": scene.position,
+                        "title": scene.title, "notes": scene.notes,
+                    }));
+                    let linked = [&scene.places, &scene.characters, &scene.events];
+                    for (rank, slug) in linked.into_iter().flatten().enumerate() {
+                        entities.push(json!({
+                            "scene_id": row, "entity_id": id("entity", slug), "position": rank + 1,
+                        }));
+                    }
+                    for slug in &scene.media {
+                        media.push(json!({ "scene_id": row, "media_id": id("media", slug) }));
+                    }
+                    names.push((scene.slug.clone(), row));
+                }
+                tables.extend([
+                    table("scene", "id", SCENE, scenes),
+                    table("scene_entity", "scene_id,entity_id", SCENE_ENTITY, entities),
+                    table("scene_media", "scene_id,media_id", SCENE_MEDIA, media),
+                ]);
+            }
+            if let Some(closing) = &self.closing {
+                let lines = closing.journal.iter().enumerate().map(|(index, (at, text))| {
+                    json!({
+                        "id": id("session_journal_line", &format!("{}:{}", closing.session, index + 1)),
+                        "session_id": id("session", &closing.session),
+                        "spoken_at": stamp(&format!("{}T{at}:00", closing.day), index),
+                        "text": text,
+                    })
+                });
+                tables.push(table(
+                    "session_journal_line",
+                    "id",
+                    JOURNAL,
+                    lines.collect(),
+                ));
+            }
         }
         let brief = self.brief;
         if let Some(brief) = &brief {
@@ -1026,6 +1286,84 @@ fn session_of(value: &Value) -> Result<Session, String> {
     })
 }
 
+/// One scene of `SceneBoard.json`, mapped: the `index`th (from 0), which says
+/// its order (`scene-order-contiguous`: from 1 to n, no hole).
+fn scene_of(value: &Value, index: usize) -> Result<Scene, String> {
+    let slug = required(value, "id")?.to_string();
+    let position = i32::try_from(index + 1).map_err(|_| format!("{slug} is too far"))?;
+    if value["order"] != position {
+        return Err(format!("{slug} is not the scene {position}"));
+    }
+    if !(value["notes"].is_null() || value["notes"].is_string()) {
+        return Err(format!("the notes of {slug} are not a text"));
+    }
+    // An element or a medium is linked once per scene: one listed twice is linked once.
+    let links = |key: &str| -> Result<Vec<String>, String> {
+        let mut linked: Vec<String> = Vec::new();
+        for link in array(&value[key], key)? {
+            let link = link
+                .as_str()
+                .ok_or_else(|| format!("a {key} of {slug} is not a text"))?;
+            if !linked.iter().any(|known| known == link) {
+                linked.push(link.to_string());
+            }
+        }
+        Ok(linked)
+    };
+    Ok(Scene {
+        title: required(value, "title")?.to_string(),
+        notes: value["notes"].clone(),
+        places: links("places")?,
+        characters: links("characters")?,
+        events: links("events")?,
+        media: links("media")?,
+        slug,
+        position,
+    })
+}
+
+/// The model and the day of the last edit a `summaryMeta` says: « Généré à la
+/// clôture par <model>, retouché le 4 oct. 2026 » — the edit is optional.
+fn meta_of(text: &str) -> Result<(String, Option<String>), String> {
+    let rest = text
+        .strip_prefix("Généré à la clôture par ")
+        .ok_or_else(|| format!("summaryMeta {text:?} names no model"))?;
+    let (model, edited) = match rest.split_once(", retouché le ") {
+        Some((model, day)) => (
+            model,
+            Some(french_day(day).ok_or_else(|| format!("{day:?} is not a day"))?),
+        ),
+        None => (rest, None),
+    };
+    match model.trim() {
+        "" => Err(format!("summaryMeta {text:?} names no model")),
+        model => Ok((model.to_string(), edited)),
+    }
+}
+
+/// `4 oct. 2026` (`1er janv. 2026`) as `2026-10-04`; none for anything else
+/// than a day of the calendar.
+fn french_day(text: &str) -> Option<String> {
+    const MONTHS: [&str; 12] = [
+        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
+        "déc.",
+    ];
+    let mut parts = text.split(' ');
+    let (day, month, year) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    // `1er` is the only ordinal; the rest is digits.
+    let day: u32 = match day {
+        "1er" => 1,
+        digits if digits.bytes().all(|b| b.is_ascii_digit()) => digits.parse().ok()?,
+        _ => return None,
+    };
+    let month = MONTHS.iter().position(|known| *known == month)? + 1;
+    let day = format!("{year}-{month:02}-{day:02}");
+    is_day(&day).then_some(day)
+}
+
 /// A duration written `mm:ss` (`04:12`), in seconds.
 fn seconds_of(text: &str) -> Result<i32, String> {
     let seconds = text.split_once(':').and_then(|(minutes, seconds)| {
@@ -1222,6 +1560,14 @@ fn is_time(text: &str) -> bool {
         && second < 60
 }
 
+/// Whether `text` is a time of the day, written `20:04`.
+fn is_clock(text: &str) -> bool {
+    let (Some(hour), Some(minute)) = (digits(text, 0..2), digits(text, 3..5)) else {
+        return false;
+    };
+    text.len() == 5 && text.as_bytes()[2] == b':' && hour < 24 && minute < 60
+}
+
 /// A day (`2026-08-20`) as the midnight UTC the column holds; null stays null.
 fn date(value: &Value, key: &str) -> Result<Value, String> {
     match value[key].as_str() {
@@ -1315,6 +1661,8 @@ mod tests {
             plan.loaded,
             [
                 "OralBrief.json",
+                "PreviousSummary.json",
+                "SceneBoard.json",
                 "SessionList.json",
                 "ToCreateList.json",
                 "campaign.getCampaign.json",
@@ -1346,6 +1694,10 @@ mod tests {
                 "battlemap_grid",
                 "session",
                 "session_present_character",
+                "scene",
+                "scene_entity",
+                "scene_media",
+                "session_journal_line",
                 "oral_brief",
                 "entity_to_create"
             ]
@@ -1984,6 +2336,422 @@ mod tests {
     }
 
     #[test]
+    fn the_scenes_of_the_mock_up_are_planned_with_their_links() {
+        let plan = mock();
+        let board = mock_file(BOARD_FILE);
+        let scenes = rows(&plan, "scene");
+        assert_eq!(scenes.len(), 3);
+        for (index, (row, fixture)) in scenes
+            .iter()
+            .zip(board["scenes"].as_array().expect("scenes"))
+            .enumerate()
+        {
+            let slug = fixture["id"].as_str().expect("an id");
+            assert_eq!(row["id"], id("scene", slug));
+            assert_eq!(row["session_id"], id("session", "s4"));
+            assert_eq!(row["position"], index + 1, "the rank is the order");
+            assert_eq!(row["title"], fixture["title"]);
+            assert_eq!(row["notes"], fixture["notes"]);
+            assert!(plan.names.contains(&(slug.to_string(), id("scene", slug))));
+        }
+        let linked = |table: &str, scene: &str, column: &str| -> Vec<Value> {
+            let mut rows: Vec<&Value> = rows(&plan, table)
+                .into_iter()
+                .filter(|r| r["scene_id"] == id("scene", scene))
+                .collect();
+            rows.sort_by_key(|r| r["position"].as_i64());
+            rows.iter().map(|r| r[column].clone()).collect()
+        };
+        // Places, then characters, then events, each in the fixture's order.
+        assert_eq!(
+            linked("scene_entity", "sc3", "entity_id"),
+            [
+                id("entity", "bandit"),
+                id("entity", "vesna"),
+                id("entity", "morlox"),
+                id("entity", "embuscade-gue"),
+            ]
+        );
+        assert_eq!(
+            linked("scene_entity", "sc1", "entity_id"),
+            [
+                id("entity", "taverne-sanglier"),
+                id("entity", "gaspard"),
+                id("entity", "morlox"),
+                id("entity", "marche-noir"),
+            ]
+        );
+        assert_eq!(
+            linked("scene_media", "sc1", "media_id").len(),
+            2,
+            "both illustrations"
+        );
+        assert_eq!(
+            linked("scene_media", "sc3", "media_id"),
+            [id("media", "bm-gue")]
+        );
+        assert_eq!(rows(&plan, "scene_entity").len(), 4 + 2 + 4);
+        let first: Vec<_> = rows(&plan, "scene_entity")
+            .into_iter()
+            .filter(|r| r["scene_id"] == id("scene", "sc2"))
+            .filter_map(|r| r["position"].as_i64())
+            .collect();
+        assert_eq!(first, [1, 2], "ranked from 1");
+        let keyed = |table: &str| plan.tables.iter().find(|t| t.name == table).map(|t| t.key);
+        assert_eq!(keyed("scene_entity"), Some("scene_id,entity_id"));
+        assert_eq!(keyed("scene_media"), Some("scene_id,media_id"));
+    }
+
+    #[test]
+    fn the_journal_and_the_summary_of_the_closed_session_are_planned() {
+        let plan = mock();
+        let closing = mock_file(CLOSING_FILE);
+        let lines = rows(&plan, "session_journal_line");
+        let fixture = closing["journal"].as_array().expect("a journal");
+        assert_eq!(lines.len(), 14);
+        assert_eq!(lines.len(), fixture.len());
+        for (index, (row, line)) in lines.iter().zip(fixture).enumerate() {
+            assert_eq!(
+                row["id"],
+                id("session_journal_line", &format!("s3:{}", index + 1))
+            );
+            assert_eq!(row["session_id"], id("session", "s3"));
+            assert_eq!(row["text"], line["text"]);
+            let at = row["spoken_at"].as_str().expect("a time");
+            let clock = line["t"].as_str().expect("a time");
+            assert_eq!(&at[..10], "2026-10-03", "the session's day");
+            assert_eq!(&at[11..16], clock, "the line's HH:MM");
+            assert_eq!(&at[at.len() - 1..], "Z", "UTC");
+        }
+        let stamps: Vec<&str> = lines
+            .iter()
+            .filter_map(|l| l["spoken_at"].as_str())
+            .collect();
+        assert!(stamps.windows(2).all(|w| w[0] < w[1]), "in spoken order");
+
+        let sessions = rows(&plan, "session");
+        let third = sessions
+            .iter()
+            .find(|s| s["id"] == id("session", "s3"))
+            .expect("a session");
+        assert_eq!(
+            third["summary"], closing["summary"],
+            "PreviousSummary's wins"
+        );
+        assert_eq!(
+            third["summary_model"],
+            "qwen2.5-14b-instruct (opencode maison)"
+        );
+        assert_eq!(third["summary_edited_at"], "2026-10-04T00:00:00Z");
+        for other in sessions.iter().filter(|s| s["id"] != id("session", "s3")) {
+            assert!(other["summary_model"].is_null() && other["summary_edited_at"].is_null());
+        }
+        let list = mock_file(SESSIONS);
+        let first = sessions
+            .iter()
+            .find(|s| s["id"] == id("session", "s1"))
+            .expect("a session");
+        assert_eq!(
+            first["summary"], list["sessions"][0]["summary"],
+            "the others keep theirs"
+        );
+    }
+
+    #[test]
+    fn a_summary_meta_says_a_model_and_maybe_the_day_of_an_edit() {
+        assert_eq!(
+            meta_of(
+                "Généré à la clôture par qwen2.5-14b-instruct (opencode maison), retouché le 4 oct. 2026"
+            ),
+            Ok((
+                "qwen2.5-14b-instruct (opencode maison)".to_string(),
+                Some("2026-10-04".to_string())
+            ))
+        );
+        assert_eq!(
+            meta_of("Généré à la clôture par claude"),
+            Ok(("claude".to_string(), None))
+        );
+        assert_eq!(
+            meta_of("Généré à la clôture par claude, retouché le 1er janv. 2026"),
+            Ok(("claude".to_string(), Some("2026-01-01".to_string())))
+        );
+        for bad in [
+            "Écrit par un humain",
+            "Généré à la clôture par ",
+            "Généré à la clôture par  , retouché le 4 oct. 2026",
+            "Généré à la clôture par x, retouché le 4 octobre 2026",
+            "Généré à la clôture par x, retouché le 31 févr. 2026",
+            "Généré à la clôture par x, retouché le 4 oct. 2026 à 10 h",
+            "Généré à la clôture par x, retouché le 4 oct.",
+        ] {
+            assert!(meta_of(bad).is_err(), "{bad}");
+        }
+        assert_eq!(french_day("30 déc. 2025").as_deref(), Some("2025-12-30"));
+        assert_eq!(french_day("29 févr. 2028").as_deref(), Some("2028-02-29"));
+        assert_eq!(french_day("29 févr. 2027"), None);
+        assert_eq!(french_day("0 mars 2026"), None);
+        for bad in [
+            "+4 oct. 2026",
+            "2er oct. 2026",
+            "4er oct. 2026",
+            "-4 oct. 2026",
+            " oct. 2026",
+        ] {
+            assert_eq!(french_day(bad), None, "{bad}");
+        }
+        assert_eq!(french_day("04 oct. 2026").as_deref(), Some("2026-10-04"));
+    }
+
+    #[test]
+    fn a_time_of_the_day_is_hours_and_minutes() {
+        for good in ["00:00", "20:04", "23:59"] {
+            assert!(is_clock(good), "{good}");
+        }
+        for bad in [
+            "24:00", "20:60", "2:04", "20-04", "20:4", "20:04:00", "ab:cd", "20:0é", "",
+        ] {
+            assert!(!is_clock(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_scene_file_that_does_not_fit_is_skipped_alone() {
+        let board = |edit: &dyn Fn(&mut Value)| {
+            let mut board = mock_file(BOARD_FILE);
+            edit(&mut board);
+            board
+        };
+        let cases = [
+            (
+                "a session nobody describes",
+                board(&|b| b["session"]["id"] = json!("s9")),
+                "no fixture describes the session",
+            ),
+            (
+                "a place that is a character",
+                board(&|b| b["scenes"][0]["places"] = json!(["morlox"])),
+                "is none of",
+            ),
+            (
+                "a character that is a place",
+                board(&|b| b["scenes"][0]["characters"] = json!(["valombre"])),
+                "is none of",
+            ),
+            (
+                "an event that is a character",
+                board(&|b| b["scenes"][0]["events"] = json!(["gaspard"])),
+                "is none of",
+            ),
+            (
+                "an element nobody describes",
+                board(&|b| b["scenes"][0]["characters"] = json!(["nobody"])),
+                "is none of",
+            ),
+            (
+                "a medium nobody describes",
+                board(&|b| b["scenes"][0]["media"] = json!(["nothing"])),
+                "is none of its campaign",
+            ),
+            (
+                "a slug an element has",
+                board(&|b| b["scenes"][0]["id"] = json!("elowen")),
+                "names two rows",
+            ),
+            (
+                "a slug a session has",
+                board(&|b| b["scenes"][0]["id"] = json!("s1")),
+                "names two rows",
+            ),
+            (
+                "a slug an entry has",
+                board(&|b| b["scenes"][0]["id"] = json!("tc-gue")),
+                "names two rows",
+            ),
+            (
+                "a slug twice",
+                board(&|b| b["scenes"][1]["id"] = json!("sc1")),
+                "names two rows",
+            ),
+            (
+                "a hole in the orders",
+                board(&|b| b["scenes"][1]["order"] = json!(3)),
+                "is not the scene 2",
+            ),
+            (
+                "notes that are no text",
+                board(&|b| b["scenes"][0]["notes"] = json!(7)),
+                "are not a text",
+            ),
+            (
+                "a link that is no text",
+                board(&|b| b["scenes"][0]["media"] = json!([7])),
+                "is not a text",
+            ),
+            (
+                "no title",
+                board(&|b| b["scenes"][0]["title"] = json!(null)),
+                "title is not a text",
+            ),
+        ];
+        for (what, scenes, why) in cases {
+            let plan = replaced(&[(BOARD_FILE, scenes)]);
+            let left = unmapped(&plan);
+            assert_eq!(left.len(), 1, "{what}: {left:?}");
+            assert_eq!(left[0].0, BOARD_FILE, "{what}");
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            for table in ["scene", "scene_entity", "scene_media"] {
+                assert!(rows(&plan, table).is_empty(), "{what}: {table}");
+            }
+            assert!(plan.names.iter().all(|(slug, _)| slug != "sc1"), "{what}");
+            assert!(plan.loaded.iter().any(|n| n == SESSIONS), "{what}");
+            assert_eq!(rows(&plan, "session_journal_line").len(), 14, "{what}");
+        }
+    }
+
+    #[test]
+    fn a_link_listed_twice_in_a_scene_is_linked_once() {
+        let mut board = mock_file(BOARD_FILE);
+        board["scenes"][0]["characters"] = json!(["gaspard", "morlox", "gaspard"]);
+        board["scenes"][0]["media"] = json!(["ill-gaspard", "ill-gaspard", "ill-salle-sanglier"]);
+        let plan = replaced(&[(BOARD_FILE, board)]);
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        let of_scene = |table: &str| {
+            rows(&plan, table)
+                .into_iter()
+                .filter(|r| r["scene_id"] == id("scene", "sc1"))
+                .count()
+        };
+        assert_eq!(of_scene("scene_entity"), 4);
+        assert_eq!(of_scene("scene_media"), 2);
+    }
+
+    #[test]
+    fn a_closing_file_that_does_not_fit_is_skipped_and_the_sessions_summary_stays() {
+        let closing = |edit: &dyn Fn(&mut Value)| {
+            let mut closing = mock_file(CLOSING_FILE);
+            edit(&mut closing);
+            closing
+        };
+        let cases = [
+            (
+                "a session nobody describes",
+                closing(&|c| c["session"]["id"] = json!("s9")),
+                "no fixture describes the session",
+            ),
+            (
+                "a session that is not closed",
+                closing(&|c| c["session"]["id"] = json!("s4")),
+                "is prep, not closed",
+            ),
+            (
+                "a day that is not a day",
+                closing(&|c| c["session"]["date"] = json!("3 octobre")),
+                "is not a day",
+            ),
+            (
+                "a meta with no model",
+                closing(&|c| c["summaryMeta"] = json!("retouché le 4 oct. 2026")),
+                "names no model",
+            ),
+            (
+                "no summary",
+                closing(&|c| c["summary"] = json!(null)),
+                "summary is not a text",
+            ),
+            (
+                "another day than the session's",
+                closing(&|c| c["session"]["date"] = json!("2026-10-04")),
+                "not of its day",
+            ),
+            (
+                "a time that is not a time",
+                closing(&|c| c["journal"][2]["t"] = json!("25:00")),
+                "is not an HH:MM",
+            ),
+            (
+                "a line out of time order",
+                closing(&|c| c["journal"][3]["t"] = json!("19:59")),
+                "out of time order",
+            ),
+            (
+                "a line with no text",
+                closing(&|c| c["journal"][3]["text"] = json!(null)),
+                "text is not a text",
+            ),
+            (
+                "a journal that is no list",
+                closing(&|c| c["journal"] = json!("none")),
+                "is not a list",
+            ),
+        ];
+        let list = mock_file(SESSIONS);
+        for (what, document, why) in cases {
+            let plan = replaced(&[(CLOSING_FILE, document)]);
+            let left = unmapped(&plan);
+            assert_eq!(left.len(), 1, "{what}: {left:?}");
+            assert_eq!(left[0].0, CLOSING_FILE, "{what}");
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            assert!(rows(&plan, "session_journal_line").is_empty(), "{what}");
+            let sessions = rows(&plan, "session");
+            let third = sessions
+                .iter()
+                .find(|s| s["id"] == id("session", "s3"))
+                .expect("a session");
+            assert_eq!(third["summary"], list["sessions"][2]["summary"], "{what}");
+            assert!(third["summary_model"].is_null(), "{what}");
+            assert!(plan.loaded.iter().any(|n| n == BOARD_FILE), "{what}");
+        }
+    }
+
+    #[test]
+    fn two_lines_of_one_minute_keep_their_order() {
+        let mut closing = mock_file(CLOSING_FILE);
+        closing["journal"] = json!([
+            { "t": "20:04", "text": "a" },
+            { "t": "20:04", "text": "b" },
+            { "t": "20:04", "text": "c" },
+        ]);
+        let plan = replaced(&[(CLOSING_FILE, closing)]);
+        let stamps: Vec<&str> = rows(&plan, "session_journal_line")
+            .iter()
+            .filter_map(|l| l["spoken_at"].as_str())
+            .collect();
+        assert_eq!(stamps.len(), 3);
+        assert!(stamps.windows(2).all(|w| w[0] < w[1]), "{stamps:?}");
+    }
+
+    #[test]
+    fn a_session_with_no_day_takes_the_day_of_its_journal() {
+        let mut list = mock_file(SESSIONS);
+        list["sessions"][2]["date"] = Value::Null;
+        let plan = replaced(&[(SESSIONS, list)]);
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        let lines = rows(&plan, "session_journal_line");
+        assert_eq!(lines.len(), 14);
+        assert!(lines.iter().all(|l| {
+            l["spoken_at"]
+                .as_str()
+                .is_some_and(|at| at.starts_with("2026-10-03"))
+        }));
+    }
+
+    #[test]
+    fn a_closing_without_an_edit_leaves_the_edit_day_null() {
+        let mut closing = mock_file(CLOSING_FILE);
+        closing["summaryMeta"] = json!("Généré à la clôture par claude");
+        let plan = replaced(&[(CLOSING_FILE, closing)]);
+        assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        let sessions = rows(&plan, "session");
+        let third = sessions
+            .iter()
+            .find(|s| s["id"] == id("session", "s3"))
+            .expect("a session");
+        assert_eq!(third["summary_model"], "claude");
+        assert!(third["summary_edited_at"].is_null());
+    }
+
+    #[test]
     fn the_last_brief_of_the_mock_up_is_one_analysed_row_of_text() {
         let plan = mock();
         let briefs = rows(&plan, "oral_brief");
@@ -2155,17 +2923,37 @@ mod tests {
             let plan = replaced(&[(SESSIONS, list)]);
             let left = unmapped(&plan);
             let names: Vec<&str> = left.iter().map(|(n, _)| n.as_str()).collect();
-            // The brief and the list name a session: they go with the sessions.
-            assert_eq!(names, [SESSIONS, BRIEF_FILE, TO_CREATE_FILE], "{what}");
+            // The scenes, the closing, the brief and the list name a session: they go with the sessions.
+            let hanging = [BOARD_FILE, CLOSING_FILE, BRIEF_FILE, TO_CREATE_FILE];
+            assert_eq!(
+                names,
+                [
+                    SESSIONS,
+                    BOARD_FILE,
+                    CLOSING_FILE,
+                    BRIEF_FILE,
+                    TO_CREATE_FILE
+                ],
+                "{what}"
+            );
             assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
-            assert!(left[1].1.contains("no fixture describes the session"));
-            for file in [SESSIONS, BRIEF_FILE, TO_CREATE_FILE] {
+            for hung in &left[1..] {
+                assert!(
+                    hung.1.contains("no fixture describes the session"),
+                    "{hung:?}"
+                );
+            }
+            for file in [SESSIONS].iter().chain(&hanging) {
                 assert!(!plan.loaded.iter().any(|n| n == file), "{what}: {file}");
             }
             assert!(plan.loaded.iter().any(|n| n == "entities.json"), "{what}");
             for table in [
                 "session",
                 "session_present_character",
+                "scene",
+                "scene_entity",
+                "scene_media",
+                "session_journal_line",
                 "oral_brief",
                 "entity_to_create",
             ] {
@@ -2175,7 +2963,7 @@ mod tests {
                 !plan
                     .names
                     .iter()
-                    .any(|(slug, _)| slug == "s4" || slug == "tc-odric")
+                    .any(|(slug, _)| slug == "s4" || slug == "tc-odric" || slug == "sc1")
             );
         }
     }
