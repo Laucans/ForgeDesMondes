@@ -377,10 +377,12 @@
     async function attempt(wrong, run, applied) {
       if (board === null) return;
       if (board.session.id === "") return say("La s\xE9ance n\u2019est pas identifi\xE9e : rien ne peut \xEAtre modifi\xE9.");
+      const sending = run(board);
+      if (sending === null) return;
       host2.querySelector("#scene-board")?.setAttribute("aria-busy", "true");
       say("");
       try {
-        const state = await run();
+        const state = await sending();
         if (state.status === "rejected") say(`Action refus\xE9e : ${reasons(state.violations)}.`);
         else {
           if (state.status !== "applied") say(`L\u2019action n\u2019est pas encore appliqu\xE9e (\xE9tat : ${state.status || "inconnu"}).`);
@@ -404,35 +406,43 @@
     host2.addEventListener("click", (event) => {
       const clicked = event.target?.closest("button");
       if (!clicked || board === null) return;
-      const current = board;
-      const session = current.session.id;
       switch (clicked.dataset.writes) {
         case REMOVE_PRESENT_CHARACTER: {
           const character = clicked.dataset.removePj ?? "";
-          void act("Impossible de retirer ce PJ.", () => send(REMOVE_PRESENT_CHARACTER, { session, character }, "Session", session));
+          void act("Impossible de retirer ce PJ.", ({ session: { id: session } }) => () => send(REMOVE_PRESENT_CHARACTER, { session, character }, "Session", session));
           return;
         }
         case ADD_PRESENT_CHARACTER: {
           const character = host2.querySelector("#scenes-present-select")?.value ?? "";
           if (character === "") return;
-          void act("Impossible d\u2019ajouter ce PJ.", () => send(ADD_PRESENT_CHARACTER, { session, character }, "Session", session));
+          void act("Impossible d\u2019ajouter ce PJ.", ({ session: { id: session } }) => () => send(ADD_PRESENT_CHARACTER, { session, character }, "Session", session));
           return;
         }
         case ADD_SCENE:
-          void act("Impossible d\u2019ajouter une sc\xE8ne.", () => send(ADD_SCENE, { session, title: "Nouvelle sc\xE8ne" }, "Session", session));
+          void act("Impossible d\u2019ajouter une sc\xE8ne.", ({ session: { id: session } }) => () => send(ADD_SCENE, { session, title: "Nouvelle sc\xE8ne" }, "Session", session));
           return;
         case REORDER_SCENES: {
-          const order = moved(current.scenes, clicked.closest("[data-scene]")?.dataset.scene ?? "", Number(clicked.dataset.move));
-          if (order === null) return;
-          void act("Impossible de r\xE9ordonner les sc\xE8nes.", () => send(REORDER_SCENES, { session, order }, "Session", session));
+          const scene = clicked.closest("[data-scene]")?.dataset.scene ?? "";
+          const delta = Number(clicked.dataset.move);
+          if (moved(board.scenes, scene, delta) === null) return;
+          void act("Impossible de r\xE9ordonner les sc\xE8nes.", (current) => {
+            const order = moved(current.scenes, scene, delta);
+            const session = current.session.id;
+            return order === null ? null : () => send(REORDER_SCENES, { session, order }, "Session", session);
+          });
           return;
         }
         case CREATE_BATTLEMAP_INSTANCE: {
           const item = clicked.closest("[data-scene]");
-          const scene = current.scenes.find((s) => s.id === item?.dataset.scene);
+          const id = item?.dataset.scene;
           const battlemap = item?.querySelector("select[data-map-select]")?.value ?? "";
-          if (!scene || scene.battlemap !== null || battlemap === "") return;
-          void act("Impossible de cr\xE9er l\u2019instance.", () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, "BattlemapInstance", scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}:${Date.now()}`));
+          if (battlemap === "") return;
+          const key = `${CREATE_BATTLEMAP_INSTANCE}:${id ?? ""}:${Date.now()}`;
+          void act("Impossible de cr\xE9er l\u2019instance.", (current) => {
+            const scene = current.scenes.find((s) => s.id === id);
+            const session = current.session.id;
+            return !scene || scene.battlemap !== null ? null : () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, "BattlemapInstance", scene.id, key);
+          });
           return;
         }
       }
@@ -441,18 +451,19 @@
     host2.addEventListener("change", (event) => {
       const field = event.target;
       if (field?.tagName !== "TEXTAREA" || field.dataset.writes !== UPDATE_SCENE_NOTES || board === null) return;
-      const current = board;
-      const session = current.session.id;
-      const scene = current.scenes.find((s) => s.id === field.closest("[data-scene]")?.dataset.scene);
+      const id = field.closest("[data-scene]")?.dataset.scene;
       const notes2 = field.value;
-      if (!scene || notes2 === scene.notes) return;
       void act(
         "Impossible d\u2019enregistrer ces notes.",
-        () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes: notes2 }, "Session", scene.id),
+        (current) => {
+          const scene = current.scenes.find((s) => s.id === id);
+          const session = current.session.id;
+          return !scene || notes2 === scene.notes ? null : () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes: notes2 }, "Session", scene.id);
+        },
         () => {
-          const held = board?.scenes.find((s) => s.id === scene.id);
+          const held = board?.scenes.find((s) => s.id === id);
           if (held) held.notes = notes2;
-          const shown2 = [...host2.querySelectorAll("[data-scene]")].find((item) => item.dataset.scene === scene.id)?.querySelector(`textarea[data-writes="${UPDATE_SCENE_NOTES}"]`);
+          const shown2 = [...host2.querySelectorAll("[data-scene]")].find((item) => item.dataset.scene === id)?.querySelector(`textarea[data-writes="${UPDATE_SCENE_NOTES}"]`);
           if (shown2 && shown2 !== field && shown2 !== host2.ownerDocument.activeElement) shown2.value = notes2;
         }
       );

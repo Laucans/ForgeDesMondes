@@ -129,20 +129,22 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   }
 
   /** One command at a time, each waiting its turn rather than dropped: a note saved as the DM leaves the field, and the click that left it, are both sent. */
-  function act(wrong: string, run: () => Promise<Settled>, applied?: () => void): Promise<void> {
+  function act(wrong: string, run: (current: Board) => (() => Promise<Settled>) | null, applied?: () => void): Promise<void> {
     pending = pending.then(() => attempt(wrong, run, applied)).catch(() => undefined);
     return pending;
   }
 
-  /** Once applied, the board is read again, so what it shows is what the server holds — unless `applied` says what changed, which keeps the field the DM is in; a command not yet applied leaves that field as typed, and `applied` unsaid. */
-  async function attempt(wrong: string, run: () => Promise<Settled>, applied?: () => void): Promise<void> {
+  /** The command is built from the board as it is when its turn comes, not as it was clicked: a command the board no longer allows is not sent. Once applied, the board is read again, so what it shows is what the server holds — unless `applied` says what changed, which keeps the field the DM is in; a command not yet applied leaves that field as typed, and `applied` unsaid. */
+  async function attempt(wrong: string, run: (current: Board) => (() => Promise<Settled>) | null, applied?: () => void): Promise<void> {
     if (board === null) return;
     // A session the board does not know is one it cannot write to.
     if (board.session.id === '') return say('La séance n’est pas identifiée : rien ne peut être modifié.');
+    const sending = run(board);
+    if (sending === null) return;
     host.querySelector('#scene-board')?.setAttribute('aria-busy', 'true');
     say('');
     try {
-      const state = await run();
+      const state = await sending();
       if (state.status === 'rejected') say(`Action refusée : ${reasons(state.violations)}.`);
       else {
         // A command still queued or parked is the server's to apply on its own clock: the board says so, and shows what is held now.
@@ -168,37 +170,46 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   host.addEventListener('click', (event) => {
     const clicked = (event.target as Element | null)?.closest('button');
     if (!clicked || board === null) return;
-    const current = board;
-    const session = current.session.id;
     // The actuator says which DataCapability it triggers: that, and nothing else, is what it sends.
     switch (clicked.dataset.writes) {
       case REMOVE_PRESENT_CHARACTER: {
         const character = clicked.dataset.removePj ?? '';
-        void act('Impossible de retirer ce PJ.', () => send(REMOVE_PRESENT_CHARACTER, { session, character }, 'Session', session));
+        void act('Impossible de retirer ce PJ.', ({ session: { id: session } }) => () => send(REMOVE_PRESENT_CHARACTER, { session, character }, 'Session', session));
         return;
       }
       case ADD_PRESENT_CHARACTER: {
         const character = host.querySelector<HTMLSelectElement>('#scenes-present-select')?.value ?? '';
         if (character === '') return;
-        void act('Impossible d’ajouter ce PJ.', () => send(ADD_PRESENT_CHARACTER, { session, character }, 'Session', session));
+        void act('Impossible d’ajouter ce PJ.', ({ session: { id: session } }) => () => send(ADD_PRESENT_CHARACTER, { session, character }, 'Session', session));
         return;
       }
       case ADD_SCENE:
-        void act('Impossible d’ajouter une scène.', () => send(ADD_SCENE, { session, title: 'Nouvelle scène' }, 'Session', session));
+        void act('Impossible d’ajouter une scène.', ({ session: { id: session } }) => () => send(ADD_SCENE, { session, title: 'Nouvelle scène' }, 'Session', session));
         return;
       case REORDER_SCENES: {
-        const order = moved(current.scenes, clicked.closest<HTMLElement>('[data-scene]')?.dataset.scene ?? '', Number(clicked.dataset.move));
-        if (order === null) return;
-        void act('Impossible de réordonner les scènes.', () => send(REORDER_SCENES, { session, order }, 'Session', session));
+        const scene = clicked.closest<HTMLElement>('[data-scene]')?.dataset.scene ?? '';
+        const delta = Number(clicked.dataset.move);
+        if (moved(board.scenes, scene, delta) === null) return;
+        // The move is made on the order the server holds when it is sent, so two quick moves add up rather than the second undoing the first.
+        void act('Impossible de réordonner les scènes.', (current) => {
+          const order = moved(current.scenes, scene, delta);
+          const session = current.session.id;
+          return order === null ? null : () => send(REORDER_SCENES, { session, order }, 'Session', session);
+        });
         return;
       }
       case CREATE_BATTLEMAP_INSTANCE: {
         const item = clicked.closest<HTMLElement>('[data-scene]');
-        const scene = current.scenes.find((s) => s.id === item?.dataset.scene);
+        const id = item?.dataset.scene;
         const battlemap = item?.querySelector<HTMLSelectElement>('select[data-map-select]')?.value ?? '';
-        // one-instance-per-scene: a scene that has its instance offers no second one. The key is one click's: a retry after a refusal is a new command, never the first one's replayed result.
-        if (!scene || scene.battlemap !== null || battlemap === '') return;
-        void act('Impossible de créer l’instance.', () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, 'BattlemapInstance', scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}:${Date.now()}`));
+        if (battlemap === '') return;
+        // one-instance-per-scene: a scene that has its instance, by the time the command is sent, offers no second one. The key is one click's: a retry after a refusal is a new command, never the first one's replayed result.
+        const key = `${CREATE_BATTLEMAP_INSTANCE}:${id ?? ''}:${Date.now()}`;
+        void act('Impossible de créer l’instance.', (current) => {
+          const scene = current.scenes.find((s) => s.id === id);
+          const session = current.session.id;
+          return !scene || scene.battlemap !== null ? null : () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, 'BattlemapInstance', scene.id, key);
+        });
         return;
       }
     }
@@ -206,24 +217,25 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     if (clicked.dataset.action === 'place') host.ownerDocument.getElementById('scene-battlemap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
-  // A scene's notes are written when the DM leaves the field, once, and only when they changed.
+  // A scene's notes are written when the DM leaves the field, once, and only when they differ from what the board holds when their turn comes.
   host.addEventListener('change', (event) => {
     const field = event.target as HTMLTextAreaElement | null;
     if (field?.tagName !== 'TEXTAREA' || field.dataset.writes !== UPDATE_SCENE_NOTES || board === null) return;
-    const current = board;
-    const session = current.session.id;
-    const scene = current.scenes.find((s) => s.id === field.closest<HTMLElement>('[data-scene]')?.dataset.scene);
+    const id = field.closest<HTMLElement>('[data-scene]')?.dataset.scene;
     const notes = field.value;
-    if (!scene || notes === scene.notes) return;
     void act(
       'Impossible d’enregistrer ces notes.',
-      () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes }, 'Session', scene.id),
+      (current) => {
+        const scene = current.scenes.find((s) => s.id === id);
+        const session = current.session.id;
+        return !scene || notes === scene.notes ? null : () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes }, 'Session', scene.id);
+      },
       () => {
         // The board may have been read again while the note waited its turn: the scene held now is the one updated, and a repainted field shows the note unless the DM is in it.
-        const held = board?.scenes.find((s) => s.id === scene.id);
+        const held = board?.scenes.find((s) => s.id === id);
         if (held) held.notes = notes;
         const shown = [...host.querySelectorAll<HTMLElement>('[data-scene]')]
-          .find((item) => item.dataset.scene === scene.id)
+          .find((item) => item.dataset.scene === id)
           ?.querySelector<HTMLTextAreaElement>(`textarea[data-writes="${UPDATE_SCENE_NOTES}"]`);
         if (shown && shown !== field && shown !== host.ownerDocument.activeElement) shown.value = notes;
       },

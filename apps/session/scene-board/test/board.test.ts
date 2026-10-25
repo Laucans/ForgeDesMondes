@@ -123,6 +123,39 @@ test('moving the third scene first triggers session.reorderScenes with the scene
   assert.deepEqual(b.sent[0]?.payload, { session: 's4', order: ['sc1', 'sc3', 'sc2'] });
 });
 
+/** A server that applies a reorder: each scene takes its place in the order it is sent. */
+const reordering = (scenes: Array<{ id: string; order: number }>) => (sent: Sent) => {
+  const order = sent.payload.order as string[];
+  for (const scene of scenes) scene.order = order.indexOf(scene.id) + 1;
+  return { status: 'applied' };
+};
+
+test('two quick moves add up: the second is made on the order the server holds after the first', async () => {
+  const scenes = fixtureOf('session.listScenes') as Array<{ id: string; order: number }>;
+  const b = await board({
+    scenes,
+    apply: reordering(scenes),
+  });
+  // Both clicks before either settles.
+  b.$('#scene-sc3 [data-move="-1"]').dispatchEvent(new b.dom.window.MouseEvent('click', { bubbles: true }));
+  b.$('#scene-sc3 [data-move="-1"]').dispatchEvent(new b.dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.deepEqual(b.sent.map((s) => s.payload.order), [['sc1', 'sc3', 'sc2'], ['sc3', 'sc1', 'sc2']]);
+});
+
+test('a move the order held when its turn comes no longer allows is not sent', async () => {
+  const scenes = fixtureOf('session.listScenes') as Array<{ id: string; order: number }>;
+  const b = await board({
+    scenes,
+    apply: reordering(scenes),
+  });
+  // sc2 goes up to the top, then up again: it is first by then.
+  b.$('#scene-sc2 [data-move="-1"]').dispatchEvent(new b.dom.window.MouseEvent('click', { bubbles: true }));
+  b.$('#scene-sc2 [data-move="-1"]').dispatchEvent(new b.dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.deepEqual(b.sent.map((s) => s.payload.order), [['sc2', 'sc1', 'sc3']]);
+});
+
 test('the first scene cannot go up and the last cannot go down', async () => {
   const b = await board();
   assert.equal((b.$('#scene-sc1 [data-move="-1"]') as HTMLButtonElement).disabled, true);
@@ -143,6 +176,23 @@ test('picking a battlemap for a scene triggers table.createBattlemapInstance, on
   await b.click('#scenes-add');
   assert.equal(b.host.querySelector('#sc1-battlemap select'), null);
   assert.equal(b.host.querySelector('#sc1-battlemap [data-writes]'), null);
+});
+
+test('a second pick for a scene, made before the first is applied, creates no second instance', async () => {
+  const b = await board({
+    apply: (sent) => {
+      // The server gives the scene its instance.
+      const scenes = b.data['session.listScenes'] as Array<{ id: string; battlemap: string | null }>;
+      const scene = scenes.find((s) => s.id === sent.payload.scene);
+      if (scene) scene.battlemap = `bmi-${scene.id}`;
+      return { status: 'applied' };
+    },
+  });
+  (b.$('#sc1-battlemap select') as HTMLSelectElement).value = 'bm-moulin';
+  b.$('#sc1-battlemap [data-writes]').dispatchEvent(new b.dom.window.MouseEvent('click', { bubbles: true }));
+  b.$('#sc1-battlemap [data-writes]').dispatchEvent(new b.dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  assert.deepEqual(b.sent.map((s) => s.dataCapability), ['table.createBattlemapInstance@1']);
 });
 
 test('« Ajouter une scène » triggers session.addScene', async () => {
