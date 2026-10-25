@@ -348,6 +348,8 @@
         "fixtures/session.getSession.json",
         "fixtures/session.listScenes.json",
         "fixtures/campaign.listCharacters.json",
+        "fixtures/campaign.listPlaces.json",
+        "fixtures/campaign.listEvents.json",
         "fixtures/media.listMedia.json",
         "fixtures/table.getBattlemapInstance.json"
       ],
@@ -355,6 +357,8 @@
         "session.getSession",
         "session.listScenes",
         "campaign.listCharacters",
+        "campaign.listPlaces",
+        "campaign.listEvents",
         "media.listMedia",
         "table.getBattlemapInstance"
       ],
@@ -366,10 +370,11 @@
         "table.createBattlemapInstance"
       ],
       "props": {
-        "session": "string — id de la séance en préparation (lue par session.getSession, passée aux écritures) ; à défaut, la séance du contexte de l’écran ; sans aucune, rien à lire ni à écrire"
+        "session": "string — id de la séance en préparation (lue par session.getSession, passée aux écritures) ; à défaut, la séance du contexte de l’écran ; sans aucune, rien à lire ni à écrire",
+        "campaign": "string — id de la campagne dont on lit PJ, lieux, événements et médias, quand session.getSession n’en donne pas ; à défaut, ils sont lus sans campagne"
       },
       "source": "apps/session/scene-board",
-      "builtFrom": "ca77124cef5e301f"
+      "builtFrom": "e879a45d9efd9da3"
     },
     {
       "name": "Battlemap",

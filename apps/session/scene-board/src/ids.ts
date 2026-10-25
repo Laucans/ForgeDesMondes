@@ -4,6 +4,8 @@
 export const GET_SESSION = 'session.getSession';
 export const LIST_SCENES = 'session.listScenes';
 export const LIST_CHARACTERS = 'campaign.listCharacters';
+export const LIST_PLACES = 'campaign.listPlaces';
+export const LIST_EVENTS = 'campaign.listEvents';
 export const LIST_MEDIA = 'media.listMedia';
 export const GET_BATTLEMAP_INSTANCE = 'table.getBattlemapInstance';
 

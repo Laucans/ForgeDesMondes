@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { absentPcs, commandBody, moved, parseCharacters, parseInstance, parseScenes, parseSession, presentPcs, ranks, reasons, sessionAsked, settled } from '../src/model.ts';
+import { absentPcs, campaignAsked, commandBody, moved, parseCharacters, parseEntities, parseInstance, parseScenes, parseSession, presentPcs, ranks, reasons, sessionAsked, settled } from '../src/model.ts';
 import type { Scene } from '../src/types.ts';
 
 const scene = (id: string): Scene => ({ id, title: id, places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: '' });
@@ -59,4 +59,21 @@ test('the session asked is the prop, else the context value, else none', () => {
   assert.equal(sessionAsked('', 's3'), 's3');
   assert.equal(sessionAsked(42, undefined), '');
   assert.equal(sessionAsked(undefined, undefined), '');
+});
+
+test('the campaign asked is the session\'s, else the prop, else none', () => {
+  assert.equal(campaignAsked('c1', 'c2'), 'c1');
+  assert.equal(campaignAsked(null, 'c2'), 'c2');
+  assert.equal(campaignAsked('', 'c2'), 'c2');
+  assert.equal(campaignAsked(null, ''), null);
+  assert.equal(campaignAsked(null, 42), null);
+  assert.equal(campaignAsked(null, undefined), null);
+});
+
+test('places and events keep their id and name, the id standing in for a missing name; an answer without id is dropped', () => {
+  assert.deepEqual(parseEntities([{ id: 'p1', name: 'La Taverne' }, { id: 'p2' }, { name: 'sans id' }, 'x']), [
+    { id: 'p1', name: 'La Taverne' },
+    { id: 'p2', name: 'p2' },
+  ]);
+  assert.deepEqual(parseEntities(undefined), []);
 });

@@ -14,12 +14,14 @@ interface Sent {
   idempotencyKey?: string;
 }
 
-/** A shell over the mock-up's fixtures: it answers the five Capabilities and applies a command as asked. */
-function fakeShell(options: { apply?: (sent: Sent) => { status: string; violations?: string[] }; fail?: string; scenes?: unknown; present?: string[]; noSessionId?: boolean; context?: string } = {}) {
+/** A shell over the mock-up's fixtures: it answers the seven Capabilities and applies a command as asked. */
+function fakeShell(options: { apply?: (sent: Sent) => { status: string; violations?: string[] }; fail?: string; scenes?: unknown; sessionCampaign?: string; present?: string[]; noSessionId?: boolean; context?: string } = {}) {
   const data: Record<string, unknown> = {
-    'session.getSession': { ...(fixtureOf('session.getSession') as object), ...(options.present ? { present: options.present } : {}), ...(options.noSessionId ? { id: '' } : {}) },
+    'session.getSession': { ...(fixtureOf('session.getSession') as object), ...(options.present ? { present: options.present } : {}), ...(options.noSessionId ? { id: '' } : {}), ...(options.sessionCampaign ? { campaign: options.sessionCampaign } : {}) },
     'session.listScenes': options.scenes ?? fixtureOf('session.listScenes'),
     'campaign.listCharacters': fixtureOf('campaign.listCharacters'),
+    'campaign.listPlaces': fixtureOf('campaign.listPlaces'),
+    'campaign.listEvents': fixtureOf('campaign.listEvents'),
     'media.listMedia': fixtureOf('media.listMedia'),
     'table.getBattlemapInstance': fixtureOf('table.getBattlemapInstance'),
   };
@@ -182,7 +184,7 @@ test('every part names the unit it shows or triggers by identifier', async () =>
   const writes = new Set([...b.host.querySelectorAll('[data-writes]')].map((e) => (e as HTMLElement).dataset.writes));
   for (const id of ['session.addPresentCharacter', 'session.removePresentCharacter', 'session.addScene', 'session.reorderScenes', 'table.createBattlemapInstance']) assert.ok(writes.has(id), `${id} has an actuator`);
   const reads = (b.host.innerHTML.match(/data-reads="([^"]+)"/g) ?? []).join(' ');
-  for (const id of ['session.getSession', 'session.listScenes', 'campaign.listCharacters', 'media.listMedia', 'table.getBattlemapInstance']) assert.match(reads, new RegExp(id.replace('.', '\\.')), `${id} has a part`);
+  for (const id of ['session.getSession', 'session.listScenes', 'campaign.listCharacters', 'campaign.listPlaces', 'campaign.listEvents', 'media.listMedia', 'table.getBattlemapInstance']) assert.match(reads, new RegExp(id.replace('.', '\\.')), `${id} has a part`);
 });
 
 test('a session the board does not know is one it writes nothing to', async () => {
@@ -229,4 +231,44 @@ test('with no prop and no context value the board reads nothing, shows no scene 
   assert.match(b.$('#scenes-notice').textContent ?? '', /Aucune séance/);
   await b.click('#scenes-add');
   assert.equal(b.sent.length, 0);
+});
+
+const campaignReads = ['campaign.listCharacters', 'campaign.listPlaces', 'campaign.listEvents', 'media.listMedia'];
+const readsOf = (b: { reads: Array<{ id: string; variables?: Record<string, unknown> }> }, ids: string[]) => b.reads.filter((r) => ids.includes(r.id)).map((r) => [r.id, r.variables]);
+
+test('a scene shows the names of its places and events, not their ids', async () => {
+  const b = await board();
+  assert.equal(b.$('#sc1-place-taverne-sanglier').textContent, 'La Taverne du Sanglier');
+  assert.equal(b.$('#sc1-event-marche-noir').textContent, 'Le marché noir de Morlox');
+  // The link still opens the entity by its id.
+  assert.equal(b.$('#sc1-place-taverne-sanglier').getAttribute('href'), 'fiche-entite.html?id=taverne-sanglier');
+});
+
+test('a place or an event the campaign does not list stays its id', async () => {
+  const scenes = (fixtureOf('session.listScenes') as Array<Record<string, unknown>>).map((scene) => ({ ...scene, places: ['lieu-inconnu'], events: ['evt-inconnu'] }));
+  const b = await board({ scenes });
+  assert.equal(b.$('#sc1-place-lieu-inconnu').textContent, 'lieu-inconnu');
+  assert.equal(b.$('#sc1-event-evt-inconnu').textContent, 'evt-inconnu');
+});
+
+test('session.getSession gives no campaign: the campaign prop is what the four campaign reads are for', async () => {
+  const b = await board({}, { session: 's4', campaign: 'c1' });
+  assert.deepEqual(readsOf(b, campaignReads).sort(), campaignReads.map((id) => [id, { campaign: 'c1' }]).sort());
+  assert.equal(b.$('#sc1-char-gaspard').textContent, 'Gaspard Grosmollet');
+  assert.equal(b.$('#sc1-media-ill-gaspard').textContent, 'Gaspard, le tavernier');
+});
+
+test('the campaign session.getSession gives wins over the campaign prop', async () => {
+  const b = await board({ sessionCampaign: 'c-session' }, { session: 's4', campaign: 'c-prop' });
+  assert.deepEqual(readsOf(b, campaignReads).map(([, variables]) => variables), campaignReads.map(() => ({ campaign: 'c-session' })));
+});
+
+test('with no campaign from the session nor the prop, the campaign reads are asked with none', async () => {
+  const b = await board({}, { session: 's4', campaign: '' });
+  assert.deepEqual(readsOf(b, campaignReads).map(([, variables]) => variables), campaignReads.map(() => ({})));
+});
+
+test('the campaign reads fail with the board: it says so and keeps its titles', async () => {
+  const b = await board({ fail: 'campaign.listPlaces' }, { session: 's4', campaign: 'c1' });
+  assert.match(b.$('#scenes-notice').textContent ?? '', /Impossible de lire la séance/);
 });

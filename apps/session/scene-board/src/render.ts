@@ -2,7 +2,7 @@
 // (mock/kit/<Name>.html): the same ids, the same classes. Every part names
 // the unit it shows (`data-reads`) or triggers (`data-writes`) by identifier.
 
-import { ADD_PRESENT_CHARACTER, ADD_SCENE, CREATE_BATTLEMAP_INSTANCE, GET_BATTLEMAP_INSTANCE, GET_SESSION, LIST_CHARACTERS, LIST_MEDIA, LIST_SCENES, REMOVE_PRESENT_CHARACTER, REORDER_SCENES } from './ids.ts';
+import { ADD_PRESENT_CHARACTER, ADD_SCENE, CREATE_BATTLEMAP_INSTANCE, GET_BATTLEMAP_INSTANCE, GET_SESSION, LIST_CHARACTERS, LIST_EVENTS, LIST_MEDIA, LIST_PLACES, LIST_SCENES, REMOVE_PRESENT_CHARACTER, REORDER_SCENES } from './ids.ts';
 import { absentPcs, pcs, presentPcs } from './model.ts';
 import type { Board, Scene } from './types.ts';
 
@@ -25,7 +25,7 @@ export function skeleton(): string {
     '</section>' +
     '<section class="panel" id="scenes-list-panel" aria-labelledby="scenes-title">' +
     `<div class="panel__head"><h2 id="scenes-title">Scènes</h2>${buttons(button(` id="scenes-add" data-writes="${ADD_SCENE}"`, 'Ajouter une scène', 'secondary'))}</div>` +
-    `<ol class="mf-scenes__list" id="scenes-list" data-reads="${LIST_SCENES} ${LIST_MEDIA}"></ol>` +
+    `<ol class="mf-scenes__list" id="scenes-list" data-reads="${LIST_SCENES} ${LIST_PLACES} ${LIST_EVENTS} ${LIST_MEDIA}"></ol>` +
     '</section></section>'
   );
 }
@@ -65,11 +65,13 @@ const link = (cls: string, href: string, label: string, id: string): string => `
 /** What a scene links to. A name no answer gives stays its id, as the mock-up draws an entity it does not know. */
 function chips(scene: Scene, board: Board): string {
   const character = (id: string): string => board.characters.find((c) => c.id === id)?.name ?? id;
+  const place = (id: string): string => board.places.find((p) => p.id === id)?.name ?? id;
+  const event = (id: string): string => board.events.find((e) => e.id === id)?.name ?? id;
   const mediaTitle = (id: string): string => [...board.medias.battlemaps, ...board.medias.illustrations].find((m) => m.id === id)?.title ?? id;
   const rows: Array<[string, string[]]> = [
-    ['Lieux', scene.places.map((id) => link('lieu', `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-place-${id}`))],
+    ['Lieux', scene.places.map((id) => link('lieu', `fiche-entite.html?id=${encodeURIComponent(id)}`, place(id), `${scene.id}-place-${id}`))],
     ['PNJ', scene.characters.map((id) => link('pnj', `fiche-entite.html?id=${encodeURIComponent(id)}`, character(id), `${scene.id}-char-${id}`))],
-    ['Événements', scene.events.map((id) => link('media', `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-event-${id}`))],
+    ['Événements', scene.events.map((id) => link('media', `fiche-entite.html?id=${encodeURIComponent(id)}`, event(id), `${scene.id}-event-${id}`))],
     ['Médias', scene.media.map((id) => link('media', 'medias.html', mediaTitle(id), `${scene.id}-media-${id}`))],
     ['À créer', scene.toCreate.map((id) => link('todo', `#to-create-${id}`, id, `${scene.id}-todo-${id}`))],
   ];

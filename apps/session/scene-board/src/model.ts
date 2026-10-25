@@ -2,7 +2,7 @@
 // order of the scenes, the commands a click becomes.
 
 import { DATA_CAPABILITY_VERSION } from './ids.ts';
-import type { Board, Character, Instance, Media, Medias, Scene, Session } from './types.ts';
+import type { Board, Character, Entity, Instance, Media, Medias, Scene, Session } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
@@ -49,6 +49,13 @@ export function parseCharacters(data: unknown): Character[] {
     .map((character): Character => ({ id: text(character.id), name: text(character.name) || text(character.id), kind: character.kind === 'pj' ? 'pj' : 'pnj' }));
 }
 
+/** The places or the events of the campaign: an id, and the name a scene shows for it (the id when the answer gives none). */
+export function parseEntities(data: unknown): Entity[] {
+  return records(data)
+    .filter((entity) => text(entity.id) !== '')
+    .map((entity): Entity => ({ id: text(entity.id), name: text(entity.name) || text(entity.id) }));
+}
+
 const medias = (value: unknown): Media[] =>
   records(value)
     .filter((media) => text(media.id) !== '')
@@ -65,6 +72,12 @@ export function parseInstance(data: unknown): Instance | null {
   const tokens = isRecord(data.state) ? records(data.state.tokens) : [];
   return { id: text(data.id), battlemap: text(data.battlemap), tokens: tokens.length, hidden: tokens.filter((token) => token.visible === false).length };
 }
+
+/** The campaign the Capabilities are read for: the one session.getSession gives, else the `campaign` prop; null when neither names one. */
+export const campaignAsked = (fromSession: string | null, prop: unknown): string | null => {
+  if (fromSession !== null && fromSession !== '') return fromSession;
+  return typeof prop === 'string' && prop !== '' ? prop : null;
+};
 
 /** The session the board is for: its `session` prop, else the screen's context value; '' when neither names one. */
 export const sessionAsked = (prop: unknown, context: unknown): string => {

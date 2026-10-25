@@ -1,6 +1,7 @@
 // The two sides of the Micro-UI: the shell it is handed, and what the
 // Capabilities answer (session.getSession, session.listScenes,
-// campaign.listCharacters, media.listMedia, table.getBattlemapInstance).
+// campaign.listCharacters, campaign.listPlaces, campaign.listEvents,
+// media.listMedia, table.getBattlemapInstance).
 
 /** The part of the shell's client (apps/shell/src/client/shell.ts) this Micro-UI uses. */
 export interface Shell {
@@ -26,6 +27,12 @@ export interface Character {
   id: string;
   name: string;
   kind: 'pj' | 'pnj';
+}
+
+/** A place or an event of the campaign, as a scene names it by id. */
+export interface Entity {
+  id: string;
+  name: string;
 }
 
 export interface Scene {
@@ -59,11 +66,13 @@ export interface Instance {
   hidden: number;
 }
 
-/** Everything the board shows, as the five Capabilities answered it. */
+/** Everything the board shows, as the seven Capabilities answered it. */
 export interface Board {
   session: Session;
   scenes: Scene[];
   characters: Character[];
+  places: Entity[];
+  events: Entity[];
   medias: Medias;
   /** By instance id. */
   instances: Record<string, Instance>;
