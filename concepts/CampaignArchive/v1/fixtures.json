@@ -1,0 +1,2116 @@
+{
+  "concept": "CampaignArchive",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a full archive becomes a new campaign: every id is new, every reference follows its copy, the ids held in the versions too",
+      "input": {
+        "archive": {
+          "format": "campaign-archive",
+          "version": 1,
+          "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+          "exported_at": "2026-10-18T09:30:00.123Z",
+          "campaign": {
+            "id": "c0000001-0000-4000-8000-000000000001",
+            "name": "Les cendres de Valombre",
+            "kind": "campagne",
+            "pitch": "Une vallée qui brûle encore.",
+            "art": null,
+            "glyph": "🔥",
+            "cover_media_id": "d0000002-0000-4000-8000-000000000002",
+            "created_at": "2026-03-01T10:00:00+00:00",
+            "last_exported_at": "2026-09-01T18:00:00+00:00",
+            "imported_at": null,
+            "origin_campaign_id": null,
+            "sound_master_volume": 0.8
+          },
+          "players": [
+            {
+              "id": "a0000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "name": "Camille",
+              "notes": "Joue le mardi.",
+              "created_at": "2026-03-01T10:05:00+00:00"
+            },
+            {
+              "id": "a0000002-0000-4000-8000-000000000002",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "name": "Jordan",
+              "notes": null,
+              "created_at": "2026-03-01T10:06:00+00:00"
+            }
+          ],
+          "elements": [
+            {
+              "id": "e0000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "type": "pj",
+              "name": "Kael",
+              "description": "Un capitaine déchu.",
+              "notes": "Cherche son équipage.",
+              "created_at": "2026-03-02T10:00:00+00:00",
+              "updated_at": "2026-04-02T10:00:00+00:00",
+              "character": {
+                "entity_id": "e0000001-0000-4000-8000-000000000001",
+                "player_id": "a0000001-0000-4000-8000-000000000001",
+                "initial_prompt": null,
+                "background": "Ancien capitaine du Corbeau.",
+                "behavior": null,
+                "strength": 14,
+                "dexterity": 12,
+                "constitution": 13,
+                "intelligence": 10,
+                "wisdom": 9,
+                "charisma": 15,
+                "armor_class": 16,
+                "hp_max": 31,
+                "spells": [],
+                "actions": [
+                  {
+                    "name": "Sabre",
+                    "bonus": 5
+                  }
+                ],
+                "portrait_media_id": "d0000002-0000-4000-8000-000000000002",
+                "token_media_id": null,
+                "token_crop": null,
+                "token_color": "#c0392b",
+                "dndbeyond_id": null,
+                "dndbeyond_synced_at": null
+              },
+              "aliases": [
+                "le capitaine"
+              ],
+              "versions": [
+                {
+                  "id": "f0000001-0000-4000-8000-000000000001",
+                  "entity_id": "e0000001-0000-4000-8000-000000000001",
+                  "version_number": 1,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "pj",
+                    "name": "Kael",
+                    "playerId": "a0000001-0000-4000-8000-000000000001",
+                    "portraitMediaId": null,
+                    "tokenMediaId": null,
+                    "tokenColor": "#c0392b",
+                    "aliases": [
+                      "le capitaine"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "aliases",
+                      "old": null,
+                      "new": [
+                        "le capitaine"
+                      ]
+                    },
+                    {
+                      "field": "name",
+                      "old": null,
+                      "new": "Kael"
+                    },
+                    {
+                      "field": "playerId",
+                      "old": null,
+                      "new": "a0000001-0000-4000-8000-000000000001"
+                    },
+                    {
+                      "field": "tokenColor",
+                      "old": null,
+                      "new": "#c0392b"
+                    },
+                    {
+                      "field": "type",
+                      "old": null,
+                      "new": "pj"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-02T10:00:00+00:00"
+                },
+                {
+                  "id": "f0000002-0000-4000-8000-000000000002",
+                  "entity_id": "e0000001-0000-4000-8000-000000000001",
+                  "version_number": 2,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "pj",
+                    "name": "Kael",
+                    "playerId": "a0000001-0000-4000-8000-000000000001",
+                    "portraitMediaId": "d0000002-0000-4000-8000-000000000002",
+                    "tokenMediaId": null,
+                    "tokenColor": "#c0392b",
+                    "aliases": [
+                      "le capitaine"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "portraitMediaId",
+                      "old": null,
+                      "new": "d0000002-0000-4000-8000-000000000002"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-10T10:00:00+00:00"
+                },
+                {
+                  "id": "f0000003-0000-4000-8000-000000000003",
+                  "entity_id": "e0000001-0000-4000-8000-000000000001",
+                  "version_number": 3,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "pj",
+                    "name": "Kael",
+                    "playerId": "a0000002-0000-4000-8000-000000000002",
+                    "portraitMediaId": "d0000002-0000-4000-8000-000000000002",
+                    "tokenMediaId": null,
+                    "tokenColor": "#c0392b",
+                    "aliases": [
+                      "le capitaine"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "playerId",
+                      "old": "a0000001-0000-4000-8000-000000000001",
+                      "new": "a0000002-0000-4000-8000-000000000002"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-20T10:00:00+00:00"
+                },
+                {
+                  "id": "f0000004-0000-4000-8000-000000000004",
+                  "entity_id": "e0000001-0000-4000-8000-000000000001",
+                  "version_number": 4,
+                  "source": "restauration",
+                  "snapshot": {
+                    "type": "pj",
+                    "name": "Kael",
+                    "playerId": "a0000001-0000-4000-8000-000000000001",
+                    "portraitMediaId": null,
+                    "tokenMediaId": null,
+                    "tokenColor": "#c0392b",
+                    "aliases": [
+                      "le capitaine"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "playerId",
+                      "old": "a0000002-0000-4000-8000-000000000002",
+                      "new": "a0000001-0000-4000-8000-000000000001"
+                    },
+                    {
+                      "field": "portraitMediaId",
+                      "old": "d0000002-0000-4000-8000-000000000002",
+                      "new": null
+                    }
+                  ],
+                  "restored_from_version_id": "f0000001-0000-4000-8000-000000000001",
+                  "created_at": "2026-04-02T10:00:00+00:00"
+                }
+              ]
+            },
+            {
+              "id": "e0000002-0000-4000-8000-000000000002",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "type": "pnj",
+              "name": "Morlox",
+              "description": null,
+              "notes": "Doit 40 po à Vesna.",
+              "created_at": "2026-03-03T10:00:00+00:00",
+              "updated_at": "2026-03-03T10:00:00+00:00",
+              "character": {
+                "entity_id": "e0000002-0000-4000-8000-000000000002",
+                "player_id": null,
+                "initial_prompt": null,
+                "background": null,
+                "behavior": "Parle vite.",
+                "strength": 8,
+                "dexterity": 14,
+                "constitution": 10,
+                "intelligence": 12,
+                "wisdom": 10,
+                "charisma": 11,
+                "armor_class": 12,
+                "hp_max": 7,
+                "spells": [],
+                "actions": [],
+                "portrait_media_id": null,
+                "token_media_id": null,
+                "token_crop": null,
+                "token_color": "#2e86c1",
+                "dndbeyond_id": null,
+                "dndbeyond_synced_at": null
+              },
+              "aliases": [
+                "le gobelin",
+                "le marchand"
+              ],
+              "versions": [
+                {
+                  "id": "f0000010-0000-4000-8000-000000000010",
+                  "entity_id": "e0000002-0000-4000-8000-000000000002",
+                  "version_number": 1,
+                  "source": "brief",
+                  "snapshot": {
+                    "type": "pnj",
+                    "name": "Morlox",
+                    "playerId": null,
+                    "portraitMediaId": null,
+                    "tokenMediaId": null,
+                    "tokenColor": "#2e86c1",
+                    "aliases": [
+                      "le gobelin",
+                      "le marchand"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "aliases",
+                      "old": null,
+                      "new": [
+                        "le gobelin",
+                        "le marchand"
+                      ]
+                    },
+                    {
+                      "field": "name",
+                      "old": null,
+                      "new": "Morlox"
+                    },
+                    {
+                      "field": "tokenColor",
+                      "old": null,
+                      "new": "#2e86c1"
+                    },
+                    {
+                      "field": "type",
+                      "old": null,
+                      "new": "pnj"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-03T10:00:00+00:00"
+                }
+              ]
+            },
+            {
+              "id": "e0000003-0000-4000-8000-000000000003",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "type": "lieu",
+              "name": "Le moulin",
+              "description": "Un moulin en ruine.",
+              "notes": null,
+              "created_at": "2026-03-04T10:00:00+00:00",
+              "updated_at": "2026-03-04T10:00:00+00:00",
+              "character": null,
+              "aliases": [],
+              "versions": [
+                {
+                  "id": "f0000011-0000-4000-8000-000000000011",
+                  "entity_id": "e0000003-0000-4000-8000-000000000003",
+                  "version_number": 1,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "lieu",
+                    "name": "Le moulin",
+                    "description": "Un moulin en ruine.",
+                    "aliases": []
+                  },
+                  "diff": [
+                    {
+                      "field": "description",
+                      "old": null,
+                      "new": "Un moulin en ruine."
+                    },
+                    {
+                      "field": "name",
+                      "old": null,
+                      "new": "Le moulin"
+                    },
+                    {
+                      "field": "type",
+                      "old": null,
+                      "new": "lieu"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-04T10:00:00+00:00"
+                }
+              ]
+            }
+          ],
+          "media": [
+            {
+              "id": "d0000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "kind": "battlemap",
+              "title": "Le moulin, vue de dessus",
+              "file_path": "media/moulin.png",
+              "width_px": 2400,
+              "height_px": 1800,
+              "place_id": "e0000003-0000-4000-8000-000000000003",
+              "uploaded_at": "2026-03-05T10:00:00+00:00",
+              "battlemap_grid": {
+                "media_id": "d0000001-0000-4000-8000-000000000001",
+                "hex_size_px": 48.5,
+                "offset_x": 12,
+                "offset_y": 6.25,
+                "orientation": "pointe",
+                "color": "#ffffff",
+                "opacity": 0.4,
+                "feet_per_hex": 5
+              }
+            },
+            {
+              "id": "d0000002-0000-4000-8000-000000000002",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "kind": "illustration",
+              "title": "Portrait de Kael",
+              "file_path": "media/kael.png",
+              "width_px": 800,
+              "height_px": 1000,
+              "place_id": null,
+              "uploaded_at": "2026-03-06T10:00:00+00:00",
+              "battlemap_grid": null
+            }
+          ],
+          "sounds": [
+            {
+              "id": "5d000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "name": "Pluie sur le toit",
+              "file_path": "sounds/pluie.ogg",
+              "tags": [
+                "ambiance",
+                "pluie"
+              ],
+              "volume": 0.6,
+              "created_at": "2026-03-07T10:00:00+00:00"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "5e000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "position": 1,
+              "title": "Le moulin",
+              "planned_on": "2026-03-14",
+              "status": "closed",
+              "started_at": "2026-03-14T19:00:00+00:00",
+              "closed_at": "2026-03-14T22:30:00+00:00",
+              "microphone_on": false,
+              "summary": "Le groupe explore le moulin.",
+              "summary_model": null,
+              "summary_edited_at": null,
+              "session_present_character": [
+                {
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "character_id": "e0000001-0000-4000-8000-000000000001",
+                  "added_at": "2026-03-14T19:00:00+00:00"
+                }
+              ],
+              "scenes": [
+                {
+                  "id": "5c000001-0000-4000-8000-000000000001",
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "position": 1,
+                  "title": "Devant le moulin",
+                  "notes": "Il pleut.",
+                  "scene_entity": [
+                    {
+                      "scene_id": "5c000001-0000-4000-8000-000000000001",
+                      "entity_id": "e0000003-0000-4000-8000-000000000003",
+                      "position": 1
+                    },
+                    {
+                      "scene_id": "5c000001-0000-4000-8000-000000000001",
+                      "entity_id": "e0000002-0000-4000-8000-000000000002",
+                      "position": 2
+                    }
+                  ],
+                  "scene_media": [
+                    {
+                      "scene_id": "5c000001-0000-4000-8000-000000000001",
+                      "media_id": "d0000001-0000-4000-8000-000000000001"
+                    }
+                  ]
+                }
+              ],
+              "journal_lines": [
+                {
+                  "id": "6a000001-0000-4000-8000-000000000001",
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "scene_id": "5c000001-0000-4000-8000-000000000001",
+                  "spoken_at": "2026-03-14T19:10:00+00:00",
+                  "text": "Morlox sort du moulin."
+                },
+                {
+                  "id": "6a000002-0000-4000-8000-000000000002",
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "scene_id": null,
+                  "spoken_at": "2026-03-14T19:02:00+00:00",
+                  "text": "La session commence."
+                }
+              ]
+            }
+          ]
+        },
+        "imported_at": "2026-10-20T14:00:00.000Z",
+        "new_ids": {
+          "c0000001-0000-4000-8000-000000000001": "c0000001-ffff-4fff-8fff-ffffffffff01",
+          "a0000001-0000-4000-8000-000000000001": "a0000001-ffff-4fff-8fff-ffffffffff01",
+          "a0000002-0000-4000-8000-000000000002": "a0000002-ffff-4fff-8fff-ffffffffff02",
+          "e0000001-0000-4000-8000-000000000001": "e0000001-ffff-4fff-8fff-ffffffffff01",
+          "f0000001-0000-4000-8000-000000000001": "f0000001-ffff-4fff-8fff-ffffffffff01",
+          "f0000002-0000-4000-8000-000000000002": "f0000002-ffff-4fff-8fff-ffffffffff02",
+          "f0000003-0000-4000-8000-000000000003": "f0000003-ffff-4fff-8fff-ffffffffff03",
+          "f0000004-0000-4000-8000-000000000004": "f0000004-ffff-4fff-8fff-ffffffffff04",
+          "e0000002-0000-4000-8000-000000000002": "e0000002-ffff-4fff-8fff-ffffffffff02",
+          "f0000010-0000-4000-8000-000000000010": "f0000010-ffff-4fff-8fff-ffffffffff10",
+          "e0000003-0000-4000-8000-000000000003": "e0000003-ffff-4fff-8fff-ffffffffff03",
+          "f0000011-0000-4000-8000-000000000011": "f0000011-ffff-4fff-8fff-ffffffffff11",
+          "d0000001-0000-4000-8000-000000000001": "d0000001-ffff-4fff-8fff-ffffffffff01",
+          "d0000002-0000-4000-8000-000000000002": "d0000002-ffff-4fff-8fff-ffffffffff02",
+          "5d000001-0000-4000-8000-000000000001": "5d000001-ffff-4fff-8fff-ffffffffff01",
+          "5e000001-0000-4000-8000-000000000001": "5e000001-ffff-4fff-8fff-ffffffffff01",
+          "5c000001-0000-4000-8000-000000000001": "5c000001-ffff-4fff-8fff-ffffffffff01",
+          "6a000001-0000-4000-8000-000000000001": "6a000001-ffff-4fff-8fff-ffffffffff01",
+          "6a000002-0000-4000-8000-000000000002": "6a000002-ffff-4fff-8fff-ffffffffff02"
+        }
+      },
+      "output": {
+        "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+        "imported_at": "2026-10-20T14:00:00.000Z",
+        "campaign": {
+          "id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+          "name": "Les cendres de Valombre",
+          "kind": "campagne",
+          "pitch": "Une vallée qui brûle encore.",
+          "art": null,
+          "glyph": "🔥",
+          "cover_media_id": "d0000002-ffff-4fff-8fff-ffffffffff02",
+          "created_at": "2026-03-01T10:00:00+00:00",
+          "last_exported_at": null,
+          "imported_at": "2026-10-20T14:00:00.000Z",
+          "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+          "sound_master_volume": 0.8
+        },
+        "players": [
+          {
+            "id": "a0000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "name": "Camille",
+            "notes": "Joue le mardi.",
+            "created_at": "2026-03-01T10:05:00+00:00"
+          },
+          {
+            "id": "a0000002-ffff-4fff-8fff-ffffffffff02",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "name": "Jordan",
+            "notes": null,
+            "created_at": "2026-03-01T10:06:00+00:00"
+          }
+        ],
+        "elements": [
+          {
+            "id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "type": "pj",
+            "name": "Kael",
+            "description": "Un capitaine déchu.",
+            "notes": "Cherche son équipage.",
+            "created_at": "2026-03-02T10:00:00+00:00",
+            "updated_at": "2026-04-02T10:00:00+00:00",
+            "character": {
+              "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+              "player_id": "a0000001-ffff-4fff-8fff-ffffffffff01",
+              "initial_prompt": null,
+              "background": "Ancien capitaine du Corbeau.",
+              "behavior": null,
+              "strength": 14,
+              "dexterity": 12,
+              "constitution": 13,
+              "intelligence": 10,
+              "wisdom": 9,
+              "charisma": 15,
+              "armor_class": 16,
+              "hp_max": 31,
+              "spells": [],
+              "actions": [
+                {
+                  "name": "Sabre",
+                  "bonus": 5
+                }
+              ],
+              "portrait_media_id": "d0000002-ffff-4fff-8fff-ffffffffff02",
+              "token_media_id": null,
+              "token_crop": null,
+              "token_color": "#c0392b",
+              "dndbeyond_id": null,
+              "dndbeyond_synced_at": null
+            },
+            "aliases": [
+              "le capitaine"
+            ],
+            "versions": [
+              {
+                "id": "f0000001-ffff-4fff-8fff-ffffffffff01",
+                "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "version_number": 1,
+                "source": "dm",
+                "snapshot": {
+                  "type": "pj",
+                  "name": "Kael",
+                  "playerId": "a0000001-ffff-4fff-8fff-ffffffffff01",
+                  "portraitMediaId": null,
+                  "tokenMediaId": null,
+                  "tokenColor": "#c0392b",
+                  "aliases": [
+                    "le capitaine"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "aliases",
+                    "old": null,
+                    "new": [
+                      "le capitaine"
+                    ]
+                  },
+                  {
+                    "field": "name",
+                    "old": null,
+                    "new": "Kael"
+                  },
+                  {
+                    "field": "playerId",
+                    "old": null,
+                    "new": "a0000001-ffff-4fff-8fff-ffffffffff01"
+                  },
+                  {
+                    "field": "tokenColor",
+                    "old": null,
+                    "new": "#c0392b"
+                  },
+                  {
+                    "field": "type",
+                    "old": null,
+                    "new": "pj"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-02T10:00:00+00:00"
+              },
+              {
+                "id": "f0000002-ffff-4fff-8fff-ffffffffff02",
+                "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "version_number": 2,
+                "source": "dm",
+                "snapshot": {
+                  "type": "pj",
+                  "name": "Kael",
+                  "playerId": "a0000001-ffff-4fff-8fff-ffffffffff01",
+                  "portraitMediaId": "d0000002-ffff-4fff-8fff-ffffffffff02",
+                  "tokenMediaId": null,
+                  "tokenColor": "#c0392b",
+                  "aliases": [
+                    "le capitaine"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "portraitMediaId",
+                    "old": null,
+                    "new": "d0000002-ffff-4fff-8fff-ffffffffff02"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-10T10:00:00+00:00"
+              },
+              {
+                "id": "f0000003-ffff-4fff-8fff-ffffffffff03",
+                "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "version_number": 3,
+                "source": "dm",
+                "snapshot": {
+                  "type": "pj",
+                  "name": "Kael",
+                  "playerId": "a0000002-ffff-4fff-8fff-ffffffffff02",
+                  "portraitMediaId": "d0000002-ffff-4fff-8fff-ffffffffff02",
+                  "tokenMediaId": null,
+                  "tokenColor": "#c0392b",
+                  "aliases": [
+                    "le capitaine"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "playerId",
+                    "old": "a0000001-ffff-4fff-8fff-ffffffffff01",
+                    "new": "a0000002-ffff-4fff-8fff-ffffffffff02"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-20T10:00:00+00:00"
+              },
+              {
+                "id": "f0000004-ffff-4fff-8fff-ffffffffff04",
+                "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "version_number": 4,
+                "source": "restauration",
+                "snapshot": {
+                  "type": "pj",
+                  "name": "Kael",
+                  "playerId": "a0000001-ffff-4fff-8fff-ffffffffff01",
+                  "portraitMediaId": null,
+                  "tokenMediaId": null,
+                  "tokenColor": "#c0392b",
+                  "aliases": [
+                    "le capitaine"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "playerId",
+                    "old": "a0000002-ffff-4fff-8fff-ffffffffff02",
+                    "new": "a0000001-ffff-4fff-8fff-ffffffffff01"
+                  },
+                  {
+                    "field": "portraitMediaId",
+                    "old": "d0000002-ffff-4fff-8fff-ffffffffff02",
+                    "new": null
+                  }
+                ],
+                "restored_from_version_id": "f0000001-ffff-4fff-8fff-ffffffffff01",
+                "created_at": "2026-04-02T10:00:00+00:00"
+              }
+            ]
+          },
+          {
+            "id": "e0000002-ffff-4fff-8fff-ffffffffff02",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "type": "pnj",
+            "name": "Morlox",
+            "description": null,
+            "notes": "Doit 40 po à Vesna.",
+            "created_at": "2026-03-03T10:00:00+00:00",
+            "updated_at": "2026-03-03T10:00:00+00:00",
+            "character": {
+              "entity_id": "e0000002-ffff-4fff-8fff-ffffffffff02",
+              "player_id": null,
+              "initial_prompt": null,
+              "background": null,
+              "behavior": "Parle vite.",
+              "strength": 8,
+              "dexterity": 14,
+              "constitution": 10,
+              "intelligence": 12,
+              "wisdom": 10,
+              "charisma": 11,
+              "armor_class": 12,
+              "hp_max": 7,
+              "spells": [],
+              "actions": [],
+              "portrait_media_id": null,
+              "token_media_id": null,
+              "token_crop": null,
+              "token_color": "#2e86c1",
+              "dndbeyond_id": null,
+              "dndbeyond_synced_at": null
+            },
+            "aliases": [
+              "le gobelin",
+              "le marchand"
+            ],
+            "versions": [
+              {
+                "id": "f0000010-ffff-4fff-8fff-ffffffffff10",
+                "entity_id": "e0000002-ffff-4fff-8fff-ffffffffff02",
+                "version_number": 1,
+                "source": "brief",
+                "snapshot": {
+                  "type": "pnj",
+                  "name": "Morlox",
+                  "playerId": null,
+                  "portraitMediaId": null,
+                  "tokenMediaId": null,
+                  "tokenColor": "#2e86c1",
+                  "aliases": [
+                    "le gobelin",
+                    "le marchand"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "aliases",
+                    "old": null,
+                    "new": [
+                      "le gobelin",
+                      "le marchand"
+                    ]
+                  },
+                  {
+                    "field": "name",
+                    "old": null,
+                    "new": "Morlox"
+                  },
+                  {
+                    "field": "tokenColor",
+                    "old": null,
+                    "new": "#2e86c1"
+                  },
+                  {
+                    "field": "type",
+                    "old": null,
+                    "new": "pnj"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-03T10:00:00+00:00"
+              }
+            ]
+          },
+          {
+            "id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "type": "lieu",
+            "name": "Le moulin",
+            "description": "Un moulin en ruine.",
+            "notes": null,
+            "created_at": "2026-03-04T10:00:00+00:00",
+            "updated_at": "2026-03-04T10:00:00+00:00",
+            "character": null,
+            "aliases": [],
+            "versions": [
+              {
+                "id": "f0000011-ffff-4fff-8fff-ffffffffff11",
+                "entity_id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+                "version_number": 1,
+                "source": "dm",
+                "snapshot": {
+                  "type": "lieu",
+                  "name": "Le moulin",
+                  "description": "Un moulin en ruine.",
+                  "aliases": []
+                },
+                "diff": [
+                  {
+                    "field": "description",
+                    "old": null,
+                    "new": "Un moulin en ruine."
+                  },
+                  {
+                    "field": "name",
+                    "old": null,
+                    "new": "Le moulin"
+                  },
+                  {
+                    "field": "type",
+                    "old": null,
+                    "new": "lieu"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-04T10:00:00+00:00"
+              }
+            ]
+          }
+        ],
+        "media": [
+          {
+            "id": "d0000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "kind": "battlemap",
+            "title": "Le moulin, vue de dessus",
+            "file_path": "media/moulin.png",
+            "width_px": 2400,
+            "height_px": 1800,
+            "place_id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+            "uploaded_at": "2026-03-05T10:00:00+00:00",
+            "battlemap_grid": {
+              "media_id": "d0000001-ffff-4fff-8fff-ffffffffff01",
+              "hex_size_px": 48.5,
+              "offset_x": 12,
+              "offset_y": 6.25,
+              "orientation": "pointe",
+              "color": "#ffffff",
+              "opacity": 0.4,
+              "feet_per_hex": 5
+            }
+          },
+          {
+            "id": "d0000002-ffff-4fff-8fff-ffffffffff02",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "kind": "illustration",
+            "title": "Portrait de Kael",
+            "file_path": "media/kael.png",
+            "width_px": 800,
+            "height_px": 1000,
+            "place_id": null,
+            "uploaded_at": "2026-03-06T10:00:00+00:00",
+            "battlemap_grid": null
+          }
+        ],
+        "sounds": [
+          {
+            "id": "5d000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "name": "Pluie sur le toit",
+            "file_path": "sounds/pluie.ogg",
+            "tags": [
+              "ambiance",
+              "pluie"
+            ],
+            "volume": 0.6,
+            "created_at": "2026-03-07T10:00:00+00:00"
+          }
+        ],
+        "sessions": [
+          {
+            "id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "position": 1,
+            "title": "Le moulin",
+            "planned_on": "2026-03-14",
+            "status": "closed",
+            "started_at": "2026-03-14T19:00:00+00:00",
+            "closed_at": "2026-03-14T22:30:00+00:00",
+            "microphone_on": false,
+            "summary": "Le groupe explore le moulin.",
+            "summary_model": null,
+            "summary_edited_at": null,
+            "session_present_character": [
+              {
+                "session_id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+                "character_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "added_at": "2026-03-14T19:00:00+00:00"
+              }
+            ],
+            "scenes": [
+              {
+                "id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                "session_id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+                "position": 1,
+                "title": "Devant le moulin",
+                "notes": "Il pleut.",
+                "scene_entity": [
+                  {
+                    "scene_id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                    "entity_id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+                    "position": 1
+                  },
+                  {
+                    "scene_id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                    "entity_id": "e0000002-ffff-4fff-8fff-ffffffffff02",
+                    "position": 2
+                  }
+                ],
+                "scene_media": [
+                  {
+                    "scene_id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                    "media_id": "d0000001-ffff-4fff-8fff-ffffffffff01"
+                  }
+                ]
+              }
+            ],
+            "journal_lines": [
+              {
+                "id": "6a000001-ffff-4fff-8fff-ffffffffff01",
+                "session_id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+                "scene_id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                "spoken_at": "2026-03-14T19:10:00+00:00",
+                "text": "Morlox sort du moulin."
+              },
+              {
+                "id": "6a000002-ffff-4fff-8fff-ffffffffff02",
+                "session_id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+                "scene_id": null,
+                "spoken_at": "2026-03-14T19:02:00+00:00",
+                "text": "La session commence."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an archive exported before media, sounds and sessions joined it copies with those three sections empty",
+      "input": {
+        "archive": {
+          "format": "campaign-archive",
+          "version": 1,
+          "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+          "exported_at": "2026-06-01T08:00:00.000Z",
+          "campaign": {
+            "id": "c0000001-0000-4000-8000-000000000001",
+            "name": "Les cendres de Valombre",
+            "kind": "campagne",
+            "pitch": "Une vallée qui brûle encore.",
+            "art": null,
+            "glyph": "🔥",
+            "cover_media_id": null,
+            "created_at": "2026-03-01T10:00:00+00:00",
+            "last_exported_at": "2026-09-01T18:00:00+00:00",
+            "imported_at": null,
+            "origin_campaign_id": null,
+            "sound_master_volume": 0.8
+          },
+          "players": [
+            {
+              "id": "a0000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "name": "Camille",
+              "notes": "Joue le mardi.",
+              "created_at": "2026-03-01T10:05:00+00:00"
+            }
+          ],
+          "elements": [
+            {
+              "id": "e0000003-0000-4000-8000-000000000003",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "type": "lieu",
+              "name": "Le moulin",
+              "description": "Un moulin en ruine.",
+              "notes": null,
+              "created_at": "2026-03-04T10:00:00+00:00",
+              "updated_at": "2026-03-04T10:00:00+00:00",
+              "character": null,
+              "aliases": [],
+              "versions": [
+                {
+                  "id": "f0000013-0000-4000-8000-000000000013",
+                  "entity_id": "e0000003-0000-4000-8000-000000000003",
+                  "version_number": 1,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "lieu",
+                    "name": "Le moulin",
+                    "description": "Un moulin en ruine.",
+                    "aliases": []
+                  },
+                  "diff": [
+                    {
+                      "field": "description",
+                      "old": null,
+                      "new": "Un moulin en ruine."
+                    },
+                    {
+                      "field": "name",
+                      "old": null,
+                      "new": "Le moulin"
+                    },
+                    {
+                      "field": "type",
+                      "old": null,
+                      "new": "lieu"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-04T10:00:00+00:00"
+                }
+              ]
+            }
+          ]
+        },
+        "imported_at": "2026-10-20T14:00:00.000Z",
+        "new_ids": {
+          "c0000001-0000-4000-8000-000000000001": "c0000001-ffff-4fff-8fff-ffffffffff01",
+          "a0000001-0000-4000-8000-000000000001": "a0000001-ffff-4fff-8fff-ffffffffff01",
+          "e0000003-0000-4000-8000-000000000003": "e0000003-ffff-4fff-8fff-ffffffffff03",
+          "f0000013-0000-4000-8000-000000000013": "f0000013-ffff-4fff-8fff-ffffffffff13"
+        }
+      },
+      "output": {
+        "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+        "imported_at": "2026-10-20T14:00:00.000Z",
+        "campaign": {
+          "id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+          "name": "Les cendres de Valombre",
+          "kind": "campagne",
+          "pitch": "Une vallée qui brûle encore.",
+          "art": null,
+          "glyph": "🔥",
+          "cover_media_id": null,
+          "created_at": "2026-03-01T10:00:00+00:00",
+          "last_exported_at": null,
+          "imported_at": "2026-10-20T14:00:00.000Z",
+          "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+          "sound_master_volume": 0.8
+        },
+        "players": [
+          {
+            "id": "a0000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "name": "Camille",
+            "notes": "Joue le mardi.",
+            "created_at": "2026-03-01T10:05:00+00:00"
+          }
+        ],
+        "elements": [
+          {
+            "id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "type": "lieu",
+            "name": "Le moulin",
+            "description": "Un moulin en ruine.",
+            "notes": null,
+            "created_at": "2026-03-04T10:00:00+00:00",
+            "updated_at": "2026-03-04T10:00:00+00:00",
+            "character": null,
+            "aliases": [],
+            "versions": [
+              {
+                "id": "f0000013-ffff-4fff-8fff-ffffffffff13",
+                "entity_id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+                "version_number": 1,
+                "source": "dm",
+                "snapshot": {
+                  "type": "lieu",
+                  "name": "Le moulin",
+                  "description": "Un moulin en ruine.",
+                  "aliases": []
+                },
+                "diff": [
+                  {
+                    "field": "description",
+                    "old": null,
+                    "new": "Un moulin en ruine."
+                  },
+                  {
+                    "field": "name",
+                    "old": null,
+                    "new": "Le moulin"
+                  },
+                  {
+                    "field": "type",
+                    "old": null,
+                    "new": "lieu"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-04T10:00:00+00:00"
+              }
+            ]
+          }
+        ],
+        "media": [],
+        "sounds": [],
+        "sessions": []
+      }
+    },
+    {
+      "name": "an archive whose origin_campaign_id names a campaign that still exists copies under a new campaign id and keeps that origin, not the one of the campaign it was itself copied from",
+      "input": {
+        "archive": {
+          "format": "campaign-archive",
+          "version": 1,
+          "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+          "exported_at": "2026-10-18T09:30:00.123Z",
+          "campaign": {
+            "id": "c0000001-0000-4000-8000-000000000001",
+            "name": "Les cendres de Valombre",
+            "kind": "campagne",
+            "pitch": "Une vallée qui brûle encore.",
+            "art": null,
+            "glyph": "🔥",
+            "cover_media_id": null,
+            "created_at": "2026-03-01T10:00:00+00:00",
+            "last_exported_at": "2026-09-01T18:00:00+00:00",
+            "imported_at": "2026-05-02T12:00:00+00:00",
+            "origin_campaign_id": "c0000002-0000-4000-8000-000000000002",
+            "sound_master_volume": 0.8
+          },
+          "players": [],
+          "elements": [],
+          "media": [],
+          "sounds": [],
+          "sessions": []
+        },
+        "imported_at": "2026-10-20T14:00:00.000Z",
+        "new_ids": {
+          "c0000001-0000-4000-8000-000000000001": "c0000001-ffff-4fff-8fff-ffffffffff01"
+        }
+      },
+      "output": {
+        "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+        "imported_at": "2026-10-20T14:00:00.000Z",
+        "campaign": {
+          "id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+          "name": "Les cendres de Valombre",
+          "kind": "campagne",
+          "pitch": "Une vallée qui brûle encore.",
+          "art": null,
+          "glyph": "🔥",
+          "cover_media_id": null,
+          "created_at": "2026-03-01T10:00:00+00:00",
+          "last_exported_at": null,
+          "imported_at": "2026-10-20T14:00:00.000Z",
+          "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+          "sound_master_volume": 0.8
+        },
+        "players": [],
+        "elements": [],
+        "media": [],
+        "sounds": [],
+        "sessions": []
+      }
+    },
+    {
+      "name": "a reference to something outside the archive becomes null, and a link row whose other end is outside is left out",
+      "input": {
+        "archive": {
+          "format": "campaign-archive",
+          "version": 1,
+          "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+          "exported_at": "2026-10-18T09:30:00.123Z",
+          "campaign": {
+            "id": "c0000001-0000-4000-8000-000000000001",
+            "name": "Les cendres de Valombre",
+            "kind": "campagne",
+            "pitch": "Une vallée qui brûle encore.",
+            "art": null,
+            "glyph": "🔥",
+            "cover_media_id": "0bad0001-0000-4000-8000-000000000001",
+            "created_at": "2026-03-01T10:00:00+00:00",
+            "last_exported_at": "2026-09-01T18:00:00+00:00",
+            "imported_at": null,
+            "origin_campaign_id": null,
+            "sound_master_volume": 0.8
+          },
+          "players": [
+            {
+              "id": "a0000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "name": "Camille",
+              "notes": "Joue le mardi.",
+              "created_at": "2026-03-01T10:05:00+00:00"
+            },
+            {
+              "id": "a0000002-0000-4000-8000-000000000002",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "name": "Jordan",
+              "notes": null,
+              "created_at": "2026-03-01T10:06:00+00:00"
+            }
+          ],
+          "elements": [
+            {
+              "id": "e0000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "type": "pj",
+              "name": "Kael",
+              "description": "Un capitaine déchu.",
+              "notes": "Cherche son équipage.",
+              "created_at": "2026-03-02T10:00:00+00:00",
+              "updated_at": "2026-04-02T10:00:00+00:00",
+              "character": {
+                "entity_id": "e0000001-0000-4000-8000-000000000001",
+                "player_id": "0bad0002-0000-4000-8000-000000000002",
+                "initial_prompt": null,
+                "background": "Ancien capitaine du Corbeau.",
+                "behavior": null,
+                "strength": 14,
+                "dexterity": 12,
+                "constitution": 13,
+                "intelligence": 10,
+                "wisdom": 9,
+                "charisma": 15,
+                "armor_class": 16,
+                "hp_max": 31,
+                "spells": [],
+                "actions": [
+                  {
+                    "name": "Sabre",
+                    "bonus": 5
+                  }
+                ],
+                "portrait_media_id": "0bad0003-0000-4000-8000-000000000003",
+                "token_media_id": null,
+                "token_crop": null,
+                "token_color": "#c0392b",
+                "dndbeyond_id": null,
+                "dndbeyond_synced_at": null
+              },
+              "aliases": [
+                "le capitaine"
+              ],
+              "versions": [
+                {
+                  "id": "f0000001-0000-4000-8000-000000000001",
+                  "entity_id": "e0000001-0000-4000-8000-000000000001",
+                  "version_number": 1,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "pj",
+                    "name": "Kael",
+                    "playerId": "0bad0002-0000-4000-8000-000000000002",
+                    "portraitMediaId": null,
+                    "tokenMediaId": null,
+                    "tokenColor": "#c0392b",
+                    "aliases": [
+                      "le capitaine"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "aliases",
+                      "old": null,
+                      "new": [
+                        "le capitaine"
+                      ]
+                    },
+                    {
+                      "field": "name",
+                      "old": null,
+                      "new": "Kael"
+                    },
+                    {
+                      "field": "playerId",
+                      "old": null,
+                      "new": "0bad0002-0000-4000-8000-000000000002"
+                    },
+                    {
+                      "field": "tokenColor",
+                      "old": null,
+                      "new": "#c0392b"
+                    },
+                    {
+                      "field": "type",
+                      "old": null,
+                      "new": "pj"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-02T10:00:00+00:00"
+                },
+                {
+                  "id": "f0000002-0000-4000-8000-000000000002",
+                  "entity_id": "e0000001-0000-4000-8000-000000000001",
+                  "version_number": 2,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "pj",
+                    "name": "Kael",
+                    "playerId": "a0000001-0000-4000-8000-000000000001",
+                    "portraitMediaId": "0bad0003-0000-4000-8000-000000000003",
+                    "tokenMediaId": null,
+                    "tokenColor": "#c0392b",
+                    "aliases": [
+                      "le capitaine"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "portraitMediaId",
+                      "old": null,
+                      "new": "0bad0003-0000-4000-8000-000000000003"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-10T10:00:00+00:00"
+                },
+                {
+                  "id": "f0000003-0000-4000-8000-000000000003",
+                  "entity_id": "e0000001-0000-4000-8000-000000000001",
+                  "version_number": 3,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "pj",
+                    "name": "Kael",
+                    "playerId": "a0000002-0000-4000-8000-000000000002",
+                    "portraitMediaId": "d0000002-0000-4000-8000-000000000002",
+                    "tokenMediaId": null,
+                    "tokenColor": "#c0392b",
+                    "aliases": [
+                      "le capitaine"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "playerId",
+                      "old": "a0000001-0000-4000-8000-000000000001",
+                      "new": "a0000002-0000-4000-8000-000000000002"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-20T10:00:00+00:00"
+                },
+                {
+                  "id": "f0000004-0000-4000-8000-000000000004",
+                  "entity_id": "e0000001-0000-4000-8000-000000000001",
+                  "version_number": 4,
+                  "source": "restauration",
+                  "snapshot": {
+                    "type": "pj",
+                    "name": "Kael",
+                    "playerId": "a0000001-0000-4000-8000-000000000001",
+                    "portraitMediaId": null,
+                    "tokenMediaId": null,
+                    "tokenColor": "#c0392b",
+                    "aliases": [
+                      "le capitaine"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "playerId",
+                      "old": "a0000002-0000-4000-8000-000000000002",
+                      "new": "a0000001-0000-4000-8000-000000000001"
+                    },
+                    {
+                      "field": "portraitMediaId",
+                      "old": "d0000002-0000-4000-8000-000000000002",
+                      "new": null
+                    }
+                  ],
+                  "restored_from_version_id": "0bad0004-0000-4000-8000-000000000004",
+                  "created_at": "2026-04-02T10:00:00+00:00"
+                }
+              ]
+            },
+            {
+              "id": "e0000002-0000-4000-8000-000000000002",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "type": "pnj",
+              "name": "Morlox",
+              "description": null,
+              "notes": "Doit 40 po à Vesna.",
+              "created_at": "2026-03-03T10:00:00+00:00",
+              "updated_at": "2026-03-03T10:00:00+00:00",
+              "character": {
+                "entity_id": "e0000002-0000-4000-8000-000000000002",
+                "player_id": null,
+                "initial_prompt": null,
+                "background": null,
+                "behavior": "Parle vite.",
+                "strength": 8,
+                "dexterity": 14,
+                "constitution": 10,
+                "intelligence": 12,
+                "wisdom": 10,
+                "charisma": 11,
+                "armor_class": 12,
+                "hp_max": 7,
+                "spells": [],
+                "actions": [],
+                "portrait_media_id": null,
+                "token_media_id": null,
+                "token_crop": null,
+                "token_color": "#2e86c1",
+                "dndbeyond_id": null,
+                "dndbeyond_synced_at": null
+              },
+              "aliases": [
+                "le gobelin",
+                "le marchand"
+              ],
+              "versions": [
+                {
+                  "id": "f0000016-0000-4000-8000-000000000016",
+                  "entity_id": "e0000002-0000-4000-8000-000000000002",
+                  "version_number": 1,
+                  "source": "brief",
+                  "snapshot": {
+                    "type": "pnj",
+                    "name": "Morlox",
+                    "playerId": null,
+                    "portraitMediaId": null,
+                    "tokenMediaId": null,
+                    "tokenColor": "#2e86c1",
+                    "aliases": [
+                      "le gobelin",
+                      "le marchand"
+                    ]
+                  },
+                  "diff": [
+                    {
+                      "field": "aliases",
+                      "old": null,
+                      "new": [
+                        "le gobelin",
+                        "le marchand"
+                      ]
+                    },
+                    {
+                      "field": "name",
+                      "old": null,
+                      "new": "Morlox"
+                    },
+                    {
+                      "field": "tokenColor",
+                      "old": null,
+                      "new": "#2e86c1"
+                    },
+                    {
+                      "field": "type",
+                      "old": null,
+                      "new": "pnj"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-03T10:00:00+00:00"
+                }
+              ]
+            },
+            {
+              "id": "e0000003-0000-4000-8000-000000000003",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "type": "lieu",
+              "name": "Le moulin",
+              "description": "Un moulin en ruine.",
+              "notes": null,
+              "created_at": "2026-03-04T10:00:00+00:00",
+              "updated_at": "2026-03-04T10:00:00+00:00",
+              "character": null,
+              "aliases": [],
+              "versions": [
+                {
+                  "id": "f0000017-0000-4000-8000-000000000017",
+                  "entity_id": "e0000003-0000-4000-8000-000000000003",
+                  "version_number": 1,
+                  "source": "dm",
+                  "snapshot": {
+                    "type": "lieu",
+                    "name": "Le moulin",
+                    "description": "Un moulin en ruine.",
+                    "aliases": []
+                  },
+                  "diff": [
+                    {
+                      "field": "description",
+                      "old": null,
+                      "new": "Un moulin en ruine."
+                    },
+                    {
+                      "field": "name",
+                      "old": null,
+                      "new": "Le moulin"
+                    },
+                    {
+                      "field": "type",
+                      "old": null,
+                      "new": "lieu"
+                    }
+                  ],
+                  "restored_from_version_id": null,
+                  "created_at": "2026-03-04T10:00:00+00:00"
+                }
+              ]
+            }
+          ],
+          "media": [
+            {
+              "id": "d0000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "kind": "battlemap",
+              "title": "Le moulin, vue de dessus",
+              "file_path": "media/moulin.png",
+              "width_px": 2400,
+              "height_px": 1800,
+              "place_id": "0bad0005-0000-4000-8000-000000000005",
+              "uploaded_at": "2026-03-05T10:00:00+00:00",
+              "battlemap_grid": {
+                "media_id": "d0000001-0000-4000-8000-000000000001",
+                "hex_size_px": 48.5,
+                "offset_x": 12,
+                "offset_y": 6.25,
+                "orientation": "pointe",
+                "color": "#ffffff",
+                "opacity": 0.4,
+                "feet_per_hex": 5
+              }
+            },
+            {
+              "id": "d0000002-0000-4000-8000-000000000002",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "kind": "illustration",
+              "title": "Portrait de Kael",
+              "file_path": "media/kael.png",
+              "width_px": 800,
+              "height_px": 1000,
+              "place_id": null,
+              "uploaded_at": "2026-03-06T10:00:00+00:00",
+              "battlemap_grid": null
+            }
+          ],
+          "sounds": [
+            {
+              "id": "5d000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "name": "Pluie sur le toit",
+              "file_path": "sounds/pluie.ogg",
+              "tags": [
+                "ambiance",
+                "pluie"
+              ],
+              "volume": 0.6,
+              "created_at": "2026-03-07T10:00:00+00:00"
+            }
+          ],
+          "sessions": [
+            {
+              "id": "5e000001-0000-4000-8000-000000000001",
+              "campaign_id": "c0000001-0000-4000-8000-000000000001",
+              "position": 1,
+              "title": "Le moulin",
+              "planned_on": "2026-03-14",
+              "status": "closed",
+              "started_at": "2026-03-14T19:00:00+00:00",
+              "closed_at": "2026-03-14T22:30:00+00:00",
+              "microphone_on": false,
+              "summary": "Le groupe explore le moulin.",
+              "summary_model": null,
+              "summary_edited_at": null,
+              "session_present_character": [
+                {
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "character_id": "e0000001-0000-4000-8000-000000000001",
+                  "added_at": "2026-03-14T19:00:00+00:00"
+                },
+                {
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "character_id": "0bad0006-0000-4000-8000-000000000006",
+                  "added_at": "2026-03-14T19:01:00+00:00"
+                }
+              ],
+              "scenes": [
+                {
+                  "id": "5c000001-0000-4000-8000-000000000001",
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "position": 1,
+                  "title": "Devant le moulin",
+                  "notes": "Il pleut.",
+                  "scene_entity": [
+                    {
+                      "scene_id": "5c000001-0000-4000-8000-000000000001",
+                      "entity_id": "e0000003-0000-4000-8000-000000000003",
+                      "position": 1
+                    },
+                    {
+                      "scene_id": "5c000001-0000-4000-8000-000000000001",
+                      "entity_id": "e0000002-0000-4000-8000-000000000002",
+                      "position": 2
+                    },
+                    {
+                      "scene_id": "5c000001-0000-4000-8000-000000000001",
+                      "entity_id": "0bad0007-0000-4000-8000-000000000007",
+                      "position": 3
+                    }
+                  ],
+                  "scene_media": [
+                    {
+                      "scene_id": "5c000001-0000-4000-8000-000000000001",
+                      "media_id": "d0000001-0000-4000-8000-000000000001"
+                    },
+                    {
+                      "scene_id": "5c000001-0000-4000-8000-000000000001",
+                      "media_id": "0bad0008-0000-4000-8000-000000000008"
+                    }
+                  ]
+                }
+              ],
+              "journal_lines": [
+                {
+                  "id": "6a000001-0000-4000-8000-000000000001",
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "scene_id": "0bad0009-0000-4000-8000-000000000009",
+                  "spoken_at": "2026-03-14T19:10:00+00:00",
+                  "text": "Morlox sort du moulin."
+                },
+                {
+                  "id": "6a000002-0000-4000-8000-000000000002",
+                  "session_id": "5e000001-0000-4000-8000-000000000001",
+                  "scene_id": null,
+                  "spoken_at": "2026-03-14T19:02:00+00:00",
+                  "text": "La session commence."
+                }
+              ]
+            }
+          ]
+        },
+        "imported_at": "2026-10-20T14:00:00.000Z",
+        "new_ids": {
+          "c0000001-0000-4000-8000-000000000001": "c0000001-ffff-4fff-8fff-ffffffffff01",
+          "a0000001-0000-4000-8000-000000000001": "a0000001-ffff-4fff-8fff-ffffffffff01",
+          "a0000002-0000-4000-8000-000000000002": "a0000002-ffff-4fff-8fff-ffffffffff02",
+          "e0000001-0000-4000-8000-000000000001": "e0000001-ffff-4fff-8fff-ffffffffff01",
+          "f0000001-0000-4000-8000-000000000001": "f0000001-ffff-4fff-8fff-ffffffffff01",
+          "f0000002-0000-4000-8000-000000000002": "f0000002-ffff-4fff-8fff-ffffffffff02",
+          "f0000003-0000-4000-8000-000000000003": "f0000003-ffff-4fff-8fff-ffffffffff03",
+          "f0000004-0000-4000-8000-000000000004": "f0000004-ffff-4fff-8fff-ffffffffff04",
+          "e0000002-0000-4000-8000-000000000002": "e0000002-ffff-4fff-8fff-ffffffffff02",
+          "f0000016-0000-4000-8000-000000000016": "f0000016-ffff-4fff-8fff-ffffffffff16",
+          "e0000003-0000-4000-8000-000000000003": "e0000003-ffff-4fff-8fff-ffffffffff03",
+          "f0000017-0000-4000-8000-000000000017": "f0000017-ffff-4fff-8fff-ffffffffff17",
+          "d0000001-0000-4000-8000-000000000001": "d0000001-ffff-4fff-8fff-ffffffffff01",
+          "d0000002-0000-4000-8000-000000000002": "d0000002-ffff-4fff-8fff-ffffffffff02",
+          "5d000001-0000-4000-8000-000000000001": "5d000001-ffff-4fff-8fff-ffffffffff01",
+          "5e000001-0000-4000-8000-000000000001": "5e000001-ffff-4fff-8fff-ffffffffff01",
+          "5c000001-0000-4000-8000-000000000001": "5c000001-ffff-4fff-8fff-ffffffffff01",
+          "6a000001-0000-4000-8000-000000000001": "6a000001-ffff-4fff-8fff-ffffffffff01",
+          "6a000002-0000-4000-8000-000000000002": "6a000002-ffff-4fff-8fff-ffffffffff02"
+        }
+      },
+      "output": {
+        "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+        "imported_at": "2026-10-20T14:00:00.000Z",
+        "campaign": {
+          "id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+          "name": "Les cendres de Valombre",
+          "kind": "campagne",
+          "pitch": "Une vallée qui brûle encore.",
+          "art": null,
+          "glyph": "🔥",
+          "cover_media_id": null,
+          "created_at": "2026-03-01T10:00:00+00:00",
+          "last_exported_at": null,
+          "imported_at": "2026-10-20T14:00:00.000Z",
+          "origin_campaign_id": "c0000001-0000-4000-8000-000000000001",
+          "sound_master_volume": 0.8
+        },
+        "players": [
+          {
+            "id": "a0000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "name": "Camille",
+            "notes": "Joue le mardi.",
+            "created_at": "2026-03-01T10:05:00+00:00"
+          },
+          {
+            "id": "a0000002-ffff-4fff-8fff-ffffffffff02",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "name": "Jordan",
+            "notes": null,
+            "created_at": "2026-03-01T10:06:00+00:00"
+          }
+        ],
+        "elements": [
+          {
+            "id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "type": "pj",
+            "name": "Kael",
+            "description": "Un capitaine déchu.",
+            "notes": "Cherche son équipage.",
+            "created_at": "2026-03-02T10:00:00+00:00",
+            "updated_at": "2026-04-02T10:00:00+00:00",
+            "character": {
+              "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+              "player_id": null,
+              "initial_prompt": null,
+              "background": "Ancien capitaine du Corbeau.",
+              "behavior": null,
+              "strength": 14,
+              "dexterity": 12,
+              "constitution": 13,
+              "intelligence": 10,
+              "wisdom": 9,
+              "charisma": 15,
+              "armor_class": 16,
+              "hp_max": 31,
+              "spells": [],
+              "actions": [
+                {
+                  "name": "Sabre",
+                  "bonus": 5
+                }
+              ],
+              "portrait_media_id": null,
+              "token_media_id": null,
+              "token_crop": null,
+              "token_color": "#c0392b",
+              "dndbeyond_id": null,
+              "dndbeyond_synced_at": null
+            },
+            "aliases": [
+              "le capitaine"
+            ],
+            "versions": [
+              {
+                "id": "f0000001-ffff-4fff-8fff-ffffffffff01",
+                "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "version_number": 1,
+                "source": "dm",
+                "snapshot": {
+                  "type": "pj",
+                  "name": "Kael",
+                  "playerId": null,
+                  "portraitMediaId": null,
+                  "tokenMediaId": null,
+                  "tokenColor": "#c0392b",
+                  "aliases": [
+                    "le capitaine"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "aliases",
+                    "old": null,
+                    "new": [
+                      "le capitaine"
+                    ]
+                  },
+                  {
+                    "field": "name",
+                    "old": null,
+                    "new": "Kael"
+                  },
+                  {
+                    "field": "playerId",
+                    "old": null,
+                    "new": null
+                  },
+                  {
+                    "field": "tokenColor",
+                    "old": null,
+                    "new": "#c0392b"
+                  },
+                  {
+                    "field": "type",
+                    "old": null,
+                    "new": "pj"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-02T10:00:00+00:00"
+              },
+              {
+                "id": "f0000002-ffff-4fff-8fff-ffffffffff02",
+                "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "version_number": 2,
+                "source": "dm",
+                "snapshot": {
+                  "type": "pj",
+                  "name": "Kael",
+                  "playerId": "a0000001-ffff-4fff-8fff-ffffffffff01",
+                  "portraitMediaId": null,
+                  "tokenMediaId": null,
+                  "tokenColor": "#c0392b",
+                  "aliases": [
+                    "le capitaine"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "portraitMediaId",
+                    "old": null,
+                    "new": null
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-10T10:00:00+00:00"
+              },
+              {
+                "id": "f0000003-ffff-4fff-8fff-ffffffffff03",
+                "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "version_number": 3,
+                "source": "dm",
+                "snapshot": {
+                  "type": "pj",
+                  "name": "Kael",
+                  "playerId": "a0000002-ffff-4fff-8fff-ffffffffff02",
+                  "portraitMediaId": "d0000002-ffff-4fff-8fff-ffffffffff02",
+                  "tokenMediaId": null,
+                  "tokenColor": "#c0392b",
+                  "aliases": [
+                    "le capitaine"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "playerId",
+                    "old": "a0000001-ffff-4fff-8fff-ffffffffff01",
+                    "new": "a0000002-ffff-4fff-8fff-ffffffffff02"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-20T10:00:00+00:00"
+              },
+              {
+                "id": "f0000004-ffff-4fff-8fff-ffffffffff04",
+                "entity_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "version_number": 4,
+                "source": "restauration",
+                "snapshot": {
+                  "type": "pj",
+                  "name": "Kael",
+                  "playerId": "a0000001-ffff-4fff-8fff-ffffffffff01",
+                  "portraitMediaId": null,
+                  "tokenMediaId": null,
+                  "tokenColor": "#c0392b",
+                  "aliases": [
+                    "le capitaine"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "playerId",
+                    "old": "a0000002-ffff-4fff-8fff-ffffffffff02",
+                    "new": "a0000001-ffff-4fff-8fff-ffffffffff01"
+                  },
+                  {
+                    "field": "portraitMediaId",
+                    "old": "d0000002-ffff-4fff-8fff-ffffffffff02",
+                    "new": null
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-04-02T10:00:00+00:00"
+              }
+            ]
+          },
+          {
+            "id": "e0000002-ffff-4fff-8fff-ffffffffff02",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "type": "pnj",
+            "name": "Morlox",
+            "description": null,
+            "notes": "Doit 40 po à Vesna.",
+            "created_at": "2026-03-03T10:00:00+00:00",
+            "updated_at": "2026-03-03T10:00:00+00:00",
+            "character": {
+              "entity_id": "e0000002-ffff-4fff-8fff-ffffffffff02",
+              "player_id": null,
+              "initial_prompt": null,
+              "background": null,
+              "behavior": "Parle vite.",
+              "strength": 8,
+              "dexterity": 14,
+              "constitution": 10,
+              "intelligence": 12,
+              "wisdom": 10,
+              "charisma": 11,
+              "armor_class": 12,
+              "hp_max": 7,
+              "spells": [],
+              "actions": [],
+              "portrait_media_id": null,
+              "token_media_id": null,
+              "token_crop": null,
+              "token_color": "#2e86c1",
+              "dndbeyond_id": null,
+              "dndbeyond_synced_at": null
+            },
+            "aliases": [
+              "le gobelin",
+              "le marchand"
+            ],
+            "versions": [
+              {
+                "id": "f0000016-ffff-4fff-8fff-ffffffffff16",
+                "entity_id": "e0000002-ffff-4fff-8fff-ffffffffff02",
+                "version_number": 1,
+                "source": "brief",
+                "snapshot": {
+                  "type": "pnj",
+                  "name": "Morlox",
+                  "playerId": null,
+                  "portraitMediaId": null,
+                  "tokenMediaId": null,
+                  "tokenColor": "#2e86c1",
+                  "aliases": [
+                    "le gobelin",
+                    "le marchand"
+                  ]
+                },
+                "diff": [
+                  {
+                    "field": "aliases",
+                    "old": null,
+                    "new": [
+                      "le gobelin",
+                      "le marchand"
+                    ]
+                  },
+                  {
+                    "field": "name",
+                    "old": null,
+                    "new": "Morlox"
+                  },
+                  {
+                    "field": "tokenColor",
+                    "old": null,
+                    "new": "#2e86c1"
+                  },
+                  {
+                    "field": "type",
+                    "old": null,
+                    "new": "pnj"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-03T10:00:00+00:00"
+              }
+            ]
+          },
+          {
+            "id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "type": "lieu",
+            "name": "Le moulin",
+            "description": "Un moulin en ruine.",
+            "notes": null,
+            "created_at": "2026-03-04T10:00:00+00:00",
+            "updated_at": "2026-03-04T10:00:00+00:00",
+            "character": null,
+            "aliases": [],
+            "versions": [
+              {
+                "id": "f0000017-ffff-4fff-8fff-ffffffffff17",
+                "entity_id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+                "version_number": 1,
+                "source": "dm",
+                "snapshot": {
+                  "type": "lieu",
+                  "name": "Le moulin",
+                  "description": "Un moulin en ruine.",
+                  "aliases": []
+                },
+                "diff": [
+                  {
+                    "field": "description",
+                    "old": null,
+                    "new": "Un moulin en ruine."
+                  },
+                  {
+                    "field": "name",
+                    "old": null,
+                    "new": "Le moulin"
+                  },
+                  {
+                    "field": "type",
+                    "old": null,
+                    "new": "lieu"
+                  }
+                ],
+                "restored_from_version_id": null,
+                "created_at": "2026-03-04T10:00:00+00:00"
+              }
+            ]
+          }
+        ],
+        "media": [
+          {
+            "id": "d0000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "kind": "battlemap",
+            "title": "Le moulin, vue de dessus",
+            "file_path": "media/moulin.png",
+            "width_px": 2400,
+            "height_px": 1800,
+            "place_id": null,
+            "uploaded_at": "2026-03-05T10:00:00+00:00",
+            "battlemap_grid": {
+              "media_id": "d0000001-ffff-4fff-8fff-ffffffffff01",
+              "hex_size_px": 48.5,
+              "offset_x": 12,
+              "offset_y": 6.25,
+              "orientation": "pointe",
+              "color": "#ffffff",
+              "opacity": 0.4,
+              "feet_per_hex": 5
+            }
+          },
+          {
+            "id": "d0000002-ffff-4fff-8fff-ffffffffff02",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "kind": "illustration",
+            "title": "Portrait de Kael",
+            "file_path": "media/kael.png",
+            "width_px": 800,
+            "height_px": 1000,
+            "place_id": null,
+            "uploaded_at": "2026-03-06T10:00:00+00:00",
+            "battlemap_grid": null
+          }
+        ],
+        "sounds": [
+          {
+            "id": "5d000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "name": "Pluie sur le toit",
+            "file_path": "sounds/pluie.ogg",
+            "tags": [
+              "ambiance",
+              "pluie"
+            ],
+            "volume": 0.6,
+            "created_at": "2026-03-07T10:00:00+00:00"
+          }
+        ],
+        "sessions": [
+          {
+            "id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+            "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
+            "position": 1,
+            "title": "Le moulin",
+            "planned_on": "2026-03-14",
+            "status": "closed",
+            "started_at": "2026-03-14T19:00:00+00:00",
+            "closed_at": "2026-03-14T22:30:00+00:00",
+            "microphone_on": false,
+            "summary": "Le groupe explore le moulin.",
+            "summary_model": null,
+            "summary_edited_at": null,
+            "session_present_character": [
+              {
+                "session_id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+                "character_id": "e0000001-ffff-4fff-8fff-ffffffffff01",
+                "added_at": "2026-03-14T19:00:00+00:00"
+              }
+            ],
+            "scenes": [
+              {
+                "id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                "session_id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+                "position": 1,
+                "title": "Devant le moulin",
+                "notes": "Il pleut.",
+                "scene_entity": [
+                  {
+                    "scene_id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                    "entity_id": "e0000003-ffff-4fff-8fff-ffffffffff03",
+                    "position": 1
+                  },
+                  {
+                    "scene_id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                    "entity_id": "e0000002-ffff-4fff-8fff-ffffffffff02",
+                    "position": 2
+                  }
+                ],
+                "scene_media": [
+                  {
+                    "scene_id": "5c000001-ffff-4fff-8fff-ffffffffff01",
+                    "media_id": "d0000001-ffff-4fff-8fff-ffffffffff01"
+                  }
+                ]
+              }
+            ],
+            "journal_lines": [
+              {
+                "id": "6a000001-ffff-4fff-8fff-ffffffffff01",
+                "session_id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+                "scene_id": null,
+                "spoken_at": "2026-03-14T19:10:00+00:00",
+                "text": "Morlox sort du moulin."
+              },
+              {
+                "id": "6a000002-ffff-4fff-8fff-ffffffffff02",
+                "session_id": "5e000001-ffff-4fff-8fff-ffffffffff01",
+                "scene_id": null,
+                "spoken_at": "2026-03-14T19:02:00+00:00",
+                "text": "La session commence."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
