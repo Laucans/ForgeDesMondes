@@ -1,0 +1,26 @@
+{
+  "dataCapability": "live.addSuggestion",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "insert",
+  "target": {
+    "aggregate": "Suggestion",
+    "id": "$id"
+  },
+  "touches": [],
+  "payload": {
+    "sessionId": "uuid — the live session whose microphone recognised the element or the sound; it must be live with the microphone on (live-only-local-audio)",
+    "entityId": "uuid — the element recognised, of the session's campaign; exactly one of entityId and soundId (suggestion-target)",
+    "soundId": "uuid — the sound recognised, of the session's campaign; exactly one of entityId and soundId (suggestion-target)",
+    "matchedText": "text — the name or alias heard in the local transcription, never blank"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "suggestion-target",
+    "pile-and-history-derived",
+    "live-only-local-audio"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "idempotencyKey": "optional"
+}

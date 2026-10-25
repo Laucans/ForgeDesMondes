@@ -67,6 +67,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "add-suggestion"
+version = "0.1.0"
+dependencies = [
+ "aggregate-suggestion",
+ "async-trait",
+ "harness-dataguard",
+ "platform-test-kit",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "aggregate-ai-settings"
 version = "0.1.0"
 dependencies = [
@@ -597,6 +610,7 @@ dependencies = [
  "add-present-character",
  "add-scene",
  "add-sound",
+ "add-suggestion",
  "aggregate-ai-settings",
  "aggregate-battlemap-instance",
  "aggregate-campaign",

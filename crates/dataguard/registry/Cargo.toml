@@ -18,6 +18,7 @@ ignored = [
     "add-present-character",
     "add-scene",
     "add-sound",
+    "add-suggestion",
     "aggregate-ai-settings",
     "aggregate-battlemap-instance",
     "aggregate-campaign",
@@ -106,6 +107,7 @@ add-place-to-session = { path = "../../session/data-capabilities/add-place-to-se
 add-present-character = { path = "../../session/data-capabilities/add-present-character" }
 add-scene = { path = "../../session/data-capabilities/add-scene" }
 add-sound = { path = "../../soundbox/data-capabilities/add-sound" }
+add-suggestion = { path = "../../live/data-capabilities/add-suggestion" }
 aggregate-ai-settings = { path = "../../ai/aggregates/AiSettings" }
 aggregate-battlemap-instance = { path = "../../table/aggregates/BattlemapInstance" }
 aggregate-campaign = { path = "../../campaign/aggregates/Campaign" }
