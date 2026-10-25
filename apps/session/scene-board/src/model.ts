@@ -66,8 +66,11 @@ export function parseInstance(data: unknown): Instance | null {
   return { id: text(data.id), battlemap: text(data.battlemap), tokens: tokens.length, hidden: tokens.filter((token) => token.visible === false).length };
 }
 
-/** The Capabilities' variables: the session of the screen's context, when the screen has set one. */
-export const sessionVariables = (session: string | undefined): Record<string, unknown> => (session ? { session } : {});
+/** The session the board is for: its `session` prop, else the screen's context value; '' when neither names one. */
+export const sessionAsked = (prop: unknown, context: unknown): string => {
+  if (typeof prop === 'string' && prop !== '') return prop;
+  return typeof context === 'string' ? context : '';
+};
 
 // present-only-pj: a PC of the session's campaign is the only one that can be ticked.
 export const pcs = (board: Pick<Board, 'characters'>): Character[] => board.characters.filter((character) => character.kind === 'pj');

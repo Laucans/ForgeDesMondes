@@ -6,7 +6,9 @@
 // `session.addPresentCharacter`, `session.removePresentCharacter`,
 // `session.addScene`, `session.reorderScenes` and
 // `table.createBattlemapInstance`, by identifier, through the shell it is
-// handed: no network call of its own. It does not show or drive the map.
+// handed: no network call of its own. It does not show or drive the map. The
+// session is its `session` prop, else the screen's `session` context value;
+// with neither it reads nothing and writes nothing.
 
 import {
   ADD_PRESENT_CHARACTER,
@@ -20,7 +22,7 @@ import {
   REMOVE_PRESENT_CHARACTER,
   REORDER_SCENES,
 } from './ids.ts';
-import { commandBody, commandId, isFinal, moved, parseCharacters, parseInstance, parseMedias, parseScenes, parseSession, ranks, reasons, sessionVariables, settled, type Settled } from './model.ts';
+import { commandBody, commandId, isFinal, moved, parseCharacters, parseInstance, parseMedias, parseScenes, parseSession, ranks, reasons, sessionAsked, settled, type Settled } from './model.ts';
 import { presentAdd, presentCount, presentList, sceneList, sceneTitle, skeleton } from './render.ts';
 import { STYLE } from './style.ts';
 import type { Board, Instance, Shell } from './types.ts';
@@ -44,7 +46,7 @@ function ensureStyle(doc: Document): void {
 }
 
 /** What the shell calls: fills `host` with the board and wires it. */
-export function mount(host: HTMLElement, _props: Record<string, unknown>, shell: Shell, timing: Timing = WAITING): void {
+export function mount(host: HTMLElement, props: Record<string, unknown>, shell: Shell, timing: Timing = WAITING): void {
   ensureStyle(host.ownerDocument);
   host.innerHTML = skeleton();
 
@@ -54,6 +56,8 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     return found;
   };
 
+  // The prop first (`session.getSession` is asked by `id`), the screen's context value when no prop names one.
+  const wanted = sessionAsked(props.session, shell.context?.get('session'));
   let board: Board | null = null;
   let busy = false;
 
@@ -72,12 +76,10 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
 
   /** The five reads the board shows: the session first, which names the campaign the others are read for. */
   async function read(): Promise<Board> {
-    const screenSession = shell.context?.get('session');
-    const asked = sessionVariables(typeof screenSession === 'string' ? screenSession : undefined);
-    const session = parseSession((await shell.capability(GET_SESSION, undefined, asked)).data);
+    const session = parseSession((await shell.capability(GET_SESSION, undefined, { id: wanted })).data);
     const forCampaign = session.campaign === null ? {} : { campaign: session.campaign };
     const [scenes, characters, medias] = await Promise.all([
-      shell.capability(LIST_SCENES, undefined, { session: session.id || undefined }).then((answer) => parseScenes(answer.data)),
+      shell.capability(LIST_SCENES, undefined, { session: wanted }).then((answer) => parseScenes(answer.data)),
       shell.capability(LIST_CHARACTERS, undefined, forCampaign).then((answer) => parseCharacters(answer.data)),
       shell.capability(LIST_MEDIA, undefined, forCampaign).then((answer) => parseMedias(answer.data)),
     ]);
@@ -183,6 +185,11 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     if (clicked.dataset.action === 'place') host.ownerDocument.getElementById('scene-battlemap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
+  // No session named, nothing to read: the board stays empty and writes nothing.
+  if (wanted === '') {
+    say('Aucune séance n’est indiquée : rien à afficher.');
+    return;
+  }
   read().then(
     (loaded) => {
       board = loaded;

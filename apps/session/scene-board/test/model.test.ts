@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { absentPcs, commandBody, moved, parseCharacters, parseInstance, parseScenes, parseSession, presentPcs, ranks, reasons, settled } from '../src/model.ts';
+import { absentPcs, commandBody, moved, parseCharacters, parseInstance, parseScenes, parseSession, presentPcs, ranks, reasons, sessionAsked, settled } from '../src/model.ts';
 import type { Scene } from '../src/types.ts';
 
 const scene = (id: string): Scene => ({ id, title: id, places: [], characters: [], events: [], media: [], toCreate: [], battlemap: null, notes: '' });
@@ -51,4 +51,12 @@ test('a command names its DataCapability and its version, and keeps its idempote
 test('a rejection is told in words, an unknown violation as it is', () => {
   assert.equal(reasons(['present-only-pj', 'other']), 'seul un PJ de la campagne peut être présent, other');
   assert.deepEqual(settled({ result: { status: 'rejected', violations: ['v'] } }), { status: 'rejected', violations: ['v'] });
+});
+
+test('the session asked is the prop, else the context value, else none', () => {
+  assert.equal(sessionAsked('s4', 's3'), 's4');
+  assert.equal(sessionAsked(undefined, 's3'), 's3');
+  assert.equal(sessionAsked('', 's3'), 's3');
+  assert.equal(sessionAsked(42, undefined), '');
+  assert.equal(sessionAsked(undefined, undefined), '');
 });

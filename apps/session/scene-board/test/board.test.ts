@@ -15,7 +15,7 @@ interface Sent {
 }
 
 /** A shell over the mock-up's fixtures: it answers the five Capabilities and applies a command as asked. */
-function fakeShell(options: { apply?: (sent: Sent) => { status: string; violations?: string[] }; fail?: string; scenes?: unknown; present?: string[]; noSessionId?: boolean } = {}) {
+function fakeShell(options: { apply?: (sent: Sent) => { status: string; violations?: string[] }; fail?: string; scenes?: unknown; present?: string[]; noSessionId?: boolean; context?: string } = {}) {
   const data: Record<string, unknown> = {
     'session.getSession': { ...(fixtureOf('session.getSession') as object), ...(options.present ? { present: options.present } : {}), ...(options.noSessionId ? { id: '' } : {}) },
     'session.listScenes': options.scenes ?? fixtureOf('session.listScenes'),
@@ -42,7 +42,7 @@ function fakeShell(options: { apply?: (sent: Sent) => { status: string; violatio
       const outcome = options.apply?.(sent.at(-1) as Sent) ?? { status: 'applied' };
       return { result: { status: outcome.status, violations: outcome.violations ?? [] } };
     },
-    context: { get: (name) => (name === 'session' ? 's4' : undefined) },
+    context: { get: (name) => (name === 'session' ? ('context' in options ? options.context : 's4') : undefined) },
   };
   return { shell, sent, reads, data };
 }
@@ -52,11 +52,11 @@ const settle = async (): Promise<void> => {
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
-async function board(options?: Parameters<typeof fakeShell>[0]) {
+async function board(options?: Parameters<typeof fakeShell>[0], props: Record<string, unknown> = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="SceneBoard"></div></body></html>');
   const host = dom.window.document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
-  mount(host, {}, fake.shell, timing);
+  mount(host, props, fake.shell, timing);
   await settle();
   const $ = (selector: string): HTMLElement => {
     const found = host.querySelector<HTMLElement>(selector);
@@ -79,7 +79,8 @@ test('the board shows the present PCs, the scenes in order, and each scene\'s ba
   assert.match(b.$('#sc3-battlemap').textContent ?? '', /Le Gué des Corbeaux/);
   assert.equal(b.$('#sc3-battlemap').dataset.reads, 'table.getBattlemapInstance');
   assert.deepEqual(b.reads.filter((r) => r.id === 'table.getBattlemapInstance').map((r) => r.variables), [{ instance: 'bmi-gue-s4', view: 'dm' }]);
-  assert.deepEqual(b.reads[0]?.variables, { session: 's4' }, 'the session of the screen is the one read');
+  assert.deepEqual(b.reads[0]?.variables, { id: 's4' }, 'session.getSession is asked by id');
+  assert.deepEqual(b.reads.find((r) => r.id === 'session.listScenes')?.variables, { session: 's4' });
 });
 
 test('a scene with an instance offers no second one; a scene without offers the campaign\'s battlemaps', async () => {
@@ -202,4 +203,30 @@ test('an entity link carries its id encoded, so a name with « & » or a space s
   const scenes = (fixtureOf('session.listScenes') as Array<Record<string, unknown>>).map((scene) => ({ ...scene, places: ['la cave & le puits'] }));
   const b = await board({ scenes });
   assert.equal(b.$('#sc1-place-la\\ cave\\ \\&\\ le\\ puits').getAttribute('href'), 'fiche-entite.html?id=la%20cave%20%26%20le%20puits');
+});
+
+test('the session prop is what session.getSession is asked for by id, over the screen\'s context value', async () => {
+  const b = await board({ context: 's3' }, { session: 's4' });
+  assert.deepEqual(b.reads.find((r) => r.id === 'session.getSession')?.variables, { id: 's4' });
+  assert.deepEqual(b.reads.find((r) => r.id === 'session.listScenes')?.variables, { session: 's4' });
+  assert.equal(b.host.querySelectorAll('.mf-scenes__scene').length, 3);
+});
+
+test('with the session prop, the commands carry that session', async () => {
+  const b = await board({ context: undefined }, { session: 's4' });
+  await b.click('#scenes-add');
+  await b.click('#scene-sc3 [data-move="-1"]');
+  assert.deepEqual(b.sent.map((s) => [s.dataCapability, s.payload.session, s.target]), [
+    ['session.addScene@1', 's4', { aggregate: 'Session', id: 's4' }],
+    ['session.reorderScenes@1', 's4', { aggregate: 'Session', id: 's4' }],
+  ]);
+});
+
+test('with no prop and no context value the board reads nothing, shows no scene and sends no write', async () => {
+  const b = await board({ context: undefined });
+  assert.deepEqual(b.reads, []);
+  assert.equal(b.host.querySelectorAll('.mf-scenes__scene').length, 0);
+  assert.match(b.$('#scenes-notice').textContent ?? '', /Aucune séance/);
+  await b.click('#scenes-add');
+  assert.equal(b.sent.length, 0);
 });
