@@ -44,7 +44,13 @@ fn r77_only_text_goes_to_the_provider() {
                 let before = sent(s)?.len();
 
                 // The DM speaks, then asks for each kind of generation.
-                apply(s, "live.setMicrophone", json!({ "on": true }), None)?;
+                let session = new_session(s, &campaign, &[])?;
+                apply(
+                    s,
+                    "live.setMicrophone",
+                    json!({ "on": true }),
+                    Some(&session),
+                )?;
                 let npc = new_character(s, &campaign, "pnj", json!({ "prompt": prompt }))?;
                 apply(
                     s,
@@ -52,7 +58,6 @@ fn r77_only_text_goes_to_the_provider() {
                     json!({ "prompt": prompt }),
                     Some(&npc),
                 )?;
-                let session = new_session(s, &campaign, &[])?;
                 apply(
                     s,
                     "ai.analyzeBrief",
@@ -60,7 +65,12 @@ fn r77_only_text_goes_to_the_provider() {
                     None,
                 )?;
                 apply(s, "session.closeSession", json!({}), Some(&session))?;
-                apply(s, "live.setMicrophone", json!({ "on": false }), None)?;
+                apply(
+                    s,
+                    "live.setMicrophone",
+                    json!({ "on": false }),
+                    Some(&session),
+                )?;
 
                 let all = sent(s)?;
                 let new = &all[before.min(all.len())..];
