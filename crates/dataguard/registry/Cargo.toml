@@ -51,6 +51,7 @@ ignored = [
     "get-session",
     "get-settings",
     "get-transcription-vocabulary",
+    "import-campaign",
     "import-character",
     "list-campaigns",
     "list-characters",
@@ -141,6 +142,7 @@ get-last-brief = { path = "../../session/capabilities/get-last-brief" }
 get-session = { path = "../../session/capabilities/get-session" }
 get-settings = { path = "../../ai/capabilities/get-settings" }
 get-transcription-vocabulary = { path = "../../live/capabilities/get-transcription-vocabulary" }
+import-campaign = { path = "../../campaign/data-capabilities/import-campaign" }
 import-character = { path = "../../dndbeyond/data-capabilities/import-character" }
 list-campaigns = { path = "../../campaign/capabilities/list-campaigns" }
 list-characters = { path = "../../campaign/capabilities/list-characters" }
