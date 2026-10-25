@@ -223,7 +223,6 @@ fn a_command_that_names_its_row_is_refused() {
 #[test]
 fn a_live_session_with_the_microphone_on_takes_an_element() {
     let written = prepare(&asks_for_entity(), &live(), 1_792_000_000_000).expect("written");
-    assert_eq!(written.target_id, suggestion());
     assert_eq!(
         written.payload,
         row(json!({

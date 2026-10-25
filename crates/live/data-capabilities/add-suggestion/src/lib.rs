@@ -111,12 +111,11 @@ impl std::fmt::Display for Refusal {
     }
 }
 
-/// What the command becomes before it is submitted: the partition it
-/// writes and the fields it writes there.
+/// What the command becomes before it is submitted: the fields it writes.
+/// The partition is the one the payload's `id` names (the manifest's
+/// `target.id` is `$id`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Prepared {
-    /// The row's id: the partition the command lands on.
-    pub target_id: String,
     /// The fields written.
     pub payload: Row,
 }
@@ -196,10 +195,7 @@ pub fn prepare(request: &Request, session: &Row, now_millis: u64) -> Result<Prep
     .into_iter()
     .map(|(field, value)| (field.to_string(), value))
     .collect();
-    Ok(Prepared {
-        target_id: request.id.clone(),
-        payload,
-    })
+    Ok(Prepared { payload })
 }
 
 /// The uuid `wire` holds in `field`, lowercase and hyphenated as the tables
@@ -288,7 +284,6 @@ impl Prepare for Prepares {
             .unwrap_or_default();
         let prepared = prepare(&request, &session, context.now_millis).map_err(refused)?;
         Ok(plugins::Prepared {
-            target_id: Some(prepared.target_id),
             payload: prepared.payload,
             ..plugins::Prepared::default()
         })
