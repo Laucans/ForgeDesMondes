@@ -46,6 +46,9 @@
 //! file that has one is skipped. The tokens obey the aggregate's invariants as
 //! a command would (`token-roster`, `multi-drop-numbering`, `pj-hp-not-tracked`,
 //! `dead-derived`): a file that breaks one is skipped, not loaded.
+//! A scene the store already gave an instance, under another id (the DM's), is
+//! left that one alone: [`Fixtures::leave_out_taken_scenes`] drops the
+//! fixture's instance and its tokens before the load.
 //!
 //! The summary of the closed session, its model and the day it was edited
 //! (read from `summaryMeta`, « Généré à la clôture par <model>, retouché le
@@ -340,6 +343,77 @@ const TO_CREATE_FILE: &str = "ToCreateList.json";
 /// battlemap, with its tokens. `Battlemap.json` holds the same instance for
 /// the Micro-UI, and is not read: it would name the same rows twice.
 const INSTANCE_FILE: &str = "table.getBattlemapInstance.json";
+
+impl Fixtures {
+    /// Leaves out the instance planned for a scene where the store already
+    /// holds an instance under another id (`one-instance-per-scene`): the
+    /// DM's own would be hidden by a second, more recent one. `held` is the
+    /// `(instance id, scene id)` of every instance of the store, see
+    /// [`held_instances`]; its tokens go with it.
+    pub fn leave_out_taken_scenes(&mut self, held: &[(String, String)]) {
+        let Some(instances) = self
+            .tables
+            .iter_mut()
+            .find(|t| t.name == "battlemap_instance")
+        else {
+            return;
+        };
+        let mut left = BTreeSet::new();
+        instances.rows.retain(|row| {
+            let (row_id, scene) = (row["id"].as_str(), row["scene_id"].as_str());
+            let taken = held.iter().any(|(held_id, held_scene)| {
+                Some(held_scene.as_str()) == scene && Some(held_id.as_str()) != row_id
+            });
+            if taken && let Some(row_id) = row_id {
+                left.insert(row_id.to_string());
+            }
+            !taken
+        });
+        if left.is_empty() {
+            return;
+        }
+        for table in self.tables.iter_mut().filter(|t| t.name == "token") {
+            let (gone, kept): (Vec<Value>, Vec<Value>) = std::mem::take(&mut table.rows)
+                .into_iter()
+                .partition(|row| {
+                    row["instance_id"]
+                        .as_str()
+                        .is_some_and(|o| left.contains(o))
+                });
+            left.extend(
+                gone.iter()
+                    .filter_map(|row| row["id"].as_str().map(str::to_string)),
+            );
+            table.rows = kept;
+        }
+        self.names.retain(|(_, row)| !left.contains(row));
+        self.withdraw_with(
+            INSTANCE_FILE,
+            "its scene already has an instance in the store",
+        );
+    }
+
+    fn withdraw_with(&mut self, file: &str, why: &str) {
+        self.loaded.retain(|name| name != file);
+        self.skipped.push((file.to_string(), why.to_string()));
+    }
+}
+
+/// The `(instance id, scene id)` of every battlemap instance the store holds.
+///
+/// # Errors
+///
+/// [`data::Error::Database`] when the query fails.
+pub async fn held_instances(client: &data::Client) -> Result<Vec<(String, String)>, data::Error> {
+    let rows = client
+        .query(
+            "SELECT id::text, scene_id::text FROM battlemap_instance",
+            &[],
+        )
+        .await
+        .map_err(data::Error::Database)?;
+    Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
+}
 
 /// Takes `file` back out of the files planned: it is skipped, with `why`.
 fn withdraw(plan: &mut Fixtures, file: &str, why: &str) {
@@ -3576,6 +3650,56 @@ mod tests {
                 .iter()
                 .all(|s| s.get("battlemap").is_none())
         );
+    }
+
+    #[test]
+    fn a_scene_the_store_gave_another_instance_loads_neither_instance_nor_tokens() {
+        let (instance, scene) = (id("battlemap_instance", "bmi-gue-s4"), id("scene", "sc3"));
+        let table_rows = |plan: &Fixtures| {
+            (
+                rows(plan, "battlemap_instance").len(),
+                rows(plan, "token").len(),
+            )
+        };
+        // Another scene's instance, and the fixture's own after a restart: planned as is.
+        for held in [
+            vec![],
+            vec![("dm".to_string(), id("scene", "sc1"))],
+            vec![(instance.clone(), scene.clone())],
+        ] {
+            let mut plan = mock();
+            let before = mock();
+            plan.leave_out_taken_scenes(&held);
+            assert_eq!(plan, before, "{held:?}");
+            assert_eq!(table_rows(&plan), (1, 8));
+        }
+        // The DM's own instance on sc3, with or without the fixture's.
+        for held in [
+            vec![("dm".to_string(), scene.clone())],
+            vec![(instance.clone(), scene.clone()), ("dm".to_string(), scene)],
+        ] {
+            let mut plan = mock();
+            plan.leave_out_taken_scenes(&held);
+            assert_eq!(table_rows(&plan), (0, 0), "{held:?}");
+            assert!(!plan.loaded.iter().any(|f| f == INSTANCE_FILE));
+            assert_eq!(plan.skipped.len(), mock().skipped.len() + 1);
+            assert!(
+                plan.skipped
+                    .iter()
+                    .any(|(f, why)| f == INSTANCE_FILE && why.contains("already has an instance")),
+                "{:?}",
+                plan.skipped
+            );
+            assert!(
+                plan.names
+                    .iter()
+                    .all(|(slug, _)| { slug != "bmi-gue-s4" && !slug.starts_with("t-") }),
+                "{:?}",
+                plan.names
+            );
+            // The scenes and the rest stay planned.
+            assert_eq!(rows(&plan, "scene").len(), rows(&mock(), "scene").len());
+        }
     }
 
     #[test]
