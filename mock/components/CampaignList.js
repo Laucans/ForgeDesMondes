@@ -314,6 +314,17 @@
     let busy = false;
     let archive;
     let key = newKey();
+    let keyed = null;
+    const renewKey = () => {
+      key = newKey();
+      keyed = null;
+    };
+    const keyFor = (payload) => {
+      const sent = JSON.stringify(payload);
+      if (keyed !== null && keyed !== sent) key = newKey();
+      keyed = sent;
+      return key;
+    };
     const say = (words) => {
       if (current()) part("campaign-status").textContent = words;
     };
@@ -398,10 +409,11 @@
       const type = part("campaign-create-dialog").querySelector('input[name="campaign-type"]:checked')?.value === "oneshot" ? "oneshot" : "campagne";
       const pitch = part("campaign-create-pitch").value;
       dialogError("campaign-create-error", "");
-      const state = await run(createCommand(CREATE_CAMPAIGN, { name, type, pitch }, key));
+      const form = { name, type, pitch };
+      const state = await run(createCommand(CREATE_CAMPAIGN, form, keyFor({ name: name.trim(), type, pitch: pitch.trim() })));
       if (!current()) return;
       if (state.status !== "applied") {
-        if (!mayBeQueued(state)) key = newKey();
+        if (!mayBeQueued(state)) renewKey();
         return dialogError("campaign-create-error", unapplied(state, CREATE_WORDS));
       }
       closeDialog();
@@ -410,10 +422,10 @@
     async function importArchive() {
       if (busy || archive === void 0) return;
       dialogError("campaign-import-error", "");
-      const state = await run(importCommand(IMPORT_CAMPAIGN, archive, key));
+      const state = await run(importCommand(IMPORT_CAMPAIGN, archive, keyFor(archive)));
       if (!current()) return;
       if (state.status !== "applied") {
-        if (!mayBeQueued(state)) key = newKey();
+        if (!mayBeQueued(state)) renewKey();
         return dialogError("campaign-import-error", unapplied(state, IMPORT_WORDS));
       }
       closeDialog();
@@ -452,7 +464,7 @@
     const open = (html) => {
       dialogs += 1;
       archive = void 0;
-      key = newKey();
+      renewKey();
       part("campaign-dialogs").innerHTML = html;
       paintBusy();
     };

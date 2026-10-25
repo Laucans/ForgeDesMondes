@@ -120,6 +120,18 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   let archive: unknown;
   /** The key of the open dialog's command: kept while what it sent may still be queued, so a second click is the same command. */
   let key = newKey();
+  /** What that key was sent with: the server answers a key with its first command, so another payload takes a new key. */
+  let keyed: string | null = null;
+  const renewKey = (): void => {
+    key = newKey();
+    keyed = null;
+  };
+  const keyFor = (payload: unknown): string => {
+    const sent = JSON.stringify(payload);
+    if (keyed !== null && keyed !== sent) key = newKey();
+    keyed = sent;
+    return key;
+  };
 
   const say = (words: string): void => {
     if (current()) part('campaign-status').textContent = words;
@@ -220,10 +232,11 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     const type = part('campaign-create-dialog').querySelector<HTMLInputElement>('input[name="campaign-type"]:checked')?.value === 'oneshot' ? 'oneshot' : 'campagne';
     const pitch = part<HTMLInputElement>('campaign-create-pitch').value;
     dialogError('campaign-create-error', '');
-    const state = await run(createCommand(CREATE_CAMPAIGN, { name, type, pitch }, key));
+    const form = { name, type, pitch } as const;
+    const state = await run(createCommand(CREATE_CAMPAIGN, form, keyFor({ name: name.trim(), type, pitch: pitch.trim() })));
     if (!current()) return;
     if (state.status !== 'applied') {
-      if (!mayBeQueued(state)) key = newKey();
+      if (!mayBeQueued(state)) renewKey();
       return dialogError('campaign-create-error', unapplied(state, CREATE_WORDS));
     }
     closeDialog();
@@ -233,11 +246,11 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   async function importArchive(): Promise<void> {
     if (busy || archive === undefined) return;
     dialogError('campaign-import-error', '');
-    const state = await run(importCommand(IMPORT_CAMPAIGN, archive, key));
+    const state = await run(importCommand(IMPORT_CAMPAIGN, archive, keyFor(archive)));
     if (!current()) return;
     // A refusal leaves the dialog open with its reason, and the list as it was.
     if (state.status !== 'applied') {
-      if (!mayBeQueued(state)) key = newKey();
+      if (!mayBeQueued(state)) renewKey();
       return dialogError('campaign-import-error', unapplied(state, IMPORT_WORDS));
     }
     closeDialog();
@@ -280,7 +293,7 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   const open = (html: string): void => {
     dialogs += 1;
     archive = undefined;
-    key = newKey();
+    renewKey();
     part('campaign-dialogs').innerHTML = html;
     paintBusy();
   };
