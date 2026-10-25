@@ -87,6 +87,7 @@ ignored = [
     "save-settings",
     "set-master-volume",
     "set-media-place",
+    "set-microphone",
     "set-sound-volume",
     "set-token-condition",
     "set-token-visibility",
@@ -176,6 +177,7 @@ save-grid-settings = { path = "../../media/data-capabilities/save-grid-settings"
 save-settings = { path = "../../ai/data-capabilities/save-settings" }
 set-master-volume = { path = "../../soundbox/data-capabilities/set-master-volume" }
 set-media-place = { path = "../../media/data-capabilities/set-media-place" }
+set-microphone = { path = "../../live/data-capabilities/set-microphone" }
 set-sound-volume = { path = "../../soundbox/data-capabilities/set-sound-volume" }
 set-token-condition = { path = "../../table/data-capabilities/set-token-condition" }
 set-token-visibility = { path = "../../table/data-capabilities/set-token-visibility" }

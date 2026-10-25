@@ -1,0 +1,26 @@
+{
+  "dataCapability": "live.setMicrophone",
+  "owner": "dataguard",
+  "version": 1,
+  "effect": "upsert",
+  "target": {
+    "aggregate": "Session"
+  },
+  "touches": [
+    "Session.microphoneOn",
+    "Session.sessionStatus",
+    "Session.startedAt"
+  ],
+  "payload": {
+    "on": "boolean — true turns the microphone on in the campaign's session (a session in prep goes live and is dated once; a closed one refuses, status-lifecycle) and opens the local transcription with the campaign's vocabulary; false turns it off and ends the stream. The session is the command's target, else the campaign's live session, else its last one planned"
+  },
+  "mode": "overwrite",
+  "invariants": [
+    "status-lifecycle",
+    "text-only-no-audio"
+  ],
+  "permissions": [],
+  "callableBy": ["*"],
+  "ports": ["speech-to-text"],
+  "idempotencyKey": "optional"
+}
