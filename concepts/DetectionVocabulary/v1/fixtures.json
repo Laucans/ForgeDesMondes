@@ -1,0 +1,1139 @@
+{
+  "concept": "DetectionVocabulary",
+  "version": 1,
+  "cases": [
+    {
+      "name": "the vocabulary holds the name and the alias of an entity, both pointing to it",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "taverne-sanglier",
+            "campaign": "cendres-valombre",
+            "name": "La Taverne du Sanglier",
+            "aliases": [
+              "la taverne",
+              "le Sanglier"
+            ]
+          }
+        ],
+        "sounds": []
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "La Taverne du Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "la taverne",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "le Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          }
+        ],
+        "detections": null
+      }
+    },
+    {
+      "name": "the vocabulary holds the name of a sound, pointing to the sound",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [],
+        "sounds": [
+          {
+            "id": "snd-porte",
+            "campaign": "cendres-valombre",
+            "name": "Porte qui grince"
+          }
+        ]
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Porte qui grince",
+            "kind": "sound",
+            "id": "snd-porte"
+          }
+        ],
+        "detections": null
+      }
+    },
+    {
+      "name": "the entities come first, then the sounds, each in the order given",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "gaspard",
+            "campaign": "cendres-valombre",
+            "name": "Gaspard Grosmollet",
+            "aliases": [
+              "Gaspard",
+              "le tavernier"
+            ]
+          },
+          {
+            "id": "morlox",
+            "campaign": "cendres-valombre",
+            "name": "Morlox",
+            "aliases": [
+              "le gobelin",
+              "le marchand",
+              "Morlo"
+            ]
+          }
+        ],
+        "sounds": [
+          {
+            "id": "snd-corbeau",
+            "campaign": "cendres-valombre",
+            "name": "Cri de corbeau"
+          },
+          {
+            "id": "snd-porte",
+            "campaign": "cendres-valombre",
+            "name": "Porte qui grince"
+          }
+        ]
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Gaspard Grosmollet",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "Gaspard",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "le tavernier",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "Morlox",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "le gobelin",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "le marchand",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "Morlo",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "Cri de corbeau",
+            "kind": "sound",
+            "id": "snd-corbeau"
+          },
+          {
+            "term": "Porte qui grince",
+            "kind": "sound",
+            "id": "snd-porte"
+          }
+        ],
+        "detections": null
+      }
+    },
+    {
+      "name": "an entity and a sound of another campaign have no term in the vocabulary",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "gaspard",
+            "campaign": "cendres-valombre",
+            "name": "Gaspard Grosmollet",
+            "aliases": [
+              "Gaspard",
+              "le tavernier"
+            ]
+          },
+          {
+            "id": "gaspard-autre",
+            "campaign": "autre-campagne",
+            "name": "Gaspard le Rouge",
+            "aliases": [
+              "le rouge"
+            ]
+          }
+        ],
+        "sounds": [
+          {
+            "id": "snd-porte",
+            "campaign": "cendres-valombre",
+            "name": "Porte qui grince"
+          },
+          {
+            "id": "snd-autre",
+            "campaign": "autre-campagne",
+            "name": "Cloche du port"
+          }
+        ]
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Gaspard Grosmollet",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "Gaspard",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "le tavernier",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "Porte qui grince",
+            "kind": "sound",
+            "id": "snd-porte"
+          }
+        ],
+        "detections": null
+      }
+    },
+    {
+      "name": "a term of another campaign is not detected in a phrase",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "gaspard",
+            "campaign": "cendres-valombre",
+            "name": "Gaspard Grosmollet",
+            "aliases": [
+              "Gaspard",
+              "le tavernier"
+            ]
+          },
+          {
+            "id": "gaspard-autre",
+            "campaign": "autre-campagne",
+            "name": "Gaspard le Rouge",
+            "aliases": [
+              "le rouge"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "Gaspard le Rouge salue la salle."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Gaspard Grosmollet",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "Gaspard",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "le tavernier",
+            "kind": "entity",
+            "id": "gaspard"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "gaspard",
+            "via": "Gaspard"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a blank term, or a term that matches an earlier term of the same target, is left out; the first spelling stays",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "elowen",
+            "campaign": "cendres-valombre",
+            "name": "Elowen Ventargent",
+            "aliases": [
+              "Elowen",
+              "ELOWEN",
+              "  ",
+              "élowen ",
+              "la rôdeuse",
+              "La Rodeuse",
+              ""
+            ]
+          }
+        ],
+        "sounds": [
+          {
+            "id": "snd-vide",
+            "campaign": "cendres-valombre",
+            "name": "   "
+          }
+        ]
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Elowen Ventargent",
+            "kind": "entity",
+            "id": "elowen"
+          },
+          {
+            "term": "Elowen",
+            "kind": "entity",
+            "id": "elowen"
+          },
+          {
+            "term": "la rôdeuse",
+            "kind": "entity",
+            "id": "elowen"
+          }
+        ],
+        "detections": null
+      }
+    },
+    {
+      "name": "the same term on two targets stays on both",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "tour-nord",
+            "campaign": "cendres-valombre",
+            "name": "Tour du Nord",
+            "aliases": [
+              "la tour"
+            ]
+          },
+          {
+            "id": "tour-sud",
+            "campaign": "cendres-valombre",
+            "name": "Tour du Sud",
+            "aliases": [
+              "La Tour"
+            ]
+          }
+        ],
+        "sounds": []
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Tour du Nord",
+            "kind": "entity",
+            "id": "tour-nord"
+          },
+          {
+            "term": "la tour",
+            "kind": "entity",
+            "id": "tour-nord"
+          },
+          {
+            "term": "Tour du Sud",
+            "kind": "entity",
+            "id": "tour-sud"
+          },
+          {
+            "term": "La Tour",
+            "kind": "entity",
+            "id": "tour-sud"
+          }
+        ],
+        "detections": null
+      }
+    },
+    {
+      "name": "the phrase « La Balafrée ? Jamais entendu parler. » names Vesna once, through « la Balafrée »",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "vesna",
+            "campaign": "cendres-valombre",
+            "name": "Vesna la Balafrée",
+            "aliases": [
+              "Vesna",
+              "la Balafrée",
+              "chef bandit",
+              "la cheffe"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "La Balafrée ? Jamais entendu parler."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Vesna la Balafrée",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "Vesna",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "la Balafrée",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "chef bandit",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "la cheffe",
+            "kind": "entity",
+            "id": "vesna"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "vesna",
+            "via": "la Balafrée"
+          }
+        ]
+      }
+    },
+    {
+      "name": "« LA BALAFREE » heard without accents still names Vesna",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "vesna",
+            "campaign": "cendres-valombre",
+            "name": "Vesna la Balafrée",
+            "aliases": [
+              "Vesna",
+              "la Balafrée",
+              "chef bandit",
+              "la cheffe"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "LA BALAFREE"
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Vesna la Balafrée",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "Vesna",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "la Balafrée",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "chef bandit",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "la cheffe",
+            "kind": "entity",
+            "id": "vesna"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "vesna",
+            "via": "la Balafrée"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the punctuation and the spaces of the phrase change nothing",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "vesna",
+            "campaign": "cendres-valombre",
+            "name": "Vesna la Balafrée",
+            "aliases": [
+              "Vesna",
+              "la Balafrée",
+              "chef bandit",
+              "la cheffe"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "On dit  « la…   balafrée »,  non ?"
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Vesna la Balafrée",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "Vesna",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "la Balafrée",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "chef bandit",
+            "kind": "entity",
+            "id": "vesna"
+          },
+          {
+            "term": "la cheffe",
+            "kind": "entity",
+            "id": "vesna"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "vesna",
+            "via": "la Balafrée"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a term inside a longer word names nothing",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "ane",
+            "campaign": "cendres-valombre",
+            "name": "Âne",
+            "aliases": []
+          },
+          {
+            "id": "bandit",
+            "campaign": "cendres-valombre",
+            "name": "Bandit",
+            "aliases": []
+          }
+        ],
+        "sounds": [],
+        "phrase": "Les bandits mangent une banane."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Âne",
+            "kind": "entity",
+            "id": "ane"
+          },
+          {
+            "term": "Bandit",
+            "kind": "entity",
+            "id": "bandit"
+          }
+        ],
+        "detections": []
+      }
+    },
+    {
+      "name": "a term followed or preceded by more letters of the same word names nothing",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "rodeuse",
+            "campaign": "cendres-valombre",
+            "name": "Rôdeuse",
+            "aliases": []
+          }
+        ],
+        "sounds": [],
+        "phrase": "Les rôdeuses et la surrôdeuse."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Rôdeuse",
+            "kind": "entity",
+            "id": "rodeuse"
+          }
+        ],
+        "detections": []
+      }
+    },
+    {
+      "name": "of two overlapping terms only the longer one counts",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "taverne-sanglier",
+            "campaign": "cendres-valombre",
+            "name": "La Taverne du Sanglier",
+            "aliases": [
+              "la taverne",
+              "le Sanglier"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "On se retrouve à la taverne du sanglier."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "La Taverne du Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "la taverne",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "le Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "taverne-sanglier",
+            "via": "La Taverne du Sanglier"
+          }
+        ]
+      }
+    },
+    {
+      "name": "of two overlapping terms of two targets only the longer one counts",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "taverne",
+            "campaign": "cendres-valombre",
+            "name": "La Taverne",
+            "aliases": []
+          },
+          {
+            "id": "auberge",
+            "campaign": "cendres-valombre",
+            "name": "Taverne du Sanglier",
+            "aliases": []
+          }
+        ],
+        "sounds": [],
+        "phrase": "On se retrouve à la taverne du sanglier."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "La Taverne",
+            "kind": "entity",
+            "id": "taverne"
+          },
+          {
+            "term": "Taverne du Sanglier",
+            "kind": "entity",
+            "id": "auberge"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "auberge",
+            "via": "Taverne du Sanglier"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a target is named at most once, by its longest term",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "gaspard",
+            "campaign": "cendres-valombre",
+            "name": "Gaspard Grosmollet",
+            "aliases": [
+              "Gaspard",
+              "le tavernier"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "Gaspard, le tavernier, sourit."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Gaspard Grosmollet",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "Gaspard",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "le tavernier",
+            "kind": "entity",
+            "id": "gaspard"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "gaspard",
+            "via": "le tavernier"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a term heard twice names its target once",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "morlox",
+            "campaign": "cendres-valombre",
+            "name": "Morlox",
+            "aliases": [
+              "le gobelin",
+              "le marchand",
+              "Morlo"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "Morlox ? Morlox est parti."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Morlox",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "le gobelin",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "le marchand",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "Morlo",
+            "kind": "entity",
+            "id": "morlox"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "morlox",
+            "via": "Morlox"
+          }
+        ]
+      }
+    },
+    {
+      "name": "several targets are answered in the order of the phrase, not of the vocabulary",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "gaspard",
+            "campaign": "cendres-valombre",
+            "name": "Gaspard Grosmollet",
+            "aliases": [
+              "Gaspard",
+              "le tavernier"
+            ]
+          },
+          {
+            "id": "morlox",
+            "campaign": "cendres-valombre",
+            "name": "Morlox",
+            "aliases": [
+              "le gobelin",
+              "le marchand",
+              "Morlo"
+            ]
+          }
+        ],
+        "sounds": [
+          {
+            "id": "snd-corbeau",
+            "campaign": "cendres-valombre",
+            "name": "Cri de corbeau"
+          }
+        ],
+        "phrase": "Morlox parle à Gaspard pendant le cri de corbeau."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Gaspard Grosmollet",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "Gaspard",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "le tavernier",
+            "kind": "entity",
+            "id": "gaspard"
+          },
+          {
+            "term": "Morlox",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "le gobelin",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "le marchand",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "Morlo",
+            "kind": "entity",
+            "id": "morlox"
+          },
+          {
+            "term": "Cri de corbeau",
+            "kind": "sound",
+            "id": "snd-corbeau"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "morlox",
+            "via": "Morlox"
+          },
+          {
+            "kind": "entity",
+            "id": "gaspard",
+            "via": "Gaspard"
+          },
+          {
+            "kind": "sound",
+            "id": "snd-corbeau",
+            "via": "Cri de corbeau"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a sound is named by its name and targets the sound",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "taverne-sanglier",
+            "campaign": "cendres-valombre",
+            "name": "La Taverne du Sanglier",
+            "aliases": [
+              "la taverne",
+              "le Sanglier"
+            ]
+          }
+        ],
+        "sounds": [
+          {
+            "id": "snd-porte",
+            "campaign": "cendres-valombre",
+            "name": "Porte qui grince"
+          }
+        ],
+        "phrase": "Derrière le comptoir, la porte qui grince."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "La Taverne du Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "la taverne",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "le Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "Porte qui grince",
+            "kind": "sound",
+            "id": "snd-porte"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "sound",
+            "id": "snd-porte",
+            "via": "Porte qui grince"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an apostrophe separates words, whichever apostrophe is typed",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "incendie-moulin",
+            "campaign": "cendres-valombre",
+            "name": "Le grand incendie",
+            "aliases": [
+              "l’incendie"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "Au feu, l'incendie !"
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Le grand incendie",
+            "kind": "entity",
+            "id": "incendie-moulin"
+          },
+          {
+            "term": "l’incendie",
+            "kind": "entity",
+            "id": "incendie-moulin"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "incendie-moulin",
+            "via": "l’incendie"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the same term on two targets: the earlier entry of the vocabulary wins the tie",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "tour-nord",
+            "campaign": "cendres-valombre",
+            "name": "Tour du Nord",
+            "aliases": [
+              "la tour"
+            ]
+          },
+          {
+            "id": "tour-sud",
+            "campaign": "cendres-valombre",
+            "name": "Tour du Sud",
+            "aliases": [
+              "La Tour"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": "Direction la tour !"
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "Tour du Nord",
+            "kind": "entity",
+            "id": "tour-nord"
+          },
+          {
+            "term": "la tour",
+            "kind": "entity",
+            "id": "tour-nord"
+          },
+          {
+            "term": "Tour du Sud",
+            "kind": "entity",
+            "id": "tour-sud"
+          },
+          {
+            "term": "La Tour",
+            "kind": "entity",
+            "id": "tour-sud"
+          }
+        ],
+        "detections": [
+          {
+            "kind": "entity",
+            "id": "tour-nord",
+            "via": "la tour"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a phrase that names nothing detects nothing",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "taverne-sanglier",
+            "campaign": "cendres-valombre",
+            "name": "La Taverne du Sanglier",
+            "aliases": [
+              "la taverne",
+              "le Sanglier"
+            ]
+          }
+        ],
+        "sounds": [
+          {
+            "id": "snd-porte",
+            "campaign": "cendres-valombre",
+            "name": "Porte qui grince"
+          }
+        ],
+        "phrase": "Il fait nuit."
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "La Taverne du Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "la taverne",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "le Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "Porte qui grince",
+            "kind": "sound",
+            "id": "snd-porte"
+          }
+        ],
+        "detections": []
+      }
+    },
+    {
+      "name": "an empty phrase detects nothing, and is not an absent phrase",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [
+          {
+            "id": "taverne-sanglier",
+            "campaign": "cendres-valombre",
+            "name": "La Taverne du Sanglier",
+            "aliases": [
+              "la taverne",
+              "le Sanglier"
+            ]
+          }
+        ],
+        "sounds": [],
+        "phrase": ""
+      },
+      "output": {
+        "vocabulary": [
+          {
+            "term": "La Taverne du Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "la taverne",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          },
+          {
+            "term": "le Sanglier",
+            "kind": "entity",
+            "id": "taverne-sanglier"
+          }
+        ],
+        "detections": []
+      }
+    },
+    {
+      "name": "a campaign with no element has an empty vocabulary",
+      "input": {
+        "campaign": "cendres-valombre",
+        "entities": [],
+        "sounds": [],
+        "phrase": "La Balafrée."
+      },
+      "output": {
+        "vocabulary": [],
+        "detections": []
+      }
+    }
+  ]
+}
