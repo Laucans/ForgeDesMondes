@@ -313,9 +313,11 @@
         "session.getSessionJournal"
       ],
       "actions": [],
-      "props": {},
+      "props": {
+        "session": "string — id de la séance en préparation : on lit la séance close qui la précède ; sans lui, aucune lecture"
+      },
       "source": "apps/session/previous-summary",
-      "builtFrom": "e9359de259563c1c"
+      "builtFrom": "673f35c57fe2e511"
     },
     {
       "name": "OralBrief",
