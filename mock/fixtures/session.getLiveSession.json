@@ -1,7 +1,8 @@
 {
+  "campaign": "cendres-valombre",
+  "date": "2026-10-17",
   "id": "s4",
   "order": 4,
-  "title": "L’embuscade du Gué",
-  "date": "2026-10-17",
-  "startedAt": "20:02"
+  "startedAt": "20:02",
+  "title": "L’embuscade du Gué"
 }

@@ -1,9 +1,13 @@
 {
-  "id": "bmi-gue-s4",
   "battlemap": "bm-gue",
-  "session": "s4",
-  "scene": "sc3",
+  "id": "bmi-gue-s4",
   "label": "Séance 4 · Scène 3 — L’embuscade au Gué",
+  "pjInitiative": {
+    "brannoc": 9,
+    "elowen": 18,
+    "kael": 12,
+    "sirielle": 14
+  },
   "roster": [
     "elowen",
     "brannoc",
@@ -13,127 +17,123 @@
     "vesna",
     "morlox"
   ],
-  "pjInitiative": {
-    "elowen": 18,
-    "brannoc": 9,
-    "sirielle": 14,
-    "kael": 12
-  },
+  "scene": "sc3",
+  "session": "s4",
   "state": {
+    "combat": null,
     "tokens": [
       {
-        "id": "t-elowen",
         "char": "elowen",
+        "dead": false,
+        "hp": null,
+        "hpMax": null,
+        "id": "t-elowen",
         "kind": "pj",
         "name": "Elowen",
         "num": null,
         "q": 0,
         "r": 6,
-        "visible": true,
-        "hp": null,
-        "hpMax": null,
         "states": [],
-        "dead": false
+        "visible": true
       },
       {
-        "id": "t-kael",
         "char": "kael",
+        "dead": false,
+        "hp": null,
+        "hpMax": null,
+        "id": "t-kael",
         "kind": "pj",
         "name": "Kael",
         "num": null,
         "q": 1,
         "r": 6,
-        "visible": true,
-        "hp": null,
-        "hpMax": null,
         "states": [],
-        "dead": false
+        "visible": true
       },
       {
-        "id": "t-brannoc",
         "char": "brannoc",
+        "dead": false,
+        "hp": null,
+        "hpMax": null,
+        "id": "t-brannoc",
         "kind": "pj",
         "name": "Brannoc",
         "num": null,
         "q": -1,
         "r": 7,
-        "visible": true,
-        "hp": null,
-        "hpMax": null,
         "states": [],
-        "dead": false
+        "visible": true
       },
       {
-        "id": "t-sirielle",
         "char": "sirielle",
+        "dead": false,
+        "hp": null,
+        "hpMax": null,
+        "id": "t-sirielle",
         "kind": "pj",
         "name": "Sirielle",
         "num": null,
         "q": 0,
         "r": 7,
-        "visible": true,
-        "hp": null,
-        "hpMax": null,
         "states": [],
-        "dead": false
+        "visible": true
       },
       {
-        "id": "t-bandit-1",
         "char": "bandit",
+        "dead": false,
+        "hp": 11,
+        "hpMax": 11,
+        "id": "t-bandit-1",
         "kind": "pnj",
         "name": "Bandit 1",
         "num": 1,
         "q": 9,
         "r": 5,
-        "visible": true,
-        "hp": 11,
-        "hpMax": 11,
         "states": [],
-        "dead": false
+        "visible": true
       },
       {
-        "id": "t-bandit-2",
         "char": "bandit",
+        "dead": false,
+        "hp": 11,
+        "hpMax": 11,
+        "id": "t-bandit-2",
         "kind": "pnj",
         "name": "Bandit 2",
         "num": 2,
         "q": 10,
         "r": 6,
-        "visible": true,
-        "hp": 11,
-        "hpMax": 11,
         "states": [],
-        "dead": false
+        "visible": true
       },
       {
-        "id": "t-bandit-3",
         "char": "bandit",
+        "dead": false,
+        "hp": 11,
+        "hpMax": 11,
+        "id": "t-bandit-3",
         "kind": "pnj",
         "name": "Bandit 3",
         "num": 3,
         "q": 9,
         "r": 8,
-        "visible": true,
-        "hp": 11,
-        "hpMax": 11,
         "states": [],
-        "dead": false
+        "visible": true
       },
       {
-        "id": "t-vesna-1",
         "char": "vesna",
+        "dead": false,
+        "hp": 65,
+        "hpMax": 65,
+        "id": "t-vesna-1",
         "kind": "pnj",
         "name": "Chef bandit 1",
         "num": 1,
         "q": 8,
         "r": 3,
-        "visible": false,
-        "hp": 65,
-        "hpMax": 65,
         "states": [],
-        "dead": false
+        "visible": false
       }
-    ],
-    "combat": null
+    ]
   }
 }

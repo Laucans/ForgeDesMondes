@@ -945,7 +945,9 @@ name = "get-live-session"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
+ "platform-test-kit",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
