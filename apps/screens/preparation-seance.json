@@ -7,7 +7,7 @@
     { "OralBrief": { "session": "s4" } },
     { "SceneBoard": { "session": "s4", "campaign": "cendres-valombre" } },
     { "VersionHistory": { "entity": "morlox", "title": "Fiches modifiées par le brief" } },
-    { "ToCreateList": { "session": "s4" } },
+    { "ToCreateList": { "session": "s4", "campaign": "cendres-valombre" } },
     { "Battlemap": { "instance": "bmi-gue-s4", "view": "prep", "campaign": "cendres-valombre" } }
   ]
 }
