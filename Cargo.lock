@@ -110,6 +110,7 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "platform-test-kit",
  "serde_json",
  "tokio",
 ]
