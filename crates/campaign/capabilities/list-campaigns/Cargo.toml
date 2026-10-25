@@ -8,3 +8,8 @@ publish = false
 
 [dependencies]
 serde_json = "1"
+
+[dev-dependencies]
+# The harness's test kit: the scratch database migrated as the server migrates it, the mock-up's fixture.
+platform-test-kit = { path = "../../../platform/test-kit" }
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

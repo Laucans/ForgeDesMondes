@@ -3,7 +3,7 @@ name = "export-campaign"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "DataCapability campaign.exportCampaign: a campaign, its players, its elements with their sheets, aliases and versions, as the tables hold them, made one self-contained JSON archive — and the stamp of its last export, the one field the command writes on its Campaign partition (export-stamps-date)."
+description = "DataCapability campaign.exportCampaign: a campaign, its players, its elements with their sheets, aliases and versions, its media with their battlemap grids, its sounds, its sessions with their present characters, scenes and journal, as the tables hold them, made one self-contained JSON archive — and the stamp of its last export, the one field the command writes on its Campaign partition (export-stamps-date)."
 publish = false
 
 [dependencies]
@@ -19,4 +19,8 @@ aggregate-campaign = { path = "../../aggregates/Campaign" }
 # The migrations' applier the server runs: the archive's tests read the
 # tables as the product migrates them.
 data = { path = "../../../data" }
+# The CampaignArchive@1 fixtures the archive is held to.
+platform-conformance = { path = "../../../platform/conformance" }
+# Its tests' database and engine: a Scratch database, migrated by the Data layer.
+platform-test-kit = { path = "../../../platform/test-kit" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

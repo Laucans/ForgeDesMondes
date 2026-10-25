@@ -73,6 +73,9 @@ fn valombre() -> Value {
             "campaign": { "id": VALOMBRE, "name": "Les Cendres de Valombre", "last_exported_at": null },
             "players": [{ "id": "b1", "name": "Claire" }],
             "elements": [{ "id": "e1", "type": "lieu", "aliases": [], "versions": [] }],
+            "media": [{ "id": "d1", "kind": "illustration", "battlemap_grid": null }],
+            "sounds": [{ "id": "a1", "name": "Pluie" }],
+            "sessions": [{ "id": "5e1", "scenes": [], "journal_lines": [] }],
         }
     }])
 }
@@ -169,10 +172,13 @@ async fn an_export_stamps_its_time_on_its_campaign_and_answers_its_archive_once_
     );
     assert_eq!(archive["content"]["exported_at"], NOW);
     assert_eq!(archive["content"]["origin_campaign_id"], VALOMBRE);
-    assert_eq!(
-        archive["content"]["players"],
-        valombre()[0]["archive"]["players"]
-    );
+    for section in ["players", "elements", "media", "sounds", "sessions"] {
+        assert_eq!(
+            archive["content"][section],
+            valombre()[0]["archive"][section],
+            "{section}"
+        );
+    }
     assert_eq!(
         engine
             .status(&submitted.command_id)

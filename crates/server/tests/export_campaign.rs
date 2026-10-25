@@ -28,10 +28,13 @@ use serde_json::{Value, json};
 use server::{Config, app, plant, shared};
 use tower::ServiceExt;
 
-const MIGRATIONS: [&str; 3] = [
+const MIGRATIONS: [&str; 6] = [
     include_str!("../../data/migrations/0002_campaign.sql"),
     include_str!("../../data/migrations/0003_player.sql"),
     include_str!("../../data/migrations/0004_entity.sql"),
+    include_str!("../../data/migrations/0005_media.sql"),
+    include_str!("../../data/migrations/0006_session.sql"),
+    include_str!("../../data/migrations/0007_sound.sql"),
 ];
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
