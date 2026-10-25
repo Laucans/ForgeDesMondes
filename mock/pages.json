@@ -44,6 +44,7 @@
     },
     {
       "path": "pages/preparation-seance.html",
+      "screen": "preparation-seance",
       "title": "Préparation de séance",
       "objective": "Le DM relit la séance précédente, raconte son brief au micro, vérifie les scènes et les entités détectées, crée les manquantes et place les tokens sur la battlemap d’une scène",
       "components": [
