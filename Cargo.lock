@@ -1316,7 +1316,9 @@ dependencies = [
 name = "list-campaigns"
 version = "0.1.0"
 dependencies = [
+ "platform-test-kit",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
