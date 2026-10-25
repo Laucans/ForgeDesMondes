@@ -14,9 +14,9 @@
             "id": "c0000001-0000-4000-8000-000000000001",
             "name": "Les cendres de Valombre",
             "kind": "campagne",
-            "pitch": "Une vallée qui brûle encore.",
+            "pitch": "Une vall\u00e9e qui br\u00fble encore.",
             "art": null,
-            "glyph": "🔥",
+            "glyph": "\ud83d\udd25",
             "cover_media_id": "d0000002-0000-4000-8000-000000000002",
             "created_at": "2026-03-01T10:00:00+00:00",
             "last_exported_at": "2026-09-01T18:00:00+00:00",
@@ -46,8 +46,8 @@
               "campaign_id": "c0000001-0000-4000-8000-000000000001",
               "type": "pj",
               "name": "Kael",
-              "description": "Un capitaine déchu.",
-              "notes": "Cherche son équipage.",
+              "description": "Un capitaine d\u00e9chu.",
+              "notes": "Cherche son \u00e9quipage.",
               "created_at": "2026-03-02T10:00:00+00:00",
               "updated_at": "2026-04-02T10:00:00+00:00",
               "character": {
@@ -221,7 +221,7 @@
               "type": "pnj",
               "name": "Morlox",
               "description": null,
-              "notes": "Doit 40 po à Vesna.",
+              "notes": "Doit 40 po \u00e0 Vesna.",
               "created_at": "2026-03-03T10:00:00+00:00",
               "updated_at": "2026-03-03T10:00:00+00:00",
               "character": {
@@ -491,9 +491,9 @@
           "id": "c0000001-ffff-4fff-8fff-ffffffffff01",
           "name": "Les cendres de Valombre",
           "kind": "campagne",
-          "pitch": "Une vallée qui brûle encore.",
+          "pitch": "Une vall\u00e9e qui br\u00fble encore.",
           "art": null,
-          "glyph": "🔥",
+          "glyph": "\ud83d\udd25",
           "cover_media_id": "d0000002-ffff-4fff-8fff-ffffffffff02",
           "created_at": "2026-03-01T10:00:00+00:00",
           "last_exported_at": null,
@@ -523,8 +523,8 @@
             "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
             "type": "pj",
             "name": "Kael",
-            "description": "Un capitaine déchu.",
-            "notes": "Cherche son équipage.",
+            "description": "Un capitaine d\u00e9chu.",
+            "notes": "Cherche son \u00e9quipage.",
             "created_at": "2026-03-02T10:00:00+00:00",
             "updated_at": "2026-04-02T10:00:00+00:00",
             "character": {
@@ -698,7 +698,7 @@
             "type": "pnj",
             "name": "Morlox",
             "description": null,
-            "notes": "Doit 40 po à Vesna.",
+            "notes": "Doit 40 po \u00e0 Vesna.",
             "created_at": "2026-03-03T10:00:00+00:00",
             "updated_at": "2026-03-03T10:00:00+00:00",
             "character": {
@@ -951,9 +951,9 @@
             "id": "c0000001-0000-4000-8000-000000000001",
             "name": "Les cendres de Valombre",
             "kind": "campagne",
-            "pitch": "Une vallée qui brûle encore.",
+            "pitch": "Une vall\u00e9e qui br\u00fble encore.",
             "art": null,
-            "glyph": "🔥",
+            "glyph": "\ud83d\udd25",
             "cover_media_id": null,
             "created_at": "2026-03-01T10:00:00+00:00",
             "last_exported_at": "2026-09-01T18:00:00+00:00",
@@ -1033,9 +1033,9 @@
           "id": "c0000001-ffff-4fff-8fff-ffffffffff01",
           "name": "Les cendres de Valombre",
           "kind": "campagne",
-          "pitch": "Une vallée qui brûle encore.",
+          "pitch": "Une vall\u00e9e qui br\u00fble encore.",
           "art": null,
-          "glyph": "🔥",
+          "glyph": "\ud83d\udd25",
           "cover_media_id": null,
           "created_at": "2026-03-01T10:00:00+00:00",
           "last_exported_at": null,
@@ -1116,9 +1116,9 @@
             "id": "c0000001-0000-4000-8000-000000000001",
             "name": "Les cendres de Valombre",
             "kind": "campagne",
-            "pitch": "Une vallée qui brûle encore.",
+            "pitch": "Une vall\u00e9e qui br\u00fble encore.",
             "art": null,
-            "glyph": "🔥",
+            "glyph": "\ud83d\udd25",
             "cover_media_id": null,
             "created_at": "2026-03-01T10:00:00+00:00",
             "last_exported_at": "2026-09-01T18:00:00+00:00",
@@ -1144,9 +1144,9 @@
           "id": "c0000001-ffff-4fff-8fff-ffffffffff01",
           "name": "Les cendres de Valombre",
           "kind": "campagne",
-          "pitch": "Une vallée qui brûle encore.",
+          "pitch": "Une vall\u00e9e qui br\u00fble encore.",
           "art": null,
-          "glyph": "🔥",
+          "glyph": "\ud83d\udd25",
           "cover_media_id": null,
           "created_at": "2026-03-01T10:00:00+00:00",
           "last_exported_at": null,
@@ -1173,9 +1173,9 @@
             "id": "c0000001-0000-4000-8000-000000000001",
             "name": "Les cendres de Valombre",
             "kind": "campagne",
-            "pitch": "Une vallée qui brûle encore.",
+            "pitch": "Une vall\u00e9e qui br\u00fble encore.",
             "art": null,
-            "glyph": "🔥",
+            "glyph": "\ud83d\udd25",
             "cover_media_id": "0bad0001-0000-4000-8000-000000000001",
             "created_at": "2026-03-01T10:00:00+00:00",
             "last_exported_at": "2026-09-01T18:00:00+00:00",
@@ -1205,8 +1205,8 @@
               "campaign_id": "c0000001-0000-4000-8000-000000000001",
               "type": "pj",
               "name": "Kael",
-              "description": "Un capitaine déchu.",
-              "notes": "Cherche son équipage.",
+              "description": "Un capitaine d\u00e9chu.",
+              "notes": "Cherche son \u00e9quipage.",
               "created_at": "2026-03-02T10:00:00+00:00",
               "updated_at": "2026-04-02T10:00:00+00:00",
               "character": {
@@ -1232,7 +1232,11 @@
                 ],
                 "portrait_media_id": "0bad0003-0000-4000-8000-000000000003",
                 "token_media_id": null,
-                "token_crop": null,
+                "token_crop": {
+                  "x": 0.2,
+                  "y": 0.1,
+                  "size": 0.5
+                },
                 "token_color": "#c0392b",
                 "dndbeyond_id": null,
                 "dndbeyond_synced_at": null
@@ -1299,7 +1303,7 @@
                     "name": "Kael",
                     "playerId": "a0000001-0000-4000-8000-000000000001",
                     "portraitMediaId": "0bad0003-0000-4000-8000-000000000003",
-                    "tokenMediaId": null,
+                    "tokenMediaId": "0bad0010-0000-4000-8000-000000000010",
                     "tokenColor": "#c0392b",
                     "aliases": [
                       "le capitaine"
@@ -1307,9 +1311,19 @@
                   },
                   "diff": [
                     {
+                      "field": "playerId",
+                      "old": "0bad0002-0000-4000-8000-000000000002",
+                      "new": "a0000001-0000-4000-8000-000000000001"
+                    },
+                    {
                       "field": "portraitMediaId",
                       "old": null,
                       "new": "0bad0003-0000-4000-8000-000000000003"
+                    },
+                    {
+                      "field": "tokenMediaId",
+                      "old": null,
+                      "new": "0bad0010-0000-4000-8000-000000000010"
                     }
                   ],
                   "restored_from_version_id": null,
@@ -1325,7 +1339,7 @@
                     "name": "Kael",
                     "playerId": "a0000002-0000-4000-8000-000000000002",
                     "portraitMediaId": "d0000002-0000-4000-8000-000000000002",
-                    "tokenMediaId": null,
+                    "tokenMediaId": "0bad0011-0000-4000-8000-000000000011",
                     "tokenColor": "#c0392b",
                     "aliases": [
                       "le capitaine"
@@ -1336,6 +1350,16 @@
                       "field": "playerId",
                       "old": "a0000001-0000-4000-8000-000000000001",
                       "new": "a0000002-0000-4000-8000-000000000002"
+                    },
+                    {
+                      "field": "portraitMediaId",
+                      "old": "0bad0003-0000-4000-8000-000000000003",
+                      "new": "d0000002-0000-4000-8000-000000000002"
+                    },
+                    {
+                      "field": "tokenMediaId",
+                      "old": "0bad0010-0000-4000-8000-000000000010",
+                      "new": "0bad0011-0000-4000-8000-000000000011"
                     }
                   ],
                   "restored_from_version_id": null,
@@ -1367,6 +1391,11 @@
                       "field": "portraitMediaId",
                       "old": "d0000002-0000-4000-8000-000000000002",
                       "new": null
+                    },
+                    {
+                      "field": "tokenMediaId",
+                      "old": "0bad0011-0000-4000-8000-000000000011",
+                      "new": null
                     }
                   ],
                   "restored_from_version_id": "0bad0004-0000-4000-8000-000000000004",
@@ -1380,7 +1409,7 @@
               "type": "pnj",
               "name": "Morlox",
               "description": null,
-              "notes": "Doit 40 po à Vesna.",
+              "notes": "Doit 40 po \u00e0 Vesna.",
               "created_at": "2026-03-03T10:00:00+00:00",
               "updated_at": "2026-03-03T10:00:00+00:00",
               "character": {
@@ -1664,9 +1693,9 @@
           "id": "c0000001-ffff-4fff-8fff-ffffffffff01",
           "name": "Les cendres de Valombre",
           "kind": "campagne",
-          "pitch": "Une vallée qui brûle encore.",
+          "pitch": "Une vall\u00e9e qui br\u00fble encore.",
           "art": null,
-          "glyph": "🔥",
+          "glyph": "\ud83d\udd25",
           "cover_media_id": null,
           "created_at": "2026-03-01T10:00:00+00:00",
           "last_exported_at": null,
@@ -1696,8 +1725,8 @@
             "campaign_id": "c0000001-ffff-4fff-8fff-ffffffffff01",
             "type": "pj",
             "name": "Kael",
-            "description": "Un capitaine déchu.",
-            "notes": "Cherche son équipage.",
+            "description": "Un capitaine d\u00e9chu.",
+            "notes": "Cherche son \u00e9quipage.",
             "created_at": "2026-03-02T10:00:00+00:00",
             "updated_at": "2026-04-02T10:00:00+00:00",
             "character": {
@@ -1762,11 +1791,6 @@
                     "new": "Kael"
                   },
                   {
-                    "field": "playerId",
-                    "old": null,
-                    "new": null
-                  },
-                  {
                     "field": "tokenColor",
                     "old": null,
                     "new": "#c0392b"
@@ -1798,9 +1822,9 @@
                 },
                 "diff": [
                   {
-                    "field": "portraitMediaId",
+                    "field": "playerId",
                     "old": null,
-                    "new": null
+                    "new": "a0000001-ffff-4fff-8fff-ffffffffff01"
                   }
                 ],
                 "restored_from_version_id": null,
@@ -1827,6 +1851,11 @@
                     "field": "playerId",
                     "old": "a0000001-ffff-4fff-8fff-ffffffffff01",
                     "new": "a0000002-ffff-4fff-8fff-ffffffffff02"
+                  },
+                  {
+                    "field": "portraitMediaId",
+                    "old": null,
+                    "new": "d0000002-ffff-4fff-8fff-ffffffffff02"
                   }
                 ],
                 "restored_from_version_id": null,
@@ -1871,7 +1900,7 @@
             "type": "pnj",
             "name": "Morlox",
             "description": null,
-            "notes": "Doit 40 po à Vesna.",
+            "notes": "Doit 40 po \u00e0 Vesna.",
             "created_at": "2026-03-03T10:00:00+00:00",
             "updated_at": "2026-03-03T10:00:00+00:00",
             "character": {

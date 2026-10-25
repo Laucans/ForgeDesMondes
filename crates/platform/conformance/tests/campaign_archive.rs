@@ -104,19 +104,25 @@ impl Copy<'_> {
                 (member.clone(), value)
             })
             .collect();
-        let diff = Self::rows(list(version, "diff"), |entry| {
-            if VERSION_REFERENCES.contains(&entry["field"].as_str().expect("field")) {
-                Self::with(
-                    entry,
-                    &[
-                        ("old", self.reference(&entry["old"])),
-                        ("new", self.reference(&entry["new"])),
-                    ],
-                )
-            } else {
-                entry.clone()
-            }
-        });
+        let diff = Value::Array(
+            list(version, "diff")
+                .iter()
+                .map(|entry| {
+                    if VERSION_REFERENCES.contains(&entry["field"].as_str().expect("field")) {
+                        Self::with(
+                            entry,
+                            &[
+                                ("old", self.reference(&entry["old"])),
+                                ("new", self.reference(&entry["new"])),
+                            ],
+                        )
+                    } else {
+                        entry.clone()
+                    }
+                })
+                .filter(|entry| entry["old"] != entry["new"])
+                .collect(),
+        );
         Self::with(
             version,
             &[
@@ -139,16 +145,21 @@ impl Copy<'_> {
                 .get("character")
                 .filter(|c| !c.is_null())
                 .map_or(Value::Null, |sheet| {
+                    let portrait = self.reference(&sheet["portrait_media_id"]);
+                    // A crop is a crop of the portrait: it goes with it.
+                    let crop = if portrait.is_null() {
+                        Value::Null
+                    } else {
+                        sheet["token_crop"].clone()
+                    };
                     Self::with(
                         sheet,
                         &[
                             ("entity_id", id.clone()),
                             ("player_id", self.reference(&sheet["player_id"])),
-                            (
-                                "portrait_media_id",
-                                self.reference(&sheet["portrait_media_id"]),
-                            ),
+                            ("portrait_media_id", portrait),
                             ("token_media_id", self.reference(&sheet["token_media_id"])),
+                            ("token_crop", crop),
                         ],
                     )
                 });
@@ -291,12 +302,20 @@ fn case(name_starts_with: &str) -> platform_conformance::Case {
         .unwrap_or_else(|| panic!("no case starting with {name_starts_with:?}"))
 }
 
-/// Every string of a JSON value, keys excluded.
-fn strings<'a>(value: &'a Value, found: &mut Vec<&'a str>) {
+/// Every string of a JSON value with its JSON pointer, keys excluded.
+fn strings<'a>(value: &'a Value, path: &str, found: &mut Vec<(String, &'a str)>) {
     match value {
-        Value::String(text) => found.push(text),
-        Value::Array(items) => items.iter().for_each(|item| strings(item, found)),
-        Value::Object(members) => members.values().for_each(|item| strings(item, found)),
+        Value::String(text) => found.push((path.to_owned(), text)),
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                strings(item, &format!("{path}/{index}"), found);
+            }
+        }
+        Value::Object(members) => {
+            for (member, item) in members {
+                strings(item, &format!("{path}/{member}"), found);
+            }
+        }
         _ => {}
     }
 }
@@ -304,6 +323,57 @@ fn strings<'a>(value: &'a Value, found: &mut Vec<&'a str>) {
 #[test]
 fn conformance_the_fixtures_load_and_an_implementation_passes_them() {
     platform_conformance::check(ID, copy);
+}
+
+/// A wrong copy of the archive that keeps the link rows of `link` whose
+/// other end is outside the archive, with that end nulled, or as it was.
+fn keeps_outside_links(input: Value, link: &str, old_end: bool) -> Value {
+    let mut answer = copy(input.clone());
+    let wrong = Copy {
+        new_ids: input["new_ids"].as_object().expect("new_ids"),
+        held: held(&input["archive"]),
+    };
+    let (owner, other) = match link {
+        "session_present_character" => ("session_id", "character_id"),
+        "scene_entity" => ("scene_id", "entity_id"),
+        _ => ("scene_id", "media_id"),
+    };
+    let rebuild = |rows: &[Value], owner_id: &Value| {
+        Value::Array(
+            rows.iter()
+                .map(|row| {
+                    let end = match row[other].as_str() {
+                        Some(id) if wrong.held.contains(id) => wrong.new_ids[id].clone(),
+                        _ if old_end => row[other].clone(),
+                        _ => Value::Null,
+                    };
+                    Copy::with(row, &[(owner, owner_id.clone()), (other, end)])
+                })
+                .collect(),
+        )
+    };
+    for (session, was) in answer["sessions"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+        .zip(list(&input["archive"], "sessions"))
+    {
+        if link == "session_present_character" {
+            let id = session["id"].clone();
+            session[link] = rebuild(list(was, link), &id);
+            continue;
+        }
+        for (scene, was) in session["scenes"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .zip(list(was, "scenes"))
+        {
+            let id = scene["id"].clone();
+            scene[link] = rebuild(list(was, link), &id);
+        }
+    }
+    answer
 }
 
 #[test]
@@ -379,10 +449,50 @@ fn a_wrong_implementation_is_caught_by_the_fixtures() {
         }
         answer
     };
-    let outside_links_kept = |input: Value| {
+    let crop_kept_without_portrait = |input: Value| {
         let mut answer = copy(input.clone());
-        for session in answer["sessions"].as_array_mut().into_iter().flatten() {
-            session["session_present_character"] = Value::Array(Vec::new());
+        for (element, was) in answer["elements"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .zip(list(&input["archive"], "elements"))
+        {
+            if element["character"].is_object() {
+                element["character"]["token_crop"] = was["character"]["token_crop"].clone();
+            }
+        }
+        answer
+    };
+    let null_diff_entries_kept = |input: Value| {
+        let mut answer = copy(input.clone());
+        for (element, was) in answer["elements"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .zip(list(&input["archive"], "elements"))
+        {
+            for (version, was) in element["versions"]
+                .as_array_mut()
+                .into_iter()
+                .flatten()
+                .zip(list(was, "versions"))
+            {
+                let Some(diff) = version["diff"].as_array_mut() else {
+                    continue;
+                };
+                // The entries the right answer left out come back, nulled.
+                let kept: BTreeSet<String> = diff
+                    .iter()
+                    .map(|entry| entry["field"].as_str().expect("field").to_owned())
+                    .collect();
+                for entry in list(was, "diff") {
+                    let field = entry["field"].as_str().expect("field");
+                    if VERSION_REFERENCES.contains(&field) && !kept.contains(field) {
+                        diff.push(json!({"field": field, "old": null, "new": null}));
+                    }
+                }
+                diff.sort_by(|a, b| a["field"].as_str().cmp(&b["field"].as_str()));
+            }
         }
         answer
     };
@@ -422,7 +532,14 @@ fn a_wrong_implementation_is_caught_by_the_fixtures() {
         &version_ids_left_alone,
         &outside_kept,
         &sections_missing_stay_missing,
-        &outside_links_kept,
+        &crop_kept_without_portrait,
+        &null_diff_entries_kept,
+        &|input| keeps_outside_links(input, "session_present_character", false),
+        &|input| keeps_outside_links(input, "session_present_character", true),
+        &|input| keeps_outside_links(input, "scene_entity", false),
+        &|input| keeps_outside_links(input, "scene_entity", true),
+        &|input| keeps_outside_links(input, "scene_media", false),
+        &|input| keeps_outside_links(input, "scene_media", true),
         &grid_keeps_the_old_media,
         &place_kept_when_outside,
     ] {
@@ -461,12 +578,17 @@ fn a_full_copy_keeps_no_id_of_the_original_but_its_origin() {
     let archive = &case.input["archive"];
     let held = held(archive);
     let mut found = Vec::new();
-    strings(&case.output, &mut found);
-    for text in found {
-        if text == archive["origin_campaign_id"] {
+    strings(&case.output, "", &mut found);
+    for (path, text) in found {
+        // The only id of the original the copy keeps, at the two places it sits.
+        if path == "/origin_campaign_id" || path == "/campaign/origin_campaign_id" {
+            assert_eq!(text, archive["origin_campaign_id"], "{path}");
             continue;
         }
-        assert!(!held.contains(text), "{text} is an id of the original");
+        assert!(
+            !held.contains(text),
+            "{path}: {text} is an id of the original"
+        );
     }
     assert_eq!(
         case.output["origin_campaign_id"],
@@ -652,7 +774,31 @@ fn what_the_archive_does_not_hold_becomes_null_or_leaves_with_its_link() {
     assert_eq!(output["media"][0]["place_id"], Value::Null);
     let versions = &output["elements"][0]["versions"];
     assert_eq!(versions[0]["snapshot"]["playerId"], Value::Null);
-    assert_eq!(versions[0]["diff"][2]["new"], Value::Null);
+    // The sheet's crop went with its portrait.
+    assert!(archive["elements"][0]["character"]["token_crop"].is_object());
+    assert_eq!(sheet["token_crop"], Value::Null);
+    // A diff entry whose two sides both come out null is left out.
+    let fields = |version: &Value| -> Vec<String> {
+        list(version, "diff")
+            .iter()
+            .map(|entry| entry["field"].as_str().expect("field").to_owned())
+            .collect()
+    };
+    assert_eq!(
+        fields(&versions[0]),
+        ["aliases", "name", "tokenColor", "type"]
+    );
+    assert_eq!(fields(&versions[1]), ["playerId"]);
+    assert_eq!(fields(&versions[2]), ["playerId", "portraitMediaId"]);
+    assert_eq!(fields(&versions[3]), ["playerId", "portraitMediaId"]);
+    assert!(
+        versions
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|version| list(version, "diff"))
+            .all(|entry| entry["old"] != entry["new"])
+    );
     assert_eq!(versions[1]["snapshot"]["portraitMediaId"], Value::Null);
     assert_eq!(versions[3]["restored_from_version_id"], Value::Null);
     let session = &output["sessions"][0];
