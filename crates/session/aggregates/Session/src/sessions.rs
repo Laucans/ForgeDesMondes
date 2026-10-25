@@ -25,7 +25,8 @@
 //!
 //! Only a session's creation is written here: a session the tables hold
 //! already — written again on its partition, or deleted with a tombstone —
-//! is another command's to write, and this writes nothing of it.
+//! is another command's to write, and this writes nothing of it. Its status,
+//! its start and its microphone are [`crate::Microphone`]'s.
 
 use std::collections::BTreeMap;
 
