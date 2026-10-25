@@ -1,7 +1,7 @@
 //! Capability `live.listSuggestions`: what the suggestion pill shows.
 //!
 //! It reads, and only reads. The rows of its persisted query
-//! (`crates/live/queries/listSuggestions.graphql`, resolved by [`SQL`]) go in —
+//! (`crates/live/queries/list-suggestions.graphql`, resolved by [`SQL`]) go in —
 //! every suggestion of the campaign's live session, newest first, each
 //! resolved to the element or the sound it names; the answer, in the shape of
 //! `mock/fixtures/live.listSuggestions.json`, comes out: `suggestions` and
@@ -22,7 +22,7 @@ pub const CAPABILITY: &str = "live.listSuggestions";
 /// How many suggestions the pill's stack holds: the most recent ones.
 const PILE: usize = 5;
 
-/// What the persisted query `listSuggestions.graphql` selects: the live
+/// What the persisted query `list-suggestions.graphql` selects: the live
 /// session of the campaign bound to `$1` — of two, the last one planned, as
 /// the DataCapabilities that write find it, a session the engine deleted (its
 /// tombstone) being none; the last one started, among the campaigns', when `$1`

@@ -1,16 +1,15 @@
-# fields: session.status, session.campaignId, session.startedAt, session.position, suggestion.sessionId, suggestion.entityId, suggestion.soundId, suggestion.matchedText, suggestion.detectedAt, entity.type, entity.name, sound.name
+# fields: session.status, session.campaignId, session.startedAt, session.position, live_suggestion.sessionId, live_suggestion.entityId, live_suggestion.soundId, live_suggestion.matchedText, live_suggestion.detectedAt, entity.type, entity.name, sound.name
 # What the suggestion pill shows: every suggestion of the campaign's live
 # session, newest first, each resolved to the element or the sound it names
 # and the words that were heard. The pill's stack (the 5 most recent) is cut
 # from this list, never stored (pile-and-history-derived).
 query ListSuggestions($campaign: ID) {
   liveSuggestions(campaign: $campaign) {
-    entityId
-    entityType
-    entityName
-    soundId
-    soundName
-    matchedText
+    id
+    kind
+    type
+    name
+    via
     detectedAt
   }
 }
