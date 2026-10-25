@@ -2,7 +2,7 @@
 // reads them, what a player may see of them, the numbering of a « × n » drop,
 // the commands a gesture becomes.
 
-import { AGGREGATE, DATA_CAPABILITY_VERSION } from './ids.ts';
+import { AGGREGATE, APPROVER, DATA_CAPABILITY_VERSION } from './ids.ts';
 import { FEET_PER_HEX } from './hexgrid.ts';
 import type { Character, Combat, Grid, Instance, MapInfo, Participant, Props, Shape, Token, View } from './types.ts';
 
@@ -217,7 +217,7 @@ export const withCondition = (states: readonly string[], condition: string): str
 
 /** `POST /commands` for one DataCapability, by identifier, aimed at an aggregate. */
 export function commandBody(dataCapability: string, aggregate: string, id: string | undefined, payload: Record<string, unknown>): unknown {
-  return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, target: id === undefined ? { aggregate } : { aggregate, id }, payload, caller: { by: 'dm', from: 'Battlemap', roles: [] } };
+  return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, target: id === undefined ? { aggregate } : { aggregate, id }, payload, caller: { by: 'dm', from: 'Battlemap', roles: [APPROVER] } };
 }
 
 /** A command of the table: aimed at the instance. */
