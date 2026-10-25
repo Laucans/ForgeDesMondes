@@ -11,6 +11,8 @@ import { createShell, type Shell } from './shell.js';
 
 /** What a Micro-UI's module exports; the object `mount` answers follows its props when it has `update`. */
 export interface MicroUiModule {
+  /** True for a Micro-UI whose fifth `mount` argument is the DM's microphone; the others get nothing there. */
+  listens?: boolean;
   /** The fourth argument is the Micro-UI's timing, left to its default; the fifth is the DM's microphone, for the ones that listen. */
   mount(host: HTMLElement, props: Props, shell: Shell, timing?: undefined, dictation?: Dictation): { update?(props: Props): void } | void;
 }
@@ -47,7 +49,8 @@ export async function composeScreen(root: ParentNode, shell: Shell, loader: Load
       const raw = parse(host.dataset.props);
       try {
         const module = await loader(microUi);
-        const mounted = module.mount(host, shell.context.resolve(raw), shell, undefined, createDictation(microUi));
+        const props = shell.context.resolve(raw);
+        const mounted = module.listens === true ? module.mount(host, props, shell, undefined, createDictation(microUi)) : module.mount(host, props, shell);
         const follows = shell.context.follows(raw);
         if (follows.length && mounted && mounted.update) {
           const update = mounted.update.bind(mounted);

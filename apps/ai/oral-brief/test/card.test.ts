@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { mount, type Dictation, type Timing } from '../src/index.ts';
+import { listens, mount, type Dictation, type Timing } from '../src/index.ts';
 import { STYLE } from '../src/style.ts';
 import type { Shell } from '../src/types.ts';
 
@@ -475,4 +475,8 @@ test('a refused dictation says why and keeps the take for another try', async ()
   assert.equal((s.$('#brief-analyse') as HTMLButtonElement).disabled, false);
   await s.click('#brief-analyse');
   assert.deepEqual(s.sent.map((c) => c.payload), [{ session: 's4', dictation: 'YXVkaW8=' }, { session: 's4', dictation: 'YXVkaW8=' }]);
+});
+
+test('OralBrief says it listens, so the shell hands it the microphone', () => {
+  assert.equal(listens, true);
 });

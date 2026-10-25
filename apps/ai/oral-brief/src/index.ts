@@ -16,6 +16,9 @@ import type { Brief, Dictation, Outcome, Shell, Timing } from './types.ts';
 
 export type { Dictation, Shell, Timing } from './types.ts';
 
+/** The shell hands a dictation only to the Micro-UIs that say they listen: the fifth `mount` slot means something else elsewhere. */
+export const listens = true;
+
 const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 400, polls: 120 };
 
 const NO_BRIEF: Brief = { lastRun: null, duration: null, transcript: [], scenes: [], recognized: [], missing: [] };

@@ -14,6 +14,7 @@ const shell = { context: { resolve: (props: object) => props, follows: () => [],
 test('a Micro-UI is mounted with the shell, its timing left to it, and a dictation of its own id', async () => {
   const mounts: Array<{ args: unknown[] }> = [];
   const loader = async (): Promise<MicroUiModule> => ({
+    listens: true,
     mount: (...args: unknown[]) => void mounts.push({ args }),
   });
   const { node, hosts } = root('OralBrief');
@@ -34,6 +35,7 @@ test('a Micro-UI is mounted with the shell, its timing left to it, and a dictati
 test('each Micro-UI is handed a dictation that names it', async () => {
   const takes: Array<Promise<string>> = [];
   const loader = async (): Promise<MicroUiModule> => ({
+    listens: true,
     mount: (_host, _props, _shell, _timing, dictation) => {
       assert.ok(dictation);
       dictation.start?.();
@@ -43,4 +45,12 @@ test('each Micro-UI is handed a dictation that names it', async () => {
   await composeScreen(root('OralBrief', 'NoteImport').node, shell, loader);
   const heard = (await Promise.all(takes)).map((take) => Buffer.from(take, 'base64').toString());
   assert.deepEqual(heard.sort(), ['NoteImport', 'OralBrief']);
+});
+
+test('a Micro-UI that does not listen is mounted with the three arguments it knows, nothing in the slots after', async () => {
+  const mounts: unknown[][] = [];
+  const loader = async (): Promise<MicroUiModule> => ({ mount: (...args: unknown[]) => void mounts.push(args) });
+  await composeScreen(root('PlayerStage', 'MediaLibrary', 'LiveSoundbox').node, shell, loader);
+  assert.equal(mounts.length, 3);
+  for (const args of mounts) assert.equal(args.length, 3);
 });

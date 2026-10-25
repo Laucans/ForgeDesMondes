@@ -337,7 +337,7 @@
         "session": "string — id de la séance dont on raconte le brief"
       },
       "source": "apps/ai/oral-brief",
-      "builtFrom": "75aa3460436ef7d7"
+      "builtFrom": "c3a2063be8392852"
     },
     {
       "name": "SceneBoard",
