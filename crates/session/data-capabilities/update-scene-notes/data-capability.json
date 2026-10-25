@@ -7,7 +7,13 @@
     "aggregate": "Session",
     "id": "$scene"
   },
-  "touches": ["Session.notes"],
+  "touches": [
+    "Session.sceneId",
+    "Session.sceneSessionId",
+    "Session.sceneTitle",
+    "Session.notes",
+    "Session.entityId"
+  ],
   "payload": {
     "session": "uuid — the session the scene belongs to; a scene of another session is refused, 422, and no notes change",
     "scene": "uuid — the scene whose notes are written; one the store does not hold is refused, 404",

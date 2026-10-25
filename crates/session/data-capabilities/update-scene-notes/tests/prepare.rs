@@ -190,3 +190,13 @@ fn a_field_the_command_does_not_take_is_refused_by_name() {
         );
     }
 }
+
+#[test]
+fn every_field_the_row_writes_is_declared_in_touches() {
+    let read = request(&wire(json!("x")), None).expect("a request");
+    let prepared = prepare(&read, &scene()).expect("prepared");
+    platform_test_kit::writes_only_touches(
+        include_str!("../data-capability.json"),
+        &prepared.payload,
+    );
+}

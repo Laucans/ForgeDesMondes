@@ -16,9 +16,10 @@
 //! The scene's row is the `scene` table's — a scene the server loaded from
 //! its fixtures has no row in the engine — with, laid over it, the engine's
 //! as the commands queued on it will leave it. The notes are the one field
-//! it changes (`touches`); it still writes the scene's session, title and
-//! links as they are, because the projection of the scenes writes a scene
-//! again with its row's title, notes and links, and finds it by its id.
+//! it changes; it still writes the scene's id, session, title and links as
+//! they are, because the projection of the scenes writes a scene again with
+//! its row's title, notes and links, and finds it by its id. `touches`
+//! declares every field written, so the engine judges the whole row.
 //! Any field the command does not take is refused ([`Refusal::UnknownField`]).
 
 use std::collections::BTreeMap;
