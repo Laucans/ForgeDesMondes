@@ -1,10 +1,14 @@
 {
   "capability": "session.getLiveSession",
-  "system": "session",
-  "version": "1.0.0",
-  "description": "The running session, for the live bar and the DM view: session, its id, order (the session number), title, date, startedAt (HH:MM, UTC; null before it started), status (prep, live or closed) with its label as SessionLifecycle@1 says it, and present, the ids of the PCs ticked present, in the order they were ticked, those added later included; and microphone, whether it listens (on is false once the session is closed). Without an id, the running (live) session, the one that started last. An unknown session, or no running one, has no answer (null). The journal and the summary are other reads.",
+  "description": "The running session, for the live bar and the DM view: session, its id, campaign (the id of the campaign it belongs to), order (the session number), title, date, startedAt (HH:MM, UTC; null before it started), status (prep, live or closed) with its label as SessionLifecycle@1 says it, and present, the ids of the PCs ticked present, in the order they were ticked, those added later included; and microphone, whether it listens (on is false once the session is closed). Without an id, the running (live) session, the one that started last. An unknown session, or no running one, has no answer (null). The journal and the summary are other reads.",
   "implements": "SessionLifecycle@1",
-  "input": { "id": "string" },
-  "output": "{ session: { id: string, order: number, title: string, date: string | null, startedAt: string | null, status: 'prep' | 'live' | 'closed', statusLabel: string, present: string[] }, microphone: { on: boolean } } | null",
-  "reads": ["queries/getLiveSession.graphql"]
+  "input": {
+    "id": "string"
+  },
+  "output": "{ session: { id: string, campaign: string, order: number, title: string, date: string | null, startedAt: string | null, status: 'prep' | 'live' | 'closed', statusLabel: string, present: string[] }, microphone: { on: boolean } } | null",
+  "reads": [
+    "queries/getLiveSession.graphql"
+  ],
+  "system": "session",
+  "version": "2.0.0"
 }
