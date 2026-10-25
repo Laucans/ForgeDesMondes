@@ -342,6 +342,42 @@ async fn the_rows_beside_a_session_move_no_session() {
 }
 
 #[tokio::test]
+async fn a_close_is_left_to_the_close_s_projection_and_moves_nothing_here() {
+    let scratch = scratch("close_left").await;
+    let before = sessions(&scratch).await;
+    // `session.closeSession`'s projection finds the row still live only if
+    // this one has not moved it first.
+    project(
+        &scratch,
+        &format!("Session/{LIVE}"),
+        json!({ "sessionId": LIVE, "sessionStatus": "closed", "microphoneOn": false, "startedAt": SINCE }),
+        false,
+    )
+    .await;
+    assert_eq!(sessions(&scratch).await, before);
+}
+
+#[tokio::test]
+async fn the_hydrated_session_is_its_whole_row() {
+    let scratch = scratch("hydrate_whole").await;
+    // The engine's own tables, which the hydrate reads for a tombstone.
+    let _served = served(&scratch).await;
+    let client = scratch.connect().await;
+    // The engine takes the first hydrate that knows the row: a close heads
+    // its summary with the title this one gives.
+    let row = Microphone
+        .hydrate(&format!("Session/{LIVE}"), &client)
+        .await
+        .expect("hydrated")
+        .expect("the tables hold it");
+    assert_eq!(row["sessionTitle"], "La séance 2");
+    assert_eq!(row["sessionPosition"], 2);
+    assert_eq!(row["sessionStatus"], "live");
+    assert_eq!(row["startedAt"], SINCE);
+    assert!(!row.contains_key("plannedOn"), "{row:?}");
+}
+
+#[tokio::test]
 async fn a_status_the_table_does_not_take_rejects_the_command() {
     let scratch = scratch("bad_status").await;
     let mut client = scratch.connect().await;

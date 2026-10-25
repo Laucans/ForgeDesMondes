@@ -228,7 +228,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   function paintRoster(): void {
     const box = part('battlemap-roster');
     if (!box) return;
-    box.hidden = props.view !== 'prep' || !instance;
+    // The column of the prep view is there from the first paint, empty until the instance is read: the map is fitted to the width it keeps.
+    box.hidden = props.view !== 'prep';
     if (box.hidden || !instance) return;
     box.innerHTML = roster(instance.roster.map((id) => characters[id]).filter((c): c is Character => c !== undefined));
   }

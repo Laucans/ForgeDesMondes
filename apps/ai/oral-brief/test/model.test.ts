@@ -45,11 +45,11 @@ test('the last run is dated in UTC when it carries no zone, and says nothing bef
   assert.equal(lastRunLabel('pas une date', null), 'Dernier brief : pas une date');
 });
 
-test('the command names the DataCapability and its version, the DM and the Micro-UI', () => {
+test('the command names the DataCapability and its version, the DM as the approver, and the Micro-UI', () => {
   assert.deepEqual(commandBody('ai.analyzeBrief', { session: 's4', text: 'hop' }), {
     dataCapability: 'ai.analyzeBrief@1',
     payload: { session: 's4', text: 'hop' },
-    caller: { by: 'dm', from: 'OralBrief', roles: [] },
+    caller: { by: 'dm', from: 'OralBrief', roles: ['role:approver'] },
   });
 });
 

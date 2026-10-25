@@ -98,6 +98,8 @@
   var GET_SESSION = "session.getSession";
   var LIST_SCENES = "session.listScenes";
   var LIST_CHARACTERS = "campaign.listCharacters";
+  var LIST_PLACES = "campaign.listPlaces";
+  var LIST_EVENTS = "campaign.listEvents";
   var LIST_MEDIA = "media.listMedia";
   var GET_BATTLEMAP_INSTANCE = "table.getBattlemapInstance";
   var ADD_PRESENT_CHARACTER = "session.addPresentCharacter";
@@ -105,6 +107,8 @@
   var ADD_SCENE = "session.addScene";
   var REORDER_SCENES = "session.reorderScenes";
   var CREATE_BATTLEMAP_INSTANCE = "table.createBattlemapInstance";
+  var UPDATE_SCENE_NOTES = "session.updateSceneNotes";
+  var APPROVER = "role:approver";
   var DATA_CAPABILITY_VERSION = 1;
 
   // apps/session/scene-board/src/model.ts
@@ -141,6 +145,9 @@
   function parseCharacters(data) {
     return records(data).filter((character) => text(character.id) !== "").map((character) => ({ id: text(character.id), name: text(character.name) || text(character.id), kind: character.kind === "pj" ? "pj" : "pnj" }));
   }
+  function parseEntities(data) {
+    return records(data).filter((entity) => text(entity.id) !== "").map((entity) => ({ id: text(entity.id), name: text(entity.name) || text(entity.id) }));
+  }
   var medias = (value) => records(value).filter((media) => text(media.id) !== "").map((media) => ({ id: text(media.id), title: text(media.title) || text(media.id) }));
   function parseMedias(data) {
     const answer = isRecord(data) ? data : {};
@@ -151,7 +158,14 @@
     const tokens = isRecord(data.state) ? records(data.state.tokens) : [];
     return { id: text(data.id), battlemap: text(data.battlemap), tokens: tokens.length, hidden: tokens.filter((token) => token.visible === false).length };
   }
-  var sessionVariables = (session) => session ? { session } : {};
+  var campaignAsked = (fromSession, prop) => {
+    if (fromSession !== null && fromSession !== "") return fromSession;
+    return typeof prop === "string" && prop !== "" ? prop : null;
+  };
+  var sessionAsked = (prop, context2) => {
+    if (typeof prop === "string" && prop !== "") return prop;
+    return typeof context2 === "string" ? context2 : "";
+  };
   var pcs = (board) => board.characters.filter((character) => character.kind === "pj");
   var presentPcs = (board) => board.session.present.flatMap((id) => pcs(board).filter((character) => character.id === id));
   var absentPcs = (board) => pcs(board).filter((character) => !board.session.present.includes(character.id));
@@ -163,14 +177,13 @@
     order.splice(to, 0, ...order.splice(from, 1));
     return order;
   }
-  var ranks = (order) => order.map((scene, index) => ({ scene, rank: index + 1 }));
   function commandBody(dataCapability, payload, target, idempotencyKey) {
     return {
       dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`,
       payload,
       target,
       ...idempotencyKey === void 0 ? {} : { idempotencyKey },
-      caller: { by: "dm", from: "SceneBoard", roles: [] }
+      caller: { by: "dm", from: "SceneBoard", roles: [APPROVER] }
     };
   }
   var VIOLATIONS = {
@@ -194,7 +207,7 @@
   var button = (attrs, label, variant) => `<button type="button" class="${variant}"${attrs}>${esc(label)}</button>`;
   var buttons = (inner) => `<div class="kit-button kit-button--bare kit-button--small">${inner}</div>`;
   function skeleton() {
-    return `<section class="mf-scenes stack" id="scene-board" aria-labelledby="scenes-title" data-reads="${GET_SESSION}"><p class="mf-scenes__notice" id="scenes-notice" aria-live="polite"></p><section class="panel" id="scenes-present" aria-labelledby="scenes-present-title"><div class="panel__head"><h2 id="scenes-present-title">PJ pr\xE9sents</h2><span class="small muted" id="scenes-present-count"></span></div><div class="row" id="scenes-present-list" data-reads="${GET_SESSION} ${LIST_CHARACTERS}"></div><div class="row" id="scenes-present-add"></div></section><section class="panel" id="scenes-list-panel" aria-labelledby="scenes-title"><div class="panel__head"><h2 id="scenes-title">Sc\xE8nes</h2>${buttons(button(` id="scenes-add" data-writes="${ADD_SCENE}"`, "Ajouter une sc\xE8ne", "secondary"))}</div><ol class="mf-scenes__list" id="scenes-list" data-reads="${LIST_SCENES} ${LIST_MEDIA}"></ol></section></section>`;
+    return `<section class="mf-scenes stack" id="scene-board" aria-labelledby="scenes-title" data-reads="${GET_SESSION}"><p class="mf-scenes__notice" id="scenes-notice" aria-live="polite"></p><section class="panel" id="scenes-present" aria-labelledby="scenes-present-title"><div class="panel__head"><h2 id="scenes-present-title">PJ pr\xE9sents</h2><span class="small muted" id="scenes-present-count"></span></div><div class="row" id="scenes-present-list" data-reads="${GET_SESSION} ${LIST_CHARACTERS}"></div><div class="row" id="scenes-present-add"></div></section><section class="panel" id="scenes-list-panel" aria-labelledby="scenes-title"><div class="panel__head"><h2 id="scenes-title">Sc\xE8nes</h2>${buttons(button(` id="scenes-add" data-writes="${ADD_SCENE}"`, "Ajouter une sc\xE8ne", "secondary"))}</div><ol class="mf-scenes__list" id="scenes-list" data-reads="${LIST_SCENES} ${LIST_PLACES} ${LIST_EVENTS} ${LIST_MEDIA}"></ol></section></section>`;
   }
   function sceneTitle(board) {
     const { order, title } = board.session;
@@ -214,18 +227,20 @@
   var link = (cls, href, label, id) => `<a class="chip chip--${cls}" href="${esc(href)}" id="${esc(id)}">${esc(label)}</a>`;
   function chips(scene, board) {
     const character = (id) => board.characters.find((c) => c.id === id)?.name ?? id;
+    const place = (id) => board.places.find((p) => p.id === id)?.name ?? id;
+    const event = (id) => board.events.find((e) => e.id === id)?.name ?? id;
     const mediaTitle = (id) => [...board.medias.battlemaps, ...board.medias.illustrations].find((m) => m.id === id)?.title ?? id;
     const rows = [
-      ["Lieux", scene.places.map((id) => link("lieu", `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-place-${id}`))],
+      ["Lieux", scene.places.map((id) => link("lieu", `fiche-entite.html?id=${encodeURIComponent(id)}`, place(id), `${scene.id}-place-${id}`))],
       ["PNJ", scene.characters.map((id) => link("pnj", `fiche-entite.html?id=${encodeURIComponent(id)}`, character(id), `${scene.id}-char-${id}`))],
-      ["\xC9v\xE9nements", scene.events.map((id) => link("media", `fiche-entite.html?id=${encodeURIComponent(id)}`, id, `${scene.id}-event-${id}`))],
+      ["\xC9v\xE9nements", scene.events.map((id) => link("media", `fiche-entite.html?id=${encodeURIComponent(id)}`, event(id), `${scene.id}-event-${id}`))],
       ["M\xE9dias", scene.media.map((id) => link("media", "medias.html", mediaTitle(id), `${scene.id}-media-${id}`))],
       ["\xC0 cr\xE9er", scene.toCreate.map((id) => link("todo", `#to-create-${id}`, id, `${scene.id}-todo-${id}`))]
     ];
     const shown2 = rows.filter(([, items]) => items.length > 0);
     return shown2.length === 0 ? "" : `<dl class="mf-scenes__links">${shown2.map(([name, items]) => `<dt>${name}</dt><dd>${items.join("")}</dd>`).join("")}</dl>`;
   }
-  var notes = (scene) => `<div class="kit-textarea is-wide"><label class="kit-textarea__label" for="scene-${esc(scene.id)}-notes">Notes</label><textarea class="kit-textarea__field" id="scene-${esc(scene.id)}-notes" rows="2" readonly>${esc(scene.notes)}</textarea><div class="kit-textarea__footer"><p class="kit-textarea__hint"></p></div></div>`;
+  var notes = (scene) => `<div class="kit-textarea is-wide"><label class="kit-textarea__label" for="scene-${esc(scene.id)}-notes">Notes</label><textarea class="kit-textarea__field" id="scene-${esc(scene.id)}-notes" rows="2" data-writes="${UPDATE_SCENE_NOTES}">${esc(scene.notes)}</textarea><div class="kit-textarea__footer"><p class="kit-textarea__hint"></p></div></div>`;
   var plural = (n, one, many) => n > 1 ? many : one;
   function mapLine(scene, board) {
     const id = `${esc(scene.id)}-battlemap`;
@@ -300,7 +315,7 @@
     style.textContent = STYLE;
     doc.head.append(style);
   }
-  function mount(host2, _props, shell2, timing = WAITING) {
+  function mount(host2, props2, shell2, timing = WAITING) {
     ensureStyle(host2.ownerDocument);
     host2.innerHTML = skeleton();
     const part = (id) => {
@@ -308,8 +323,9 @@
       if (!found) throw new Error(`SceneBoard: #${id} is not in the board`);
       return found;
     };
+    const wanted = sessionAsked(props2.session, shell2.context?.get("session"));
     let board = null;
-    let busy = false;
+    let pending = Promise.resolve();
     const say = (text2) => {
       part("scenes-notice").textContent = text2;
     };
@@ -322,13 +338,14 @@
       part("scenes-list").innerHTML = sceneList(board);
     };
     async function read() {
-      const screenSession = shell2.context?.get("session");
-      const asked = sessionVariables(typeof screenSession === "string" ? screenSession : void 0);
-      const session = parseSession((await shell2.capability(GET_SESSION, void 0, asked)).data);
-      const forCampaign = session.campaign === null ? {} : { campaign: session.campaign };
-      const [scenes, characters, medias2] = await Promise.all([
-        shell2.capability(LIST_SCENES, void 0, { session: session.id || void 0 }).then((answer) => parseScenes(answer.data)),
+      const session = parseSession((await shell2.capability(GET_SESSION, void 0, { id: wanted })).data);
+      const campaign = campaignAsked(session.campaign, props2.campaign);
+      const forCampaign = campaign === null ? {} : { campaign };
+      const [scenes, characters, places, events, medias2] = await Promise.all([
+        shell2.capability(LIST_SCENES, void 0, { session: wanted }).then((answer) => parseScenes(answer.data)),
         shell2.capability(LIST_CHARACTERS, void 0, forCampaign).then((answer) => parseCharacters(answer.data)),
+        shell2.capability(LIST_PLACES, void 0, forCampaign).then((answer) => parseEntities(answer.data)),
+        shell2.capability(LIST_EVENTS, void 0, forCampaign).then((answer) => parseEntities(answer.data)),
         shell2.capability(LIST_MEDIA, void 0, forCampaign).then((answer) => parseMedias(answer.data))
       ]);
       const instances = {};
@@ -341,7 +358,7 @@
           ]
         )
       );
-      return { session, scenes, characters, medias: medias2, instances };
+      return { session, scenes, characters, places, events, medias: medias2, instances };
     }
     async function send(dataCapability, payload, aggregate, id, key) {
       const answer = await shell2.command(commandBody(dataCapability, payload, { aggregate, id }, key));
@@ -353,20 +370,29 @@
       }
       return state;
     }
-    async function act(wrong, run) {
-      if (busy || board === null) return;
+    function act(wrong, run, applied) {
+      pending = pending.then(() => attempt(wrong, run, applied)).catch(() => void 0);
+      return pending;
+    }
+    async function attempt(wrong, run, applied) {
+      if (board === null) return;
       if (board.session.id === "") return say("La s\xE9ance n\u2019est pas identifi\xE9e : rien ne peut \xEAtre modifi\xE9.");
-      busy = true;
+      const sending = run(board);
+      if (sending === null) return;
       host2.querySelector("#scene-board")?.setAttribute("aria-busy", "true");
       say("");
       try {
-        const state = await run();
+        const state = await sending();
         if (state.status === "rejected") say(`Action refus\xE9e : ${reasons(state.violations)}.`);
         else {
           if (state.status !== "applied") say(`L\u2019action n\u2019est pas encore appliqu\xE9e (\xE9tat : ${state.status || "inconnu"}).`);
           try {
-            board = await read();
-            paint();
+            if (applied !== void 0) {
+              if (state.status === "applied") applied();
+            } else {
+              board = await read();
+              paint();
+            }
           } catch {
             say("L\u2019action a eu lieu, mais la s\xE9ance n\u2019a pas pu \xEAtre relue.");
           }
@@ -374,47 +400,78 @@
       } catch {
         say(wrong);
       } finally {
-        busy = false;
         host2.querySelector("#scene-board")?.removeAttribute("aria-busy");
       }
     }
     host2.addEventListener("click", (event) => {
       const clicked = event.target?.closest("button");
       if (!clicked || board === null) return;
-      const current = board;
-      const session = current.session.id;
       switch (clicked.dataset.writes) {
         case REMOVE_PRESENT_CHARACTER: {
           const character = clicked.dataset.removePj ?? "";
-          void act("Impossible de retirer ce PJ.", () => send(REMOVE_PRESENT_CHARACTER, { session, character }, "Session", session));
+          void act("Impossible de retirer ce PJ.", ({ session: { id: session } }) => () => send(REMOVE_PRESENT_CHARACTER, { session, character }, "Session", session));
           return;
         }
         case ADD_PRESENT_CHARACTER: {
           const character = host2.querySelector("#scenes-present-select")?.value ?? "";
           if (character === "") return;
-          void act("Impossible d\u2019ajouter ce PJ.", () => send(ADD_PRESENT_CHARACTER, { session, character }, "Session", session));
+          void act("Impossible d\u2019ajouter ce PJ.", ({ session: { id: session } }) => () => send(ADD_PRESENT_CHARACTER, { session, character }, "Session", session));
           return;
         }
         case ADD_SCENE:
-          void act("Impossible d\u2019ajouter une sc\xE8ne.", () => send(ADD_SCENE, { session, title: "Nouvelle sc\xE8ne" }, "Session", session));
+          void act("Impossible d\u2019ajouter une sc\xE8ne.", ({ session: { id: session } }) => () => send(ADD_SCENE, { session, title: "Nouvelle sc\xE8ne" }, "Session", session));
           return;
         case REORDER_SCENES: {
-          const order = moved(current.scenes, clicked.closest("[data-scene]")?.dataset.scene ?? "", Number(clicked.dataset.move));
-          if (order === null) return;
-          void act("Impossible de r\xE9ordonner les sc\xE8nes.", () => send(REORDER_SCENES, { session, order: ranks(order) }, "Session", session));
+          const scene = clicked.closest("[data-scene]")?.dataset.scene ?? "";
+          const delta = Number(clicked.dataset.move);
+          if (moved(board.scenes, scene, delta) === null) return;
+          void act("Impossible de r\xE9ordonner les sc\xE8nes.", (current) => {
+            const order = moved(current.scenes, scene, delta);
+            const session = current.session.id;
+            return order === null ? null : () => send(REORDER_SCENES, { session, order }, "Session", session);
+          });
           return;
         }
         case CREATE_BATTLEMAP_INSTANCE: {
           const item = clicked.closest("[data-scene]");
-          const scene = current.scenes.find((s) => s.id === item?.dataset.scene);
+          const id = item?.dataset.scene;
           const battlemap = item?.querySelector("select[data-map-select]")?.value ?? "";
-          if (!scene || scene.battlemap !== null || battlemap === "") return;
-          void act("Impossible de cr\xE9er l\u2019instance.", () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, "BattlemapInstance", scene.id, `${CREATE_BATTLEMAP_INSTANCE}:${scene.id}:${Date.now()}`));
+          if (battlemap === "") return;
+          const key = `${CREATE_BATTLEMAP_INSTANCE}:${id ?? ""}:${Date.now()}`;
+          void act("Impossible de cr\xE9er l\u2019instance.", (current) => {
+            const scene = current.scenes.find((s) => s.id === id);
+            const session = current.session.id;
+            return !scene || scene.battlemap !== null ? null : () => send(CREATE_BATTLEMAP_INSTANCE, { session, scene: scene.id, battlemap }, "BattlemapInstance", scene.id, key);
+          });
           return;
         }
       }
       if (clicked.dataset.action === "place") host2.ownerDocument.getElementById("scene-battlemap")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+    host2.addEventListener("change", (event) => {
+      const field = event.target;
+      if (field?.tagName !== "TEXTAREA" || field.dataset.writes !== UPDATE_SCENE_NOTES || board === null) return;
+      const id = field.closest("[data-scene]")?.dataset.scene;
+      const notes2 = field.value;
+      void act(
+        "Impossible d\u2019enregistrer ces notes.",
+        (current) => {
+          const scene = current.scenes.find((s) => s.id === id);
+          const session = current.session.id;
+          return !scene || notes2 === scene.notes ? null : () => send(UPDATE_SCENE_NOTES, { session, scene: scene.id, notes: notes2 }, "Session", scene.id);
+        },
+        () => {
+          const held = board?.scenes.find((s) => s.id === id);
+          if (held) held.notes = notes2;
+          const shown2 = [...host2.querySelectorAll("[data-scene]")].find((item) => item.dataset.scene === id)?.querySelector(`textarea[data-writes="${UPDATE_SCENE_NOTES}"]`);
+          if (shown2 && shown2 !== field && shown2 !== host2.ownerDocument.activeElement) shown2.value = notes2;
+        }
+      );
+    });
+    if (wanted === "") {
+      say("Aucune s\xE9ance n\u2019est indiqu\xE9e : rien \xE0 afficher.");
+      return;
+    }
     read().then(
       (loaded) => {
         board = loaded;

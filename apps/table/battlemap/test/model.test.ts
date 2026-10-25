@@ -143,7 +143,7 @@ describe('commands', () => {
       dataCapability: 'table.moveToken@1',
       target: { aggregate: 'BattlemapInstance', id: 'bmi-1' },
       payload: { token: 't', q: 2, r: 3 },
-      caller: { by: 'dm', from: 'Battlemap', roles: [] },
+      caller: { by: 'dm', from: 'Battlemap', roles: ['role:approver'] },
     });
   });
 
