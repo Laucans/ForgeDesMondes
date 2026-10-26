@@ -74,6 +74,12 @@ body {
   padding-bottom: calc(var(--space-5) * 7);
 }
 
+/* The pill grows up the right edge as suggestions arrive: the tabs stop short of its
+   width (8 × --space-5, at --space-3 from the edge), so they stay clickable under it. */
+.shell-frame__centre > .kit-tabs > [role="tablist"] {
+  margin-right: calc(var(--space-5) * 8 - var(--space-2));
+}
+
 @media (max-width: 960px) {
   .shell-frame {
     grid-template-columns: minmax(0, 1fr);
@@ -82,5 +88,10 @@ body {
   .shell-frame__left {
     position: static;
     max-height: none;
+  }
+
+  /* The pill spans the width here: no room beside it to keep. */
+  .shell-frame__centre > .kit-tabs > [role="tablist"] {
+    margin-right: 0;
   }
 }
