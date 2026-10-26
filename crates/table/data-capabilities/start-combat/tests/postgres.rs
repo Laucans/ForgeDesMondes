@@ -748,3 +748,99 @@ async fn an_instance_only_the_tables_hold_starts_a_combat() {
     assert_eq!(started.partition, partition(&combat_id(INSTANCE, 0)));
     scratch.drop().await;
 }
+
+/// The instance and its three tokens as a fixture loads them: in the tables
+/// alone, the engine holding no row.
+async fn load_tables(scratch: &Scratch) {
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id)
+                 VALUES ('{INSTANCE}', '{GUE}', '{SEANCE}', '{ARRIVEE}');
+             INSERT INTO token (id, instance_id, character_id, number, name, q, r, visible,
+                     hp_current, hp_max, conditions) VALUES
+                 ('{T_ELOWEN}', '{INSTANCE}', '{ELOWEN}', NULL, 'Elowen', 5, 5, true, NULL, NULL, '{{}}'),
+                 ('{T_BANDIT}', '{INSTANCE}', '{BANDIT}', 1, 'Bandit 1', 5, 5, true, 11, 11, '{{}}'),
+                 ('{T_VESNA}', '{INSTANCE}', '{VESNA}', 1, 'Chef bandit 1', 5, 5, false, 11, 11, '{{}}')"
+        ))
+        .await
+        .expect("the tables hold the instance and its tokens");
+}
+
+// AC1: tokens only in the token table, none in the engine: the start is applied and seats every token
+#[tokio::test(flavor = "current_thread")]
+async fn an_instance_whose_tokens_only_the_tables_hold_seats_every_token() {
+    let scratch = Scratch::new("tokens_tables_only").await;
+    let engine = scratch.serve(start_combat::plugin()).await;
+    load_tables(&scratch).await;
+    assert_eq!(scratch.row(&partition(T_ELOWEN)).await, None);
+
+    let started = start(&engine, r105()).await.expect("started");
+    assert_eq!(started.partition, partition(&combat_id(INSTANCE, 0)));
+    assert_eq!(started.then.len(), 3);
+    applied(&engine).await;
+    let entries = scratch.entries(&combat_id(INSTANCE, 0)).await;
+    assert_eq!(order(&entries), [T_ELOWEN, T_VESNA, T_BANDIT]);
+    scratch.drop().await;
+}
+
+// AC2: a token the engine tombstoned is not seated, whatever the token table still holds of it
+#[tokio::test(flavor = "current_thread")]
+async fn a_token_the_engine_tombstoned_is_not_seated_though_the_table_holds_it() {
+    let scratch = Scratch::new("tokens_tombstoned").await;
+    let engine = scratch.serve(start_combat::plugin()).await;
+    scratch.plant(&engine).await;
+    submit(&engine, "test.removeToken", json!({}), Some(T_BANDIT))
+        .await
+        .expect("removed");
+    applied(&engine).await;
+    // The removal took the Bandit out of the table; a stale copy of its row is
+    // back, the engine's tombstone still standing.
+    scratch
+        .client
+        .batch_execute(&format!(
+            "INSERT INTO token (id, instance_id, character_id, number, name, q, r, visible,
+                     hp_current, hp_max, conditions)
+             VALUES ('{T_BANDIT}', '{INSTANCE}', '{BANDIT}', 1, 'Bandit 1', 5, 5, true, 11, 11, '{{}}')
+             ON CONFLICT (id) DO NOTHING"
+        ))
+        .await
+        .expect("a stale row");
+
+    start(
+        &engine,
+        json!({ "initiative": { ELOWEN: 18 }, "rolls": {} }),
+    )
+    .await
+    .expect("started");
+    applied(&engine).await;
+    let entries = scratch.entries(&combat_id(INSTANCE, 0)).await;
+    assert_eq!(order(&entries).len(), 2);
+    assert!(!order(&entries).contains(&T_BANDIT));
+    scratch.drop().await;
+}
+
+// AC3: a token both an engine row and a table row is seated once
+#[tokio::test(flavor = "current_thread")]
+async fn a_token_both_the_engine_and_the_table_hold_is_seated_once() {
+    let scratch = Scratch::new("tokens_both").await;
+    let engine = scratch.serve(start_combat::plugin()).await;
+    scratch.plant(&engine).await;
+    let in_table: i64 = scratch
+        .client
+        .query_one(
+            "SELECT count(*) FROM token WHERE instance_id = $1::text::uuid",
+            &[&INSTANCE],
+        )
+        .await
+        .expect("the tokens")
+        .get(0);
+    assert_eq!(in_table, 3, "the engine's tokens are in the table too");
+
+    let started = start(&engine, r105()).await.expect("started");
+    assert_eq!(started.then.len(), 3);
+    applied(&engine).await;
+    let entries = scratch.entries(&combat_id(INSTANCE, 0)).await;
+    assert_eq!(order(&entries), [T_ELOWEN, T_VESNA, T_BANDIT]);
+    scratch.drop().await;
+}
