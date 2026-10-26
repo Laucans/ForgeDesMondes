@@ -235,11 +235,16 @@
     return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: { id }, caller: { by: "dm", from: "CampaignOverview", roles: [] } };
   }
   var FINAL = /* @__PURE__ */ new Set(["applied", "rejected", "cancelled", "expired"]);
+  function archiveOf(value) {
+    if (!isRecord(value) || typeof value.file !== "string" || value.file === "" || value.content === void 0 || value.content === null) return null;
+    return { file: value.file, content: value.content };
+  }
   function settled(answer) {
     const result = isRecord(answer) && isRecord(answer.result) ? answer.result : {};
     const violations = Array.isArray(result.violations) ? result.violations.filter((v) => typeof v === "string") : [];
-    return { status: text(result.status), violations };
+    return { status: text(result.status), violations, archive: archiveOf(result.attachment) };
   }
+  var safeFileName = (file) => file.replace(/[\\/:*?"<>|]+/g, "-");
   var isFinal = (status) => FINAL.has(status);
   function commandId(answer) {
     return isRecord(answer) ? text(answer.commandId) || (isRecord(answer.result) ? text(answer.result.commandId) : "") : "";
@@ -298,6 +303,19 @@
 
   // apps/campaign/campaign-overview/src/index.ts
   var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 400, polls: 120 };
+  var REVOKE_AFTER_MS = 1e4;
+  var downloadIn = (doc) => (file, content) => {
+    const win = doc.defaultView;
+    if (!win) throw new Error("no window to download from");
+    const url = win.URL.createObjectURL(new win.Blob([JSON.stringify(content, null, 2)], { type: "application/json" }));
+    const link = doc.createElement("a");
+    link.href = url;
+    link.download = safeFileName(file);
+    doc.body.append(link);
+    link.click();
+    link.remove();
+    win.setTimeout(() => win.URL.revokeObjectURL(url), REVOKE_AFTER_MS);
+  };
   function ensureStyle(doc) {
     if (doc.querySelector('style[data-micro-ui="CampaignOverview"]')) return;
     const style = doc.createElement("style");
@@ -306,7 +324,7 @@
     doc.head.append(style);
   }
   var listening = /* @__PURE__ */ new WeakMap();
-  function mount(host2, props2, shell2, timing = WAITING) {
+  function mount(host2, props2, shell2, timing = WAITING, save = downloadIn(host2.ownerDocument)) {
     ensureStyle(host2.ownerDocument);
     const previous = listening.get(host2);
     if (previous) host2.removeEventListener("click", previous);
@@ -346,6 +364,15 @@
       }
       return state;
     }
+    function keep(archive) {
+      if (archive === null) return ["le serveur n\u2019a pas rendu l\u2019archive"];
+      try {
+        save(archive.file, archive.content);
+        return [];
+      } catch {
+        return ["le fichier n\u2019a pas pu \xEAtre enregistr\xE9"];
+      }
+    }
     async function exportCampaign() {
       if (busy || campaign === null) return;
       const before = lastExportText(campaign.lastExport);
@@ -356,15 +383,17 @@
         const state = await send();
         if (state.status === "rejected") return say(`Export refus\xE9 : ${state.violations.join(", ") || "raison inconnue"}. ${before}`);
         if (state.status !== "applied") return say(`L\u2019export n\u2019est pas encore appliqu\xE9 (\xE9tat : ${state.status || "inconnu"}). ${before}`);
+        const problems = keep(state.archive);
+        let fresh = null;
         try {
-          const fresh = await read();
-          if (fresh !== null) {
-            campaign = fresh;
-            return paint(fresh);
-          }
+          fresh = await read();
         } catch {
         }
-        say(`Export effectu\xE9, mais la date n\u2019a pas pu \xEAtre relue. ${before}`);
+        if (fresh !== null) {
+          campaign = fresh;
+          paint(fresh);
+        } else problems.push("la date n\u2019a pas pu \xEAtre relue");
+        if (problems.length > 0) say(`Export effectu\xE9, mais ${problems.join(" et ")}. ${fresh === null ? before : lastExportText(fresh.lastExport)}`);
       } catch {
         say(`L\u2019export a \xE9chou\xE9. ${before}`);
       } finally {
