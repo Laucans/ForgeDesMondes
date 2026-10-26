@@ -59,6 +59,12 @@ export function parseCampaign(data: unknown): Campaign | null {
   };
 }
 
+/** session.getLiveSession's answer reduced to the id of the live session's campaign; empty when no session is running. */
+export function parseLiveCampaign(data: unknown): string {
+  const session = isRecord(data) && isRecord(data.session) ? data.session : null;
+  return session === null ? '' : text(session.campaign);
+}
+
 /** The ratio of an image: its pixels when the library gives them, else the ratio it states; a square if it says nothing. */
 function ratioOf(entry: Record<string, unknown>): number {
   const [width, height] = [num(entry.width), num(entry.height)];

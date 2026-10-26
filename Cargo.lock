@@ -449,6 +449,7 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "platform-scratch-db",
  "ports-llm",
  "serde_json",
  "tokio",
@@ -900,8 +901,15 @@ dependencies = [
 name = "get-battlemap-instance"
 version = "0.1.0"
 dependencies = [
+ "aggregate-battlemap-instance",
+ "end-combat",
+ "harness-dataguard",
  "platform-conformance",
+ "platform-test-kit",
+ "reset-battlemap",
  "serde_json",
+ "start-combat",
+ "tokio",
 ]
 
 [[package]]
@@ -2400,6 +2408,7 @@ dependencies = [
  "dataguard-registry",
  "dataguard-server",
  "list-provider-requests",
+ "platform-scratch-db",
  "ports-character-sheets",
  "ports-llm",
  "ports-speech-to-text",

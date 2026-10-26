@@ -4,13 +4,14 @@
 // the projected screen draws it, the DM's piloted tab draws it too and lets
 // the DM drag the window by its bar (`live.moveWindow`) and resize it by its
 // corner (`live.resizeWindow`), the image's ratio always kept
-// (`window-proportional`). It reads `live.getDiffusion`, `campaign.getCampaign`
+// (`window-proportional`). It reads `live.getDiffusion`, `session.getLiveSession`
+// (the campaign of the live session, when the screen names none), `campaign.getCampaign`
 // and `media.listMedia` and triggers the two window commands, by identifier,
 // through the shell it is handed: no network call of its own. It draws no HP
 // figure, no note and no hidden token (`players-see-band-only`): the tokens over
 // a battlemap are the Battlemap's, in view 'player', composed by the screen.
 
-import { BATTLEMAP_CONTEXT, GET_CAMPAIGN, GET_DIFFUSION, LIST_MEDIA, MOVE_WINDOW, RESIZE_WINDOW } from './ids.ts';
+import { BATTLEMAP_CONTEXT, GET_CAMPAIGN, GET_DIFFUSION, GET_LIVE_SESSION, LIST_MEDIA, MOVE_WINDOW, RESIZE_WINDOW } from './ids.ts';
 import {
   commandBody,
   commandId,
@@ -20,6 +21,7 @@ import {
   moved,
   parseCampaign,
   parseDiffusion,
+  parseLiveCampaign,
   parseMedia,
   parseProps,
   reasons,
@@ -108,7 +110,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   /** The variables that name the campaign, when the screen gave it: the server's live session decides otherwise. */
   const scope = (): { campaign?: string } => (props.campaign === '' ? {} : { campaign: props.campaign });
-  /** The campaign a command names: the screen's, else the one `campaign.getCampaign` answered. */
+  /** The campaign a command names: the screen's, else the live session's, as `campaign.getCampaign` answered it. */
   const campaignId = (): string => props.campaign || campaign?.id || '';
 
   // ---------- painting ----------
@@ -185,6 +187,16 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   }
 
   // ---------- reading ----------
+  /** The campaign's overview: the screen's campaign, else the live session's. Nothing when no session is running, never a read with no id. */
+  async function readCampaign(): Promise<{ asOf: number; data: unknown } | undefined> {
+    try {
+      const id = props.campaign || parseLiveCampaign((await shell.capability(GET_LIVE_SESSION, undefined, {})).data);
+      return id === '' ? undefined : await shell.capability(GET_CAMPAIGN, undefined, { id });
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Reads the diffusion again; the campaign and the library when the stage lacks them or the diffusion names an image it does not know. An older answer never replaces a newer one. */
   async function refresh(): Promise<void> {
     const mine = generation;
@@ -196,7 +208,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       const unknown = (id: string): boolean => id !== '' && illustrationOf(media, id) === undefined && !missing.has(id);
       const wantsMedia = !mediaRead || unknown(next.window?.media ?? '') || (next.base.kind === 'illustration' && unknown(next.base.id));
       const [named, listed] = await Promise.all([
-        campaignRead ? undefined : shell.capability(GET_CAMPAIGN, undefined, props.campaign === '' ? {} : { id: props.campaign }).catch(() => undefined),
+        campaignRead ? undefined : readCampaign(),
         wantsMedia ? shell.capability(LIST_MEDIA, undefined, scope()).catch(() => undefined) : undefined,
       ]);
       if (mine !== generation || no < readNo) return;

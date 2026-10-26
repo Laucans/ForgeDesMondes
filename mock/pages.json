@@ -498,12 +498,14 @@
       "fragment": "components/LiveSessionBar.html",
       "fixtures": [
         "fixtures/session.getLiveSession.json",
+        "fixtures/session.listScenes.json",
         "fixtures/live.getDiffusion.json",
         "fixtures/session.getSessionJournal.json",
         "fixtures/session.getPreviousSessionSummary.json"
       ],
       "needs": [
         "session.getLiveSession",
+        "session.listScenes",
         "live.getDiffusion",
         "session.getSessionJournal",
         "session.getPreviousSessionSummary"
@@ -517,7 +519,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "7e599e02415ed597"
+      "builtFrom": "c0aaf6f4a5677030"
     },
     {
       "name": "ElementsPanel",
@@ -620,11 +622,13 @@
       "fragment": "components/PlayerStage.html",
       "fixtures": [
         "fixtures/live.getDiffusion.json",
+        "fixtures/session.getLiveSession.json",
         "fixtures/campaign.getCampaign.json",
         "fixtures/media.listMedia.json"
       ],
       "needs": [
         "live.getDiffusion",
+        "session.getLiveSession",
         "campaign.getCampaign",
         "media.listMedia"
       ],
@@ -637,7 +641,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "655853430e92fd40"
+      "builtFrom": "22d89ca18b842a33"
     }
   ]
 }

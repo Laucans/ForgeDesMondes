@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { commandBody, dragged, heightOf, moved, parseCampaign, parseDiffusion, parseMedia, parseProps, resized, settled, widest } from '../src/model.ts';
+import { commandBody, dragged, heightOf, moved, parseCampaign, parseDiffusion, parseLiveCampaign, parseMedia, parseProps, resized, settled, widest } from '../src/model.ts';
 
 const stage = { width: 1000, height: 800 };
 
@@ -100,4 +100,12 @@ test('a command is named by identifier and aimed at the diffusion', () => {
     caller: { by: 'dm', from: 'PlayerStage', roles: [] },
   });
   assert.deepEqual(settled({ result: { status: 'rejected', violations: ['window-fields-together', 3] } }), { status: 'rejected', violations: ['window-fields-together'] });
+});
+
+// AC1: the live session's campaign is read from session.getLiveSession's answer
+test('the live session’s campaign is the id its answer names, empty when there is none', () => {
+  assert.equal(parseLiveCampaign({ session: { id: 's4', campaign: 'c-live' }, microphone: { on: true } }), 'c-live');
+  assert.equal(parseLiveCampaign(null), '');
+  assert.equal(parseLiveCampaign({ session: { id: 's4' } }), '');
+  assert.equal(parseLiveCampaign({ campaign: 'c-flat' }), '');
 });
