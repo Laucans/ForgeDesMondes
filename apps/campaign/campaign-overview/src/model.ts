@@ -81,17 +81,33 @@ export function exportCommand(dataCapability: string, id: string): unknown {
 
 const FINAL = new Set(['applied', 'rejected', 'cancelled', 'expired']);
 
+/** The archive an applied export answers: the file name it proposes, and the JSON document itself. */
+export interface Archive {
+  file: string;
+  content: unknown;
+}
+
 export interface Settled {
   status: string;
   violations: string[];
+  /** What an applied export answers: the archive. */
+  archive: Archive | null;
 }
 
-/** `{ result: { status, violations } }`, as the server answers a command and its lookup. */
+function archiveOf(value: unknown): Archive | null {
+  if (!isRecord(value) || typeof value.file !== 'string' || value.file === '' || value.content === undefined || value.content === null) return null;
+  return { file: value.file, content: value.content };
+}
+
+/** `{ result: { status, violations, attachment } }`, as the server answers a command and its lookup. */
 export function settled(answer: unknown): Settled {
   const result = isRecord(answer) && isRecord(answer.result) ? answer.result : {};
   const violations = Array.isArray(result.violations) ? result.violations.filter((v): v is string => typeof v === 'string') : [];
-  return { status: text(result.status), violations };
+  return { status: text(result.status), violations, archive: archiveOf(result.attachment) };
 }
+
+/** The file name a download is saved under: the one the export gave, with nothing that is a path. */
+export const safeFileName = (file: string): string => file.replace(/[\\/:*?"<>|]+/g, '-');
 
 export const isFinal = (status: string): boolean => FINAL.has(status);
 
