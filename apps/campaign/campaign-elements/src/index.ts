@@ -143,8 +143,8 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, bus: Bus = 
     characters: { own: LIST_CHARACTERS, also: [], html: () => charactersPanel(characters, campaignOf(current)), count: () => characters.length },
     places: { own: LIST_PLACES, also: [], html: () => placesPanel(places, campaignOf(current)), count: () => places.length },
     events: { own: LIST_EVENTS, also: [], html: () => eventsPanel(events, campaignOf(current)), count: () => events.length },
-    media: { own: LIST_MEDIA, also: [], html: () => mediaPanel(media), count: () => media.length },
-    sounds: { own: LIST_SOUNDS, also: [], html: () => soundsPanel(sounds), count: () => sounds.length },
+    media: { own: LIST_MEDIA, also: [], html: () => mediaPanel(media, campaignOf(current)), count: () => media.length },
+    sounds: { own: LIST_SOUNDS, also: [], html: () => soundsPanel(sounds, campaignOf(current)), count: () => sounds.length },
   };
 
   function paintTabs(): void {

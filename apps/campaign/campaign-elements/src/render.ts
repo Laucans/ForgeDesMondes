@@ -20,6 +20,9 @@ function art(name: string, glyph: string): string {
 /** The page protocol's `campaign` parameter: the sheet keeps the campaign on show instead of the default one. */
 const campaignParam = (campaign: string): string => (campaign === '' ? '' : `&campaign=${encodeURIComponent(campaign)}`);
 
+/** A screen with no other parameter (media, sounds): it opens on the campaign on show too. */
+const screenHref = (page: string, campaign: string): string => (campaign === '' ? page : `${page}?campaign=${encodeURIComponent(campaign)}`);
+
 /** The sheet of an element, where the tabs' links go (the mock-up's page protocol). */
 export const sheetHref = (id: string, campaign = ''): string => `fiche-entite.html?id=${encodeURIComponent(id)}${campaignParam(campaign)}`;
 
@@ -111,13 +114,13 @@ export const eventsPanel = (events: Named[], campaign = ''): string =>
 
 const link = (label: string, href: string): string => smallButtons(`<button type="button" class="secondary" data-href="${esc(href)}">${esc(label)}</button>`);
 
-export const mediaPanel = (media: Media[]): string =>
-  grid(media.map((m) => entry('medias.html', `elements-media-${m.id}`, art(m.art, m.glyph), m.title, `${m.kind === 'battlemap' ? 'Battlemap' : 'Illustration'} · ${m.size}`))) +
-  `<div class="mf-elements__links">${link('Gérer les médias et les grilles', 'medias.html')}</div>`;
+export const mediaPanel = (media: Media[], campaign = ''): string =>
+  grid(media.map((m) => entry(screenHref('medias.html', campaign), `elements-media-${m.id}`, art(m.art, m.glyph), m.title, `${m.kind === 'battlemap' ? 'Battlemap' : 'Illustration'} · ${m.size}`))) +
+  `<div class="mf-elements__links">${link('Gérer les médias et les grilles', screenHref('medias.html', campaign))}</div>`;
 
-export const soundsPanel = (sounds: Sound[]): string =>
+export const soundsPanel = (sounds: Sound[], campaign = ''): string =>
   grid(sounds.map((s) => `<li class="item" id="elements-sound-${esc(s.id)}"><span>♪ ${esc(s.name)}</span><small class="muted">${esc(s.tags.join(' · '))}</small></li>`)) +
-  `<div class="mf-elements__links">${link('Ouvrir la bibliothèque de sons', 'soundbox.html')}</div>`;
+  `<div class="mf-elements__links">${link('Ouvrir la bibliothèque de sons', screenHref('soundbox.html', campaign))}</div>`;
 
 /** Rail mode: a button that opens the drawer, the veil behind it, and the panel itself. */
 export function railSkeleton(): string {

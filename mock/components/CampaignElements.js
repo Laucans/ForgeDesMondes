@@ -344,6 +344,7 @@
     return `<div class="art art--${tone}" role="img">${glyph === "" ? "" : `<span class="art__glyph">${esc(glyph)}</span>`}</div>`;
   }
   var campaignParam = (campaign) => campaign === "" ? "" : `&campaign=${encodeURIComponent(campaign)}`;
+  var screenHref = (page, campaign) => campaign === "" ? page : `${page}?campaign=${encodeURIComponent(campaign)}`;
   var sheetHref = (id, campaign = "") => `fiche-entite.html?id=${encodeURIComponent(id)}${campaignParam(campaign)}`;
   var NEW_KINDS = { pnj: "pnj", place: "lieu", event: "evenement" };
   var NEW_LABELS = [
@@ -402,8 +403,8 @@
   var placesPanel = (places, campaign = "") => grid(places.map((p) => entry(sheetHref(p.id, campaign), `elements-place-${p.id}`, art(p.art || "night", placeGlyph(p.name)), p.name, p.aliases.join(", "))));
   var eventsPanel = (events, campaign = "") => grid(events.map((v) => entry(sheetHref(v.id, campaign), `elements-event-${v.id}`, art("blood", "!"), v.name, v.aliases.join(", "))));
   var link = (label, href) => smallButtons(`<button type="button" class="secondary" data-href="${esc(href)}">${esc(label)}</button>`);
-  var mediaPanel = (media) => grid(media.map((m) => entry("medias.html", `elements-media-${m.id}`, art(m.art, m.glyph), m.title, `${m.kind === "battlemap" ? "Battlemap" : "Illustration"} \xB7 ${m.size}`))) + `<div class="mf-elements__links">${link("G\xE9rer les m\xE9dias et les grilles", "medias.html")}</div>`;
-  var soundsPanel = (sounds) => grid(sounds.map((s) => `<li class="item" id="elements-sound-${esc(s.id)}"><span>\u266A ${esc(s.name)}</span><small class="muted">${esc(s.tags.join(" \xB7 "))}</small></li>`)) + `<div class="mf-elements__links">${link("Ouvrir la biblioth\xE8que de sons", "soundbox.html")}</div>`;
+  var mediaPanel = (media, campaign = "") => grid(media.map((m) => entry(screenHref("medias.html", campaign), `elements-media-${m.id}`, art(m.art, m.glyph), m.title, `${m.kind === "battlemap" ? "Battlemap" : "Illustration"} \xB7 ${m.size}`))) + `<div class="mf-elements__links">${link("G\xE9rer les m\xE9dias et les grilles", screenHref("medias.html", campaign))}</div>`;
+  var soundsPanel = (sounds, campaign = "") => grid(sounds.map((s) => `<li class="item" id="elements-sound-${esc(s.id)}"><span>\u266A ${esc(s.name)}</span><small class="muted">${esc(s.tags.join(" \xB7 "))}</small></li>`)) + `<div class="mf-elements__links">${link("Ouvrir la biblioth\xE8que de sons", screenHref("soundbox.html", campaign))}</div>`;
   function railSkeleton() {
     const newButtons = NEW_LABELS.map(([kind, label, variant]) => `<button type="button" class="${variant}" id="rail-new-${kind}">${esc(label)}</button>`).join("");
     return `<div class="mf-rail" id="elements-rail" data-collapsed="false" data-open="false"><button type="button" class="chip mf-rail__open" id="rail-open" aria-controls="rail-panel" aria-expanded="false">\u2630 \xC9l\xE9ments</button><div class="mf-rail__veil" id="rail-veil" hidden></div><nav class="mf-rail__panel" id="rail-panel" aria-label="\xC9l\xE9ments de la campagne"><div class="mf-rail__bar"><button type="button" class="icon-btn" id="rail-toggle" aria-controls="rail-body" aria-expanded="true" title="Replier la liste">\xAB</button><h2 id="rail-title">\xC9l\xE9ments</h2></div><span class="mf-rail__strip" id="rail-strip" aria-hidden="true">\xC9l\xE9ments</span><div class="mf-rail__body" id="rail-body"><div id="rail-search"><div class="kit-input"><label>Rechercher<input type="search" id="rail-search-input" placeholder="Nom ou alias" autocomplete="off"></label></div></div><p class="small muted" id="rail-count" aria-live="polite"></p><div class="mf-rail__groups" id="rail-groups" ${reads(LIST_CHARACTERS, LIST_PLACES, LIST_EVENTS)}></div><div class="mf-rail__new" id="rail-new">${smallButtons(newButtons)}</div></div></nav></div>`;
@@ -575,8 +576,8 @@
       characters: { own: LIST_CHARACTERS, also: [], html: () => charactersPanel(characters, campaignOf(current)), count: () => characters.length },
       places: { own: LIST_PLACES, also: [], html: () => placesPanel(places, campaignOf(current)), count: () => places.length },
       events: { own: LIST_EVENTS, also: [], html: () => eventsPanel(events, campaignOf(current)), count: () => events.length },
-      media: { own: LIST_MEDIA, also: [], html: () => mediaPanel(media), count: () => media.length },
-      sounds: { own: LIST_SOUNDS, also: [], html: () => soundsPanel(sounds), count: () => sounds.length }
+      media: { own: LIST_MEDIA, also: [], html: () => mediaPanel(media, campaignOf(current)), count: () => media.length },
+      sounds: { own: LIST_SOUNDS, also: [], html: () => soundsPanel(sounds, campaignOf(current)), count: () => sounds.length }
     };
     function paintTabs() {
       TABS.forEach(([key, label], i) => {

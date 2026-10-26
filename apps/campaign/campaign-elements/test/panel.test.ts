@@ -197,6 +197,9 @@ test('the links to a sheet keep the campaign on show, from the prop or from the 
   assert.match(t.$('#elements-tabs-panel-3 a.mf-elements__entry').getAttribute('href') ?? '', /&campaign=c%201$/);
   await t.click('#elements-new-pnj');
   assert.deepEqual(t.bus.left, ['fiche-entite.html?new=pnj&campaign=c%201']);
+  assert.equal(t.$('#elements-tabs-panel-4 a.mf-elements__entry').getAttribute('href'), 'medias.html?campaign=c%201');
+  assert.equal(t.$('#elements-tabs-panel-4 button[data-href]').dataset.href, 'medias.html?campaign=c%201');
+  assert.equal(t.$('#elements-tabs-panel-5 button[data-href]').dataset.href, 'soundbox.html?campaign=c%201');
   const byUrl = await panel({ mode: 'rail' }, { url: 'http://localhost/campagne.html?campaign=from-url' });
   assert.equal(byUrl.$('#rail-entry-elowen').getAttribute('href'), 'fiche-entite.html?id=elowen&campaign=from-url');
 });
