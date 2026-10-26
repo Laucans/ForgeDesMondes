@@ -22,7 +22,11 @@ export class Context {
 
   /** Sets one value and tells everyone who follows the context; nothing happens when it did not change, or when the address holds the name. */
   set(name: string, value: unknown): void {
-    if (this.held.has(name) || this.values.get(name) === value) return;
+    if (this.held.has(name)) {
+      if (this.values.get(name) !== value) console.warn(`shell: "${name}" is held by the address, a write of it was ignored`);
+      return;
+    }
+    if (this.values.get(name) === value) return;
     this.values.set(name, value);
     // One follower failing must not keep the others from the change.
     for (const listener of [...this.listeners]) {

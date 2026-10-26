@@ -12,7 +12,11 @@
     }
     /** Sets one value and tells everyone who follows the context; nothing happens when it did not change, or when the address holds the name. */
     set(name, value) {
-      if (this.held.has(name) || this.values.get(name) === value) return;
+      if (this.held.has(name)) {
+        if (this.values.get(name) !== value) console.warn(`shell: "${name}" is held by the address, a write of it was ignored`);
+        return;
+      }
+      if (this.values.get(name) === value) return;
       this.values.set(name, value);
       for (const listener of [...this.listeners]) {
         try {
@@ -111,9 +115,13 @@
     if (!mocked) return FAIL_CLOSED;
     let surface = mocked.surface;
     if (mocked.screen !== void 0) {
-      const screen = await product(page, `apps/screens/${mocked.screen}.json`);
-      const pilot = screen.pilot;
-      surface = pilot && typeof pilot.query === "string" && here.searchParams.get(pilot.query) === "1" ? pilot.surface : screen.surface;
+      try {
+        const screen = await product(page, `apps/screens/${mocked.screen}.json`);
+        const pilot = screen.pilot;
+        surface = pilot && typeof pilot.query === "string" && here.searchParams.get(pilot.query) === "1" ? pilot.surface : screen.surface;
+      } catch (error) {
+        if (surface === void 0) throw error;
+      }
     }
     const declared = (await product(page, "surfaces.json")).surfaces;
     return (surface !== void 0 && declared && Object.hasOwn(declared, surface) ? asCaller(declared[surface]) : void 0) ?? FAIL_CLOSED;
@@ -130,7 +138,8 @@
   function withCaller(body, caller) {
     if (!body || typeof body !== "object" || Array.isArray(body)) return body;
     const sent = body.caller;
-    return { ...body, caller: { ...sent && typeof sent === "object" ? sent : {}, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
+    const from = sent && typeof sent === "object" && !Array.isArray(sent) ? sent.from : void 0;
+    return { ...body, caller: { ...from === void 0 ? {} : { from }, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
   }
   function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage(), settling = SETTLING) {
     const writing = /* @__PURE__ */ new Set();

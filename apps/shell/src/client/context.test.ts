@@ -51,3 +51,20 @@ test('a held value stays: a later set of its name changes nothing and tells no o
   assert.equal(context.get('campaign'), 'c1');
   assert.deepEqual(told, ['campaign', 'scene']);
 });
+
+test('a write of a held name is ignored out loud, once its value differs', () => {
+  const context = new Context();
+  context.hold('campaign', 'c1');
+  const warned: string[] = [];
+  const warn = console.warn;
+  console.warn = (message: string) => warned.push(message);
+  try {
+    context.set('campaign', 'c1');
+    context.set('campaign', 'c2');
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(warned.length, 1);
+  assert.match(warned[0] ?? '', /"campaign"/);
+  assert.equal(context.get('campaign'), 'c1');
+});
