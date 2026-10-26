@@ -7,11 +7,13 @@
 //! original is never read, let alone changed, and importing the same archive
 //! twice makes two copies (`import-creates-copy`).
 //!
-//! The copy is the Concept `CampaignArchive@1` (`concepts/CampaignArchive/v1`):
+//! The copy is the Concept `CampaignArchive@2` (`concepts/CampaignArchive/v2`):
 //! [`copy`] gives every row of the archive the id [`prepare`] drew for it,
 //! rewrites the references, drops what the archive does not hold, and stamps
-//! the time of the import; the campaign's `last_exported_at` is left out, a
-//! copy has never been exported. The engine writes one partition,
+//! the time of the import as the campaign's `created_at` and `imported_at`
+//! — a copy is new in time as well as in identity, and lists as newer than
+//! its original; the campaign's `last_exported_at` is left out, a copy has
+//! never been exported. The engine writes one partition,
 //! `Campaign/<the copy's id>`, whose row holds the campaign's fields and the
 //! sections of the copy; the Campaign aggregate's projection writes them into
 //! the tables.
@@ -316,10 +318,11 @@ fn with(row: &Value, members: &[(&str, Value)]) -> Value {
     Value::Object(row)
 }
 
-/// The copy of an archive, as `CampaignArchive@1` gives it: `{origin_campaign_id,
+/// The copy of an archive, as `CampaignArchive@2` gives it: `{origin_campaign_id,
 /// imported_at, campaign, players, elements, media, sounds, sessions}`. Every
 /// row takes the id `new_ids` gives it, every reference follows, and a
-/// reference to a row the archive does not hold becomes null.
+/// reference to a row the archive does not hold becomes null. The copy's
+/// campaign is created at `imported_at`: the archive's `created_at` is not kept.
 #[must_use]
 pub fn copy(archive: &Value, imported_at: &str, new_ids: &Map<String, Value>) -> Value {
     let copy = Copy { new_ids };
@@ -353,6 +356,7 @@ pub fn copy(archive: &Value, imported_at: &str, new_ids: &Map<String, Value>) ->
                     copy.reference(&archive["campaign"]["cover_media_id"]),
                 ),
                 ("last_exported_at", Value::Null),
+                ("created_at", imported_at.into()),
                 ("imported_at", imported_at.into()),
                 ("origin_campaign_id", archive["origin_campaign_id"].clone()),
             ],
