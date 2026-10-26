@@ -2,9 +2,10 @@
 // every entry of `components` in `mock/pages.json` that names a `source`
 // (the Micro-UI's folder under `apps/`), bundles `mock/src/<Name>.js` into
 // `mock/components/<Name>.js` with esbuild, and records in `builtFrom` a
-// digest of what it was built from — the entry, the shared files under
-// `mock/src/`, every file under `<source>/src/` — so the gates know a
-// bundle is stale. Run from the repository root: `node mock/build.mjs`.
+// digest of what it was built from — the entry, the shared files (the mock
+// server and screen host under `mock/src/`, the shell's client every entry
+// imports), every file under `<source>/src/` — so the gates know a bundle
+// is stale. Run from the repository root: `node mock/build.mjs`.
 // Installed by `harness init-repo`. The digest is FNV-1a 64 over
 // `path\0content\0` for every input sorted by path, the same the harness
 // computes.
@@ -14,7 +15,7 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const ESBUILD = 'esbuild@0.25.0';
-const SHARED = ['server.js', 'screen.js', 'reads.js', 'commands.js'];
+const SHARED = ['mock/src/server.js', 'mock/src/screen.js', 'mock/src/reads.js', 'mock/src/commands.js', 'apps/shell/src/client/shell.ts', 'apps/shell/src/client/context.ts'];
 
 function walk(dir, out) {
   let entries;
@@ -43,7 +44,7 @@ export function inputsOf(name, source) {
   const files = [];
   const add = (path) => { try { files.push([path.split('\\').join('/'), readFileSync(path, 'utf8')]); } catch { /* absent: not an input */ } };
   add(join('mock/src', `${name}.js`));
-  for (const shared of SHARED) add(join('mock/src', shared));
+  for (const shared of SHARED) add(shared);
   for (const path of walk(join(source, 'src'), [])) add(relative('.', path));
   return files;
 }

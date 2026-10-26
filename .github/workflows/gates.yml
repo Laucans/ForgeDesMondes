@@ -762,6 +762,7 @@ jobs:
           validate n-mock-pages.schema.json mock/pages.json
           validate q-ports.schema.json ports.json
           validate r-plan-graph.schema.json plan/graph.json
+          validate s-surfaces.schema.json surfaces.json
 
       # Contract R — a milestone changes the interfaces it produces, and no
       # other's: a `capability.json` or `data-capability.json` whose id the
@@ -850,6 +851,18 @@ jobs:
         name: rule-tests-untouched
         if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'rules/') }}
         run: node scripts/rules-gate.mjs untouched "origin/${{ github.base_ref }}"
+      # Contract S — a rule's test acts as a surface of surfaces.json (the
+      # business kit as the screen its needs name, else the default surface or
+      # `command_as`; a journey as the shell sets it), never as a role written by
+      # hand: a line a pull request adds to a test file under tests/rules/ holds
+      # no `role:` literal and no `roles` key. The kits' own files are not
+      # judged — the rules' task may fix them — nor the lines already there
+      # (scripts/rules-gate.mjs callers). The rules' own pull request included.
+      # A rule's test acts as a surface, never with a role written by hand.
+      - id: rules-callers
+        name: rules-callers
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        run: node scripts/rules-gate.mjs callers "origin/${{ github.base_ref }}"
       # No rule's test is contested.
       - id: rule-tests-untouched--contest
         name: rule-tests-untouched--contest
@@ -913,6 +926,32 @@ jobs:
             milestone/*) echo "a milestone's pull request: each of its tasks was judged on its own"; exit 0 ;;
           esac
           node scripts/unit-conventions-gate.mjs capabilities "${BASE:-}"
+
+      # Contracts E, S — caller model A: the shell sets the caller of every
+      # command from its screen's `surface`, a surface of surfaces.json. A screen
+      # the change adds or changes declares one that exists; its Micro-UIs'
+      # commands find the review roles and permissions their critical fields
+      # and manifests ask on that surface or its pilot (a missing review role is
+      # a warning: a placement may render no action); every review role an
+      # aggregate asks is held by some surface; a page's surface is its
+      # screen's (scripts/unit-conventions-gate.mjs screens). Nothing to judge
+      # while the product declares no surfaces.json. A milestone's pull request
+      # only warns: each of its tasks was judged on its own, and it shows the
+      # combinations sibling tasks made.
+      # A screen the change adds or changes says who acts on it, and its commands find their roles there.
+      - id: screen-surfaces
+        name: screen-surfaces
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          case "${HEAD_REF:-}" in
+            milestone/*) node scripts/unit-conventions-gate.mjs screens "${BASE:-}" --warn; exit 0 ;;
+          esac
+          node scripts/unit-conventions-gate.mjs screens "${BASE:-}"
 
       # Contracts E, N — the mock-up keeps up with the screens: every page
       # `mock/pages.json` lists is there, and every frozen screen under
@@ -1215,7 +1254,11 @@ jobs:
 
   # Contract P — the rules hold: a rule's test runs once every unit it needs
   # is built and the runtime serves the product, and must pass; a rule marked
-  # `conform` may stay red in a task, never where a milestone lands.
+  # `conform` may stay red in a task, never where a milestone lands. The two
+  # suites only record their exit code (RULES_EXITS): `rules-hold--status`
+  # is the one verdict — a red `conform` rule passes there outside a
+  # landing, and a run that crashed (a non-zero exit leaving a rule its
+  # tests name with no status line) fails there.
   rules-hold:
     runs-on: ubuntu-latest
     # The store the runtime builds its scratch database on, as in ci.yml.
@@ -1253,12 +1296,21 @@ jobs:
         shell: bash
         env:
           RULES_STATUS: ${{ github.workspace }}/target/rules-status.jsonl
+          RULES_EXITS: ${{ github.workspace }}/target/rules-exits.txt
         run: |
           set -euo pipefail
           shopt -s nullglob
+          mkdir -p "$(dirname "$RULES_EXITS")"
           tests=(tests/rules/business/tests/*.rs)
           if [ -f tests/rules/business/Cargo.toml ] && [ ${#tests[@]} -gt 0 ]; then
-            cargo test --manifest-path tests/rules/business/Cargo.toml
+            # The exit code is recorded, never the step's: status judges it.
+            # Every test file runs past a red one: each is its own binary,
+            # and one cargo stops after would leave its rules unsaid.
+            set +e
+            cargo test --manifest-path tests/rules/business/Cargo.toml --no-fail-fast
+            code=$?
+            set -e
+            echo "business $code" >> "$RULES_EXITS"
           fi
       # The journey rules hold.
       - id: rules-hold--journey
@@ -1267,15 +1319,25 @@ jobs:
         shell: bash
         env:
           RULES_STATUS: ${{ github.workspace }}/target/rules-status.jsonl
+          RULES_EXITS: ${{ github.workspace }}/target/rules-exits.txt
         run: |
           set -euo pipefail
           shopt -s nullglob globstar
+          mkdir -p "$(dirname "$RULES_EXITS")"
           specs=(tests/rules/journey/**/*.spec.ts)
           if [ ${#specs[@]} -gt 0 ]; then
-            cd tests/rules/journey
-            npm install --no-audit --no-fund
-            if [ -n "${RULES_APP_URL:-}" ]; then npx playwright install --with-deps chromium; fi
-            npx playwright test
+            # The exit code is recorded, never the step's: status judges it.
+            set +e
+            (
+              set -e
+              cd tests/rules/journey
+              npm install --no-audit --no-fund
+              if [ -n "${RULES_APP_URL:-}" ]; then npx playwright install --with-deps chromium; fi
+              npx playwright test
+            )
+            code=$?
+            set -e
+            echo "journey $code" >> "$RULES_EXITS"
           fi
       # Each rule's state.
       - id: rules-hold--status
@@ -1284,9 +1346,10 @@ jobs:
         shell: bash
         env:
           RULES_STATUS: ${{ github.workspace }}/target/rules-status.jsonl
+          RULES_EXITS: ${{ github.workspace }}/target/rules-exits.txt
           # Strict where a milestone lands (its pull request into main_agent),
           # never on the rules' own change: a changed rule's test lands red.
-          STRICT: ${{ github.event_name == 'pull_request' && github.base_ref == 'main_agent' && !startsWith(github.head_ref, 'rules/') && '--strict' || '' }}
+          STRICT: ${{ github.event_name == 'pull_request' && github.base_ref == 'main_agent' && !startsWith(github.head_ref, 'rules/') && !startsWith(github.head_ref, 'base-repair/') && '--strict' || '' }}
         run: node scripts/rules-gate.mjs status $STRICT
       # Stop the product.
       - id: rules-hold--stop

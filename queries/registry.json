@@ -79,7 +79,7 @@
       "query": "ListCampaigns",
       "capability": "campaign.listCampaigns",
       "file": "crates/campaign/queries/list-campaigns.graphql",
-      "sha256": "93cd999bf497ef73760cc5a85b31578329d2f347b51679bc8f52d90550b32381",
+      "sha256": "63f6de18f0ec036def0a935cf9cdf275975eac71bb137491117978a8ca2c161d",
       "fields": [
         "campaign.id",
         "campaign.name",
@@ -87,7 +87,11 @@
         "campaign.art",
         "campaign.glyph",
         "campaign.pitch",
-        "campaign.createdAt"
+        "campaign.createdAt",
+        "session.campaignId",
+        "session.status",
+        "session.startedAt",
+        "session.plannedOn"
       ]
     },
     {
