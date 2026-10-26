@@ -128,9 +128,14 @@ async function mockupCaller(page: Page): Promise<Caller> {
   if (!mocked) return FAIL_CLOSED;
   let surface = mocked.surface;
   if (mocked.screen !== undefined) {
-    const screen = (await product(page, `apps/screens/${mocked.screen}.json`)) as { surface?: string; pilot?: { surface?: string; query?: string } };
-    const pilot = screen.pilot;
-    surface = pilot && typeof pilot.query === 'string' && here.searchParams.get(pilot.query) === '1' ? pilot.surface : screen.surface;
+    try {
+      const screen = (await product(page, `apps/screens/${mocked.screen}.json`)) as { surface?: string; pilot?: { surface?: string; query?: string } };
+      const pilot = screen.pilot;
+      surface = pilot && typeof pilot.query === 'string' && here.searchParams.get(pilot.query) === '1' ? pilot.surface : screen.surface;
+    } catch (error) {
+      // A screen file that cannot be fetched: the page's own surface still says who acts; none, nothing does.
+      if (surface === undefined) throw error;
+    }
   }
   const declared = ((await product(page, 'surfaces.json')) as { surfaces?: Record<string, unknown> }).surfaces;
   return (surface !== undefined && declared && Object.hasOwn(declared, surface) ? asCaller(declared[surface]) : undefined) ?? FAIL_CLOSED;
@@ -150,11 +155,12 @@ async function pageCaller(page: Page): Promise<{ caller: Caller; settled: boolea
   }
 }
 
-/** The body with the page's caller set over what the Micro-UI sent; its `from` stays. */
+/** The body with the page's caller set over what the Micro-UI sent; only its `from` stays. */
 function withCaller(body: unknown, caller: Caller): unknown {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
-  const sent = (body as { caller?: unknown }).caller;
-  return { ...body, caller: { ...(sent && typeof sent === 'object' ? sent : {}), by: caller.by, roles: caller.roles, permissions: caller.permissions } };
+  const sent = (body as { caller?: { from?: unknown } | null }).caller;
+  const from = sent && typeof sent === 'object' && !Array.isArray(sent) ? sent.from : undefined;
+  return { ...body, caller: { ...(from === undefined ? {} : { from }), by: caller.by, roles: caller.roles, permissions: caller.permissions } };
 }
 
 export function createShell(fetcher: typeof fetch = (input, init) => fetch(input, init), page: Page = browserPage(), settling: Settling = SETTLING): Shell {
