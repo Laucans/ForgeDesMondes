@@ -21,7 +21,9 @@
 //! Each database is named `scratch_<epoch>_<pid>_<seq>_<label>`: when it was
 //! created, by which process, the how-many-th, for which test. The
 //! harness's watch reads that name and drops a database a killed process
-//! left, once it is idle and half an hour old (`scratch_sweep`).
+//! left, once it is idle and half an hour old — two minutes once that
+//! process is gone (`scratch_sweep`). Several lanes share one server: a
+//! `CREATE DATABASE` that meets `template1` in use is tried again.
 //!
 //! A dev-dependency only: `platform-scratch-db = { path =
 //! "<to the root>/crates/platform/scratch-db" }`. It reaches PostgreSQL
@@ -48,6 +50,14 @@ const DROP_WITHIN: Duration = Duration::from_secs(30);
 
 /// The scratch databases this process created so far.
 static CREATED: AtomicU32 = AtomicU32::new(0);
+
+/// How many times a `CREATE DATABASE` is tried while its template is in use.
+const CREATE_TRIES: u32 = 10;
+
+/// The `SQLSTATE` of a template another session is on (`object_in_use`):
+/// `CREATE DATABASE` copies `template1`, and refuses while anyone else is
+/// connected to it — another lane's test on the same server, an autovacuum.
+const OBJECT_IN_USE: &str = "55006";
 
 /// Why a scratch database could not be created or reached.
 #[derive(Debug)]
@@ -112,9 +122,13 @@ impl ScratchDb {
         let url = naming(&server, &name).ok_or(Error::NotAUrl)?;
         let (client, connection) = tokio_postgres::connect(&server, NoTls).await?;
         let driver = tokio::spawn(connection);
-        let created = client
-            .batch_execute(&format!("CREATE DATABASE {}", quoted(&name)))
-            .await;
+        let statement = format!("CREATE DATABASE {}", quoted(&name));
+        let created = retrying(
+            CREATE_TRIES,
+            || client.batch_execute(&statement),
+            busy_template,
+        )
+        .await;
         drop(client);
         driver.abort();
         created?;
@@ -169,6 +183,31 @@ impl Drop for ScratchDb {
         // A dropper that panicked left the database to the sweep.
         let _ = dropper.join();
     }
+}
+
+/// Runs `attempt` until it succeeds, fails in a way `again` does not
+/// retry, or `tries` attempts were made — a pause growing by a tenth of a
+/// second between two.
+async fn retrying<T, E, F, Fut>(tries: u32, mut attempt: F, again: fn(&E) -> bool) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    let mut made: u32 = 1;
+    loop {
+        match attempt().await {
+            Err(e) if made < tries && again(&e) => {
+                tokio::time::sleep(Duration::from_millis(100 * u64::from(made))).await;
+                made += 1;
+            }
+            done => return done,
+        }
+    }
+}
+
+/// Whether the server refused because the template is in use.
+fn busy_template(e: &tokio_postgres::Error) -> bool {
+    e.code().is_some_and(|code| code.code() == OBJECT_IN_USE)
 }
 
 /// `DROP DATABASE … WITH (FORCE)` on `server`, within [`DROP_WITHIN`];
@@ -283,6 +322,62 @@ mod tests {
         );
         assert_eq!(naming("mysql://h/d", "s"), None);
         assert_eq!(naming("not a url", "s"), None);
+    }
+
+    #[tokio::test]
+    async fn a_create_is_tried_again_while_the_template_is_busy_and_only_then() {
+        let busy = |e: &&str| *e == "busy";
+        let calls = std::cell::Cell::new(0);
+        let twice_busy = retrying(
+            10,
+            || {
+                calls.set(calls.get() + 1);
+                let answer = if calls.get() < 3 {
+                    Err("busy")
+                } else {
+                    Ok(calls.get())
+                };
+                async move { answer }
+            },
+            busy,
+        )
+        .await;
+        assert_eq!(twice_busy, Ok(3), "busy twice, then created");
+        calls.set(0);
+        let refused = retrying(
+            10,
+            || {
+                calls.set(calls.get() + 1);
+                async { Err::<u32, _>("denied") }
+            },
+            busy,
+        )
+        .await;
+        assert_eq!(
+            (refused, calls.get()),
+            (Err("denied"), 1),
+            "another refusal: once"
+        );
+        calls.set(0);
+        let always = retrying(
+            3,
+            || {
+                calls.set(calls.get() + 1);
+                async { Err::<u32, _>("busy") }
+            },
+            busy,
+        )
+        .await;
+        assert_eq!(
+            (always, calls.get()),
+            (Err("busy"), 3),
+            "busy throughout: its tries"
+        );
+        let not_busy = Error::from("not a url".parse::<Config>().unwrap_err());
+        let Error::Postgres(e) = not_busy else {
+            panic!("a server's error")
+        };
+        assert!(!busy_template(&e), "no SQLSTATE: not a busy template");
     }
 
     #[test]

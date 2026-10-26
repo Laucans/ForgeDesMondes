@@ -14,8 +14,8 @@
 // gate. Each job of the workflow runs in parallel with the others, in a
 // worktree of its own under .git/gates-local/, its steps in their order with
 // the CI's semantics (`!cancelled()`: every gate runs whatever the others
-// said). `rules-hold` starts the product and takes minutes: off unless
-// `--rules`. A run takes minutes and says each job's gates as the job ends:
+// said). `rules-hold` builds and starts the product and takes minutes: off
+// unless `--rules`. A run takes minutes and says each job's gates as the job ends:
 // give it a long timeout (10 minutes) or run it in the background.
 //
 // The tree it judges is the pull request's: the work as it stands —
@@ -29,6 +29,19 @@
 // (`main_agent` by default). Labels come from the same places, or `--label`;
 // the PR's head branch from the same places, or `--head` (the rules' task's
 // PR is told by its branch, `rules/<n>`).
+//
+// Postgres: a job that declares the service gets a container of its own,
+// removed on the way out — except one whose Postgres steps only serve the
+// rules' runtime (scripts/rules-runtime.sh, `rules-hold`), which takes the
+// session's own server ($DATABASE_URL) when it answers within seconds with
+// the image's major version, a role that creates databases, and
+// GATES_LOCAL_PG_CONNECTIONS (20) free connections; else a container too.
+// The runtime creates and drops a database of its own there, named after
+// this run, gets two free ports (never a shared 8790/8791), and is stopped
+// — server, shell, database — on the way out, a signal included; one a
+// killed run left is stopped by its watchdog once this run is gone, or by
+// the next run on the same checkout. Each job's line says which Postgres it
+// used and its start time (`postgres · …`), and the report too (`stores`).
 //
 // Expressions: every `${{ … }}` and `if:` of the workflow is looked up in a
 // table of the exact strings the harness's gates.yml uses (EXPRESSIONS). A
@@ -64,6 +77,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 const WORKFLOW = '.github/workflows/gates.yml';
@@ -533,7 +547,20 @@ const alive = (pid) => {
 // The run's state, and what is cleaned on the way out.
 // ---------------------------------------------------------------------------
 
-const live = { containers: new Set(), children: new Set(), files: new Set(), lock: null };
+const live = { containers: new Set(), children: new Set(), files: new Set(), rules: new Set(), lock: null };
+
+// The Postgres each job used, for the report: { job, side, store, seconds, why }.
+const stores = [];
+
+// Stops the rules' runtime a job left in the worktree `dir` — its server,
+// its shell, its watchdog and its database (scripts/rules-runtime.sh stop)
+// — when its state says one is there.
+function releaseRules(dir) {
+  const state = path.join(dir, 'target', 'rules-runtime');
+  const script = path.join(dir, 'scripts', 'rules-runtime.sh');
+  const left = ['server.pid', 'shell.pid', 'watchdog.pid', 'database'].some((file) => fs.existsSync(path.join(state, file)));
+  if (left && fs.existsSync(script)) run('bash', [script, 'stop'], { cwd: dir, timeout: 60 });
+}
 
 function cleanup() {
   for (const child of live.children) {
@@ -543,6 +570,9 @@ function cleanup() {
       // Already gone.
     }
   }
+  // Before the containers: a runtime's database may live in one.
+  for (const dir of live.rules) releaseRules(dir);
+  live.rules.clear();
   for (const name of live.containers) run(docker(), ['rm', '-f', name], { timeout: 30 });
   live.containers.clear();
   for (const file of live.files) fs.rmSync(file, { force: true, recursive: true });
@@ -706,10 +736,13 @@ function mergedWithBase(ctx, snap) {
   return { commit: snap.commit, note: 'this git cannot merge in memory (2.38 or later): the gates read the work unmerged' };
 }
 
-// A worktree of `commit` under .git/gates-local/<name>, reused across runs.
+// A worktree of `commit` under .git/gates-local/<name>, reused across runs —
+// the rules' runtime a killed run left in it stopped first, before the
+// clean takes its state.
 function worktree(ctx, name, commit) {
   const dir = path.join(ctx.home, name);
   const env = gitEnvironment();
+  releaseRules(dir);
   if (fs.existsSync(path.join(dir, '.git'))) {
     const moved = git(['checkout', '-q', '-f', '--detach', commit], { cwd: dir, env });
     if (moved.ok) {
@@ -740,8 +773,9 @@ async function postgres(ctx, job, tag, serviceEnv) {
   const port = /:(\d+)\s*$/.exec(run(docker(), ['port', name, '5432/tcp'], { timeout: 30 }).stdout.split('\n')[0] ?? '')?.[1];
   if (!port) return { missing: 'docker gave the service no port' };
   let ready = 0;
-  for (let n = 0; n < 120 && ready < 2; n += 1) {
+  for (let n = 0; n < 120; n += 1) {
     ready = run(docker(), ['exec', name, 'psql', '-U', 'postgres', '-h', 'localhost', '-c', 'select 1'], { timeout: 20 }).ok ? ready + 1 : 0;
+    if (ready >= 2) break;
     await sleep(1000);
   }
   if (ready < 2) return { missing: 'the Postgres service never answered' };
@@ -776,6 +810,89 @@ if [ \${#files[@]} -gt 0 ]; then
 fi
 exec ${docker()} exec -i -e PGPASSWORD -e PGOPTIONS ${container} psql -h localhost "\${args[@]}"
 `;
+}
+
+// ---------------------------------------------------------------------------
+// The rules' runtime: the session's server, two ports and an owner of its own.
+// ---------------------------------------------------------------------------
+
+// A step that serves the product for the rules' tests: the runtime creates
+// and drops a database of its own on whatever server its DATABASE_URL names.
+const servesRules = (step) => /\bscripts\/rules-runtime\.sh\b/.test(step.run ?? '');
+const callsPsql = (step) => /\bpsql\b|\bpg_isready\b/.test(step.run ?? '');
+const usesPostgres = (step) => callsPsql(step) || servesRules(step);
+
+// The free connections a job takes the session's server with: its runtime's
+// few, and room for the other lanes' tests on the same server. Fewer free,
+// it takes a container of its own.
+const CONNECTIONS = Number(process.env.GATES_LOCAL_PG_CONNECTIONS || 20);
+
+// What the session's server is: its version, whether its role creates
+// databases, and its free connections (the superusers' reserve aside).
+const PROBE =
+  "select current_setting('server_version_num'), " +
+  '(select rolcreatedb or rolsuper from pg_roles where rolname = current_user), ' +
+  "current_setting('max_connections')::int - current_setting('superuser_reserved_connections')::int " +
+  "- (select count(*) from pg_stat_activity where backend_type = 'client backend')::int";
+
+// The `host:port` of a PostgreSQL URL — never its password.
+function addressOf(url) {
+  try {
+    return new URL(url).host || 'localhost';
+  } catch {
+    return 'an unreadable URL';
+  }
+}
+
+// The session's own PostgreSQL ($DATABASE_URL, the factory's server) for a
+// job whose Postgres steps only serve the rules' runtime: `{ url }` when it
+// answers within seconds, with the major version of the job's image, a
+// role that creates databases and `CONNECTIONS` free; `{ why }` otherwise.
+// Its databases are then the factory's role's, which the watch's sweep
+// drops when a run left one.
+function sessionStore(job, steps) {
+  if (!steps.length || steps.some(callsPsql)) return { why: 'a step of the job calls psql itself' };
+  const url = process.env.DATABASE_URL ?? '';
+  if (!/^postgres(ql)?:\/\//.test(url)) return { why: 'no DATABASE_URL in the session' };
+  const major = /^postgres:(\d+)/.exec(job.postgres.image)?.[1];
+  if (!major) return { why: `the image ${job.postgres.image} names no major version` };
+  const probe = run('psql', [url, '-XAtq', '-c', PROBE], { timeout: 10, env: { ...process.env, PGCONNECT_TIMEOUT: '5' } });
+  if (probe.missing) return { why: 'no psql on PATH' };
+  const where = addressOf(url);
+  if (!probe.ok) return { why: `the session's server ${where} does not answer: ${probe.stderr.split('\n').pop()}` };
+  const [version, creates, free] = probe.stdout.split('|');
+  const theirs = Math.floor(Number(version) / 10000);
+  if (String(theirs) !== major) return { why: `the session's server ${where} runs PostgreSQL ${theirs}, the job's image ${major}` };
+  if (creates !== 't') return { why: `the session's role on ${where} creates no database` };
+  if (!(Number(free) >= CONNECTIONS)) {
+    return { why: `the session's server ${where} has ${free} free connection(s), the job takes it with ${CONNECTIONS}` };
+  }
+  return { url, where };
+}
+
+// The ports handed out so far: two jobs of one run never share one.
+const handed = new Set();
+
+// `count` ports nobody listens on, from the system, each held while the
+// others are found.
+async function freePorts(count) {
+  const held = [];
+  const ports = [];
+  while (ports.length < count) {
+    const server = net.createServer();
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    held.push(server);
+    const { port } = server.address();
+    if (!handed.has(port)) {
+      handed.add(port);
+      ports.push(port);
+    }
+  }
+  await Promise.all(held.map((server) => new Promise((resolve) => server.close(resolve))));
+  return ports;
 }
 
 // ---------------------------------------------------------------------------
@@ -823,8 +940,6 @@ function readGithubEnv(file) {
   return out;
 }
 
-const usesPostgres = (step) => /\bpsql\b|\bpg_isready\b/.test(step.run ?? '');
-
 async function runJob(ctx, job, { dir, side, wanted, merge }) {
   const results = [];
   const logs = path.join(ctx.home, 'logs', side);
@@ -857,20 +972,44 @@ async function runJob(ctx, job, { dir, side, wanted, merge }) {
     if (read.text === undefined) return stopped(read, `job env ${key}`);
     jobEnv[key] = read.text;
   }
+  // The rules' runtime: two ports of its own — two lanes, or the head and
+  // the base, never meet on 8790 — and this run as its owner, whose end
+  // stops it whatever ends this run.
+  if (chosen.some(servesRules)) {
+    const [server, app] = await freePorts(2);
+    jobEnv = { ...jobEnv, RULES_SERVER_PORT: String(server), RULES_APP_PORT: String(app), RULES_RUNTIME_OWNER: String(process.pid) };
+    live.rules.add(dir);
+  }
   let service = null;
   if (job.postgres && chosen.some(usesPostgres)) {
-    const serviceEnv = {};
-    for (const [key, value] of Object.entries(job.postgres.env)) {
-      const read = substitute(value, facts());
-      if (read.text === undefined) return stopped(read, `service env ${key}`);
-      serviceEnv[key] = read.text;
-    }
-    service = await postgres(ctx, job, `${side}-${job.id}`, serviceEnv);
-    if (service.env?.PGPORT) {
+    const begun = Date.now();
+    const shared = chosen.some(servesRules) ? sessionStore(job, chosen.filter(usesPostgres)) : { why: null };
+    if (shared.url) {
+      service = { env: {} };
       jobEnv = Object.fromEntries(
-        Object.entries(jobEnv).map(([k, v]) => [k, v.replace(/localhost:5432\b/g, `localhost:${service.port}`)]),
+        Object.entries(jobEnv).map(([k, v]) => [k, /^postgres(ql)?:\/\/([^/@]*@)?localhost:5432\b/.test(v) ? shared.url : v]),
       );
+    } else {
+      const serviceEnv = {};
+      for (const [key, value] of Object.entries(job.postgres.env)) {
+        const read = substitute(value, facts());
+        if (read.text === undefined) return stopped(read, `service env ${key}`);
+        serviceEnv[key] = read.text;
+      }
+      service = await postgres(ctx, job, `${side}-${job.id}`, serviceEnv);
+      if (service.env?.PGPORT) {
+        jobEnv = Object.fromEntries(
+          Object.entries(jobEnv).map(([k, v]) => [k, v.replace(/localhost:5432\b/g, `localhost:${service.port}`)]),
+        );
+      }
     }
+    stores.push({
+      job: job.id,
+      side,
+      store: shared.url ? `the session's ${shared.where}` : service.missing ? 'none' : 'a container',
+      seconds: Math.round((Date.now() - begun) / 1000),
+      why: [shared.why, service.missing].filter(Boolean).join('; ') || null,
+    });
   }
   const githubEnv = path.join(logs, `${job.id}.github-env`);
   fs.writeFileSync(githubEnv, '');
@@ -1279,6 +1418,9 @@ async function main() {
       }
       // Said as the job ends, grouped: a session sees progress, not minutes of silence.
       out(`gates-local: job ${job.id} done · ${Math.round((Date.now() - begun) / 1000)}s`);
+      for (const used of stores.filter((s) => s.job === job.id && s.side === 'head')) {
+        out(`  postgres · ${used.store} · ${used.seconds}s${used.why ? ` · ${used.why}` : ''}`);
+      }
       for (const result of rows) if (!(result.kind === 'setup' && result.outcome === 'ok')) out(`  ${line(result, ctx)}`);
       return rows;
     }),
@@ -1349,6 +1491,7 @@ async function main() {
   report.seconds = seconds;
   report.gates = results.filter((r) => r.kind !== 'setup').map((r) => ({ id: r.id, job: r.job, outcome: r.outcome, seconds: r.seconds ?? null, why: r.why ?? null }));
   report.setup_failed = setupFailed;
+  report.stores = stores;
   report.counts = {
     ok: count('ok'),
     FAIL: count('FAIL'),

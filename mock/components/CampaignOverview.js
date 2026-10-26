@@ -70,6 +70,14 @@
     return parsed;
   }
   var POLL_MS = 2e3;
+  var SETTLING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 100, polls: 50 };
+  var ADVANCING = /* @__PURE__ */ new Set(["queued", "confirmed"]);
+  var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  var stateOf = (answer) => {
+    const result = record(record(answer).result);
+    const id = record(answer).commandId ?? result.commandId;
+    return { id: typeof id === "string" ? id : "", status: typeof result.status === "string" ? result.status : "" };
+  };
   var FAIL_CLOSED = { by: "player", roles: [], permissions: [] };
   var browserPage = () => ({
     href: typeof location === "undefined" ? "" : location.href,
@@ -124,7 +132,24 @@
     const sent = body.caller;
     return { ...body, caller: { ...sent && typeof sent === "object" ? sent : {}, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
   }
-  function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage()) {
+  function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage(), settling = SETTLING) {
+    const writing = /* @__PURE__ */ new Set();
+    const follow = async (sent) => {
+      try {
+        const first = stateOf(await sent);
+        const { id } = first;
+        let { status } = first;
+        for (let asked = 0; ADVANCING.has(status) && id !== "" && asked < settling.polls; asked += 1) {
+          await settling.sleep(settling.everyMs);
+          ({ status } = stateOf(await call(fetcher, "GET", `/commands/${encodeURIComponent(id)}`)));
+        }
+      } catch {
+      }
+    };
+    const track = (sent) => {
+      const settled2 = follow(sent).finally(() => writing.delete(settled2));
+      writing.add(settled2);
+    };
     let resolving;
     const callerOf = async () => {
       const asked = resolving ??= pageCaller(page);
@@ -140,8 +165,15 @@
       if (fallback) context2.set("campaign", fallback);
     }
     return {
-      capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
-      command: async (body) => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())),
+      capability: async (id, sha256, variables = {}) => {
+        await Promise.all([...writing]);
+        return await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables });
+      },
+      command: (body) => {
+        const sent = (async () => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())))();
+        track(sent);
+        return sent;
+      },
       commandResult: (commandId2) => call(fetcher, "GET", `/commands/${encodeURIComponent(commandId2)}`),
       onDataVersion(listener, everyMs = POLL_MS) {
         let last;
@@ -244,7 +276,12 @@
     const violations = Array.isArray(result.violations) ? result.violations.filter((v) => typeof v === "string") : [];
     return { status: text(result.status), violations, archive: archiveOf(result.attachment) };
   }
-  var safeFileName = (file) => file.replace(/[\\/:*?"<>|]+/g, "-");
+  var DEFAULT_FILE_NAME = "campaign-archive.json";
+  var RESERVED_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+  function safeFileName(file) {
+    const name = file.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, "-").replace(/^\.+/, "").replace(/[. ]+$/, "");
+    return name === "" || RESERVED_NAME.test(name) ? DEFAULT_FILE_NAME : name;
+  }
   var isFinal = (status) => FINAL.has(status);
   function commandId(answer) {
     return isRecord(answer) ? text(answer.commandId) || (isRecord(answer.result) ? text(answer.result.commandId) : "") : "";
@@ -382,6 +419,7 @@
       try {
         const state = await send();
         if (state.status === "rejected") return say(`Export refus\xE9 : ${state.violations.join(", ") || "raison inconnue"}. ${before}`);
+        if (state.status === "cancelled" || state.status === "expired") return say(`L\u2019export est ${state.status === "cancelled" ? "annul\xE9" : "expir\xE9"} : l\u2019\xE9tat est final, aucune archive ne viendra. ${before}`);
         if (state.status !== "applied") return say(`L\u2019export n\u2019est pas encore appliqu\xE9 (\xE9tat : ${state.status || "inconnu"}). ${before}`);
         const problems = keep(state.archive);
         let fresh = null;

@@ -123,13 +123,16 @@ jobs:
   # a task's squash, a milestone's merge, or a catch-up bringing
   # `main_agent` in — and judged again it turned a milestone's PR red on
   # another milestone's mutants (#321 on #19's list-media, 2026-10-20).
+  # A catch-up's pull request (`catchup/*`, the harness's) brings
+  # `main_agent` into a milestone: its diff is code judged on main_agent,
+  # and an upgrade's kit lines met in-diff mutants there (#624).
   #
   # A job of its own, split in two shards that judge disjoint halves of the
   # same diff: it was two thirds of the `rust` job's time. Built without
   # debug info (a mutant is judged by its tests passing, never debugged),
   # and tested with nextest, which stops at the first failing test.
   mutants:
-    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'milestone/')
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'milestone/') && !startsWith(github.head_ref, 'catchup/')
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -232,6 +232,16 @@ test('an export that never settles is said, and the old date is kept', async () 
   assert.equal(text('overview-export-status'), 'L’export n’est pas encore appliqué (état : queued). Dernier export : 4 octobre 2026');
 });
 
+test('a cancelled or expired export is said final, with no archive to come', async () => {
+  for (const [status, word] of [['cancelled', 'annulé'], ['expired', 'expiré']] as const) {
+    const { click, text, saved } = await panel({ apply: () => ({ status }), attachment: ARCHIVE });
+    await click('overview-export');
+    await settle();
+    assert.equal(text('overview-export-status'), `L’export est ${word} : l’état est final, aucune archive ne viendra. Dernier export : 4 octobre 2026`);
+    assert.deepEqual(saved, []);
+  }
+});
+
 test('an export the server cannot take is said, and the button comes back', async () => {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div></div></body></html>', { url: 'http://shell.test/' });
   const host = dom.window.document.querySelector('div') as HTMLElement;
@@ -336,7 +346,7 @@ test('the download is the archive as a JSON file under a safe name, its address 
     clicked.push({ href: this.href, download: this.download });
   };
   downloadIn(dom.window.document)('../valombre:1.json', ARCHIVE.content);
-  assert.deepEqual(clicked, [{ href: 'blob:archive', download: '..-valombre-1.json' }]);
+  assert.deepEqual(clicked, [{ href: 'blob:archive', download: '-valombre-1.json' }]);
   assert.equal(dom.window.document.querySelector('a'), null, 'the link does not stay in the page');
   assert.deepEqual(revoked, [], 'not before the browser has started the download');
   const body = await new Promise<string>((resolve) => {
