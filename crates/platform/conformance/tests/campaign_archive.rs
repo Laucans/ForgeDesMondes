@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use platform_conformance::{failures, fixtures_of, repository_root};
+use platform_conformance::{concept_of, failures, fixtures_of};
 use serde_json::{Map, Value, json};
 
 const ID: &str = "CampaignArchive@1";
@@ -289,9 +289,7 @@ fn archive_of_the_full_case() -> &'static Value {
 }
 
 fn concept() -> Value {
-    let path = repository_root().join("concepts/CampaignArchive/v1/concept.json");
-    let text = std::fs::read_to_string(&path).expect("concept.json");
-    serde_json::from_str(&text).expect("concept.json is JSON")
+    concept_of(ID)
 }
 
 fn case(name_starts_with: &str) -> platform_conformance::Case {
