@@ -576,7 +576,7 @@
         "campaign": "string — id de la campagne ; absent, l’envoi en fenêtre ne peut pas nommer la campagne"
       },
       "source": "apps/live/table-sheet",
-      "builtFrom": "a1c6a8924330aae8"
+      "builtFrom": "24bed48990674d42"
     },
     {
       "name": "LiveSoundbox",
