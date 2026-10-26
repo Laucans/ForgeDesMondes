@@ -50,10 +50,103 @@ async function call(fetcher: typeof fetch, method: string, path: string, body?: 
 
 const POLL_MS = 2000;
 
-export function createShell(fetcher: typeof fetch = (input, init) => fetch(input, init)): Shell {
+/** The caller of a command (contract S): the surface of the screen it is sent from. */
+export interface Caller {
+  by: string;
+  roles: string[];
+  permissions: string[];
+}
+
+/** Who acts when anything is in doubt: the players', with no role and no permission. */
+const FAIL_CLOSED: Caller = { by: 'player', roles: [], permissions: [] };
+
+/** What the shell reads of its page: the address, the metas the shell's server wrote, and the page's own fetch. */
+export interface Page {
+  href: string;
+  meta(name: string): string | undefined;
+  fetch: typeof fetch;
+}
+
+const browserPage = (): Page => ({
+  href: typeof location === 'undefined' ? '' : location.href,
+  meta: (name) => (typeof document === 'undefined' ? undefined : (document.querySelector(`meta[name="${name}"]`)?.getAttribute('content') ?? undefined)),
+  fetch: (input, init) => fetch(input, init),
+});
+
+const asStrings = (value: unknown): string[] | undefined =>
+  Array.isArray(value) && value.every((item): item is string => typeof item === 'string') ? value : undefined;
+
+/** A caller as a surface declares it (contract S); `undefined` when it is not whole. */
+function asCaller(value: unknown): Caller | undefined {
+  const caller = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const roles = asStrings(caller.roles);
+  const permissions = caller.permissions === undefined ? [] : asStrings(caller.permissions);
+  return typeof caller.by === 'string' && caller.by && roles && permissions ? { by: caller.by, roles, permissions } : undefined;
+}
+
+async function json(page: Page, url: string): Promise<unknown> {
+  const answer = await page.fetch(url);
+  if (!answer.ok) throw new Error(`${url}: ${answer.status}`);
+  return answer.json() as Promise<unknown>;
+}
+
+/** A file of the product the mock-up does not hold: `../__product/` beside its pages' folder, else the repository's root two folders up. */
+async function product(page: Page, path: string): Promise<unknown> {
+  try {
+    return await json(page, new URL(`../__product/${path}`, page.href).href);
+  } catch {
+    return json(page, new URL(`../../${path}`, page.href).href);
+  }
+}
+
+/** In the mock-up, where no shell's server wrote the metas: the caller its page's screen declares (`../pages.json`, `surfaces.json`, `apps/screens/<screen>.json`). */
+async function mockupCaller(page: Page): Promise<Caller> {
+  const here = new URL(page.href);
+  const pagesUrl = new URL('../pages.json', here);
+  const listed = (await json(page, pagesUrl.href)) as { pages?: Array<{ path?: string; screen?: string; surface?: string }> };
+  const mocked = listed.pages?.find((p) => typeof p.path === 'string' && new URL(p.path, pagesUrl).pathname === here.pathname);
+  if (!mocked) return FAIL_CLOSED;
+  let surface = mocked.surface;
+  if (mocked.screen !== undefined) {
+    const screen = (await product(page, `apps/screens/${mocked.screen}.json`)) as { surface?: string; pilot?: { surface?: string; query?: string } };
+    const pilot = screen.pilot;
+    surface = pilot && typeof pilot.query === 'string' && here.searchParams.get(pilot.query) === '1' ? pilot.surface : screen.surface;
+  }
+  const declared = ((await product(page, 'surfaces.json')) as { surfaces?: Record<string, unknown> }).surfaces;
+  return (surface !== undefined && declared && Object.hasOwn(declared, surface) ? asCaller(declared[surface]) : undefined) ?? FAIL_CLOSED;
+}
+
+/** The caller every command of this page carries: the metas' when the shell's server wrote them, else the mock-up's; the players' for any doubt. */
+async function pageCaller(page: Page): Promise<Caller> {
+  try {
+    const meta = page.meta('shell-caller');
+    if (meta !== undefined) return asCaller(JSON.parse(meta)) ?? FAIL_CLOSED;
+    return await mockupCaller(page);
+  } catch {
+    return FAIL_CLOSED;
+  }
+}
+
+/** The body with the page's caller set over what the Micro-UI sent; its `from` stays. */
+function withCaller(body: unknown, caller: Caller): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  const sent = (body as { caller?: unknown }).caller;
+  return { ...body, caller: { ...(sent && typeof sent === 'object' ? sent : {}), by: caller.by, roles: caller.roles, permissions: caller.permissions } };
+}
+
+export function createShell(fetcher: typeof fetch = (input, init) => fetch(input, init), page: Page = browserPage()): Shell {
+  let caller: Promise<Caller> | undefined;
+  const context = new Context();
+  // The context's campaign follows one precedence: the address, then the live session (a Micro-UI's write), then the default.
+  const named = page.href ? new URL(page.href, 'http://shell').searchParams.get('campaign') : null;
+  if (named) context.hold('campaign', named);
+  else {
+    const fallback = page.meta('shell-default-campaign');
+    if (fallback) context.set('campaign', fallback);
+  }
   return {
     capability: async (id, sha256, variables = {}) => (await call(fetcher, 'POST', `/capabilities/${encodeURIComponent(id)}`, { sha256, variables })) as Read,
-    command: (body) => call(fetcher, 'POST', '/commands', body),
+    command: async (body) => call(fetcher, 'POST', '/commands', withCaller(body, await (caller ??= pageCaller(page)))),
     commandResult: (commandId) => call(fetcher, 'GET', `/commands/${encodeURIComponent(commandId)}`),
     onDataVersion(listener, everyMs = POLL_MS) {
       let last: number | undefined;
@@ -78,6 +171,6 @@ export function createShell(fetcher: typeof fetch = (input, init) => fetch(input
       const timer = setInterval(() => void poll(), everyMs);
       return () => clearInterval(timer);
     },
-    context: new Context(),
+    context,
   };
 }

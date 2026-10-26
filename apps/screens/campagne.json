@@ -2,6 +2,7 @@
   "screen": "campagne",
   "generatedFrom": "Le DM parcourt les séances et les éléments de sa campagne, crée ou lance une séance, importe ses notes et traite les entités à créer",
   "version": 1,
+  "surface": "dm",
   "layout": [
     { "CampaignOverview": { "campaign": "cendres-valombre" } },
     { "SessionList": { "campaign": "cendres-valombre" } },

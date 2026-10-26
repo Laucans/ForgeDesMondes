@@ -4,9 +4,15 @@
   var Context = class {
     values = /* @__PURE__ */ new Map();
     listeners = /* @__PURE__ */ new Set();
-    /** Sets one value and tells everyone who follows the context; nothing happens when it did not change. */
+    held = /* @__PURE__ */ new Set();
+    /** Sets one value the address named and keeps it: a later `set` of that name changes nothing. */
+    hold(name, value) {
+      this.set(name, value);
+      this.held.add(name);
+    }
+    /** Sets one value and tells everyone who follows the context; nothing happens when it did not change, or when the address holds the name. */
     set(name, value) {
-      if (this.values.get(name) === value) return;
+      if (this.held.has(name) || this.values.get(name) === value) return;
       this.values.set(name, value);
       for (const listener of [...this.listeners]) {
         try {
@@ -64,10 +70,72 @@
     return parsed;
   }
   var POLL_MS = 2e3;
-  function createShell(fetcher = (input, init) => fetch(input, init)) {
+  var FAIL_CLOSED = { by: "player", roles: [], permissions: [] };
+  var browserPage = () => ({
+    href: typeof location === "undefined" ? "" : location.href,
+    meta: (name) => typeof document === "undefined" ? void 0 : document.querySelector(`meta[name="${name}"]`)?.getAttribute("content") ?? void 0,
+    fetch: (input, init) => fetch(input, init)
+  });
+  var asStrings = (value) => Array.isArray(value) && value.every((item) => typeof item === "string") ? value : void 0;
+  function asCaller(value) {
+    const caller = value && typeof value === "object" ? value : {};
+    const roles = asStrings(caller.roles);
+    const permissions = caller.permissions === void 0 ? [] : asStrings(caller.permissions);
+    return typeof caller.by === "string" && caller.by && roles && permissions ? { by: caller.by, roles, permissions } : void 0;
+  }
+  async function json(page, url) {
+    const answer = await page.fetch(url);
+    if (!answer.ok) throw new Error(`${url}: ${answer.status}`);
+    return answer.json();
+  }
+  async function product(page, path) {
+    try {
+      return await json(page, new URL(`../__product/${path}`, page.href).href);
+    } catch {
+      return json(page, new URL(`../../${path}`, page.href).href);
+    }
+  }
+  async function mockupCaller(page) {
+    const here = new URL(page.href);
+    const pagesUrl = new URL("../pages.json", here);
+    const listed = await json(page, pagesUrl.href);
+    const mocked = listed.pages?.find((p) => typeof p.path === "string" && new URL(p.path, pagesUrl).pathname === here.pathname);
+    if (!mocked) return FAIL_CLOSED;
+    let surface = mocked.surface;
+    if (mocked.screen !== void 0) {
+      const screen = await product(page, `apps/screens/${mocked.screen}.json`);
+      const pilot = screen.pilot;
+      surface = pilot && typeof pilot.query === "string" && here.searchParams.get(pilot.query) === "1" ? pilot.surface : screen.surface;
+    }
+    const declared = (await product(page, "surfaces.json")).surfaces;
+    return (surface !== void 0 && declared && Object.hasOwn(declared, surface) ? asCaller(declared[surface]) : void 0) ?? FAIL_CLOSED;
+  }
+  async function pageCaller(page) {
+    try {
+      const meta = page.meta("shell-caller");
+      if (meta !== void 0) return asCaller(JSON.parse(meta)) ?? FAIL_CLOSED;
+      return await mockupCaller(page);
+    } catch {
+      return FAIL_CLOSED;
+    }
+  }
+  function withCaller(body, caller) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+    const sent = body.caller;
+    return { ...body, caller: { ...sent && typeof sent === "object" ? sent : {}, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
+  }
+  function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage()) {
+    let caller;
+    const context2 = new Context();
+    const named = page.href ? new URL(page.href, "http://shell").searchParams.get("campaign") : null;
+    if (named) context2.hold("campaign", named);
+    else {
+      const fallback = page.meta("shell-default-campaign");
+      if (fallback) context2.set("campaign", fallback);
+    }
     return {
       capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
-      command: (body) => call(fetcher, "POST", "/commands", body),
+      command: async (body) => call(fetcher, "POST", "/commands", withCaller(body, await (caller ??= pageCaller(page)))),
       commandResult: (commandId) => call(fetcher, "GET", `/commands/${encodeURIComponent(commandId)}`),
       onDataVersion(listener, everyMs = POLL_MS) {
         let last;
@@ -90,7 +158,7 @@
         const timer = setInterval(() => void poll(), everyMs);
         return () => clearInterval(timer);
       },
-      context: new Context()
+      context: context2
     };
   }
 
@@ -692,9 +760,9 @@
   var LATENCY_MS = 120;
   var delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   var uuid = () => crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
-  var json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-  var notFound = () => json({ error: "not-found" }, 404);
-  var refused = (why) => json({ error: why }, 409);
+  var json2 = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  var notFound = () => json2({ error: "not-found" }, 404);
+  var refused = (why) => json2({ error: why }, 409);
   var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   var FINAL = /* @__PURE__ */ new Set(["applied", "rejected", "cancelled", "expired"]);
   var LEGACY = { reads: ["../src/reads.js", "READS"], commands: ["../src/commands.js", "COMMANDS"] };
@@ -903,7 +971,7 @@
     };
     s.confirmed = /* @__PURE__ */ new Map();
     const resultOf = (entry2) => ({ commandId: entry2.commandId, status: entry2.state, dataVersion: entry2.dataVersion || null, violations: entry2.violations || [], reviewId: entry2.reviewId || null });
-    const answer = (entry2, replayed = false) => json({ commandId: entry2.commandId, partition: entry2.partition, replayed, warnings: replayed ? [] : entry2.warnings || [], result: resultOf(entry2) }, 202);
+    const answer = (entry2, replayed = false) => json2({ commandId: entry2.commandId, partition: entry2.partition, replayed, warnings: replayed ? [] : entry2.warnings || [], result: resultOf(entry2) }, 202);
     const drive = async () => {
       for (const partition of new Set([...s.queue.values()].filter((e) => !FINAL.has(e.state)).map((e) => e.partition))) {
         for (; ; ) {
@@ -961,7 +1029,7 @@
       const document2 = await s.aggregate(aggregate) || { fields: {} };
       const declared = document2.fields || {};
       const derived = Object.keys(payload).filter((f) => declared[f] && declared[f].kind === "derived");
-      if (derived.length) return json({ error: `${dataCapability} writes the derived field(s) ${derived.join(", ")}: ${aggregate} recomputes them` }, 403);
+      if (derived.length) return json2({ error: `${dataCapability} writes the derived field(s) ${derived.join(", ")}: ${aggregate} recomputes them` }, 403);
       const commandId = uuid();
       const partition = `${aggregate || dataCapability}/${targetId || commandId}`;
       const entry2 = { commandId, dataCapability, version: Number(version) || 1, aggregate, partition, targetId, by, payload, basedOn: body.basedOn, idempotencyKey: body.idempotencyKey, handler, position: s.next(), state: "queued", warnings: [] };
@@ -1051,17 +1119,17 @@
         if (verb === "reject") entry2.violations = [`review ${entry2.reviewId} rejected`];
       } else return notFound();
       await drive();
-      return json({ result: resultOf(entry2) });
+      return json2({ result: resultOf(entry2) });
     };
     s.fetch = async (input, init) => {
       try {
         await s.ready;
-        if (s.problems.length) return json({ error: `the mock server did not start: ${s.problems.join("; ")}` }, 500);
+        if (s.problems.length) return json2({ error: `the mock server did not start: ${s.problems.join("; ")}` }, 500);
         return await respond(input, init);
       } catch (e) {
         if (!(e instanceof HandlerError)) throw e;
         console.error(e.message);
-        return json({ error: e.message }, 500);
+        return json2({ error: e.message }, 500);
       }
     };
     const respond = async (input, init) => {
@@ -1071,13 +1139,13 @@
       const body = init && typeof init.body === "string" ? JSON.parse(init.body) : {};
       if (method === "POST" && url.pathname.startsWith("/capabilities/")) {
         const data = await read(decodeURIComponent(url.pathname.slice("/capabilities/".length)), body.variables || {});
-        return data === void 0 ? notFound() : json({ asOf: s.dataVersion, data });
+        return data === void 0 ? notFound() : json2({ asOf: s.dataVersion, data });
       }
       if (method === "POST" && url.pathname === "/commands") return command(body);
       const lookup = /^\/commands\/([^/]+)$/.exec(url.pathname);
       if (lookup && method === "GET") {
         const entry2 = s.commands.get(decodeURIComponent(lookup[1]));
-        return entry2 ? json({ result: resultOf(entry2) }) : notFound();
+        return entry2 ? json2({ result: resultOf(entry2) }) : notFound();
       }
       const move = /^\/commands\/([^/]+)\/(confirm|cancel|requeue|approve|reject)$/.exec(url.pathname);
       if (move && method === "POST") return gesture(decodeURIComponent(move[1]), move[2], body);
