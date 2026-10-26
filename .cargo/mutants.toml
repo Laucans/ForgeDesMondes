@@ -20,6 +20,10 @@ exclude_globs = [
   "**/main.rs",
   "crates/dataguard/server/**",
   "crates/dataguard/registry/**",
+  # Harness-owned assets: the harness judges their mutants in its own repo;
+  # judged here they file test debt the next upgrade would undo.
+  "crates/platform/scratch-db/**",
+  "crates/platform/test-kit/**",
 ]
 
 # Equivalent mutants: no observable difference, so no test can catch them.
