@@ -1,7 +1,7 @@
 {
   "microUi": "PlayerStage",
   "system": "live",
-  "description": "L’écran des joueurs : couverture, battlemap ou illustration en scène, et fenêtre d’illustration flottante ; dans l’onglet piloté par le MJ, la fenêtre se déplace par sa barre et se redimensionne par son coin, proportions de l’image gardées",
+  "description": "L’écran des joueurs : couverture, battlemap ou illustration en scène, et fenêtre d’illustration flottante ; la fenêtre se redimensionne par son coin, proportions de l’image gardées, et dans l’onglet piloté par le MJ elle se déplace aussi par sa barre",
   "needs": [
     "live.getDiffusion",
     "session.getLiveSession",

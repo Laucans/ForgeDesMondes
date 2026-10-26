@@ -39,6 +39,23 @@ export function parseSuggestions(data: unknown): Suggestions {
   return { stack: history.slice(0, PILE), history };
 }
 
+/** What names one detection: an element heard again later is another arrival. */
+export const keyOf = (s: Suggestion): string => `${s.id}@${s.detectedAt}`;
+
+/** What `history` lists that `seen` does not hold yet, in the order it was heard (oldest first): the arrivals the pill shows in turn. */
+export const arrivals = (history: readonly Suggestion[], seen: ReadonlySet<string>): Suggestion[] => history.filter((s) => !seen.has(keyOf(s))).reverse();
+
+/** Whether the answer has the shape of a list of suggestions (an empty one included): a read that is not one tells nothing of what is there. */
+export const isAnswer = (data: unknown): boolean => isRecord(data) || Array.isArray(data);
+
+/** The suggestions with `held` left out, the pile cut again from what is left: the pill shows no arrival before its turn. */
+export function without(all: Suggestions, held: readonly Suggestion[]): Suggestions {
+  if (held.length === 0) return all;
+  const keys = new Set(held.map(keyOf));
+  const history = all.history.filter((s) => !keys.has(keyOf(s)));
+  return { stack: history.slice(0, PILE), history };
+}
+
 /** The hour and minute a suggestion was detected at, as the DM reads them; empty when the answer gives no time. */
 export function timeOf(detectedAt: string): string {
   const at = Date.parse(detectedAt);

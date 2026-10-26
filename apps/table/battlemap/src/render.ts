@@ -8,6 +8,7 @@ import {
   END_COMBAT,
   GET_BATTLEMAP,
   GET_BATTLEMAP_INSTANCE,
+  GET_DIFFUSION,
   LIST_CHARACTERS,
   MOVE_TOKEN,
   NEXT_TURN,
@@ -44,7 +45,7 @@ export function skeleton(props: Props): string {
     '<div class="bm-toolbar" id="battlemap-toolbar"></div>' +
     '<div class="bm-body" id="battlemap-body">' +
     `<aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props.view === 'prep' ? '' : ' hidden'}></aside>` +
-    `<div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div>` +
+    `<div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP} ${GET_DIFFUSION}"></div>` +
     '<aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside>' +
     '</div>' +
     '<div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d’initiative" hidden></div>' +

@@ -324,7 +324,7 @@
   }
   function skeleton(pilot) {
     const bar = pilot ? `<figcaption class="pv-window__bar" id="player-window-bar" data-writes="${MOVE_WINDOW}"></figcaption>` : "";
-    const corner = pilot ? `<span class="pv-window__resize" id="player-window-resize" data-writes="${RESIZE_WINDOW}" aria-hidden="true"></span>` : "";
+    const corner = `<span class="pv-window__resize" id="player-window-resize" data-writes="${RESIZE_WINDOW}" aria-hidden="true"></span>`;
     const badge = pilot ? '<p class="pv-pilot" id="player-pilot-badge">Vue pilot\xE9e par le MJ \xB7 d\xE9placez les tokens et la fen\xEAtre, zoomez la carte</p>' : "";
     return `<div class="pv${pilot ? " pv--pilot" : ""}" id="player-stage" data-reads="${GET_LIVE_SESSION}"><div class="pv-base" id="player-base" data-reads="${GET_DIFFUSION}"></div><figure class="pv-window" id="player-window" hidden>${bar}<div class="pv-window__art" id="player-window-art" data-reads="${LIST_MEDIA}"></div>${corner}</figure>` + badge + '<p class="pv-status" id="player-status" role="status" hidden></p></div>';
   }
@@ -344,7 +344,7 @@
 
   // apps/live/player-stage/src/style.ts
   var STYLE = `
-.pv { box-sizing: border-box; position: relative; width: 100%; height: 100%; min-height: calc(var(--space-5) * 12); overflow: hidden; background: var(--color-surface); color: var(--color-text); font-family: var(--font-family); font-size: var(--font-size-base); }
+.pv { box-sizing: border-box; position: relative; width: 100%; height: 100%; min-height: max(calc(var(--space-5) * 12), calc(100vh - var(--space-4) * 2)); overflow: hidden; background: var(--color-surface); color: var(--color-text); font-family: var(--font-family); font-size: var(--font-size-base); }
 .pv *, .pv *::before, .pv *::after { box-sizing: inherit; }
 .pv h1, .pv p { margin: 0; }
 .pv .art { position: relative; display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; background: var(--color-surface-2); color: var(--color-text); font-family: var(--font-family-heading); text-transform: uppercase; }
@@ -592,9 +592,9 @@
       }
     }
     host2.addEventListener("pointerdown", (event) => {
-      if (!props2.pilot || gesture || event.button !== 0) return;
+      if (gesture || event.button !== 0) return;
       const target = event.target;
-      const mode = target?.closest("#player-window-resize") ? "resize" : target?.closest("#player-window-bar") ? "move" : null;
+      const mode = target?.closest("#player-window-resize") ? "resize" : props2.pilot && target?.closest("#player-window-bar") ? "move" : null;
       const win = current();
       const image = win === null ? void 0 : illustrationOf(media, win.media);
       if (mode === null || win === null || image === void 0) return;

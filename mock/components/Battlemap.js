@@ -204,6 +204,7 @@
   var GET_BATTLEMAP_INSTANCE = "table.getBattlemapInstance";
   var GET_BATTLEMAP = "media.getBattlemap";
   var LIST_CHARACTERS = "campaign.listCharacters";
+  var GET_DIFFUSION = "live.getDiffusion";
   var MOVE_TOKEN = "table.moveToken";
   var PLACE_TOKENS = "table.placeTokens";
   var REMOVE_TOKEN = "table.removeToken";
@@ -478,6 +479,13 @@
     return isRecord(answer) ? text(answer.commandId) || (isRecord(answer.result) ? text(answer.result.commandId) : "") : "";
   }
   var SCALE = `1 hex = ${FEET_PER_HEX} pi`;
+  var roundFrame = (frame) => ({ zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+  function parseShownFrame(data, instance) {
+    if (!isRecord(data) || !isRecord(data.base) || data.base.kind !== "battlemap" || data.base.id !== instance || !isRecord(data.view)) return null;
+    const { zoom, panX, panY } = data.view;
+    const finite = (value) => typeof value === "number" && Number.isFinite(value);
+    return finite(zoom) && zoom > 0 && finite(panX) && finite(panY) ? { zoom, panX, panY } : null;
+  }
 
   // apps/table/battlemap/src/render.ts
   var esc = (value) => value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -485,7 +493,7 @@
   var tone = (color) => /^[a-z][a-z-]*$/.test(color) ? color : "secondary";
   function skeleton(props2) {
     const modes = `${props2.fill ? " bm--fill" : ""}${props2.view === "player" && !props2.pilot ? " bm--readonly" : ""}${props2.view === "prep" ? " bm--prep" : ""}`;
-    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props2.view === "prep" ? "" : " hidden"}></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
+    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props2.view === "prep" ? "" : " hidden"}></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP} ${GET_DIFFUSION}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
   }
   function button(p) {
     return `<button type="button" class="${p.variant}" id="${p.id}"${attr("data-writes", p.writes ?? "")}${p.disabled ? " disabled" : ""}>${esc(p.label)}</button>`;
@@ -699,9 +707,12 @@
     let readNo = 0;
     let stopWatching = () => void 0;
     let observer = null;
+    let followed = false;
+    let frameTimer;
     const part = (id) => host2.querySelector(`#${id}`);
     const canMove = () => props2.view !== "player" || props2.pilot;
     const dm = () => props2.view !== "player";
+    const piloting = () => props2.view === "player" && props2.pilot;
     function say(kind, text2 = "") {
       const box = part("battlemap-status");
       if (!box) return;
@@ -711,7 +722,7 @@
     }
     function applyFrame() {
       const stage = part("battlemap-stage");
-      if (stage) stage.style.transform = `translate(${frame.panX}px,${frame.panY}px) scale(${frame.zoom})`;
+      if (stage) stage.style.transform = `translate(${frame.panX}px, ${frame.panY}px) scale(${frame.zoom})`;
     }
     function fit() {
       const view = part("battlemap-view");
@@ -721,6 +732,34 @@
       fitted = true;
       applyFrame();
       return true;
+    }
+    function fitWhenSized() {
+      fitted = false;
+      frame = { zoom: 1, panX: 0, panY: 0 };
+      applyFrame();
+      observer?.disconnect();
+      observer = null;
+      if (!fit() && typeof ResizeObserver !== "undefined") {
+        const view = part("battlemap-view");
+        if (view) {
+          observer = new ResizeObserver(() => {
+            if (!fitted) fit();
+          });
+          observer.observe(view);
+        }
+      }
+    }
+    function follow(framed) {
+      if (!map || props2.view !== "player" || props2.pilot) return;
+      if (framed) {
+        frame = framed;
+        fitted = true;
+        followed = true;
+        applyFrame();
+      } else if (followed) {
+        followed = false;
+        fitWhenSized();
+      }
     }
     function zoomAt(factor, cx, cy) {
       const zoom = Math.max(0.3, Math.min(4, frame.zoom * factor));
@@ -806,20 +845,8 @@
       }
       box.innerHTML = hexMap(map, canMove());
       paintGrid();
-      fitted = false;
-      frame = { zoom: 1, panX: 0, panY: 0 };
-      applyFrame();
-      observer?.disconnect();
-      observer = null;
-      if (!fit() && typeof ResizeObserver !== "undefined") {
-        const view = part("battlemap-view");
-        if (view) {
-          observer = new ResizeObserver(() => {
-            if (!fitted) fit();
-          });
-          observer.observe(view);
-        }
-      }
+      followed = false;
+      fitWhenSized();
     }
     function paintAll() {
       paintToolbar();
@@ -839,11 +866,19 @@
         return {};
       }
     }
+    async function readFrame() {
+      if (dm() || props2.pilot) return void 0;
+      try {
+        return parseShownFrame((await shell2.capability(GET_DIFFUSION, void 0, { view: "player" })).data, props2.instance);
+      } catch {
+        return void 0;
+      }
+    }
     async function refresh() {
       const mine = generation;
       const no = readNo += 1;
       try {
-        const read = await shell2.capability(GET_BATTLEMAP_INSTANCE, void 0, { instance: props2.instance, view: dm() ? "dm" : "player" });
+        const [read, framed] = await Promise.all([shell2.capability(GET_BATTLEMAP_INSTANCE, void 0, { instance: props2.instance, view: dm() ? "dm" : "player" }), readFrame()]);
         if (mine !== generation || no < readNo) return true;
         const next = parseInstance(read.data);
         if (next === null) {
@@ -861,6 +896,7 @@
           paintMap();
         }
         if (selected !== null && !next.tokens.some((t) => t.id === selected)) selected = null;
+        if (framed !== void 0) follow(framed);
         paintAll();
         return true;
       } catch {
@@ -872,6 +908,8 @@
       generation += 1;
       const mine = generation;
       stopWatching();
+      clearTimeout(frameTimer);
+      followed = false;
       instance = null;
       map = null;
       selected = null;
@@ -1053,18 +1091,27 @@
       });
       pop.querySelector("#battlemap-drop-count")?.focus();
     }
-    const showOnPlayerView = async () => {
+    const showOnPlayerView = async (quiet = false) => {
       if (!instance) return;
       try {
-        const body = commandBody(SHOW_ON_PLAYER_VIEW, "Diffusion", instance.session === "" ? void 0 : instance.session, { kind: "battlemap", instance: instance.id, zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+        const body = commandBody(SHOW_ON_PLAYER_VIEW, "Diffusion", instance.session === "" ? void 0 : instance.session, { kind: "battlemap", instance: instance.id, ...roundFrame(frame) });
         const state = await send(body);
         if (state.status === "rejected") say("error", `L\u2019envoi aux joueurs est refus\xE9 : ${reasons(state.violations)}.`);
         else if (state.status !== "applied") say("error", `L\u2019envoi aux joueurs n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`);
-        else say("ok", "Carte envoy\xE9e aux joueurs.");
+        else if (!quiet) say("ok", "Carte envoy\xE9e aux joueurs.");
       } catch {
         say("error", "L\u2019envoi aux joueurs a \xE9chou\xE9.");
       }
     };
+    function frameGestureEnded() {
+      if (!piloting()) return;
+      clearTimeout(frameTimer);
+      frameTimer = setTimeout(() => {
+        frame = roundFrame(frame);
+        applyFrame();
+        void showOnPlayerView(true);
+      }, timing.frameMs ?? 250);
+    }
     const tokenOf = (el) => {
       const id = el?.closest(".kit-token__item")?.dataset.token;
       return instance?.tokens.find((t) => t.id === id);
@@ -1125,6 +1172,7 @@
       }
     });
     const release = () => {
+      if (pan?.moved) frameGestureEnded();
       pan = null;
       if (!drag) return;
       const d = drag;
@@ -1148,6 +1196,7 @@
       e.preventDefault();
       const box = part("battlemap-view")?.getBoundingClientRect();
       zoomAt(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - (box?.left ?? 0), e.clientY - (box?.top ?? 0));
+      frameGestureEnded();
     });
     host2.addEventListener("dragstart", (event) => {
       const e = event;
@@ -1214,10 +1263,11 @@
       const zoomBox = part("battlemap-view");
       const [cx, cy] = [(zoomBox?.clientWidth ?? 0) / 2, (zoomBox?.clientHeight ?? 0) / 2];
       const gesture = button2.dataset.act;
-      if (gesture === "in") zoomAt(1.25, cx, cy);
-      else if (gesture === "out") zoomAt(1 / 1.25, cx, cy);
-      else if (gesture === "reset") fit();
-      else if (gesture === "dialog-close") closeDialog();
+      if (gesture === "in" || gesture === "out" || gesture === "reset") {
+        if (gesture === "reset") fit();
+        else zoomAt(gesture === "in" ? 1.25 : 1 / 1.25, cx, cy);
+        frameGestureEnded();
+      } else if (gesture === "dialog-close") closeDialog();
       else if (gesture === "close") {
         selected = null;
         paintAll();

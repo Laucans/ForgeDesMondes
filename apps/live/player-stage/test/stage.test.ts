@@ -186,11 +186,11 @@ test('a click on the bar without a drag sends nothing', async () => {
   assert.deepEqual(s.sent, []);
 });
 
-test('the projected screen has no bar and no corner, and draws the window where the DM’s tab does', async () => {
+test('the projected screen has a corner but no bar, and draws the window where the DM’s tab does', async () => {
   const diffusion = { base: { kind: 'cover' }, window: WINDOW, view: null };
   const projected = await stage({}, { diffusion });
   assert.equal(projected.host.querySelector('#player-window-bar'), null);
-  assert.equal(projected.host.querySelector('#player-window-resize'), null);
+  assert.ok(projected.$('#player-window-resize'));
   assert.equal(projected.host.querySelector('#player-pilot-badge'), null);
   await projected.drag(projected.$('#player-window'), [200, 100], [400, 300]);
   assert.deepEqual(projected.sent, []);
@@ -198,6 +198,26 @@ test('the projected screen has no bar and no corner, and draws the window where 
   assert.deepEqual(projected.drawn(), pilot.drawn());
   assert.deepEqual(pilot.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'dm' });
   assert.deepEqual(projected.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
+});
+
+// AC1: the corner of the projected window, dragged, widens it and keeps the illustration's ratio
+test('the projected screen’s corner resizes the window through live.resizeWindow, ratio kept', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: SMALL, view: null } });
+  const before = parseFloat(s.drawn().width);
+  // 200 × 300 px window, its corner dragged by +120, +40.
+  await s.drag(s.$('#player-window-resize'), [300, 400], [420, 440]);
+  assert.equal(s.sent.length, 1);
+  assert.equal(s.sent[0]?.dataCapability, 'live.resizeWindow@1');
+  assert.equal(s.sent[0]?.payload.campaign, CAMPAIGN.id);
+  assert.ok(parseFloat(s.drawn().width) > before, 'the window is wider');
+  assert.ok(Math.abs(s.drawn().ratio - 2 / 3) < 0.1, 'the image’s ratio is kept');
+  assert.deepEqual(s.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
+});
+
+test('the projected screen’s bar-less window cannot be moved, only resized', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  await s.drag(s.$('#player-window-art'), [200, 100], [300, 180]);
+  assert.deepEqual(s.sent, []);
 });
 
 test('?pilote=1 pilots the tab without the prop', async () => {

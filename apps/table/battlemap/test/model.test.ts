@@ -17,8 +17,10 @@ import {
   parseInstance,
   parseMap,
   parseProps,
+  parseShownFrame,
   reasons,
   reordered,
+  roundFrame,
   settled,
   shown,
   tableCommand,
@@ -314,5 +316,25 @@ describe('a participant leaving the order', () => {
 
   test('a view that cannot name the turn says none, and the first is not made up', () => {
     assert.equal(parseCombat({ round: 1, current: '', order: [{ id: 'a', init: 3 }] })?.current, '');
+  });
+});
+
+describe('the frame of the players’ view', () => {
+  const on = (view: unknown, base: Record<string, unknown> = { kind: 'battlemap', id: 'bmi' }) => ({ base, window: null, view });
+
+  // AC1: a frame goes out with a zoom of three decimals and whole pans
+  test('a frame is rounded as live.showOnPlayerView takes it', () => {
+    assert.deepEqual(roundFrame({ zoom: 1.11349, panX: 195.6, panY: -16.4 }), { zoom: 1.113, panX: 196, panY: -16 });
+    assert.deepEqual(roundFrame({ zoom: 2, panX: 0, panY: 0 }), { zoom: 2, panX: 0, panY: 0 });
+  });
+
+  // AC2, AC3: the diffusion's view counts for the instance it names, and only when it is whole
+  test('the diffusion’s view is read for its own instance alone', () => {
+    assert.deepEqual(parseShownFrame(on({ zoom: 1.113, panX: 196, panY: 16 }), 'bmi'), { zoom: 1.113, panX: 196, panY: 16 });
+    assert.equal(parseShownFrame(on(null), 'bmi'), null);
+    assert.equal(parseShownFrame(on({ zoom: 1.113, panX: 196, panY: 16 }), 'other'), null);
+    assert.equal(parseShownFrame(on({ zoom: 1.113, panX: 196, panY: 16 }, { kind: 'cover', id: 'bmi' }), 'bmi'), null);
+    for (const view of [{ zoom: 0, panX: 1, panY: 1 }, { zoom: 1, panX: '1', panY: 1 }, { zoom: 1, panY: 1 }, { zoom: Number.NaN, panX: 1, panY: 1 }]) assert.equal(parseShownFrame(on(view), 'bmi'), null, JSON.stringify(view));
+    assert.equal(parseShownFrame('nothing', 'bmi'), null);
   });
 });
