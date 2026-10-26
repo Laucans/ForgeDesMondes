@@ -12,7 +12,9 @@ use serde_json::{Value, json};
 pub const CONCEPT: &str = "CampaignArchive@2";
 
 /// The ids of a case's `new_ids`, in the order the unit draws them: one for
-/// each id its archive holds, by the id it replaces.
+/// each id its archive holds, by the id it replaces. `fresh()` takes no key,
+/// so the order is the unit's (the archive's ids, sorted): [`Given::spent`]
+/// holds the number of draws.
 pub struct Given(Mutex<VecDeque<String>>);
 
 impl Given {
@@ -30,6 +32,14 @@ impl Given {
                 .map(|old| new_ids[old].as_str().expect("an id").to_owned())
                 .collect(),
         ))
+    }
+}
+
+impl Given {
+    /// Asserts every id was drawn: the unit drew one for each id of the archive.
+    pub fn spent(&self) {
+        let left = self.0.lock().expect("the ids").len();
+        assert_eq!(left, 0, "ids left undrawn");
     }
 }
 
