@@ -390,12 +390,14 @@
       "fixtures": [
         "fixtures/table.getBattlemapInstance.json",
         "fixtures/media.getBattlemap.json",
-        "fixtures/campaign.listCharacters.json"
+        "fixtures/campaign.listCharacters.json",
+        "fixtures/live.getDiffusion.json"
       ],
       "needs": [
         "table.getBattlemapInstance",
         "media.getBattlemap",
-        "campaign.listCharacters"
+        "campaign.listCharacters",
+        "live.getDiffusion"
       ],
       "actions": [
         "table.moveToken",
@@ -422,7 +424,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "aa57cb4ad32af3cf"
+      "builtFrom": "5a5608e61a325d12"
     },
     {
       "name": "MediaLibrary",
