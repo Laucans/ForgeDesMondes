@@ -434,6 +434,45 @@
         18,
         20
       ]
+    },
+    {
+      "number": 637,
+      "title": "DM gestures apply: the shell acts as each screen's surface, the archive downloads, screens follow the campaign",
+      "systems": [
+        "platform",
+        "campaign",
+        "soundbox",
+        "media",
+        "session",
+        "ai"
+      ],
+      "produces": [
+        "CampaignArchive@2"
+      ],
+      "consumes": [
+        "Campaign",
+        "CampaignElements",
+        "CampaignOverview",
+        "EntityEditor",
+        "GridSettings",
+        "LiveSoundbox",
+        "MediaLibrary",
+        "NoteImport",
+        "SessionList",
+        "SoundLibrary",
+        "ToCreateList",
+        "VersionHistory",
+        "campaign.exportCampaign",
+        "campaign.getCampaign"
+      ],
+      "depends_on": [
+        18,
+        19,
+        20,
+        21,
+        22,
+        24
+      ]
     }
   ],
   "ids": {
@@ -476,6 +515,12 @@
     "CampaignArchive@1": {
       "kind": "concept",
       "producer": 30,
+      "state": "planned",
+      "version": 1
+    },
+    "CampaignArchive@2": {
+      "kind": "concept",
+      "producer": 637,
       "state": "planned",
       "version": 1
     },
