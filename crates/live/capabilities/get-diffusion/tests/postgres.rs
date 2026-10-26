@@ -109,6 +109,12 @@ impl Scratch {
     /// read-only connection answers them: the columns of the types it reads,
     /// as JSON.
     async fn rows(&mut self, campaign: &str) -> Value {
+        self.rows_bound(&campaign).await
+    }
+
+    /// The rows of [`SQL`] with `$1` bound to `campaign`: a text, or NULL as
+    /// the engine binds a variable the request leaves out.
+    async fn rows_bound(&mut self, campaign: &(dyn tokio_postgres::types::ToSql + Sync)) -> Value {
         let tx = self
             .client
             .build_transaction()
@@ -116,7 +122,7 @@ impl Scratch {
             .start()
             .await
             .expect("a read only transaction");
-        let rows = tx.query(SQL, &[&campaign]).await.expect("the SQL runs");
+        let rows = tx.query(SQL, &[campaign]).await.expect("the SQL runs");
         tx.rollback().await.expect("rolled back");
         let rows = rows.iter().map(|row| {
             let mut object = serde_json::Map::new();
@@ -135,6 +141,13 @@ impl Scratch {
             Value::Object(object)
         });
         Value::Array(rows.collect())
+    }
+
+    /// A read whose request names no campaign: `$1` is NULL.
+    async fn read_without_campaign(&mut self, view: &str) -> Value {
+        let variables = BTreeMap::from([("view".to_string(), json!(view))]);
+        let rows = self.rows_bound(&Option::<String>::None).await;
+        answer(&rows, &variables)
     }
 
     async fn read(&mut self, campaign: &str, view: &str) -> Value {
@@ -243,5 +256,58 @@ async fn with_no_campaign_the_live_session_is_read() {
     .await;
     let got = db.read("", "player").await;
     assert_eq!(got["base"], json!({ "kind": "battlemap", "id": INSTANCE }));
+    db.drop().await;
+}
+
+// AC1: a battlemap on the diffusion row, read with no variables, answers the
+// battlemap and the same view as with campaign '' (R113).
+#[tokio::test]
+async fn with_no_campaign_variable_the_live_session_is_read_as_with_an_empty_one() {
+    let mut db = Scratch::new("absent_campaign").await;
+    db.diffusion(&format!(
+        "'battlemap', NULL, '{INSTANCE}', NULL, NULL, NULL, NULL, 1.5, -40, 12.5"
+    ))
+    .await;
+    let absent = db.read_without_campaign("dm").await;
+    assert_eq!(
+        absent["base"],
+        json!({ "kind": "battlemap", "id": INSTANCE })
+    );
+    assert_eq!(db.read("", "dm").await, absent);
+    db.drop().await;
+}
+
+// AC2: the illustration the DM sent as a floating window, read with no
+// campaign and view player, is answered (R24).
+#[tokio::test]
+async fn with_no_campaign_variable_the_floating_window_is_answered() {
+    let mut db = Scratch::new("absent_window").await;
+    db.diffusion(&format!(
+        "'illustration', '{PORTRAIT}', NULL, '{PORTRAIT}', 0.1, 0.2, 0.4, 1, 0, 0"
+    ))
+    .await;
+    let got = db.read_without_campaign("player").await;
+    assert_eq!(
+        got["window"],
+        json!({ "media": PORTRAIT, "x": 0.1, "y": 0.2, "w": 0.4, "h": 0.6 })
+    );
+    assert_ne!(got["base"]["kind"], "cover");
+    db.drop().await;
+}
+
+// AC3: no live session, read with no variables, answers the bare cover.
+#[tokio::test]
+async fn with_no_campaign_variable_and_no_live_session_the_cover_is_bare() {
+    let mut db = Scratch::new("absent_no_live").await;
+    db.client
+        .batch_execute(&format!(
+            "UPDATE session SET status = 'closed' WHERE id = '{SEANCE}'"
+        ))
+        .await
+        .expect("the session closed");
+    assert_eq!(
+        db.read_without_campaign("player").await,
+        json!({ "base": { "kind": "cover", "id": "" }, "window": null, "view": null })
+    );
     db.drop().await;
 }
