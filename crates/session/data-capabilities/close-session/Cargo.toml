@@ -21,3 +21,5 @@ aggregate-session = { path = "../../aggregates/Session" }
 # The migrations' applier the server runs: the tables its tests write.
 data = { path = "../../../data" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
+# The tests' scratch databases, shared (the harness's, never edited here).
+platform-scratch-db = { path = "../../../platform/scratch-db" }
