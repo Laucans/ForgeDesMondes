@@ -41,31 +41,51 @@ function unavailable(host: HTMLElement, microUi: string): void {
   host.replaceChildren(notice);
 }
 
-/** Mounts every Micro-UI under `root`, props resolved from the screen's context and kept current. */
-export async function composeScreen(root: ParentNode, shell: Shell, loader: Loader = load): Promise<void> {
-  const hosts = [...root.querySelectorAll<HTMLElement>('[data-component]')];
-  await Promise.all(
-    hosts.map(async (host) => {
-      const microUi = host.dataset.component ?? '';
-      const raw = parse(host.dataset.props);
-      try {
-        const module = await loader(microUi);
-        const props = shell.context.resolve(raw);
-        const mounted = module.listens === true ? module.mount(host, props, shell, undefined, createDictation(microUi)) : module.mount(host, props, shell);
-        const follows = shell.context.follows(raw);
-        if (follows.length && mounted && mounted.update) {
-          const update = mounted.update.bind(mounted);
-          shell.context.on((name) => {
-            if (follows.includes(name)) update(shell.context.resolve(raw));
-          });
-        }
-        host.dataset.state = 'mounted';
-      } catch (error) {
-        console.error(`shell: ${microUi} did not mount`, error);
-        unavailable(host, microUi);
-      }
-    }),
-  );
+/** Tells `changed` each time the markup under `root` changes: a Micro-UI that draws another one's host in its own markup. */
+export type Watch = (root: ParentNode, changed: () => void) => void;
+
+const observe: Watch = (root, changed) => {
+  if (typeof MutationObserver === 'undefined') return;
+  new MutationObserver(() => changed()).observe(root, { childList: true, subtree: true });
+};
+
+async function mountHost(host: HTMLElement, shell: Shell, loader: Loader): Promise<void> {
+  const microUi = host.dataset.component ?? '';
+  const raw = parse(host.dataset.props);
+  try {
+    const module = await loader(microUi);
+    const props = shell.context.resolve(raw);
+    const mounted = module.listens === true ? module.mount(host, props, shell, undefined, createDictation(microUi)) : module.mount(host, props, shell);
+    const follows = shell.context.follows(raw);
+    if (follows.length && mounted && mounted.update) {
+      const update = mounted.update.bind(mounted);
+      const stop = shell.context.on((name) => {
+        // A host its parent drew over is gone: it stops following.
+        if (host.isConnected === false) stop();
+        else if (follows.includes(name)) update(shell.context.resolve(raw));
+      });
+    }
+    host.dataset.state = 'mounted';
+  } catch (error) {
+    console.error(`shell: ${microUi} did not mount`, error);
+    unavailable(host, microUi);
+  }
+}
+
+/**
+ * Mounts every Micro-UI under `root`, props resolved from the screen's context and kept current. A host that
+ * appears later (a mounted Micro-UI drew it in its own markup) is mounted the same way; a host is mounted once.
+ */
+export async function composeScreen(root: ParentNode, shell: Shell, loader: Loader = load, watch: Watch = observe): Promise<void> {
+  // Marked when first seen, before the loader answers: a change of the markup meanwhile does not mount it twice.
+  const seen = new WeakSet<HTMLElement>();
+  const compose = (): Promise<void[]> => {
+    const fresh = [...root.querySelectorAll<HTMLElement>('[data-component]')].filter((host) => !seen.has(host));
+    for (const host of fresh) seen.add(host);
+    return Promise.all(fresh.map((host) => mountHost(host, shell, loader)));
+  };
+  watch(root, () => void compose());
+  await compose();
 }
 
 if (typeof document !== 'undefined') {

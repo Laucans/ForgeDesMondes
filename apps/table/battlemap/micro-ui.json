@@ -5,7 +5,8 @@
   "needs": [
     "table.getBattlemapInstance",
     "media.getBattlemap",
-    "campaign.listCharacters"
+    "campaign.listCharacters",
+    "live.getDiffusion"
   ],
   "actions": [
     "table.moveToken",

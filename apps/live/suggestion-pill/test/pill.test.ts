@@ -64,19 +64,19 @@ function fakeShell(options: Options = {}) {
   return { shell, sent, reads, listeners, stops, moveOn: () => listeners.forEach((l) => l(2)) };
 }
 
-const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 3, watchMs: 1 };
+const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 3, watchMs: 1, beatMs: 0 };
 
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
-async function pill(props: Record<string, unknown> = {}, options?: Options) {
+async function pill(props: Record<string, unknown> = {}, options?: Options, timed: Timing = timing) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="SuggestionPill"></div></body></html>', { url: 'http://localhost/' });
   const host = dom.window.document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
   const opened: Array<{ type: string; id: string }> = [];
   dom.window.document.addEventListener('fdm:open', (event) => opened.push((event as CustomEvent<{ type: string; id: string }>).detail));
-  const mounted = mount(host, props, fake.shell, timing);
+  const mounted = mount(host, props, fake.shell, timed);
   await settle();
   const $ = (selector: string): HTMLElement => {
     const found = host.querySelector<HTMLElement>(selector);
@@ -351,4 +351,155 @@ test('a new campaign empties the pill, switches the microphone off and reads it 
 test('it never reaches for a microphone of its own: only the server listens, locally (live-only-local-audio)', () => {
   const sources = ['index', 'model', 'render', 'ids'].map((name) => readFileSync(new URL(`../src/${name}.ts`, import.meta.url), 'utf8')).join('\n');
   assert.doesNotMatch(sources, /getUserMedia|MediaRecorder|AudioContext|mediaDevices/);
+});
+
+/** A clock the test holds: each beat the pill sleeps through waits until `tick` lets it go. */
+function beats() {
+  const waiting: Array<() => void> = [];
+  const clock: Timing = { ...timing, beatMs: 600, sleep: (ms) => (ms === 600 ? new Promise<void>((resolve) => waiting.push(resolve)) : Promise.resolve()) };
+  return { clock, tick: async (): Promise<void> => { waiting.shift()?.(); await settle(); }, waiting };
+}
+
+/** The element on top of the stack, as the DM reads it. */
+const top = (p: { host: HTMLElement }): string => p.host.querySelector('#suggestions-stack button[data-kind="entity"] b')?.textContent ?? '';
+
+// AC1: the microphone detects La Taverne, Gaspard and Morlox between two reads: each appears on top, in that order
+test('the elements heard between two reads come on top one after the other, in the order they were heard', async () => {
+  let heard: unknown[] = [];
+  const clock = beats();
+  const p = await pill({}, { answer: () => ({ suggestions: heard.slice(0, 5), history: heard }) }, clock.clock);
+  await p.click('#suggestions-mic-button');
+  assert.equal(top(p), '', 'nothing yet');
+  // Newest first, as the Capability lists them: the tavern, the keeper, a sound, then Morlox, all within one read.
+  heard = [entity(4), sound(3), entity(2), entity(1)];
+  p.moveOn();
+  await settle();
+  const seen = [top(p)];
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 1'], 'the first is on top at once, the others wait for their turn');
+  await clock.tick();
+  seen.push(top(p));
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 2', 'PNJ 1']);
+  await clock.tick();
+  assert.deepEqual(p.names('#suggestions-stack'), ['Son 3', 'PNJ 2', 'PNJ 1'], 'a sound waits for its turn too: the pile keeps the order things were heard in');
+  await clock.tick();
+  seen.push(top(p));
+  assert.deepEqual(seen, ['PNJ 1', 'PNJ 2', 'PNJ 4']);
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 4', 'Son 3', 'PNJ 2', 'PNJ 1']);
+});
+
+// AC2: once the three are detected, the history lists them Morlox, Gaspard, La Taverne
+test('the history lists the elements shown from the latest to the oldest, and not those still waiting', async () => {
+  let heard: unknown[] = [];
+  const clock = beats();
+  const p = await pill({}, { answer: () => ({ suggestions: heard.slice(0, 5), history: heard }) }, clock.clock);
+  await p.click('#suggestions-mic-button');
+  heard = [entity(4), entity(2), entity(1)];
+  p.moveOn();
+  await settle();
+  await clock.tick();
+  assert.deepEqual(p.names('#suggestions-history-list'), ['PNJ 2', 'PNJ 1'], 'Morlox is still waiting for its turn');
+  await clock.tick();
+  assert.deepEqual(p.names('#suggestions-history-list'), ['PNJ 4', 'PNJ 2', 'PNJ 1']);
+});
+
+// AC1: an element heard while another is on top waits for the beat, and the first one heard shows at once
+test('the first arrival shows without waiting, and one heard during a beat takes its turn after it', async () => {
+  let heard: unknown[] = [];
+  const clock = beats();
+  const p = await pill({}, { answer: () => ({ suggestions: heard, history: heard }) }, clock.clock);
+  await p.click('#suggestions-mic-button');
+  heard = [entity(1)];
+  p.moveOn();
+  await settle();
+  assert.equal(top(p), 'PNJ 1', 'on top as soon as it is read, no beat before it');
+  heard = [entity(2), entity(1)];
+  p.moveOn();
+  await settle();
+  assert.equal(top(p), 'PNJ 1', 'the beat of the first is not over');
+  await clock.tick();
+  assert.equal(top(p), 'PNJ 2');
+});
+
+test('what the first read lists is shown at once: only what is heard afterwards takes its turn', async () => {
+  const clock = beats();
+  const p = await pill({}, { answer: { suggestions: [entity(3), entity(2), entity(1)], history: [entity(3), entity(2), entity(1)] } }, clock.clock);
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 3', 'PNJ 2', 'PNJ 1']);
+  assert.equal(clock.waiting.length, 0);
+});
+
+test('a new campaign drops the arrivals still waiting: its first read shows what it lists at once', async () => {
+  let heard: unknown[] = [];
+  const clock = beats();
+  const p = await pill({ campaign: 'c1' }, { answer: () => ({ suggestions: heard, history: heard }) }, clock.clock);
+  await p.click('#suggestions-mic-button');
+  heard = [entity(2), entity(1)];
+  p.moveOn();
+  await settle();
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 1']);
+  p.mounted.update({ campaign: 'c2' });
+  await settle();
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 2', 'PNJ 1']);
+});
+
+// AC2: the DM opens 'Historique des 5 dernières entités' and finds the entities there
+test('the history is opened by a button and a region named "Historique des 5 dernières entités"', async () => {
+  const p = await pill({}, { answer: { suggestions: [entity(1)], history: [entity(1)] } });
+  assert.equal(p.$('#suggestions-history-toggle').getAttribute('aria-label'), 'Historique des 5 dernières entités');
+  assert.match(p.$('#suggestions-history-title').textContent ?? '', /5 dernières entités/);
+  assert.equal(p.$('#suggestions-history').getAttribute('aria-labelledby'), 'suggestions-history-title');
+});
+
+test('the keyboard stays on the row it was on when an arrival is revealed above it', async () => {
+  let heard: unknown[] = [entity(1)];
+  const clock = beats();
+  const p = await pill({}, { answer: () => ({ suggestions: heard, history: heard }) }, clock.clock);
+  await p.click('#suggestions-mic-button');
+  heard = [entity(3), entity(2), entity(1)];
+  p.moveOn();
+  await settle();
+  p.$('#suggestion-1').focus();
+  assert.equal(p.dom.window.document.activeElement?.getAttribute('data-id'), 'e1');
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 2', 'PNJ 1']);
+  await clock.tick();
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 3', 'PNJ 2', 'PNJ 1']);
+  assert.equal(p.dom.window.document.activeElement?.getAttribute('data-id'), 'e1', 'still on PNJ 1, which moved down');
+});
+
+test('an arrival a later read no longer lists is not waited for', async () => {
+  let heard: unknown[] = [];
+  const clock = beats();
+  const p = await pill({}, { answer: () => ({ suggestions: heard, history: heard }) }, clock.clock);
+  await p.click('#suggestions-mic-button');
+  heard = [entity(2), entity(1)];
+  p.moveOn();
+  await settle();
+  heard = [entity(1)];
+  p.moveOn();
+  await settle();
+  await clock.tick();
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 1']);
+  assert.equal(clock.waiting.length, 0, 'no beat is slept for the one that left');
+});
+
+test('a first read that is not an answer seeds nothing: what the next one lists is shown at once', async () => {
+  let given: unknown = 'not an answer';
+  const clock = beats();
+  const p = await pill({}, { answer: () => given }, clock.clock);
+  given = { suggestions: [entity(2), entity(1)], history: [entity(2), entity(1)] };
+  p.moveOn();
+  await p.click('#suggestions-mic-button');
+  assert.deepEqual(p.names('#suggestions-stack'), ['PNJ 2', 'PNJ 1']);
+});
+
+test('a pill that left the page stops revealing', async () => {
+  let heard: unknown[] = [];
+  const clock = beats();
+  const p = await pill({}, { answer: () => ({ suggestions: heard, history: heard }) }, clock.clock);
+  await p.click('#suggestions-mic-button');
+  heard = [entity(2), entity(1)];
+  p.moveOn();
+  await settle();
+  p.host.remove();
+  await clock.tick();
+  assert.equal(clock.waiting.length, 0, 'no beat is slept after it');
 });

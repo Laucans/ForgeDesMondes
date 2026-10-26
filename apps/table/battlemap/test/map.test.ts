@@ -28,11 +28,13 @@ const map = (() => {
 })();
 
 /** A shell over a small table: it answers the three reads and applies the commands as the table would. */
-function fakeShell(options: { tokens?: (all: Array<Record<string, unknown>>) => Array<Record<string, unknown>>; reject?: string; leaky?: boolean; omitId?: boolean } = {}) {
+function fakeShell(options: { diffusion?: unknown; tokens?: (all: Array<Record<string, unknown>>) => Array<Record<string, unknown>>; reject?: string; leaky?: boolean; omitId?: boolean } = {}) {
   const instance = structuredClone(fixtureOf('table.getBattlemapInstance')) as Raw;
   if (options.tokens) instance.state.tokens = options.tokens(instance.state.tokens);
   const sent: Sent[] = [];
   const reads: Array<{ id: string; variables: Record<string, unknown> | undefined }> = [];
+  const watchers: Array<(version: number) => void> = [];
+  const diffused = { value: options.diffusion ?? { base: { kind: 'cover', id: 'ill-cover' }, window: null, view: null } };
   const find = (id: unknown) => instance.state.tokens.find((t) => t.id === id) as Record<string, unknown>;
   const shell: Shell = {
     async capability(id, sha256, variables) {
@@ -40,6 +42,7 @@ function fakeShell(options: { tokens?: (all: Array<Record<string, unknown>>) => 
       assert.equal(sha256, undefined, 'a Micro-UI names a Capability alone');
       if (id === 'media.getBattlemap') return { asOf: 1, data: map };
       if (id === 'campaign.listCharacters') return { asOf: 1, data: fixtureOf('campaign.listCharacters') };
+      if (id === 'live.getDiffusion') return { asOf: 1, data: diffused.value };
       assert.equal(id, 'table.getBattlemapInstance');
       const own = structuredClone(instance);
       if (options.omitId) delete (own as Partial<Raw>).id;
@@ -87,12 +90,19 @@ function fakeShell(options: { tokens?: (all: Array<Record<string, unknown>>) => 
     async commandResult(commandId) {
       return { result: { commandId, status: 'applied', violations: [] } };
     },
-    onDataVersion: () => () => undefined,
+    onDataVersion(listener) {
+      watchers.push(listener);
+      // As the shell does: the first answer says where the data stands.
+      listener(0);
+      return () => undefined;
+    },
   };
-  return { shell, sent, reads, instance };
+  /** The data moves: every watching view reads again. */
+  const moved = (): void => watchers.forEach((listener, version) => listener(version));
+  return { shell, sent, reads, instance, diffused, moved };
 }
 
-const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 5, watchMs: 1000 };
+const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 5, watchMs: 1000, frameMs: 0 };
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 12; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 };
@@ -529,4 +539,84 @@ test('a battlemap the media library cannot give leaves nothing to send', async (
   host.querySelector<HTMLElement>('#bm-send')?.click();
   await flush();
   assert.equal(fake.sent.length, 0);
+});
+
+const STAGE_OF_PLAYERS = 'width: 960px; height: 640px; transform: translate(196px, 16px) scale(1.113);';
+const showing = (view: unknown, id = 'bmi-gue-s4') => ({ base: { kind: 'battlemap', id }, window: null, view });
+
+// AC1: the pilot tab's zoom, wheel and pan are sent to the players, rounded, and the pilot's stage carries the same values
+test('the pilot tab sends its zoom, wheel and pan once they rest, rounded as the diffusion takes them, and shows them on its own stage', async () => {
+  const { document, fake, pointer, dom } = await battlemap({ view: 'player', pilot: true, fill: true });
+  const stage = document.querySelector<HTMLElement>('#battlemap-stage') as HTMLElement;
+  const view = document.querySelector<HTMLElement>('#battlemap-view') as HTMLElement;
+  // No pause between the three gestures: they rest together.
+  document.querySelector<HTMLElement>('[data-act="in"]')?.click();
+  view.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120, clientX: 105, clientY: 51 }));
+  pointer('pointerdown', view, { x: 10, y: 10 });
+  pointer('pointermove', view, { x: 40, y: 25 });
+  pointer('pointerup', view, { x: 40, y: 25 });
+  await flush();
+  const frames = fake.sent.filter((c) => c.dataCapability === 'live.showOnPlayerView@1');
+  assert.equal(frames.length, 1, 'the last gesture wins: one frame for the three');
+  const { kind, instance, zoom, panX, panY } = frames[0]?.payload as Record<string, number | string>;
+  assert.equal(kind, 'battlemap');
+  assert.equal(instance, 'bmi-gue-s4');
+  assert.ok(Number.isInteger(Number(panX)) && Number.isInteger(Number(panY)), 'whole pixels');
+  assert.equal(Number(zoom), Number(Number(zoom).toFixed(3)), 'three decimals at most');
+  assert.ok(Number(zoom) > 1.3, 'the zoom of the button and of the wheel together');
+  assert.equal(stage.style.transform, `translate(${panX}px, ${panY}px) scale(${zoom})`);
+  assert.equal(document.querySelector('#battlemap-status')?.hasAttribute('hidden'), true, 'a frame sent on its own says nothing');
+});
+
+// AC1: a frame the server refuses is told, not hidden
+test('a frame the server refuses is told in the pilot tab', async () => {
+  const { document, fake, click } = await battlemap({ view: 'player', pilot: true, fill: true }, { reject: 'base-coherent' });
+  await click('[data-act="out"]');
+  assert.equal(fake.sent.length, 1);
+  assert.match(document.querySelector('#battlemap-status')?.textContent ?? '', /L’envoi aux joueurs est refusé/);
+});
+
+test('the DM view and the projected view send no frame of their own', async () => {
+  for (const props of [{ view: 'dm' }, { view: 'player' }]) {
+    const { fake, document, dom } = await battlemap(props);
+    document.querySelector<HTMLElement>('[data-act="in"]')?.click();
+    document.querySelector('#battlemap-view')?.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120 }));
+    await flush();
+    assert.equal(fake.sent.length, 0, JSON.stringify(props));
+  }
+});
+
+// AC2: the projected view takes the diffusion's frame, and follows its later change
+test('the projected view applies the diffusion’s view to its stage and follows a later change', async () => {
+  const { document, fake } = await battlemap({ view: 'player' }, { diffusion: showing({ zoom: 1.113, panX: 196, panY: 16 }) });
+  const stage = document.querySelector<HTMLElement>('#battlemap-stage') as HTMLElement;
+  assert.deepEqual(fake.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
+  assert.equal(stage.getAttribute('style'), STAGE_OF_PLAYERS);
+  assert.ok(document.querySelector('[data-reads~="live.getDiffusion"]'), 'a part names what it reads');
+  fake.diffused.value = showing({ zoom: 2, panX: -40, panY: 8 });
+  fake.moved();
+  await flush();
+  assert.equal(stage.getAttribute('style'), 'width: 960px; height: 640px; transform: translate(-40px, 8px) scale(2);');
+  assert.equal(fake.sent.length, 0);
+});
+
+// AC3: with no view, or another instance, the map stays fitted
+test('the projected view stays fitted when the diffusion has no view or shows another instance', async () => {
+  for (const diffusion of [showing(null), showing({ zoom: 1.113, panX: 196, panY: 16 }, 'bmi-other'), { base: { kind: 'cover', id: 'ill-cover' }, window: null, view: { zoom: 1.113, panX: 196, panY: 16 } }]) {
+    const { document } = await battlemap({ view: 'player' }, { diffusion });
+    const style = document.querySelector('#battlemap-stage')?.getAttribute('style') ?? '';
+    assert.doesNotMatch(style, /196px/, JSON.stringify(diffusion));
+    assert.match(style, /scale\(1\)/, 'the map is as it was fitted');
+  }
+});
+
+// AC3: a view that goes away puts the fit back
+test('the projected view is fitted again once the diffusion drops its view', async () => {
+  const { document, fake } = await battlemap({ view: 'player' }, { diffusion: showing({ zoom: 1.113, panX: 196, panY: 16 }) });
+  const stage = document.querySelector<HTMLElement>('#battlemap-stage') as HTMLElement;
+  assert.equal(stage.getAttribute('style'), STAGE_OF_PLAYERS);
+  fake.diffused.value = showing(null);
+  fake.moved();
+  await flush();
+  assert.doesNotMatch(stage.getAttribute('style') ?? '', /196px/);
 });

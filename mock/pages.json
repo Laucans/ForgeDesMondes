@@ -391,12 +391,14 @@
       "fixtures": [
         "fixtures/table.getBattlemapInstance.json",
         "fixtures/media.getBattlemap.json",
-        "fixtures/campaign.listCharacters.json"
+        "fixtures/campaign.listCharacters.json",
+        "fixtures/live.getDiffusion.json"
       ],
       "needs": [
         "table.getBattlemapInstance",
         "media.getBattlemap",
-        "campaign.listCharacters"
+        "campaign.listCharacters",
+        "live.getDiffusion"
       ],
       "actions": [
         "table.moveToken",
@@ -423,7 +425,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "aa57cb4ad32af3cf"
+      "builtFrom": "5a5608e61a325d12"
     },
     {
       "name": "MediaLibrary",
@@ -552,7 +554,7 @@
       ],
       "props": {},
       "source": "apps/live/elements-panel",
-      "builtFrom": "18456115c98b894b"
+      "builtFrom": "f0e88501fab0a3de"
     },
     {
       "name": "TableSheet",
@@ -619,7 +621,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/suggestion-pill",
-      "builtFrom": "0b5e4cc906561198"
+      "builtFrom": "29fe2feb2030a23f"
     },
     {
       "name": "PlayerStage",
@@ -647,7 +649,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "8fd829bf505bb052"
+      "builtFrom": "4289d9bc6bbd2835"
     }
   ]
 }

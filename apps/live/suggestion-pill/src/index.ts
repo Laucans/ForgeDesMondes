@@ -10,14 +10,14 @@
 // transcription runs on the server's side of the machine, behind the command.
 
 import { BUS_OPEN, LIST_SUGGESTIONS, PLAY_SOUND, SET_MICROPHONE, SOUND_SOURCE } from './ids.ts';
-import { commandBody, commandId, hostType, isFinal, parseProps, parseSuggestions, reasons, settled, type Settled } from './model.ts';
+import { arrivals, commandBody, commandId, hostType, isAnswer, isFinal, keyOf, parseProps, parseSuggestions, reasons, settled, without, type Settled } from './model.ts';
 import { MIC_LABEL, MIC_TEXTS, rows, skeleton } from './render.ts';
 import { STYLE } from './style.ts';
-import type { MicState, Props, Shell, Suggestions, Timing } from './types.ts';
+import type { MicState, Props, Shell, Suggestion, Suggestions, Timing } from './types.ts';
 
 export type { Shell, Timing } from './types.ts';
 
-const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 1000 };
+const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 1000, beatMs: 600 };
 
 /** What the shell keeps of a mounted Micro-UI: new props follow the screen's context. */
 export interface Mounted {
@@ -43,6 +43,19 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   let props: Props = parseProps(raw);
   let suggestions: Suggestions = parseSuggestions(undefined);
+  /** Every detection a read has listed, and whether a read has yet: what the first one lists is already there, what comes after is an arrival. */
+  let seen = new Set<string>();
+  let seeded = false;
+  /** The arrivals waiting for their turn on top, oldest first: the pill shows none of them yet. */
+  let pending: Suggestion[] = [];
+  let revealing = false;
+  /** Starts the arrivals over: another campaign's are not this one's. */
+  const forgetArrivals = (): void => {
+    seen = new Set();
+    seeded = false;
+    pending = [];
+    revealing = false;
+  };
   let mic: MicState = 'idle';
   let busy = false;
   /** The sound a first click is waiting on: the second one plays it. */
@@ -71,18 +84,27 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     speaker = text === '' ? '' : from;
   }
 
+  /** What the pill shows: the suggestions, less the arrivals still waiting. */
+  const shown = (): Suggestions => without(suggestions, pending);
+
   function paintHeard(): void {
-    const newest = suggestions.stack[0];
+    const newest = shown().stack[0];
     part('suggestions-heard').textContent = mic === 'recording' ? (newest ? `« ${newest.via} »` : 'J’écoute…') : mic === 'paused' ? 'Micro en pause — rien n’est écouté.' : '';
   }
 
   function paintLists(): void {
     // A list drawn anew must not take the keyboard's place from the row it was on.
+    // The rows are drawn in turn, so a row is found again by what it shows, never by its place.
     const active = doc.activeElement;
-    const focused = active !== null && host.contains(active) ? active.id : '';
-    part('suggestions-stack').innerHTML = rows(suggestions.stack, 'suggestion', EMPTY_STACK, armed);
-    part('suggestions-history-list').innerHTML = rows(suggestions.history, 'suggestion-history', EMPTY_HISTORY, armed);
-    if (focused !== '') host.querySelector<HTMLElement>(`#${focused}`)?.focus();
+    const on = active !== null && host.contains(active) ? active.closest('button[data-kind]') : null;
+    const focused = on === null ? null : { list: on.closest('ol')?.id ?? '', kind: on.getAttribute('data-kind') ?? '', id: on.getAttribute('data-id') ?? '' };
+    const view = shown();
+    part('suggestions-stack').innerHTML = rows(view.stack, 'suggestion', EMPTY_STACK, armed);
+    part('suggestions-history-list').innerHTML = rows(view.history, 'suggestion-history', EMPTY_HISTORY, armed);
+    if (focused !== null) {
+      const buttons = [...host.querySelectorAll<HTMLElement>(`#${focused.list} button[data-kind]`)];
+      buttons.find((r) => r.dataset.kind === focused.kind && r.dataset.id === focused.id)?.focus();
+    }
     paintHeard();
   }
 
@@ -98,6 +120,26 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     paintHeard();
   }
 
+  /**
+   * The arrivals come on top one at a time, in the order they were heard, each for a beat: the first at once,
+   * and a read that lists several (the data is asked once a second) does not hide the ones in between.
+   */
+  async function reveal(): Promise<void> {
+    if (revealing) return;
+    revealing = true;
+    const mine = generation;
+    try {
+      while (pending.length > 0 && mine === generation && host.isConnected) {
+        pending = pending.slice(1);
+        paintLists();
+        await timing.sleep(timing.beatMs);
+      }
+    } finally {
+      // Another campaign has started its own turn by now: it is not this one's to end.
+      if (mine === generation) revealing = false;
+    }
+  }
+
   // ---------- reading ----------
   /** Reads the suggestions again. An older answer never replaces a newer one. */
   async function refresh(): Promise<void> {
@@ -107,10 +149,17 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       const read = await shell.capability(LIST_SUGGESTIONS, undefined, scope());
       if (mine !== generation || no < readNo) return;
       suggestions = parseSuggestions(read.data);
+      const listed = new Set(suggestions.history.map(keyOf));
+      // What a read no longer lists is not waiting any more; what it lists for the first time (after the first read) takes its turn.
+      pending = pending.filter((s) => listed.has(keyOf(s)));
+      if (seeded) pending = [...pending, ...arrivals(suggestions.history, seen)];
+      seeded = seeded || isAnswer(read.data);
+      for (const key of listed) seen.add(key);
       say('', 'read');
       // A sound that is no longer listed is not waiting for a second click.
       if (armed !== null && !suggestions.history.some((s) => s.kind === 'sound' && s.id === armed)) armed = null;
       paintLists();
+      void reveal();
     } catch {
       if (mine !== generation || no < readNo) return;
       say('Impossible de lire les suggestions.', 'read');
@@ -225,6 +274,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       if (props.campaign === before.campaign) return;
       generation += 1;
       suggestions = parseSuggestions(undefined);
+      forgetArrivals();
       armed = null;
       // Another campaign is another session: the microphone is not on there until the DM turns it on.
       stopWatching();

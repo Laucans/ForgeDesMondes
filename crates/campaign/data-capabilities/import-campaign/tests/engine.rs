@@ -335,15 +335,22 @@ fn copied(row: &platform_test_kit::Row) -> Value {
 // engine — its ids the case's, its clock the case's time of import — gives
 // the copy the Concept gives, whole.
 // AC1: the copy's created_at is that time, as is its imported_at.
+//
+// The case of a reference outside the archive is `Applied` here only because
+// the memory store takes its restoration pointing outside the archive;
+// PostgreSQL's `restore-exact` trigger refuses it (see `postgres.rs`), so
+// AC2 is not covered in production for that case.
 #[tokio::test]
 async fn conformance_the_copy_the_engine_writes_follows_the_fixtures_of_the_concept() {
     let mut copies = Vec::new();
     for case in platform_conformance::fixtures_of(common::CONCEPT).cases {
-        let served = served_with(Arc::new(common::Given::of(&case.input))).await;
+        let ids = Arc::new(common::Given::of(&case.input));
+        let served = served_with(ids.clone()).await;
         let at = case.input["imported_at"].as_str().expect("a time");
         served.clock.set_millis(common::millis(at));
         let (partition, status) = imported(&served, case.input["archive"].clone()).await;
         assert_eq!(status, State::Applied, "{}", case.name);
+        ids.spent();
         let copy = copied(&served.row(&partition));
         assert_eq!(copy["campaign"]["created_at"], json!(at), "{}", case.name);
         copies.push(copy);
