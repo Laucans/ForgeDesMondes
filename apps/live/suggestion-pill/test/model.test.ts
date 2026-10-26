@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { commandBody, hostType, parseProps, parseSuggestions, reasons, settled, timeOf } from '../src/model.ts';
+import { arrivals, commandBody, hostType, isAnswer, keyOf, without, parseProps, parseSuggestions, reasons, settled, timeOf } from '../src/model.ts';
 
 const at = (minute: number): string => new Date(Date.UTC(2026, 9, 17, 20, minute)).toISOString();
 const one = (n: number, extra: Record<string, unknown> = {}) => ({ id: `e${n}`, kind: 'entity', type: 'pnj', name: `PNJ ${n}`, via: `via ${n}`, detectedAt: at(n), ...extra });
@@ -66,4 +66,30 @@ test('a command settles as the server says, and its refusal is told in words', (
 test('the campaign is the only prop', () => {
   assert.deepEqual(parseProps({ campaign: 'c1', extra: 1 }), { campaign: 'c1' });
   assert.deepEqual(parseProps({ campaign: 4 }), { campaign: '' });
+});
+
+test('the arrivals are what no read has listed yet, oldest first, sounds as elements', () => {
+  const history = parseSuggestions([one(4), one(3, { kind: 'sound' }), one(2), one(1)]).history;
+  assert.deepEqual(arrivals(history, new Set([keyOf(history[3] as never)])).map((s) => s.id), ['e2', 'e3', 'e4']);
+  assert.deepEqual(arrivals(history, new Set(history.map(keyOf))), []);
+});
+
+test('an element heard again is another arrival', () => {
+  const first = parseSuggestions([one(1)]).history;
+  const again = parseSuggestions([one(1, { detectedAt: at(9) }), one(1)]).history;
+  assert.deepEqual(arrivals(again, new Set(first.map(keyOf))).map((s) => s.detectedAt), [at(9)]);
+});
+
+test('without the waiting arrivals the pile is cut again from what is left', () => {
+  const all = parseSuggestions([1, 2, 3, 4, 5, 6].map((n) => one(n)));
+  const held = all.history.slice(0, 2);
+  const left = without(all, held);
+  assert.deepEqual(left.history.map((s) => s.id), ['e4', 'e3', 'e2', 'e1']);
+  assert.deepEqual(left.stack.map((s) => s.id), ['e4', 'e3', 'e2', 'e1']);
+  assert.equal(without(all, []), all);
+});
+
+test('an answer is a record or a list, however empty', () => {
+  assert.deepEqual([{}, [], { history: [] }].map(isAnswer), [true, true, true]);
+  assert.deepEqual([null, undefined, 'x', 3].map(isAnswer), [false, false, false, false]);
 });
