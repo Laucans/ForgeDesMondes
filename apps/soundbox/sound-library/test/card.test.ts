@@ -34,10 +34,26 @@ interface Sent {
 }
 
 /** A shell over a small server: it answers the sounds, and applies a command as the DataGuard would. */
-function fakeShell(options: { read?: () => unknown; apply?: (sent: Sent) => Applied; later?: number } = {}) {
+function fakeShell(
+  options: {
+    read?: () => unknown;
+    apply?: (sent: Sent) => Applied;
+    later?: number;
+    /** Like the real store: sounds are listed for a campaign only, none given answers null. */
+    strict?: boolean;
+    /** What `session.getLiveSession` answers; a function that throws is a failed read. */
+    live?: () => unknown;
+    /** What the screen's context holds when the card opens. */
+    context?: Record<string, unknown>;
+  } = {},
+) {
   const data = structuredClone(fixture);
   const sent: Sent[] = [];
+  /** The reads of the sounds: `session.getLiveSession` is counted apart. */
   const reads: Array<{ id: string; variables: Record<string, unknown> | undefined }> = [];
+  const lookups: Array<Record<string, unknown> | undefined> = [];
+  const context = new Map(Object.entries(options.context ?? {}));
+  const published: Array<[string, unknown]> = [];
   let asked = 0;
   const apply =
     options.apply ??
@@ -55,8 +71,13 @@ function fakeShell(options: { read?: () => unknown; apply?: (sent: Sent) => Appl
   let versionListener: ((dataVersion: number) => void) | undefined;
   const shell: Shell = {
     async capability(id, sha256, variables) {
-      reads.push({ id, variables });
       assert.equal(sha256, undefined, 'a Micro-UI names a Capability alone');
+      if (id === 'session.getLiveSession') {
+        lookups.push(variables);
+        return { asOf: 1, data: options.live ? options.live() : { session: { id: 's4', campaign: 'cendres-valombre' } } };
+      }
+      reads.push({ id, variables });
+      if (options.strict && variables?.campaign !== 'cendres-valombre') return { asOf: 1, data: null };
       return { asOf: 1, data: options.read ? await options.read() : structuredClone(data) };
     },
     async command(body) {
@@ -75,8 +96,15 @@ function fakeShell(options: { read?: () => unknown; apply?: (sent: Sent) => Appl
       versionListener = listener;
       return () => undefined;
     },
+    context: {
+      get: (name) => context.get(name),
+      set(name, value) {
+        context.set(name, value);
+        published.push([name, value]);
+      },
+    },
   };
-  return { shell, sent, reads, data, moved: (version: number) => versionListener?.(version) };
+  return { shell, sent, reads, lookups, published, data, moved: (version: number) => versionListener?.(version) };
 }
 
 const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 5 };
@@ -218,7 +246,7 @@ test('a file dropped with a name and tags is added by soundbox.addSound, and the
   assert.equal(c.sent.length, 1);
   const [command] = c.sent;
   assert.equal(command?.dataCapability, 'soundbox.addSound@1');
-  assert.deepEqual(command?.payload, { name: 'Volet qui claque', tags: ['Fenêtre', 'bois', 'extérieur'], volume: 75, file: 'volet-qui-claque.ogg' });
+  assert.deepEqual(command?.payload, { campaign: 'cendres-valombre', name: 'Volet qui claque', tags: ['Fenêtre', 'bois', 'extérieur'], volume: 75, file: 'volet-qui-claque.ogg' });
   assert.equal(command?.caller.from, 'SoundLibrary');
   assert.equal(c.reads.length, 2, 'the sounds are read again');
   assert.equal(c.names()[0], 'Volet qui claque');
@@ -442,4 +470,103 @@ test('a tag is pressed whatever the case or accents of the one chosen', async ()
   await c.click('#sound-b [data-tag]');
   assert.equal(c.names().length, 2);
   assert.equal(c.host.querySelector('#sounds-filter-badge'), null, 'the same tag chosen again lets go');
+});
+
+// AC1: given the live session of cendres-valombre, when the screen gives no campaign, every sound of the fixture is a row with its « Modifier » button
+test('with no campaign given, the library lists the running session’s campaign', async () => {
+  const c = await card({ strict: true });
+  assert.deepEqual(c.lookups, [undefined], 'the running session is asked for, no id');
+  assert.deepEqual(c.reads.map((r) => r.variables), [{ campaign: 'cendres-valombre' }]);
+  assert.equal(c.names().length, fixture.sounds.length);
+  for (const sound of fixture.sounds) assert.ok(c.$(`#sound-${sound.id} [data-edit="${sound.id}"]`).textContent?.includes('Modifier'), `${sound.id} has its Modifier button`);
+  assert.equal(c.$('#sounds-campaign').dataset.reads, 'session.getLiveSession');
+  assert.equal(c.text('#sounds-campaign'), 'Campagne : cendres-valombre');
+});
+
+// AC2: given the same screen, when a sound is removed with « Modifier » then « Supprimer », its row disappears and the others remain
+test('on the session’s campaign, a removed sound leaves its row and the others stay', async () => {
+  const c = await card({ strict: true });
+  await c.click('[data-edit="snd-porte"]');
+  await c.click('#sounds-edit-delete');
+  assert.deepEqual(c.sent.map((s) => [s.dataCapability, s.targetId]), [['soundbox.removeSound@1', 'snd-porte']]);
+  assert.equal(c.host.querySelector('#sound-snd-porte'), null);
+  assert.equal(c.names().length, fixture.sounds.length - 1);
+  assert.deepEqual(c.reads.map((r) => r.variables), [{ campaign: 'cendres-valombre' }, { campaign: 'cendres-valombre' }], 'read again on the same campaign');
+  assert.equal(c.lookups.length, 1, 'the session is asked for once');
+});
+
+// AC3: given the same screen, when the campaign is found, it is published to the screen's context for LiveSoundbox
+test('the campaign found is published to the screen’s context', async () => {
+  const c = await card({ strict: true });
+  assert.deepEqual(c.published, [['campaign', 'cendres-valombre']]);
+});
+
+test('a new sound is added to the campaign found', async () => {
+  const c = await card({ strict: true });
+  c.choose('a.ogg');
+  c.type('#sounds-new-name', 'A');
+  await c.click('#sounds-new-submit');
+  assert.equal(c.sent[0]?.payload.campaign, 'cendres-valombre');
+});
+
+test('a campaign the screen names is used as it is: the session is not asked, nothing is published', async () => {
+  const c = await card({ strict: true }, { campaign: 'cendres-valombre' });
+  assert.equal(c.lookups.length, 0);
+  assert.deepEqual(c.published, []);
+  assert.equal(c.names().length, fixture.sounds.length);
+});
+
+test('a campaign the screen’s context already holds is used without asking the session', async () => {
+  const c = await card({ strict: true, context: { campaign: 'cendres-valombre' } });
+  assert.equal(c.lookups.length, 0);
+  assert.deepEqual(c.published, []);
+  assert.equal(c.names().length, fixture.sounds.length);
+});
+
+test('with no session under way, the library reads as it did and publishes nothing', async () => {
+  const c = await card({ strict: true, live: () => null });
+  assert.deepEqual(c.reads.map((r) => r.variables), [{}]);
+  assert.deepEqual(c.published, []);
+  assert.match(c.text('#sounds-table'), /Aucun son/);
+  assert.equal(c.text('#sounds-campaign'), '');
+});
+
+test('a session read that fails leaves the library to its plain read, and the next read asks again', async () => {
+  let down = true;
+  const c = await card({
+    strict: true,
+    live: () => {
+      if (down) throw new Error('down');
+      return { session: { id: 's4', campaign: 'cendres-valombre' } };
+    },
+  });
+  assert.deepEqual(c.reads.map((r) => r.variables), [{}]);
+  assert.equal(c.lookups.length, 1);
+  down = false;
+  c.moved(1); // the first notice only tells the version the screen opened on
+  c.moved(2);
+  await settle();
+  assert.equal(c.lookups.length, 2, 'asked again');
+  assert.deepEqual(c.reads.at(-1)?.variables, { campaign: 'cendres-valombre' });
+  assert.equal(c.names().length, fixture.sounds.length);
+  assert.deepEqual(c.published, [['campaign', 'cendres-valombre']]);
+});
+
+test('a context that fails still leaves the sounds listed', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div></div></body></html>');
+  const host = dom.window.document.querySelector('div') as HTMLElement;
+  const fake = fakeShell({ strict: true, context: { campaign: 'x' } });
+  const broken: Shell = {
+    ...fake.shell,
+    context: {
+      get: () => {
+        throw new Error('no context');
+      },
+      set: () => undefined,
+    },
+  };
+  mount(host, {}, broken, timing);
+  await settle();
+  assert.deepEqual(fake.reads.map((r) => r.variables), [{}], 'the plain read is made');
+  assert.equal(host.querySelector('#sounds-table')?.textContent?.includes('Chargement'), false, 'the list is not left loading');
 });

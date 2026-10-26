@@ -96,10 +96,12 @@
 
   // apps/soundbox/sound-library/src/ids.ts
   var LIST_SOUNDS = "soundbox.listSounds";
+  var GET_LIVE_SESSION = "session.getLiveSession";
   var ADD_SOUND = "soundbox.addSound";
   var UPDATE_SOUND = "soundbox.updateSound";
   var REMOVE_SOUND = "soundbox.removeSound";
   var DATA_CAPABILITY_VERSION = 1;
+  var CAMPAIGN_CONTEXT = "campaign";
 
   // apps/soundbox/sound-library/src/model.ts
   var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -123,6 +125,9 @@
       });
     }
     return sounds;
+  }
+  function campaignOf(data) {
+    return isRecord(data) && isRecord(data.session) ? text(data.session.campaign) : "";
   }
   var norm = (value) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
   function filterSounds(sounds, search, tag) {
@@ -210,7 +215,7 @@
   }
   function skeleton() {
     const reads = `data-reads="${LIST_SOUNDS}"`;
-    return `<div class="mf-sounds layout-2" id="sound-library"><section class="panel" id="sounds-list-panel" aria-labelledby="sounds-title"><div class="panel__head"><h2 id="sounds-title">Sons de la campagne</h2><span class="small muted" id="sounds-count" ${reads}></span></div><div id="sounds-search">${input({ id: "sounds-search-input", label: "Rechercher", type: "search", placeholder: "Nom ou tag : porte, combat, ext\xE9rieur\u2026" })}</div><div class="row" id="sounds-filter" aria-live="polite"></div><div id="sounds-table" ${reads} aria-live="polite"></div><div id="sounds-status" aria-live="polite"></div></section><aside class="stack" id="sounds-side"><form class="panel" id="sounds-upload" aria-labelledby="sounds-upload-title"><h2 id="sounds-upload-title">T\xE9l\xE9verser un son</h2><p class="small muted">Effets ponctuels uniquement. Le nom sert aussi \xE0 la d\xE9tection au micro : dites \xAB la porte grince \xBB et le son vous est propos\xE9.</p><div id="sounds-upload-fields">` + fileDrop() + input({ id: "sounds-new-name", label: "Nom", placeholder: "Porte qui grince" }) + input({ id: "sounds-new-tags", label: "Tags", placeholder: "porte, bois, int\xE9rieur", hint: "S\xE9par\xE9s par des virgules" }) + buttons([{ id: "sounds-new-submit", label: "Ajouter \xE0 la soundbox", variant: "primary", writes: ADD_SOUND }]) + '</div><div id="sounds-upload-result" aria-live="polite"></div></form><form class="panel" id="sounds-edit" aria-labelledby="sounds-edit-title" hidden><h2 id="sounds-edit-title">Modifier le son</h2><div id="sounds-edit-fields"></div><div id="sounds-edit-result" aria-live="polite"></div></form></aside></div>';
+    return `<div class="mf-sounds layout-2" id="sound-library"><section class="panel" id="sounds-list-panel" aria-labelledby="sounds-title"><div class="panel__head"><h2 id="sounds-title">Sons de la campagne</h2><span class="small muted" id="sounds-campaign" data-reads="${GET_LIVE_SESSION}"></span><span class="small muted" id="sounds-count" ${reads}></span></div><div id="sounds-search">${input({ id: "sounds-search-input", label: "Rechercher", type: "search", placeholder: "Nom ou tag : porte, combat, ext\xE9rieur\u2026" })}</div><div class="row" id="sounds-filter" aria-live="polite"></div><div id="sounds-table" ${reads} aria-live="polite"></div><div id="sounds-status" aria-live="polite"></div></section><aside class="stack" id="sounds-side"><form class="panel" id="sounds-upload" aria-labelledby="sounds-upload-title"><h2 id="sounds-upload-title">T\xE9l\xE9verser un son</h2><p class="small muted">Effets ponctuels uniquement. Le nom sert aussi \xE0 la d\xE9tection au micro : dites \xAB la porte grince \xBB et le son vous est propos\xE9.</p><div id="sounds-upload-fields">` + fileDrop() + input({ id: "sounds-new-name", label: "Nom", placeholder: "Porte qui grince" }) + input({ id: "sounds-new-tags", label: "Tags", placeholder: "porte, bois, int\xE9rieur", hint: "S\xE9par\xE9s par des virgules" }) + buttons([{ id: "sounds-new-submit", label: "Ajouter \xE0 la soundbox", variant: "primary", writes: ADD_SOUND }]) + '</div><div id="sounds-upload-result" aria-live="polite"></div></form><form class="panel" id="sounds-edit" aria-labelledby="sounds-edit-title" hidden><h2 id="sounds-edit-title">Modifier le son</h2><div id="sounds-edit-fields"></div><div id="sounds-edit-result" aria-live="polite"></div></form></aside></div>';
   }
   var tagButton = (tag, chosen) => `<button type="button" data-tag="${esc(tag)}" aria-pressed="${chosen !== null && norm(chosen) === norm(tag)}">#${esc(tag)}</button>`;
   function table(sounds, chosen) {
@@ -281,7 +286,7 @@
   function mount(host2, props2, shell2, timing = WAITING) {
     ensureStyle(host2.ownerDocument);
     host2.innerHTML = skeleton();
-    const campaign = typeof props2.campaign === "string" ? props2.campaign : "";
+    let campaign = typeof props2.campaign === "string" ? props2.campaign : "";
     const part = (id) => {
       const found = host2.querySelector(`#${id}`);
       if (!found) throw new Error(`SoundLibrary: #${id} is not in the card`);
@@ -310,8 +315,31 @@
         control.disabled = locked;
       }
     };
+    const locate = async () => {
+      if (campaign !== "") return;
+      try {
+        const named = shell2.context.get(CAMPAIGN_CONTEXT);
+        if (typeof named === "string" && named !== "") {
+          campaign = named;
+          return;
+        }
+        campaign = campaignOf((await shell2.capability(GET_LIVE_SESSION, void 0)).data);
+        if (campaign === "") return;
+        part("sounds-campaign").textContent = `Campagne : ${campaign}`;
+        shell2.context.set(CAMPAIGN_CONTEXT, campaign);
+      } catch {
+      }
+    };
+    let located = null;
+    const campaignKnown = () => {
+      located ??= locate().then(() => {
+        if (campaign === "") located = null;
+      });
+      return located;
+    };
     let latest = 0;
     const refresh = async () => {
+      await campaignKnown();
       const mine = latest += 1;
       let fresh;
       try {
@@ -403,6 +431,7 @@
       const form = add;
       return act("sounds-upload-result", "L\u2019ajout a \xE9chou\xE9.", async () => {
         say("sounds-upload-result", { kind: "busy", text: "Ajout en cours\u2026" });
+        await campaignKnown();
         const state = await send(ADD_SOUND, addPayload(form, campaign));
         const wrong = failure("Ajout refus\xE9", "L\u2019ajout", state);
         if (wrong) return wrong;

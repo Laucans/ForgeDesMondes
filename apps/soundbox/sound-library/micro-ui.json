@@ -2,7 +2,7 @@
   "microUi": "SoundLibrary",
   "system": "soundbox",
   "description": "La bibliothèque des effets sonores : téléversement, nom, tags et volume propre",
-  "needs": ["soundbox.listSounds"],
+  "needs": ["soundbox.listSounds", "session.getLiveSession"],
   "actions": ["soundbox.addSound", "soundbox.updateSound", "soundbox.removeSound"],
   "props": {
     "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"

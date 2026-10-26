@@ -2,7 +2,7 @@
 // (mock/kit/<Name>.html): the same ids, the same classes. Every part names
 // the unit it shows (`data-reads`) or triggers (`data-writes`) by identifier.
 
-import { ADD_SOUND, LIST_SOUNDS, REMOVE_SOUND, UPDATE_SOUND } from './ids.ts';
+import { ADD_SOUND, GET_LIVE_SESSION, LIST_SOUNDS, REMOVE_SOUND, UPDATE_SOUND } from './ids.ts';
 import { FILE_TYPES, duration, norm } from './model.ts';
 import type { EditForm, Outcome, Sound } from './types.ts';
 
@@ -67,7 +67,7 @@ export function skeleton(): string {
   return (
     '<div class="mf-sounds layout-2" id="sound-library">' +
     '<section class="panel" id="sounds-list-panel" aria-labelledby="sounds-title">' +
-    `<div class="panel__head"><h2 id="sounds-title">Sons de la campagne</h2><span class="small muted" id="sounds-count" ${reads}></span></div>` +
+    `<div class="panel__head"><h2 id="sounds-title">Sons de la campagne</h2><span class="small muted" id="sounds-campaign" data-reads="${GET_LIVE_SESSION}"></span><span class="small muted" id="sounds-count" ${reads}></span></div>` +
     `<div id="sounds-search">${input({ id: 'sounds-search-input', label: 'Rechercher', type: 'search', placeholder: 'Nom ou tag : porte, combat, extérieur…' })}</div>` +
     '<div class="row" id="sounds-filter" aria-live="polite"></div>' +
     `<div id="sounds-table" ${reads} aria-live="polite"></div>` +
