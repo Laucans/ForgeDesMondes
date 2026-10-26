@@ -17,3 +17,6 @@ serde_json = "1"
 # tables as the product migrates them.
 data = { path = "../../../data" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+# The tests' bench (rules 19, 21): the unit's engine over a scratch database
+# migrated by the Data layer.
+platform-test-kit = { path = "../../../platform/test-kit" }

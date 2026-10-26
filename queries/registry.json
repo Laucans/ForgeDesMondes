@@ -79,7 +79,7 @@
       "query": "ListCampaigns",
       "capability": "campaign.listCampaigns",
       "file": "crates/campaign/queries/list-campaigns.graphql",
-      "sha256": "93cd999bf497ef73760cc5a85b31578329d2f347b51679bc8f52d90550b32381",
+      "sha256": "63f6de18f0ec036def0a935cf9cdf275975eac71bb137491117978a8ca2c161d",
       "fields": [
         "campaign.id",
         "campaign.name",
@@ -87,7 +87,11 @@
         "campaign.art",
         "campaign.glyph",
         "campaign.pitch",
-        "campaign.createdAt"
+        "campaign.createdAt",
+        "session.campaignId",
+        "session.status",
+        "session.startedAt",
+        "session.plannedOn"
       ]
     },
     {
@@ -365,9 +369,10 @@
       "query": "GetLiveSession",
       "capability": "session.getLiveSession",
       "file": "crates/session/queries/getLiveSession.graphql",
-      "sha256": "7cc41a0620841781675c22c36b81ee1139901741b1f084914ac50388e104b36e",
+      "sha256": "5d5410c54a5352638ae097e65c961944dc9a7503fcd5cb333414c2b671954598",
       "fields": [
         "session.id",
+        "session.campaignId",
         "session.position",
         "session.title",
         "session.plannedOn",

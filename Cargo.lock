@@ -122,6 +122,7 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "platform-test-kit",
  "serde_json",
  "tokio",
 ]
@@ -449,6 +450,7 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "platform-scratch-db",
  "ports-llm",
  "serde_json",
  "tokio",
@@ -674,6 +676,7 @@ dependencies = [
  "get-settings",
  "get-transcription-vocabulary",
  "harness-dataguard",
+ "import-campaign",
  "import-character",
  "list-campaigns",
  "list-characters",
@@ -799,6 +802,8 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "platform-conformance",
+ "platform-test-kit",
  "serde_json",
  "tokio",
 ]
@@ -941,7 +946,9 @@ name = "get-live-session"
 version = "0.1.0"
 dependencies = [
  "platform-conformance",
+ "platform-test-kit",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1255,6 +1262,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "import-campaign"
+version = "0.1.0"
+dependencies = [
+ "aggregate-campaign",
+ "async-trait",
+ "harness-dataguard",
+ "platform-conformance",
+ "platform-test-kit",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "import-character"
 version = "0.1.0"
 dependencies = [
@@ -1370,7 +1391,9 @@ dependencies = [
 name = "list-campaigns"
 version = "0.1.0"
 dependencies = [
+ "platform-test-kit",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

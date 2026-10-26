@@ -50,6 +50,10 @@
 //! aggregate give the sessions, the PCs present at each, the scenes of
 //! `SceneBoard.json`, the closed session's journal and summary of
 //! `PreviousSummary.json`, the last brief and the to-create list.
+//! A oneshot those fixtures do not describe gets the one session its
+//! creation writes (`oneshot-single-session`), titled after it: closed on the
+//! day the campaign list says it was last played, else in preparation for
+//! its next day.
 //!
 //! A scene is one row of `scene` (its order is its rank, from 1 to n), and
 //! each place, character, event and medium it lists one row of `scene_entity`
@@ -548,6 +552,9 @@ struct Read {
     /// The campaigns by slug: name, kind, pitch, art, glyph, and the dates
     /// when a fixture gives them.
     campaigns: BTreeMap<String, Map<String, Value>>,
+    /// The days the campaign list gives each campaign, by slug: the last it
+    /// was played, and the next.
+    days: BTreeMap<String, (Value, Value)>,
     entities: Option<Entities>,
     history: Option<History>,
     /// The version rows of each element `history` gives a history, by slug,
@@ -748,10 +755,12 @@ impl Read {
                 required(row, "id")?.to_string(),
                 json!({ "name": required(row, "name")?, "kind": required(row, "type")?,
                         "pitch": row["pitch"], "art": row["art"], "glyph": row["glyph"] }),
+                (day(row, "lastPlayed")?, day(row, "next")?),
             ));
         }
-        for (slug, row) in rows {
+        for (slug, row, days) in rows {
             self.campaign(&slug, &row);
+            self.days.insert(slug, days);
         }
         Ok(())
     }
@@ -1367,8 +1376,35 @@ impl Read {
         Ok(())
     }
 
+    /// The one session of each oneshot no session fixture describes, as its
+    /// creation writes it: the first, the microphone off, titled after the
+    /// oneshot. Closed on the day it was last played, else in preparation
+    /// for its next day; named `session:<oneshot slug>:1`.
+    fn oneshot_sessions(&self) -> Vec<Value> {
+        let described = self.sessions.as_ref().map(|s| s.campaign.as_str());
+        let mut rows = Vec::new();
+        for (slug, row) in &self.campaigns {
+            if row.get("kind") != Some(&json!("oneshot")) || described == Some(slug) {
+                continue;
+            }
+            let (played, next) = self.days.get(slug).cloned().unwrap_or_default();
+            let (status, planned_on) = if played.is_null() {
+                ("prep", next)
+            } else {
+                ("closed", played)
+            };
+            rows.push(json!({
+                "id": id("session", &format!("{slug}:1")), "campaign_id": id("campaign", slug),
+                "position": 1, "title": row.get("name"), "planned_on": planned_on,
+                "status": status, "microphone_on": false, "summary": null,
+            }));
+        }
+        rows
+    }
+
     /// The rows of everything read, in the order they are inserted.
     fn plan(self, plan: &mut Fixtures) {
+        let oneshots = self.oneshot_sessions();
         let campaign_row = |slug: &String, row: &Map<String, Value>| {
             let mut out = json!({ "id": id("campaign", slug) });
             for column in CAMPAIGN_DATED.iter().skip(1) {
@@ -1449,6 +1485,9 @@ impl Read {
                 table("media", "id", MEDIA, media),
                 table("battlemap_grid", "media_id", GRID, grids),
             ]);
+        }
+        if !oneshots.is_empty() {
+            tables.push(table("session", "id", SESSION, oneshots));
         }
         if let Some(sessions) = &self.sessions {
             let campaign = id("campaign", &sessions.campaign);
@@ -2434,6 +2473,15 @@ fn is_clock(text: &str) -> bool {
     text.len() == 5 && text.as_bytes()[2] == b':' && hour < 24 && minute < 60
 }
 
+/// The day `key` of `value` (`2026-07-11`), as a `date` column holds it, or
+/// null when it has none.
+fn day(value: &Value, key: &str) -> Result<Value, String> {
+    Ok(match date(value, key)? {
+        Value::String(at) => json!(&at[..10]),
+        other => other,
+    })
+}
+
 /// A day (`2026-08-20`) as the midnight UTC the column holds; null stays null.
 fn date(value: &Value, key: &str) -> Result<Value, String> {
     match value[key].as_str() {
@@ -2563,6 +2611,7 @@ mod tests {
                 "entity_version",
                 "media",
                 "battlemap_grid",
+                "session",
                 "session",
                 "session_present_character",
                 "scene",
@@ -3502,6 +3551,79 @@ mod tests {
     }
 
     /// The mock-up's fixtures, the files named in `over` replaced by theirs.
+    /// The sessions planned for the campaign `slug`.
+    fn sessions_of<'a>(plan: &'a Fixtures, slug: &str) -> Vec<&'a Value> {
+        let campaign = id("campaign", slug);
+        rows(plan, "session")
+            .into_iter()
+            .filter(|s| s["campaign_id"] == campaign)
+            .collect()
+    }
+
+    #[test]
+    fn the_oneshot_of_the_mock_up_has_its_one_session_closed_on_its_last_day() {
+        let plan = mock();
+        let oneshot = sessions_of(&plan, "nuit-carnaval");
+        assert_eq!(
+            oneshot,
+            [&json!({ "id": id("session", "nuit-carnaval:1"),
+                "campaign_id": id("campaign", "nuit-carnaval"), "position": 1,
+                "title": "La Nuit du Carnaval Pourpre", "planned_on": "2026-07-11",
+                "status": "closed", "microphone_on": false, "summary": null })]
+        );
+        assert!(
+            sessions_of(&plan, "heritiers-ebene").is_empty(),
+            "a campaign no session fixture describes has none"
+        );
+    }
+
+    #[test]
+    fn a_oneshot_never_played_is_in_preparation_for_its_next_day() {
+        let list = json!([
+            { "id": "o", "name": "O", "type": "oneshot", "lastPlayed": null, "next": "2026-11-02" },
+            { "id": "p", "name": "P", "type": "oneshot" },
+        ]);
+        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
+        let next = sessions_of(&plan, "o");
+        assert_eq!(next.len(), 1, "{next:?}");
+        assert_eq!(next[0]["status"], "prep");
+        assert_eq!(next[0]["planned_on"], "2026-11-02");
+        assert_eq!(next[0]["title"], "O");
+        let undated = sessions_of(&plan, "p");
+        assert_eq!(undated.len(), 1, "{undated:?}");
+        assert_eq!(undated[0]["status"], "prep");
+        assert!(undated[0]["planned_on"].is_null());
+    }
+
+    #[test]
+    fn a_oneshot_the_session_fixture_describes_gets_no_other_session() {
+        let mut list = mock_file("campaign.listCampaigns.json");
+        list[0]["type"] = json!("oneshot");
+        list[0]["lastPlayed"] = json!("2026-10-03");
+        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
+        let sessions = sessions_of(&plan, "cendres-valombre");
+        assert_eq!(sessions.len(), 4, "the fixture's, and none added");
+        assert!(
+            sessions
+                .iter()
+                .all(|s| s["title"] != "Les Cendres de Valombre")
+        );
+    }
+
+    #[test]
+    fn a_campaign_list_with_a_day_that_is_none_is_skipped() {
+        let list = json!([{ "id": "o", "name": "O", "type": "oneshot", "lastPlayed": "hier" }]);
+        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(n, why)| n == "campaign.listCampaigns.json" && why.contains("not a day")),
+            "{:?}",
+            plan.skipped
+        );
+        assert!(sessions_of(&plan, "o").is_empty());
+    }
+
     fn replaced(over: &[(&str, Value)]) -> Fixtures {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
         let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
@@ -3547,10 +3669,8 @@ mod tests {
     #[test]
     fn the_sessions_of_the_mock_up_are_planned_with_the_pcs_present() {
         let plan = mock();
-        let sessions = rows(&plan, "session");
+        let sessions = sessions_of(&plan, "cendres-valombre");
         assert_eq!(sessions.len(), 4);
-        let campaign = id("campaign", "cendres-valombre");
-        assert!(sessions.iter().all(|s| s["campaign_id"] == campaign));
         assert!(sessions.iter().all(|s| s["microphone_on"] == false));
         let session = |slug: &str| {
             sessions
@@ -4273,8 +4393,12 @@ mod tests {
                 assert!(!plan.loaded.iter().any(|n| n == file), "{what}: {file}");
             }
             assert!(plan.loaded.iter().any(|n| n == "entities.json"), "{what}");
+            // The oneshot's own session hangs on no file.
+            assert!(
+                sessions_of(&plan, "cendres-valombre").is_empty(),
+                "{what}: session"
+            );
             for table in [
-                "session",
                 "session_present_character",
                 "scene",
                 "scene_entity",
@@ -4387,7 +4511,7 @@ mod tests {
             assert_eq!(left[0].0, file, "{what}");
             assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
             assert_eq!(
-                rows(&plan, "session").len(),
+                sessions_of(&plan, "cendres-valombre").len(),
                 4,
                 "{what}: the sessions are loaded"
             );
