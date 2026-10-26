@@ -27,7 +27,8 @@ pub const CAPABILITY: &str = "live.getDiffusion";
 /// What the persisted query `getDiffusion.graphql` selects: the live session
 /// of the campaign bound to `$1` — of two, the last one planned, as the
 /// DataCapabilities that write the row find it; the last one started, among
-/// the campaigns', when `$1` is the empty text — with its diffusion row, if
+/// the campaigns', when `$1` is the empty text or NULL (the engine binds a
+/// variable the request leaves out as NULL) — with its diffusion row, if
 /// it has one, and the proportions of the media of its window. A background
 /// whose media or instance was deleted (onDelete nullify) shows the cover. The campaign is
 /// compared as text, so that an id which is not a uuid finds nothing instead
@@ -56,8 +57,8 @@ FROM session s
 JOIN campaign c ON c.id = s.campaign_id
 LEFT JOIN diffusion d ON d.session_id = s.id
 LEFT JOIN media m ON m.id = d.window_media_id
-WHERE s.status = 'live' AND ($1 = '' OR s.campaign_id::text = $1)
-ORDER BY CASE WHEN $1 = '' THEN s.started_at END DESC NULLS LAST, s.position DESC, s.id
+WHERE s.status = 'live' AND (coalesce($1, '') = '' OR s.campaign_id::text = $1)
+ORDER BY CASE WHEN coalesce($1, '') = '' THEN s.started_at END DESC NULLS LAST, s.position DESC, s.id
 LIMIT 1"#;
 
 /// What the session shows among `rows` — an array of the objects [`SQL`]
@@ -234,11 +235,11 @@ mod tests {
         );
         assert!(!SQL.contains(';'), "a second statement in {SQL}");
         assert!(
-            SQL.contains("($1 = '' OR s.campaign_id::text = $1)"),
+            SQL.contains("(coalesce($1, '') = '' OR s.campaign_id::text = $1)"),
             "{SQL}"
         );
         assert!(SQL.contains("s.status = 'live'"), "{SQL}");
-        assert!(SQL.contains("ORDER BY CASE WHEN $1 = '' THEN s.started_at END DESC NULLS LAST, s.position DESC, s.id"), "{SQL}");
+        assert!(SQL.contains("ORDER BY CASE WHEN coalesce($1, '') = '' THEN s.started_at END DESC NULLS LAST, s.position DESC, s.id"), "{SQL}");
         assert!(SQL.contains("LIMIT 1"), "{SQL}");
         assert!(SQL.contains("d.window_width * m.height_px"), "{SQL}");
     }
