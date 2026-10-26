@@ -7,6 +7,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+mod common;
+
 use harness_dataguard::command::State;
 use harness_dataguard::plugins::RefusalKind;
 use harness_dataguard::store::Ids;
@@ -28,13 +30,18 @@ impl Ids for Draw {
 /// The engine as the server plants this unit and its aggregate, the original
 /// campaign planted.
 async fn served() -> Served {
+    served_with(Arc::new(Draw(AtomicU64::new(0)))).await
+}
+
+/// The same, drawing its ids from `ids`.
+async fn served_with(ids: Arc<dyn Ids>) -> Served {
     let served = Bench::new(
         include_str!("../data-capability.json"),
         &file("crates/campaign/aggregates/Campaign/aggregate.json"),
         [aggregate_campaign::plugin(), import_campaign::plugin()],
     )
     .planting(&planter("test.plantCampaign", "Campaign", "$id", "insert"))
-    .ids(Arc::new(Draw(AtomicU64::new(0))))
+    .ids(ids)
     .memory()
     .await;
     served
@@ -52,7 +59,7 @@ async fn served() -> Served {
 
 /// The archive of the Concept's full case: made from [`ORIGINAL`].
 fn archive() -> Value {
-    platform_conformance::fixtures_of("CampaignArchive@1")
+    platform_conformance::fixtures_of(common::CONCEPT)
         .cases
         .into_iter()
         .find(|case| case.name.starts_with("a full archive"))
@@ -255,4 +262,92 @@ async fn the_copy_lands_on_the_id_drawn_whatever_field_the_manifest_names_for_it
     let copy = served.row(&partition);
     assert_eq!(copy["id"], json!(partition.trim_start_matches("Campaign/")));
     assert_eq!(copy["name"], json!("Les cendres de Valombre"));
+}
+
+// AC1: an archive whose campaign was created on 2026-08-20, imported, gives a
+// copy whose campaign carries created_at = imported_at = the time of the
+// import, and the original keeps its own row.
+// AC3: one new campaign under a new id, the original untouched.
+#[tokio::test]
+async fn import_creates_copy_the_copy_is_created_at_its_import_not_when_the_archives_campaign_was()
+{
+    let mut archive = archive();
+    archive["campaign"]["created_at"] = json!("2026-08-20T09:00:00.000Z");
+    let served = served().await;
+    let before = served.row(&format!("Campaign/{ORIGINAL}"));
+
+    let (partition, status) = imported(&served, archive.clone()).await;
+    assert_eq!(status, State::Applied);
+
+    let at = json!(import_campaign::timestamp(NOW * 1000));
+    let copy = served.row(&partition);
+    assert_eq!(copy["createdAt"], at, "created when it is imported");
+    assert_eq!(copy["importedAt"], at);
+    assert_ne!(partition, format!("Campaign/{ORIGINAL}"), "a new id");
+    assert_eq!(
+        served.row(&format!("Campaign/{ORIGINAL}")),
+        before,
+        "the original is untouched"
+    );
+
+    // The clock moves: the next copy follows it, to the millisecond.
+    served.clock.set_millis(1_792_000_123_456);
+    let (second, _) = imported(&served, archive).await;
+    let second = served.row(&second);
+    let at = json!(import_campaign::timestamp(1_792_000_123_456));
+    assert_eq!(second["createdAt"], at);
+    assert_eq!(second["importedAt"], at);
+}
+
+/// The copy `row` (the partition the import wrote) is, as the Concept spells
+/// it: the campaign under its columns' names, the sections as written.
+fn copied(row: &platform_test_kit::Row) -> Value {
+    assert!(!row.contains_key("lastExportedAt"), "never exported");
+    let campaign: serde_json::Map<String, Value> = [
+        ("id", "id"),
+        ("name", "name"),
+        ("kind", "kind"),
+        ("pitch", "pitch"),
+        ("art", "art"),
+        ("glyph", "glyph"),
+        ("coverMediaId", "cover_media_id"),
+        ("createdAt", "created_at"),
+        ("importedAt", "imported_at"),
+        ("originCampaignId", "origin_campaign_id"),
+        ("soundMasterVolume", "sound_master_volume"),
+    ]
+    .into_iter()
+    .map(|(field, column)| (column.to_owned(), row[field].clone()))
+    .chain([("last_exported_at".to_owned(), Value::Null)])
+    .collect();
+    let mut copy = json!({
+        "origin_campaign_id": row["originCampaignId"],
+        "imported_at": row["importedAt"],
+        "campaign": campaign,
+    });
+    for section in ["players", "elements", "media", "sounds", "sessions"] {
+        copy[section] = row[section].clone();
+    }
+    copy
+}
+
+// AC2: every case of CampaignArchive@2's fixtures, imported through the
+// engine — its ids the case's, its clock the case's time of import — gives
+// the copy the Concept gives, whole.
+// AC1: the copy's created_at is that time, as is its imported_at.
+#[tokio::test]
+async fn conformance_the_copy_the_engine_writes_follows_the_fixtures_of_the_concept() {
+    let mut copies = Vec::new();
+    for case in platform_conformance::fixtures_of(common::CONCEPT).cases {
+        let served = served_with(Arc::new(common::Given::of(&case.input))).await;
+        let at = case.input["imported_at"].as_str().expect("a time");
+        served.clock.set_millis(common::millis(at));
+        let (partition, status) = imported(&served, case.input["archive"].clone()).await;
+        assert_eq!(status, State::Applied, "{}", case.name);
+        let copy = copied(&served.row(&partition));
+        assert_eq!(copy["campaign"]["created_at"], json!(at), "{}", case.name);
+        copies.push(copy);
+    }
+    let mut copies = copies.into_iter();
+    platform_conformance::check(common::CONCEPT, |_| copies.next().expect("a copy per case"));
 }
