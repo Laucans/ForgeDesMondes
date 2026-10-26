@@ -126,6 +126,13 @@ test('on the fixture, one card per campaign draws what the mock-up draws', async
   assert.deepEqual([...document.querySelectorAll('.kit-card .actions button')].slice(0, 2).map((b) => b.textContent), ['Ouvrir', 'Exporter']);
 });
 
+// "Ouvrir" goes to the shell's screen, naming the campaign in `?campaign=` (the shell holds no `?id=`).
+test('"Ouvrir" opens the campaign screen with the campaign in the address', async () => {
+  const { document } = await list();
+  const open = document.querySelector<HTMLElement>('#campaign-cendres-valombre .actions button');
+  assert.equal(open?.dataset.href, '/screens/campagne?campaign=cendres-valombre');
+});
+
 // AC6: the parts carry data-reads / data-writes, by identifier.
 test('the parts name what they show and what they trigger, by identifier', async () => {
   const { document } = await list();

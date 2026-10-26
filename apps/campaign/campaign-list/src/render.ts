@@ -49,7 +49,7 @@ export function card(campaign: CampaignCard): string {
     `<div class="media">${cover(campaign)}</div>` +
     `<div class="body"><h3>${esc(campaign.name)}</h3>${campaign.pitch === '' ? '' : `<p>${esc(campaign.pitch)}</p>`}${meta}</div>` +
     '<div class="actions">' +
-    `<button type="button" data-href="campagne.html?id=${encodeURIComponent(campaign.id)}">Ouvrir</button>` +
+    `<button type="button" data-href="/screens/campagne?campaign=${encodeURIComponent(campaign.id)}">Ouvrir</button>` +
     `<button type="button" class="secondary" data-action="export" data-campaign="${esc(campaign.id)}" data-writes="${EXPORT_CAMPAIGN}">Exporter</button>` +
     '</div></article></div>'
   );

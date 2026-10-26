@@ -1382,11 +1382,20 @@ jobs:
           tests=(tests/rules/business/tests/*.rs)
           if [ -f tests/rules/business/Cargo.toml ] && [ ${#tests[@]} -gt 0 ]; then
             # The exit code is recorded, never the step's: status judges it.
-            # Every test file runs past a red one: each is its own binary,
-            # and one cargo stops after would leave its rules unsaid.
+            # Every test file runs past a red one, each on the seeded store:
+            # the runtime is reset before each, so none reads what another
+            # wrote (a live session left open broke three journeys).
             set +e
-            cargo test --manifest-path tests/rules/business/Cargo.toml --no-fail-fast
-            code=$?
+            code=0
+            for test in "${tests[@]}"; do
+              if [ -n "${RULES_SERVER_URL:-}" ] && ! bash scripts/rules-runtime.sh reset; then
+                code=1
+              fi
+              cargo test --manifest-path tests/rules/business/Cargo.toml \
+                --test "$(basename "$test" .rs)" --no-fail-fast
+              ran=$?
+              [ "$ran" -eq 0 ] || code=$ran
+            done
             set -e
             echo "business $code" >> "$RULES_EXITS"
           fi
@@ -1411,7 +1420,10 @@ jobs:
               cd tests/rules/journey
               npm install --no-audit --no-fund
               if [ -n "${RULES_APP_URL:-}" ]; then npx playwright install --with-deps chromium; fi
-              npx playwright test
+              # One worker: every rule resets the one store the runtime
+              # serves (kit.ts freshStore), so two at once would cut each
+              # other's store mid-test — whatever the product's config says.
+              npx playwright test --workers=1
             )
             code=$?
             set -e
