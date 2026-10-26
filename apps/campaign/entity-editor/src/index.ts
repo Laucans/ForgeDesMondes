@@ -704,6 +704,41 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     });
   });
 
+  /** The data moved under the sheet (a restore from VersionHistory, the AI, an editor): a clean sheet reads itself again, a modified one keeps its draft. */
+  async function follow(): Promise<void> {
+    if (busy || target === null || stored === null || isNew()) return;
+    collect();
+    if (dirty()) return;
+    const mine = opening;
+    const id = stored.id;
+    let fresh: Entity | null;
+    try {
+      fresh = await read(id);
+    } catch {
+      // The next move of the data tries again.
+      return;
+    }
+    if (fresh === null || mine !== opening || busy || stored === null || stored.id !== id) return;
+    // What was typed while the sheet was read is a draft now.
+    collect();
+    if (dirty() || !isDirty(fresh, stored)) return;
+    stored = fresh;
+    draft = structuredClone(fresh);
+    dm.url = fresh.ddb?.url ?? '';
+    ddbDiff = null;
+    paintAll();
+  }
+
+  // The data moves under the sheet: its first word only says where the data stands, which the first read has.
+  let firstWord = true;
+  const stopWatching: { stop?: () => void } = {};
+  stopWatching.stop = shell.onDataVersion?.(() => {
+    // A sheet the shell took off the page lets go of the poll.
+    if (!host.isConnected) return stopWatching.stop?.();
+    if (firstWord) firstWord = false;
+    else void follow();
+  });
+
   // The first sheet: the screen's prop, else the address's (`?id=`, or `?new=` for a sheet to create).
   const query = new URLSearchParams(view?.location.search ?? '');
   const first = parseTarget(props.entity) ?? parseTarget(query.get('id') || (query.get('new') ? `${NEW_PREFIX}${query.get('new')}` : null));

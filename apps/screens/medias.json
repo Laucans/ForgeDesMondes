@@ -1,9 +1,10 @@
 {
   "screen": "medias",
   "generatedFrom": "Le DM téléverse ses battlemaps et illustrations et règle la grille hexagonale de chaque carte avec un aperçu en direct",
-  "version": 1,
+  "version": 2,
+  "surface": "dm",
   "layout": [
-    { "MediaLibrary": { "campaign": "cendres-valombre", "session": "s4", "sessionNumber": 4 } },
+    { "MediaLibrary": { "campaign": "$ctx.campaign", "session": "s4", "sessionNumber": 4 } },
     { "GridSettings": { "battlemap": "$ctx.battlemap" } }
   ]
 }

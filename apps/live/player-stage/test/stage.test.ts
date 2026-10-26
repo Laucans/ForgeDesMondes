@@ -383,3 +383,44 @@ test('a new campaign from the screen starts the stage over on it', async () => {
   assert.deepEqual(last('campaign.getCampaign'), { id: 'c-2' });
   assert.deepEqual(last('media.listMedia'), { campaign: 'c-2' });
 });
+
+// AC1: a window shown takes the cover's title off the stage; the figure keeps its illustration, and the title comes back with the window gone
+test('a floating window takes the cover’s title off the stage, and the title returns when it closes', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  assert.equal(s.$('#player-window').hidden, false);
+  assert.ok(s.$('#player-window [aria-label="Gaspard"]'));
+  assert.equal(s.host.querySelector('h1'), null);
+  assert.equal(s.host.querySelector('#player-cover-title'), null);
+  assert.doesNotMatch(s.$('#player-cover').textContent ?? '', /Séance 4/);
+  s.row.window = null;
+  s.moveOn();
+  await settle();
+  assert.equal(s.$('#player-cover-title').textContent, CAMPAIGN.name);
+});
+
+// AC1: a window whose image the library does not list is not drawn, so it takes nothing off the stage
+test('a window the library does not list leaves the cover’s title', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: { ...WINDOW, media: 'ill-gone' }, view: null } });
+  assert.equal(s.$('#player-window').hidden, true);
+  assert.equal(s.$('#player-cover-title').textContent, CAMPAIGN.name);
+});
+
+// AC2: no window, the player view opens on the cover's level-1 heading and image
+test('with no window the cover’s level-1 heading and image are drawn', async () => {
+  const s = await stage({});
+  assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
+  assert.ok(s.$('#player-cover [role="img"]'));
+  assert.equal(s.$('#player-window').hidden, true);
+});
+
+// AC1: the cover is on the stage, then the DM sends the window — the title goes off the stage without a restart
+test('a window sent over the shown cover takes its title off the stage', async () => {
+  const s = await stage({});
+  assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
+  s.row.window = { ...WINDOW };
+  s.moveOn();
+  await settle();
+  assert.equal(s.$('#player-window').hidden, false);
+  assert.equal(s.host.querySelector('h1'), null);
+  assert.ok(s.$('#player-cover [role="img"]'));
+});

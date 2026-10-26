@@ -128,6 +128,17 @@ test('a character’s sheet shows the portrait, the badge, the text blocks and a
   assert.equal(s.host.querySelectorAll('#sheet-statblock .kit-statblock__feature').length, morlox.features.length);
 });
 
+// AC1: the sheet of a character with a stat block names it in one heading only (R17 reads it by role), and keeps its 'Modifier' link
+test('a character’s name is one heading only: the stat block’s name is no heading, with the kit’s class', async () => {
+  const s = await sheet({ type: 'character', id: 'morlox' });
+  const named = [...s.host.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]')].filter((h) => text(h) === 'Morlox');
+  assert.deepEqual(named.map((h) => h.id), ['sheet-title']);
+  const statName = s.$('#sheet-statblock .kit-statblock__name');
+  assert.equal(text(statName), 'Morlox');
+  assert.equal(statName.closest('h1, h2, h3, h4, h5, h6, [role="heading"]'), null);
+  assert.equal(text(s.$('a#sheet-edit')), 'Modifier');
+});
+
 test('a player character is badged PJ; a character with no behaviour, background or notes shows no empty block', async () => {
   const elowen = { id: 'e', name: 'Elowen', kind: 'pj', description: 'Rôdeuse.', stats: {}, behavior: '', background: '', notes: '' };
   const s = await sheet({ id: 'e' }, { entities: [elowen] });

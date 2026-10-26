@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { campaignId, commandId, countsOf, exportCommand, isFinal, lastExportText, nextSessionDay, parseCampaign, settled } from '../src/model.ts';
+import { campaignId, commandId, countsOf, exportCommand, isFinal, lastExportText, nextSessionDay, parseCampaign, safeFileName, settled } from '../src/model.ts';
 
 const answer = { id: 'c1', name: 'Les Cendres', type: 'campagne', art: 'ember', glyph: 'V', pitch: 'Un bourg.', lastExport: null, counts: { players: 4, characters: 9, places: 4, events: 3 } };
 
@@ -62,8 +62,37 @@ test('a command answer is read for its id and its state', () => {
   assert.equal(commandId({ commandId: 'x' }), 'x');
   assert.equal(commandId({ result: { commandId: 'y' } }), 'y');
   assert.equal(commandId(null), '');
-  assert.deepEqual(settled({ result: { status: 'rejected', violations: ['a', 3] } }), { status: 'rejected', violations: ['a'] });
-  assert.deepEqual(settled('nope'), { status: '', violations: [] });
+  assert.deepEqual(settled({ result: { status: 'rejected', violations: ['a', 3] } }), { status: 'rejected', violations: ['a'], archive: null });
+  assert.deepEqual(settled('nope'), { status: '', violations: [], archive: null });
   assert.equal(isFinal('applied') && isFinal('rejected') && isFinal('expired'), true);
   assert.equal(isFinal('queued') || isFinal('awaiting_confirmation'), false);
+});
+
+// AC1: the archive is the attachment of the result, with its file name and its content
+test('an applied export carries its archive as the attachment; a file with no name or no content is none', () => {
+  const archive = { file: 'les-cendres-2026-10-14T10-00-00Z.json', content: { format: 'campaign-archive' } };
+  assert.deepEqual(settled({ commandId: 'c1', result: { status: 'applied', violations: [], attachment: archive } }), { status: 'applied', violations: [], archive });
+  assert.equal(settled({ result: { status: 'queued', attachment: null } }).archive, null);
+  assert.equal(settled({ result: { status: 'applied', attachment: { file: '', content: {} } } }).archive, null);
+  assert.equal(settled({ result: { status: 'applied', attachment: { file: 'x.json' } } }).archive, null);
+  assert.equal(settled({ result: { status: 'applied', attachment: { file: 'x.json', content: null } } }).archive, null);
+});
+
+// AC1: a safe file name
+test('a file name keeps nothing that is a path', () => {
+  assert.equal(safeFileName('les-cendres-2026-10-14T10-00-00Z.json'), 'les-cendres-2026-10-14T10-00-00Z.json');
+  assert.equal(safeFileName('../../etc/passwd'), '-..-etc-passwd');
+  assert.equal(safeFileName('a:b*c.json'), 'a-b-c.json');
+  assert.equal(safeFileName('a\\b.json'), 'a-b.json');
+});
+
+test('a file name has no leading dot, no control character, no reserved name, and a default', () => {
+  assert.equal(safeFileName('..'), 'campaign-archive.json');
+  assert.equal(safeFileName('.hidden.json'), 'hidden.json');
+  assert.equal(safeFileName('a\u0000b\nc.json'), 'a-b-c.json');
+  assert.equal(safeFileName('CON.json'), 'campaign-archive.json');
+  assert.equal(safeFileName('nul'), 'campaign-archive.json');
+  assert.equal(safeFileName('console.json'), 'console.json');
+  assert.equal(safeFileName('name.json. '), 'name.json');
+  assert.equal(safeFileName(''), 'campaign-archive.json');
 });

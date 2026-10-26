@@ -135,6 +135,24 @@ pub fn fixtures_of(id: &str) -> Fixtures {
     fixtures
 }
 
+/// Reads the `concept.json` of `id` from the repository.
+///
+/// # Panics
+///
+/// When the file is missing or is not JSON.
+#[must_use]
+pub fn concept_of(id: &str) -> Value {
+    let (name, version) = parse_id(id);
+    let path = repository_root()
+        .join("concepts")
+        .join(&name)
+        .join(format!("v{version}"))
+        .join("concept.json");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()))
+}
+
 /// The cases of `fixtures` that `compute` answers wrong: the name of each,
 /// with what it answered.
 pub fn failures<F>(fixtures: &Fixtures, mut compute: F) -> Vec<String>

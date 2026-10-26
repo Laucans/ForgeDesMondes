@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { mount, type Timing } from '../src/index.ts';
+import { EXPORT_CAMPAIGN, GET_CAMPAIGN } from '../src/ids.ts';
+import { downloadIn, mount, type Save, type Timing } from '../src/index.ts';
 import type { Shell } from '../src/types.ts';
 
 const mock = (path: string): string => readFileSync(new URL(`../../../../mock/${path}`, import.meta.url), 'utf8');
@@ -22,7 +23,13 @@ interface Options {
   apply?: (data: Record<string, unknown>) => { status: string; violations?: string[] };
   /** How many lookups a command stays queued for. */
   later?: number;
+  /** What an applied export answers as its attachment; the campaign's archive by default. */
+  attachment?: unknown;
+  /** What saving the archive does; it keeps the file by default. */
+  save?: Save;
 }
+
+const ARCHIVE = { file: 'les-cendres-de-valombre-2026-10-18T10-00-00Z.json', content: { format: 'campaign-archive', campaign: { name: 'Les Cendres de Valombre' } } };
 
 /** A shell over a small server: it answers the campaign, and applies the export as the DataGuard would. */
 function fakeShell(options: Options = {}) {
@@ -32,6 +39,7 @@ function fakeShell(options: Options = {}) {
   let asked = 0;
   const apply = options.apply ?? ((campaign: Record<string, unknown>) => ((campaign.lastExport = '2026-10-18'), { status: 'applied' }));
   let outcome: { status: string; violations?: string[] } | undefined;
+  const attachment = () => (outcome?.status === 'applied' ? ('attachment' in options ? options.attachment : ARCHIVE) : undefined);
   const shell: Shell = {
     async capability(id, sha256, variables) {
       assert.equal(id, 'campaign.getCampaign');
@@ -42,12 +50,12 @@ function fakeShell(options: Options = {}) {
     async command(body) {
       sent.push(body as Sent);
       outcome = apply(data);
-      return { commandId: 'c1', result: { status: options.later === undefined ? outcome.status : 'queued', violations: outcome.violations ?? [] } };
+      return { commandId: 'c1', result: { status: options.later === undefined ? outcome.status : 'queued', violations: outcome.violations ?? [], attachment: options.later === undefined ? attachment() : undefined } };
     },
     async commandResult(commandId) {
       asked += 1;
       const done = asked > (options.later ?? 0);
-      return { result: { commandId, status: done ? outcome?.status : 'queued', violations: outcome?.violations ?? [] } };
+      return { result: { commandId, status: done ? outcome?.status : 'queued', violations: outcome?.violations ?? [], attachment: done ? attachment() : undefined } };
     },
   };
   return { shell, sent, reads, data };
@@ -61,7 +69,8 @@ async function panel(options?: Options, props: Record<string, unknown> = { campa
   const { document } = dom.window;
   const host = document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
-  mount(host, props, fake.shell, timing);
+  const saved: Array<{ file: string; content: unknown }> = [];
+  mount(host, props, fake.shell, timing, options?.save ?? ((file, content) => void saved.push({ file, content })));
   await settle();
   // The words of a part, one space where a tag was.
   const text = (id: string): string => (document.getElementById(id)?.innerHTML ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -69,7 +78,7 @@ async function panel(options?: Options, props: Record<string, unknown> = { campa
     document.getElementById(id)?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await settle();
   };
-  return { document, host, text, click, ...fake };
+  return { document, host, text, click, saved, ...fake };
 }
 
 test('on the fixture, the panel draws what the mock-up draws', async () => {
@@ -223,6 +232,16 @@ test('an export that never settles is said, and the old date is kept', async () 
   assert.equal(text('overview-export-status'), 'L’export n’est pas encore appliqué (état : queued). Dernier export : 4 octobre 2026');
 });
 
+test('a cancelled or expired export is said final, with no archive to come', async () => {
+  for (const [status, word] of [['cancelled', 'annulé'], ['expired', 'expiré']] as const) {
+    const { click, text, saved } = await panel({ apply: () => ({ status }), attachment: ARCHIVE });
+    await click('overview-export');
+    await settle();
+    assert.equal(text('overview-export-status'), `L’export est ${word} : l’état est final, aucune archive ne viendra. Dernier export : 4 octobre 2026`);
+    assert.deepEqual(saved, []);
+  }
+});
+
 test('an export the server cannot take is said, and the button comes back', async () => {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div></div></body></html>', { url: 'http://shell.test/' });
   const host = dom.window.document.querySelector('div') as HTMLElement;
@@ -252,4 +271,105 @@ test('applied, but the date cannot be read again: the old date is not passed off
   });
   await click('overview-export');
   assert.equal(text('overview-export-status'), 'Export effectué, mais la date n’a pas pu être relue. Dernier export : 4 octobre 2026');
+});
+
+// AC1: an applied export whose result carries an attachment is saved under its file name, whether it was applied at once or after being followed
+test('the archive the applied export answers is saved, once, under the name it gave', async () => {
+  const now = await panel();
+  await now.click('overview-export');
+  assert.deepEqual(now.saved, [ARCHIVE]);
+  const later = await panel({ later: 2 });
+  await later.click('overview-export');
+  await settle();
+  assert.deepEqual(later.saved, [ARCHIVE]);
+  assert.equal(later.text('overview-export-status'), 'Dernier export : 18 octobre 2026', 'a saved file leaves the date alone in the status');
+});
+
+// AC2: a refused or pending export saves no file and the DM reads why
+test('a refused, a pending or a failed export saves no file and says why', async () => {
+  const refused = await panel({ apply: () => ({ status: 'rejected', violations: ['export-stamps-date'] }), attachment: ARCHIVE });
+  await refused.click('overview-export');
+  assert.deepEqual(refused.saved, []);
+  assert.match(refused.text('overview-export-status'), /^Export refusé : export-stamps-date\./);
+  const pending = await panel({ later: 99, attachment: ARCHIVE });
+  await pending.click('overview-export');
+  await settle();
+  assert.deepEqual(pending.saved, []);
+  assert.match(pending.text('overview-export-status'), /^L’export n’est pas encore appliqué \(état : queued\)/);
+});
+
+// AC1: the file is the DM's to keep even when the date cannot be read again
+test('the archive is saved even when the date cannot be read again, and both are said', async () => {
+  let reads = 0;
+  const { click, text, saved } = await panel({
+    read: () => {
+      reads += 1;
+      if (reads > 1) throw new Error('down');
+      return structuredClone(fixture);
+    },
+  });
+  await click('overview-export');
+  assert.deepEqual(saved, [ARCHIVE]);
+  assert.equal(text('overview-export-status'), 'Export effectué, mais la date n’a pas pu être relue. Dernier export : 4 octobre 2026');
+});
+
+test('an applied export that answers no usable archive saves nothing and says so, the date still read again', async () => {
+  for (const attachment of [undefined, null, { file: '', content: {} }, { file: 'a.json' }, 'a.json']) {
+    const { click, text, saved } = await panel({ attachment });
+    await click('overview-export');
+    assert.deepEqual(saved, []);
+    assert.equal(text('overview-export-status'), 'Export effectué, mais le serveur n’a pas rendu l’archive. Dernier export : 18 octobre 2026');
+  }
+});
+
+test('a file the browser cannot be handed is said, and the date is still the one read back', async () => {
+  const { click, text } = await panel({
+    save: () => {
+      throw new Error('no window');
+    },
+  });
+  await click('overview-export');
+  assert.equal(text('overview-export-status'), 'Export effectué, mais le fichier n’a pas pu être enregistré. Dernier export : 18 octobre 2026');
+  assert.equal(text('overview-title'), 'Les Cendres de Valombre');
+});
+
+// AC1: the JSON Blob, the safe file name, the a-download click, the object URL revoked afterwards
+test('the download is the archive as a JSON file under a safe name, its address released later', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://shell.test/campagne.html' });
+  const win = dom.window as unknown as { URL: { createObjectURL(blob: Blob): string; revokeObjectURL(url: string): void } } & Window;
+  const made: Blob[] = [];
+  const revoked: string[] = [];
+  win.URL.createObjectURL = (blob) => (made.push(blob), 'blob:archive');
+  win.URL.revokeObjectURL = (url) => void revoked.push(url);
+  const clicked: Array<{ href: string; download: string }> = [];
+  dom.window.HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+    clicked.push({ href: this.href, download: this.download });
+  };
+  downloadIn(dom.window.document)('../valombre:1.json', ARCHIVE.content);
+  assert.deepEqual(clicked, [{ href: 'blob:archive', download: '-valombre-1.json' }]);
+  assert.equal(dom.window.document.querySelector('a'), null, 'the link does not stay in the page');
+  assert.deepEqual(revoked, [], 'not before the browser has started the download');
+  const body = await new Promise<string>((resolve) => {
+    const reader = new dom.window.FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.readAsText(made[0] as unknown as File);
+  });
+  assert.deepEqual(JSON.parse(body), ARCHIVE.content);
+  assert.equal(made[0]?.type, 'application/json');
+  assert.throws(() => downloadIn({ defaultView: null } as unknown as Document)('a.json', {}), /no window/);
+  dom.window.close();
+});
+
+// AC3: the manifest still names what the panel reads and triggers, and nothing else
+test('micro-ui.json needs and actions are the two identifiers the panel uses', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../micro-ui.json', import.meta.url), 'utf8')) as { microUi: string; needs: string[]; actions: string[] };
+  assert.equal(manifest.microUi, 'CampaignOverview');
+  assert.deepEqual(manifest.needs, [GET_CAMPAIGN]);
+  assert.deepEqual(manifest.actions, [EXPORT_CAMPAIGN]);
+});
+
+// AC4: the bundle the mock-up serves was rebuilt from the code that saves the archive
+test('the committed mock-up bundle carries the download', () => {
+  const bundle = mock('components/CampaignOverview.js');
+  for (const part of ['downloadIn', 'archiveOf(result.attachment)', 'application/json', 'revokeObjectURL']) assert.ok(bundle.includes(part), `the bundle lacks ${part}`);
 });

@@ -4,9 +4,15 @@
   var Context = class {
     values = /* @__PURE__ */ new Map();
     listeners = /* @__PURE__ */ new Set();
-    /** Sets one value and tells everyone who follows the context; nothing happens when it did not change. */
+    held = /* @__PURE__ */ new Set();
+    /** Sets one value the address named and keeps it: a later `set` of that name changes nothing. */
+    hold(name, value) {
+      this.set(name, value);
+      this.held.add(name);
+    }
+    /** Sets one value and tells everyone who follows the context; nothing happens when it did not change, or when the address holds the name. */
     set(name, value) {
-      if (this.values.get(name) === value) return;
+      if (this.held.has(name) || this.values.get(name) === value) return;
       this.values.set(name, value);
       for (const listener of [...this.listeners]) {
         try {
@@ -64,10 +70,110 @@
     return parsed;
   }
   var POLL_MS = 2e3;
-  function createShell(fetcher = (input, init) => fetch(input, init)) {
+  var SETTLING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 100, polls: 50 };
+  var ADVANCING = /* @__PURE__ */ new Set(["queued", "confirmed"]);
+  var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  var stateOf = (answer) => {
+    const result = record(record(answer).result);
+    const id = record(answer).commandId ?? result.commandId;
+    return { id: typeof id === "string" ? id : "", status: typeof result.status === "string" ? result.status : "" };
+  };
+  var FAIL_CLOSED = { by: "player", roles: [], permissions: [] };
+  var browserPage = () => ({
+    href: typeof location === "undefined" ? "" : location.href,
+    meta: (name) => typeof document === "undefined" ? void 0 : document.querySelector(`meta[name="${name}"]`)?.getAttribute("content") ?? void 0,
+    fetch: (input, init) => fetch(input, init)
+  });
+  var asStrings = (value) => Array.isArray(value) && value.every((item) => typeof item === "string") ? value : void 0;
+  function asCaller(value) {
+    const caller = value && typeof value === "object" ? value : {};
+    const roles = asStrings(caller.roles);
+    const permissions = caller.permissions === void 0 ? [] : asStrings(caller.permissions);
+    return typeof caller.by === "string" && caller.by && roles && permissions ? { by: caller.by, roles, permissions } : void 0;
+  }
+  async function json(page, url) {
+    const answer = await page.fetch(url);
+    if (!answer.ok) throw new Error(`${url}: ${answer.status}`);
+    return answer.json();
+  }
+  async function product(page, path) {
+    try {
+      return await json(page, new URL(`../__product/${path}`, page.href).href);
+    } catch {
+      return json(page, new URL(`../../${path}`, page.href).href);
+    }
+  }
+  async function mockupCaller(page) {
+    const here = new URL(page.href);
+    const pagesUrl = new URL("../pages.json", here);
+    const listed = await json(page, pagesUrl.href);
+    const mocked = listed.pages?.find((p) => typeof p.path === "string" && new URL(p.path, pagesUrl).pathname === here.pathname);
+    if (!mocked) return FAIL_CLOSED;
+    let surface = mocked.surface;
+    if (mocked.screen !== void 0) {
+      const screen = await product(page, `apps/screens/${mocked.screen}.json`);
+      const pilot = screen.pilot;
+      surface = pilot && typeof pilot.query === "string" && here.searchParams.get(pilot.query) === "1" ? pilot.surface : screen.surface;
+    }
+    const declared = (await product(page, "surfaces.json")).surfaces;
+    return (surface !== void 0 && declared && Object.hasOwn(declared, surface) ? asCaller(declared[surface]) : void 0) ?? FAIL_CLOSED;
+  }
+  async function pageCaller(page) {
+    try {
+      const meta = page.meta("shell-caller");
+      if (meta !== void 0) return { caller: asCaller(JSON.parse(meta)) ?? FAIL_CLOSED, settled: true };
+      return { caller: await mockupCaller(page), settled: true };
+    } catch {
+      return { caller: FAIL_CLOSED, settled: false };
+    }
+  }
+  function withCaller(body, caller) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+    const sent = body.caller;
+    return { ...body, caller: { ...sent && typeof sent === "object" ? sent : {}, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
+  }
+  function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage(), settling = SETTLING) {
+    const writing = /* @__PURE__ */ new Set();
+    const follow = async (sent) => {
+      try {
+        const first = stateOf(await sent);
+        const { id } = first;
+        let { status } = first;
+        for (let asked = 0; ADVANCING.has(status) && id !== "" && asked < settling.polls; asked += 1) {
+          await settling.sleep(settling.everyMs);
+          ({ status } = stateOf(await call(fetcher, "GET", `/commands/${encodeURIComponent(id)}`)));
+        }
+      } catch {
+      }
+    };
+    const track = (sent) => {
+      const settled2 = follow(sent).finally(() => writing.delete(settled2));
+      writing.add(settled2);
+    };
+    let resolving;
+    const callerOf = async () => {
+      const asked = resolving ??= pageCaller(page);
+      const { caller, settled: settled2 } = await asked;
+      if (!settled2 && resolving === asked) resolving = void 0;
+      return caller;
+    };
+    const context2 = new Context();
+    const named = page.href ? new URL(page.href, "http://shell").searchParams.get("campaign") : null;
+    if (named) context2.hold("campaign", named);
+    else {
+      const fallback = page.meta("shell-default-campaign");
+      if (fallback) context2.set("campaign", fallback);
+    }
     return {
-      capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
-      command: (body) => call(fetcher, "POST", "/commands", body),
+      capability: async (id, sha256, variables = {}) => {
+        await Promise.all([...writing]);
+        return await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables });
+      },
+      command: (body) => {
+        const sent = (async () => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())))();
+        track(sent);
+        return sent;
+      },
       commandResult: (commandId2) => call(fetcher, "GET", `/commands/${encodeURIComponent(commandId2)}`),
       onDataVersion(listener, everyMs = POLL_MS) {
         let last;
@@ -90,7 +196,7 @@
         const timer = setInterval(() => void poll(), everyMs);
         return () => clearInterval(timer);
       },
-      context: new Context()
+      context: context2
     };
   }
 
@@ -161,10 +267,20 @@
     return { dataCapability: `${dataCapability}@${DATA_CAPABILITY_VERSION}`, payload: { id }, caller: { by: "dm", from: "CampaignOverview", roles: [] } };
   }
   var FINAL = /* @__PURE__ */ new Set(["applied", "rejected", "cancelled", "expired"]);
+  function archiveOf(value) {
+    if (!isRecord(value) || typeof value.file !== "string" || value.file === "" || value.content === void 0 || value.content === null) return null;
+    return { file: value.file, content: value.content };
+  }
   function settled(answer) {
     const result = isRecord(answer) && isRecord(answer.result) ? answer.result : {};
     const violations = Array.isArray(result.violations) ? result.violations.filter((v) => typeof v === "string") : [];
-    return { status: text(result.status), violations };
+    return { status: text(result.status), violations, archive: archiveOf(result.attachment) };
+  }
+  var DEFAULT_FILE_NAME = "campaign-archive.json";
+  var RESERVED_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+  function safeFileName(file) {
+    const name = file.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, "-").replace(/^\.+/, "").replace(/[. ]+$/, "");
+    return name === "" || RESERVED_NAME.test(name) ? DEFAULT_FILE_NAME : name;
   }
   var isFinal = (status) => FINAL.has(status);
   function commandId(answer) {
@@ -224,6 +340,19 @@
 
   // apps/campaign/campaign-overview/src/index.ts
   var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 400, polls: 120 };
+  var REVOKE_AFTER_MS = 1e4;
+  var downloadIn = (doc) => (file, content) => {
+    const win = doc.defaultView;
+    if (!win) throw new Error("no window to download from");
+    const url = win.URL.createObjectURL(new win.Blob([JSON.stringify(content, null, 2)], { type: "application/json" }));
+    const link = doc.createElement("a");
+    link.href = url;
+    link.download = safeFileName(file);
+    doc.body.append(link);
+    link.click();
+    link.remove();
+    win.setTimeout(() => win.URL.revokeObjectURL(url), REVOKE_AFTER_MS);
+  };
   function ensureStyle(doc) {
     if (doc.querySelector('style[data-micro-ui="CampaignOverview"]')) return;
     const style = doc.createElement("style");
@@ -232,7 +361,7 @@
     doc.head.append(style);
   }
   var listening = /* @__PURE__ */ new WeakMap();
-  function mount(host2, props2, shell2, timing = WAITING) {
+  function mount(host2, props2, shell2, timing = WAITING, save = downloadIn(host2.ownerDocument)) {
     ensureStyle(host2.ownerDocument);
     const previous = listening.get(host2);
     if (previous) host2.removeEventListener("click", previous);
@@ -272,6 +401,15 @@
       }
       return state;
     }
+    function keep(archive) {
+      if (archive === null) return ["le serveur n\u2019a pas rendu l\u2019archive"];
+      try {
+        save(archive.file, archive.content);
+        return [];
+      } catch {
+        return ["le fichier n\u2019a pas pu \xEAtre enregistr\xE9"];
+      }
+    }
     async function exportCampaign() {
       if (busy || campaign === null) return;
       const before = lastExportText(campaign.lastExport);
@@ -281,16 +419,19 @@
       try {
         const state = await send();
         if (state.status === "rejected") return say(`Export refus\xE9 : ${state.violations.join(", ") || "raison inconnue"}. ${before}`);
+        if (state.status === "cancelled" || state.status === "expired") return say(`L\u2019export est ${state.status === "cancelled" ? "annul\xE9" : "expir\xE9"} : l\u2019\xE9tat est final, aucune archive ne viendra. ${before}`);
         if (state.status !== "applied") return say(`L\u2019export n\u2019est pas encore appliqu\xE9 (\xE9tat : ${state.status || "inconnu"}). ${before}`);
+        const problems = keep(state.archive);
+        let fresh = null;
         try {
-          const fresh = await read();
-          if (fresh !== null) {
-            campaign = fresh;
-            return paint(fresh);
-          }
+          fresh = await read();
         } catch {
         }
-        say(`Export effectu\xE9, mais la date n\u2019a pas pu \xEAtre relue. ${before}`);
+        if (fresh !== null) {
+          campaign = fresh;
+          paint(fresh);
+        } else problems.push("la date n\u2019a pas pu \xEAtre relue");
+        if (problems.length > 0) say(`Export effectu\xE9, mais ${problems.join(" et ")}. ${fresh === null ? before : lastExportText(fresh.lastExport)}`);
       } catch {
         say(`L\u2019export a \xE9chou\xE9. ${before}`);
       } finally {
@@ -359,9 +500,9 @@
   var LATENCY_MS = 120;
   var delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   var uuid = () => crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
-  var json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-  var notFound = () => json({ error: "not-found" }, 404);
-  var refused = (why) => json({ error: why }, 409);
+  var json2 = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  var notFound = () => json2({ error: "not-found" }, 404);
+  var refused = (why) => json2({ error: why }, 409);
   var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   var FINAL2 = /* @__PURE__ */ new Set(["applied", "rejected", "cancelled", "expired"]);
   var LEGACY = { reads: ["../src/reads.js", "READS"], commands: ["../src/commands.js", "COMMANDS"] };
@@ -570,7 +711,7 @@
     };
     s.confirmed = /* @__PURE__ */ new Map();
     const resultOf = (entry) => ({ commandId: entry.commandId, status: entry.state, dataVersion: entry.dataVersion || null, violations: entry.violations || [], reviewId: entry.reviewId || null });
-    const answer = (entry, replayed = false) => json({ commandId: entry.commandId, partition: entry.partition, replayed, warnings: replayed ? [] : entry.warnings || [], result: resultOf(entry) }, 202);
+    const answer = (entry, replayed = false) => json2({ commandId: entry.commandId, partition: entry.partition, replayed, warnings: replayed ? [] : entry.warnings || [], result: resultOf(entry) }, 202);
     const drive = async () => {
       for (const partition of new Set([...s.queue.values()].filter((e) => !FINAL2.has(e.state)).map((e) => e.partition))) {
         for (; ; ) {
@@ -628,7 +769,7 @@
       const document2 = await s.aggregate(aggregate) || { fields: {} };
       const declared = document2.fields || {};
       const derived = Object.keys(payload).filter((f) => declared[f] && declared[f].kind === "derived");
-      if (derived.length) return json({ error: `${dataCapability} writes the derived field(s) ${derived.join(", ")}: ${aggregate} recomputes them` }, 403);
+      if (derived.length) return json2({ error: `${dataCapability} writes the derived field(s) ${derived.join(", ")}: ${aggregate} recomputes them` }, 403);
       const commandId2 = uuid();
       const partition = `${aggregate || dataCapability}/${targetId || commandId2}`;
       const entry = { commandId: commandId2, dataCapability, version: Number(version) || 1, aggregate, partition, targetId, by, payload, basedOn: body.basedOn, idempotencyKey: body.idempotencyKey, handler, position: s.next(), state: "queued", warnings: [] };
@@ -718,17 +859,17 @@
         if (verb === "reject") entry.violations = [`review ${entry.reviewId} rejected`];
       } else return notFound();
       await drive();
-      return json({ result: resultOf(entry) });
+      return json2({ result: resultOf(entry) });
     };
     s.fetch = async (input, init) => {
       try {
         await s.ready;
-        if (s.problems.length) return json({ error: `the mock server did not start: ${s.problems.join("; ")}` }, 500);
+        if (s.problems.length) return json2({ error: `the mock server did not start: ${s.problems.join("; ")}` }, 500);
         return await respond(input, init);
       } catch (e) {
         if (!(e instanceof HandlerError)) throw e;
         console.error(e.message);
-        return json({ error: e.message }, 500);
+        return json2({ error: e.message }, 500);
       }
     };
     const respond = async (input, init) => {
@@ -738,13 +879,13 @@
       const body = init && typeof init.body === "string" ? JSON.parse(init.body) : {};
       if (method === "POST" && url.pathname.startsWith("/capabilities/")) {
         const data = await read(decodeURIComponent(url.pathname.slice("/capabilities/".length)), body.variables || {});
-        return data === void 0 ? notFound() : json({ asOf: s.dataVersion, data });
+        return data === void 0 ? notFound() : json2({ asOf: s.dataVersion, data });
       }
       if (method === "POST" && url.pathname === "/commands") return command(body);
       const lookup = /^\/commands\/([^/]+)$/.exec(url.pathname);
       if (lookup && method === "GET") {
         const entry = s.commands.get(decodeURIComponent(lookup[1]));
-        return entry ? json({ result: resultOf(entry) }) : notFound();
+        return entry ? json2({ result: resultOf(entry) }) : notFound();
       }
       const move = /^\/commands\/([^/]+)\/(confirm|cancel|requeue|approve|reject)$/.exec(url.pathname);
       if (move && method === "POST") return gesture(decodeURIComponent(move[1]), move[2], body);

@@ -12,10 +12,19 @@ export interface Placement {
   props: Record<string, unknown>;
 }
 
+/** Another surface a screen acts as while its page's URL carries `<query>=1` (contract E `pilot`). */
+export interface Pilot {
+  surface: string;
+  query: string;
+}
+
 export interface Screen {
   screen: string;
   generatedFrom: string;
   version: number;
+  /** Who acts on the screen: a surface of `surfaces.json` (contract E); `undefined` acts with no role. */
+  surface?: string;
+  pilot?: Pilot;
   layout: Placement[];
 }
 
@@ -54,15 +63,54 @@ export async function loadScreen(root: string, name: string, validate: Validate)
   }
   const broken = validate(document);
   if (broken) throw new InvalidScreen(`${name}.json breaks contract E: ${broken}`);
-  const frozen = document as { screen: string; generatedFrom: string; version: number; layout: Array<Record<string, Record<string, unknown>>> };
+  const frozen = document as { screen: string; generatedFrom: string; version: number; surface?: string; pilot?: Pilot; layout: Array<Record<string, Record<string, unknown>>> };
   if (frozen.screen !== name) throw new InvalidScreen(`${name}.json freezes the screen "${frozen.screen}"`);
   return {
     screen: frozen.screen,
     generatedFrom: frozen.generatedFrom,
     version: frozen.version,
+    ...(frozen.surface === undefined ? {} : { surface: frozen.surface }),
+    ...(frozen.pilot === undefined ? {} : { pilot: frozen.pilot }),
     layout: frozen.layout.map((entry) => {
       const [microUi, props] = Object.entries(entry)[0] as [string, Record<string, unknown>];
       return { microUi, props };
     }),
   };
+}
+
+/** The caller a command carries (contract S): who it is by, and the roles and permissions its gestures hold. */
+export interface Caller {
+  by: string;
+  roles: string[];
+  permissions: string[];
+}
+
+/** Who acts when nothing says otherwise: the players', with no role and no permission (fail closed). */
+export const FAIL_CLOSED: Caller = { by: 'player', roles: [], permissions: [] };
+
+const strings = (value: unknown): string[] | undefined =>
+  Array.isArray(value) && value.every((item): item is string => typeof item === 'string') ? value : undefined;
+
+/** The surfaces of `surfaces.json` (contract S) by name; empty when the file is missing, unreadable or not a declaration. */
+export async function loadSurfaces(root: string): Promise<Record<string, Caller>> {
+  const out: Record<string, Caller> = {};
+  try {
+    const declared = JSON.parse(await readFile(join(root, 'surfaces.json'), 'utf8')) as { surfaces?: Record<string, { by?: unknown; roles?: unknown; permissions?: unknown }> };
+    for (const [name, surface] of Object.entries(declared.surfaces ?? {})) {
+      const roles = strings(surface?.roles);
+      const permissions = surface?.permissions === undefined ? [] : strings(surface.permissions);
+      // A surface that is not whole is no surface: whoever acts as it acts with no role.
+      if (typeof surface?.by === 'string' && surface.by && roles && permissions) out[name] = { by: surface.by, roles, permissions };
+    }
+  } catch {
+    // Missing or not JSON: no surface is declared.
+  }
+  return out;
+}
+
+/** The caller of a screen's commands: its pilot's surface while the address carries the pilot's query as `1`, else its own; the players' for any doubt. */
+export function callerOf(screen: Screen, surfaces: Record<string, Caller>, query: URLSearchParams): Caller {
+  const name = screen.pilot && query.get(screen.pilot.query) === '1' ? screen.pilot.surface : screen.surface;
+  const found = name !== undefined && Object.hasOwn(surfaces, name) ? surfaces[name] : undefined;
+  return found ?? FAIL_CLOSED;
 }

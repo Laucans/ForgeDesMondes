@@ -1,9 +1,10 @@
 {
   "screen": "fiche-entite",
   "generatedFrom": "Le DM renseigne un personnage, un lieu ou un événement, dicte le prompt initial pour obtenir background et statblock, importe un PJ de D&D Beyond et annule un changement de l’IA",
-  "version": 1,
+  "version": 2,
+  "surface": "dm",
   "layout": [
-    { "CampaignElements": { "mode": "rail", "campaign": "cendres-valombre" } },
+    { "CampaignElements": { "mode": "rail", "campaign": "$ctx.campaign" } },
     { "EntityEditor": {} },
     { "VersionHistory": { "entity": "$ctx.entity" } }
   ]

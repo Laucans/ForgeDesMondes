@@ -40,3 +40,14 @@ test('a follower that fails does not keep the others from a change', () => {
 test('names the context a set of props follows', () => {
   assert.deepEqual(new Context().follows({ a: '$ctx.x', b: 'y', c: '$ctx.z', d: 1 }), ['x', 'z']);
 });
+
+test('a held value stays: a later set of its name changes nothing and tells no one', () => {
+  const context = new Context();
+  const told: string[] = [];
+  context.on((name) => told.push(name));
+  context.hold('campaign', 'c1');
+  context.set('campaign', 'c2');
+  context.set('scene', 's1');
+  assert.equal(context.get('campaign'), 'c1');
+  assert.deepEqual(told, ['campaign', 'scene']);
+});

@@ -1004,18 +1004,35 @@ mod tests {
         assert!(std::panic::catch_unwind(|| read::fixture_at(&root.0, "kit.broken")).is_err());
     }
 
+    /// The message a caught panic carried.
+    fn panic_message(caught: &(dyn std::any::Any + Send)) -> String {
+        caught
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| caught.downcast_ref::<&str>().map(ToString::to_string))
+            .unwrap_or_default()
+    }
+
     #[test]
-    fn the_root_wrappers_read_the_products_own_files() {
-        // The wrappers resolve against the product's root: what they answer
-        // is exactly what the file there holds.
-        let fixture = read::fixture("AiSettings");
-        let held: Value = serde_json::from_str(&file("mock/fixtures/AiSettings.json"))
-            .expect("the fixture is JSON");
-        assert!(fixture.is_object(), "{fixture}");
-        assert_eq!(fixture, held);
-        let query = read::query("ai", "getSettings");
-        assert_ne!(query, "");
-        assert_eq!(query, file("crates/ai/queries/getSettings.graphql"));
+    fn the_root_wrappers_read_under_the_product_root() {
+        // No product file needed: an id no product has panics, and the
+        // panic names the path under the product's root the wrapper read.
+        let fixture = std::panic::catch_unwind(|| read::fixture("harness.absent"))
+            .expect_err("no fixture harness.absent");
+        let wanted = root().join("mock/fixtures/harness.absent.json");
+        assert!(
+            panic_message(fixture.as_ref()).contains(&wanted.display().to_string()),
+            "{}",
+            panic_message(fixture.as_ref())
+        );
+        let query = std::panic::catch_unwind(|| read::query("harness_absent", "absent"))
+            .expect_err("no query harness_absent/absent");
+        let wanted = root().join("crates/harness_absent/queries/absent.graphql");
+        assert!(
+            panic_message(query.as_ref()).contains(&wanted.display().to_string()),
+            "{}",
+            panic_message(query.as_ref())
+        );
     }
 
     #[test]

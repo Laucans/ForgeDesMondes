@@ -155,7 +155,9 @@ jobs:
       # A task's pull request only, measured from the merge base, as the
       # in-diff mutants: a milestone's own pull request adds every file its
       # tasks added — each judged on its own, some before this gate existed —
-      # and a push only lands what a pull request already judged.
+      # and a push only lands what a pull request already judged. A
+      # catch-up's (`catchup/*`) is measured from main_agent, whose content
+      # was judged there: the milestone's own files and the resolution are.
       # A file under `tests/` whose code (comments aside) reaches PostgreSQL
       # by `env::var("DATABASE_URL")` or `tokio_postgres::connect(`, and names
       # neither the test kit's Scratch nor the guard by path
@@ -173,6 +175,12 @@ jobs:
           set -euo pipefail
           case "${HEAD_REF:-}" in
             milestone/*) echo "a milestone's pull request: each of its tasks was judged on its own"; exit 0 ;;
+            catchup/*)
+              # main_agent's content was judged there: the milestone's own
+              # changes and the resolution are judged, measured from it.
+              git fetch --no-tags origin "+refs/heads/main_agent:refs/remotes/origin/main_agent"
+              BASE=$(git rev-parse origin/main_agent)
+              ;;
           esac
           [ -n "${BASE:-}" ] && git cat-file -e "$BASE" 2>/dev/null || { echo "no base to compare with"; exit 0; }
           failed=0
@@ -586,6 +594,15 @@ jobs:
             s=${s//','/'%2C'}
             printf '%s' "$s"
           }
+          # A catch-up's pull request brings main_agent's publishes: measured
+          # from main_agent, where the design system lands.
+          case "$HEAD_REF" in
+            catchup/*)
+              git fetch --no-tags origin "+refs/heads/main_agent:refs/remotes/origin/main_agent" \
+                || fail "main_agent cannot be fetched: the diff cannot be computed"
+              BASE_SHA=$(git rev-parse origin/main_agent)
+              ;;
+          esac
           [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
             || fail "the pull request's base or head commit is unknown: the diff cannot be computed"
           [ "$(git rev-parse --is-shallow-repository)" = false ] \
@@ -648,7 +665,9 @@ jobs:
       # prepared against the schema this checkout's migrations build, in a
       # database of its own, every parameter typed as text (the Capabilities
       # compare their variables as text). The Capabilities the change adds or
-      # changes, on a task's pull request; one reading the engine's own
+      # changes, on a task's pull request — on a catch-up's (`catchup/*`),
+      # measured from main_agent: the milestone's own and the resolution's,
+      # against the merged migrations; one reading the engine's own
       # tables (`dataguard_*`, built by its store, not by a migration) is
       # said and left.
       # Every Capability the change adds or changes runs SQL the migrated schema accepts.
@@ -665,6 +684,12 @@ jobs:
           set -euo pipefail
           case "${HEAD_REF:-}" in
             milestone/*) echo "a milestone's pull request: each of its tasks was judged on its own"; exit 0 ;;
+            catchup/*)
+              # main_agent's content was judged there: the milestone's own
+              # changes and the resolution are judged, measured from it.
+              git fetch --no-tags origin "+refs/heads/main_agent:refs/remotes/origin/main_agent"
+              BASE=$(git rev-parse origin/main_agent)
+              ;;
           esac
           [ -n "${BASE:-}" ] && git cat-file -e "$BASE" 2>/dev/null || { echo "no base to compare with"; exit 0; }
           units=$(git diff --name-only --diff-filter=AMR "$BASE"...HEAD | sed -nE 's#^(crates/[^/]+/capabilities/[^/]+)/.*#\1#p' | sort -u)
@@ -770,6 +795,10 @@ jobs:
       # consumer that needs a contract to change stops with
       # `AGENT_LOOP_STOP: contract <id> — <what it needs>`; the contract manager
       # evolves it for every consumer at once (scripts/contracts-gate.mjs).
+      # A catch-up's pull request (`catchup/*`, the harness's: main_agent
+      # brought into a milestone) is measured from main_agent, whose content
+      # was judged there: the milestone's own changes and the resolution are
+      # what it judges, the milestone still read off the base.
       # Every contract changed is this milestone's own.
       - id: contracts-untouched
         name: contracts-untouched
@@ -777,8 +806,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          node scripts/contracts-gate.mjs untouched "origin/${GITHUB_BASE_REF}"
+          case "${GITHUB_HEAD_REF:-}" in
+            catchup/*) from=main_agent ;;
+            *) from="${GITHUB_BASE_REF}" ;;
+          esac
+          git fetch --no-tags origin "+refs/heads/${from}:refs/remotes/origin/${from}"
+          node scripts/contracts-gate.mjs untouched "origin/${from}"
 
       # Contract O — the mock-up styles itself only through the design system:
       # no colour literal in a page, a micro-frontend, `style.css` or `mock.js`
@@ -845,12 +878,23 @@ jobs:
       # told by its branch, `rules/<n>`, read when the job runs: the label
       # `gh pr create --label` adds lands after the `opened` event, which the
       # payload's labels would miss. A CONTEST.md the PR took from its base is
-      # the base's: warned, never contested again.
+      # the base's: warned, never contested again. A catch-up's pull request
+      # (`catchup/*`) is measured from main_agent, as `contracts-untouched`:
+      # the rules' changes it brings were judged there, a resolution that
+      # undoes one is not; the milestone's own CONTEST.md, unchanged, is the
+      # milestone's contest, never opened again for its catch-up.
       # The rules and their tests are left alone.
       - id: rule-tests-untouched
         name: rule-tests-untouched
         if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'rules/') }}
-        run: node scripts/rules-gate.mjs untouched "origin/${{ github.base_ref }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_HEAD_REF:-}" in
+            catchup/*) from=main_agent; git fetch --no-tags origin "+refs/heads/${from}:refs/remotes/origin/${from}" ;;
+            *) from="${GITHUB_BASE_REF}" ;;
+          esac
+          node scripts/rules-gate.mjs untouched "origin/${from}"
       # Contract S — a rule's test acts as a surface of surfaces.json (the
       # business kit as the screen its needs name, else the default surface or
       # `command_as`; a journey as the shell sets it), never as a role written by
@@ -862,14 +906,35 @@ jobs:
       - id: rules-callers
         name: rules-callers
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
-        run: node scripts/rules-gate.mjs callers "origin/${{ github.base_ref }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_HEAD_REF:-}" in
+            catchup/*) from=main_agent; git fetch --no-tags origin "+refs/heads/${from}:refs/remotes/origin/${from}" ;;
+            *) from="${GITHUB_BASE_REF}" ;;
+          esac
+          node scripts/rules-gate.mjs callers "origin/${from}"
       # No rule's test is contested.
       - id: rule-tests-untouched--contest
         name: rule-tests-untouched--contest
         if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'rules/') }}
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/rules-gate.mjs contest "${{ github.event.pull_request.number }}" "origin/${{ github.base_ref }}"
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          case "${GITHUB_HEAD_REF:-}" in
+            catchup/*) from=main_agent; git fetch --no-tags origin "+refs/heads/${from}:refs/remotes/origin/${from}" ;;
+            *) from="${GITHUB_BASE_REF}" ;;
+          esac
+          # A catch-up's CONTEST.md the milestone holds, unchanged: its
+          # contest is the milestone's, never opened again for the catch-up.
+          if [ "$from" = main_agent ] && [ -f CONTEST.md ] && git diff --quiet "origin/${GITHUB_BASE_REF}" -- CONTEST.md; then
+            echo "::warning::CONTEST.md is the milestone's: its contest is the milestone's"
+            exit 0
+          fi
+          node scripts/rules-gate.mjs contest "${PR}" "origin/${from}"
 
       # Contract N — the mock server's handlers are one file per unit,
       # mock/handlers/<id>.js, keyed by its own id only, and no id is defined
@@ -896,7 +961,8 @@ jobs:
       # change adds or changes, never on the ones it leaves alone — the rules
       # some older units break judge the added units only. A task's pull
       # request, from the merge base; a milestone's adds every unit its tasks
-      # added, each judged on its own already.
+      # added, each judged on its own already; a catch-up's (`catchup/*`),
+      # from main_agent: the milestone's units and the resolution's.
       # A DataCapability the change adds or changes keeps the house conventions.
       - id: data-capability-conventions
         name: data-capability-conventions
@@ -909,6 +975,12 @@ jobs:
           set -euo pipefail
           case "${HEAD_REF:-}" in
             milestone/*) echo "a milestone's pull request: each of its tasks was judged on its own"; exit 0 ;;
+            catchup/*)
+              # main_agent's content was judged there: the milestone's own
+              # changes and the resolution are judged, measured from it.
+              git fetch --no-tags origin "+refs/heads/main_agent:refs/remotes/origin/main_agent"
+              BASE=$(git rev-parse origin/main_agent)
+              ;;
           esac
           node scripts/unit-conventions-gate.mjs data-capabilities "${BASE:-}"
 
@@ -924,6 +996,12 @@ jobs:
           set -euo pipefail
           case "${HEAD_REF:-}" in
             milestone/*) echo "a milestone's pull request: each of its tasks was judged on its own"; exit 0 ;;
+            catchup/*)
+              # main_agent's content was judged there: the milestone's own
+              # changes and the resolution are judged, measured from it.
+              git fetch --no-tags origin "+refs/heads/main_agent:refs/remotes/origin/main_agent"
+              BASE=$(git rev-parse origin/main_agent)
+              ;;
           esac
           node scripts/unit-conventions-gate.mjs capabilities "${BASE:-}"
 
@@ -949,7 +1027,7 @@ jobs:
         run: |
           set -euo pipefail
           case "${HEAD_REF:-}" in
-            milestone/*) node scripts/unit-conventions-gate.mjs screens "${BASE:-}" --warn; exit 0 ;;
+            milestone/*|catchup/*) node scripts/unit-conventions-gate.mjs screens "${BASE:-}" --warn; exit 0 ;;
           esac
           node scripts/unit-conventions-gate.mjs screens "${BASE:-}"
 
