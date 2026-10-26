@@ -70,6 +70,14 @@
     return parsed;
   }
   var POLL_MS = 2e3;
+  var SETTLING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 100, polls: 50 };
+  var ADVANCING = /* @__PURE__ */ new Set(["queued", "confirmed"]);
+  var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  var stateOf = (answer) => {
+    const result = record(record(answer).result);
+    const id = record(answer).commandId ?? result.commandId;
+    return { id: typeof id === "string" ? id : "", status: typeof result.status === "string" ? result.status : "" };
+  };
   var FAIL_CLOSED = { by: "player", roles: [], permissions: [] };
   var browserPage = () => ({
     href: typeof location === "undefined" ? "" : location.href,
@@ -124,7 +132,24 @@
     const sent = body.caller;
     return { ...body, caller: { ...sent && typeof sent === "object" ? sent : {}, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
   }
-  function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage()) {
+  function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage(), settling = SETTLING) {
+    const writing = /* @__PURE__ */ new Set();
+    const follow = async (sent) => {
+      try {
+        const first = stateOf(await sent);
+        const { id } = first;
+        let { status } = first;
+        for (let asked = 0; ADVANCING.has(status) && id !== "" && asked < settling.polls; asked += 1) {
+          await settling.sleep(settling.everyMs);
+          ({ status } = stateOf(await call(fetcher, "GET", `/commands/${encodeURIComponent(id)}`)));
+        }
+      } catch {
+      }
+    };
+    const track = (sent) => {
+      const settled2 = follow(sent).finally(() => writing.delete(settled2));
+      writing.add(settled2);
+    };
     let resolving;
     const callerOf = async () => {
       const asked = resolving ??= pageCaller(page);
@@ -140,8 +165,15 @@
       if (fallback) context2.set("campaign", fallback);
     }
     return {
-      capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
-      command: async (body) => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())),
+      capability: async (id, sha256, variables = {}) => {
+        await Promise.all([...writing]);
+        return await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables });
+      },
+      command: (body) => {
+        const sent = (async () => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())))();
+        track(sent);
+        return sent;
+      },
       commandResult: (commandId2) => call(fetcher, "GET", `/commands/${encodeURIComponent(commandId2)}`),
       onDataVersion(listener, everyMs = POLL_MS) {
         let last;
@@ -453,7 +485,7 @@
   var tone = (color) => /^[a-z][a-z-]*$/.test(color) ? color : "secondary";
   function skeleton(props2) {
     const modes = `${props2.fill ? " bm--fill" : ""}${props2.view === "player" && !props2.pilot ? " bm--readonly" : ""}${props2.view === "prep" ? " bm--prep" : ""}`;
-    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props2.view === "prep" ? "" : " hidden"}></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
+    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props2.view === "prep" ? "" : " hidden"}></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
   }
   function button(p) {
     return `<button type="button" class="${p.variant}" id="${p.id}"${attr("data-writes", p.writes ?? "")}${p.disabled ? " disabled" : ""}>${esc(p.label)}</button>`;
@@ -472,7 +504,7 @@
   function hexMap(map, canMove) {
     const box = `viewBox="0 0 ${map.width} ${map.height}" width="${map.width}" height="${map.height}"`;
     const land = map.terrain.length === 0 ? `<rect class="hm-land" x="0" y="0" width="${map.width}" height="${map.height}"></rect>` : "";
-    return '<div class="kit-hexmap">' + (canMove ? '<div class="hm-bar"><span class="hm-zoom"><button type="button" data-act="out" aria-label="D\xE9zoomer">\u2212</button><button type="button" data-act="reset">Ajuster</button><button type="button" data-act="in" aria-label="Zoomer">+</button></span></div>' : "") + `<div class="hm-view" tabindex="0" id="battlemap-view" aria-label="${esc(`Battlemap ${map.title}`)}"><div class="hm-stage" id="battlemap-stage" style="width:${map.width}px;height:${map.height}px"><svg class="hm-layer hm-map" ${box} aria-hidden="true">${land}${map.terrain.map((s) => shape(s.tag, s.attrs)).join("")}</svg><svg class="hm-layer hm-grid" ${box} aria-hidden="true"><path class="hm-grid-path" id="battlemap-grid" d=""></path></svg><svg class="hm-layer hm-over" id="battlemap-over" ${box}></svg><div class="kit-token bm-tokens" id="battlemap-tokens"${attr("data-writes", canMove ? MOVE_TOKEN : "")}></div></div><div class="hm-tip" id="battlemap-tip" hidden></div></div></div>`;
+    return '<div class="kit-hexmap">' + (canMove ? '<div class="hm-bar"><span class="hm-zoom"><button type="button" data-act="out" aria-label="R\xE9duire le zoom">\u2212</button><button type="button" data-act="reset">Ajuster</button><button type="button" data-act="in" aria-label="Zoomer">+</button></span></div>' : "") + `<div class="hm-view" tabindex="0" id="battlemap-view" aria-label="${esc(`Battlemap ${map.title}`)}"><div class="hm-stage" id="battlemap-stage" style="width:${map.width}px;height:${map.height}px"><svg class="hm-layer hm-map" ${box} aria-hidden="true">${land}${map.terrain.map((s) => shape(s.tag, s.attrs)).join("")}</svg><svg class="hm-layer hm-grid" ${box} aria-hidden="true"><path class="hm-grid-path" id="battlemap-grid" d=""></path></svg><svg class="hm-layer hm-over" id="battlemap-over" ${box}></svg><div class="kit-token bm-tokens" id="battlemap-tokens"${attr("data-writes", canMove ? MOVE_TOKEN : "")}></div></div><div class="hm-tip" id="battlemap-tip" hidden></div></div></div>`;
   }
   function tokenItem(t, grid2, p) {
     const c = center(grid2, t);
@@ -589,7 +621,7 @@
 .bm .kit-button .danger { background: var(--color-danger); color: var(--color-primary-contrast); }
 .bm .kit-input.is-wide { max-width: none; }
 .bm .kit-toggle.kit-toggle--bare { padding: 0; background: transparent; border: 0; box-shadow: none; }
-.bm-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.bm-toolbar { order: -2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .bm-toolbar:empty { display: none; }
 .bm-title { display: grid; gap: var(--space-1); }
 .bm-body { display: flex; gap: var(--space-3); min-height: 0; flex: 1; }
@@ -616,7 +648,7 @@
 .bm--readonly .bm-tokens .kit-token__item { pointer-events: none; cursor: default; }
 .bm .bm-selected .kit-token__disc { outline: calc(var(--border-width) * 3) solid var(--color-primary); outline-offset: calc(var(--border-width) * 3); }
 .bm .kit-token.kit-token--row { flex-wrap: nowrap; padding: 0; background: transparent; gap: var(--space-3); }
-.bm-carousel { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); }
+.bm-carousel { order: -1; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); }
 .bm-carousel[hidden] { display: none; }
 .bm-carousel__round { display: grid; justify-items: center; }
 .bm-carousel__round b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-accent); line-height: 1; }

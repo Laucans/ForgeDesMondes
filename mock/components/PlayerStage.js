@@ -70,6 +70,14 @@
     return parsed;
   }
   var POLL_MS = 2e3;
+  var SETTLING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 100, polls: 50 };
+  var ADVANCING = /* @__PURE__ */ new Set(["queued", "confirmed"]);
+  var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  var stateOf = (answer) => {
+    const result = record(record(answer).result);
+    const id = record(answer).commandId ?? result.commandId;
+    return { id: typeof id === "string" ? id : "", status: typeof result.status === "string" ? result.status : "" };
+  };
   var FAIL_CLOSED = { by: "player", roles: [], permissions: [] };
   var browserPage = () => ({
     href: typeof location === "undefined" ? "" : location.href,
@@ -124,7 +132,24 @@
     const sent = body.caller;
     return { ...body, caller: { ...sent && typeof sent === "object" ? sent : {}, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
   }
-  function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage()) {
+  function createShell(fetcher = (input, init) => fetch(input, init), page = browserPage(), settling = SETTLING) {
+    const writing = /* @__PURE__ */ new Set();
+    const follow = async (sent) => {
+      try {
+        const first = stateOf(await sent);
+        const { id } = first;
+        let { status } = first;
+        for (let asked = 0; ADVANCING.has(status) && id !== "" && asked < settling.polls; asked += 1) {
+          await settling.sleep(settling.everyMs);
+          ({ status } = stateOf(await call(fetcher, "GET", `/commands/${encodeURIComponent(id)}`)));
+        }
+      } catch {
+      }
+    };
+    const track = (sent) => {
+      const settled2 = follow(sent).finally(() => writing.delete(settled2));
+      writing.add(settled2);
+    };
     let resolving;
     const callerOf = async () => {
       const asked = resolving ??= pageCaller(page);
@@ -140,8 +165,15 @@
       if (fallback) context2.set("campaign", fallback);
     }
     return {
-      capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
-      command: async (body) => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())),
+      capability: async (id, sha256, variables = {}) => {
+        await Promise.all([...writing]);
+        return await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables });
+      },
+      command: (body) => {
+        const sent = (async () => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())))();
+        track(sent);
+        return sent;
+      },
       commandResult: (commandId2) => call(fetcher, "GET", `/commands/${encodeURIComponent(commandId2)}`),
       onDataVersion(listener, everyMs = POLL_MS) {
         let last;
@@ -296,10 +328,10 @@
     const badge = pilot ? '<p class="pv-pilot" id="player-pilot-badge">Vue pilot\xE9e par le MJ \xB7 d\xE9placez les tokens et la fen\xEAtre, zoomez la carte</p>' : "";
     return `<div class="pv${pilot ? " pv--pilot" : ""}" id="player-stage" data-reads="${GET_LIVE_SESSION}"><div class="pv-base" id="player-base" data-reads="${GET_DIFFUSION}"></div><figure class="pv-window" id="player-window" hidden>${bar}<div class="pv-window__art" id="player-window-art" data-reads="${LIST_MEDIA}"></div>${corner}</figure>` + badge + '<p class="pv-status" id="player-status" role="status" hidden></p></div>';
   }
-  function cover(campaign, media) {
+  function cover(campaign, media, titled) {
     const image = illustrationOf(media, campaign?.cover || media.cover);
     const picture = image ?? { art: campaign?.art ?? "", glyph: campaign?.glyph ?? "", title: "Couverture de la campagne" };
-    const title = campaign === null ? "" : `<h1 id="player-cover-title">${esc(campaign.name)}</h1>${campaign.session === null ? "" : `<p>S\xE9ance ${campaign.session.order} \u2014 ${esc(campaign.session.title)}</p>`}`;
+    const title = campaign === null || !titled ? "" : `<h1 id="player-cover-title">${esc(campaign.name)}</h1>${campaign.session === null ? "" : `<p>S\xE9ance ${campaign.session.order} \u2014 ${esc(campaign.session.title)}</p>`}`;
     return `<div class="pv-cover" id="player-cover" data-reads="${GET_CAMPAIGN}">${art({ ...picture, title: "Couverture de la campagne" })}<div class="pv-cover__title">${title}</div></div>`;
   }
   function scene(image) {
@@ -408,7 +440,7 @@
         }
       } else {
         const image = base3.kind === "illustration" ? illustrationOf(media, base3.id) : void 0;
-        const html = image ? scene(image) : cover(campaign, media);
+        const html = image ? scene(image) : cover(campaign, media, windowImage() === void 0);
         if (html !== baseKey) {
           baseKey = html;
           box.innerHTML = html;
@@ -419,11 +451,14 @@
     function current() {
       return diffusion.window === null ? null : { ...diffusion.window, ...local };
     }
+    function windowImage() {
+      return diffusion.window === null ? void 0 : illustrationOf(media, diffusion.window.media);
+    }
     function paintWindow() {
       const figure = part("player-window");
       if (!figure) return;
       const win = current();
-      const image = win === null ? void 0 : illustrationOf(media, win.media);
+      const image = windowImage();
       if (win === null || image === void 0) {
         figure.hidden = true;
         return;

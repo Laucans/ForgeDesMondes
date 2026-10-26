@@ -13,7 +13,10 @@
 #        any other exit — a failure, its last stderr line says why
 #
 # This default applies every tracked `migrations/*.sql`, sorted by path, to a
-# scratch database it drops on the way out.
+# scratch database it drops on the way out. The server may be shared (the
+# factory's lanes create theirs on it): a CREATE DATABASE that meets
+# template1 in use is tried again, DUMP_CREATE_TRIES times (10), a second
+# apart.
 set -euo pipefail
 
 : "${DATABASE_URL:?DATABASE_URL must name a Postgres role allowed to create a database}"
@@ -35,7 +38,15 @@ esac
 server="${url%/*}"
 scratch="schema_dump_$(date +%s)_$$"
 
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt -c "CREATE DATABASE $scratch" >/dev/null
+tries=1
+until err="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt -c "CREATE DATABASE $scratch" 2>&1 >/dev/null)"; do
+  if [ "$tries" -ge "${DUMP_CREATE_TRIES:-10}" ] || ! grep -q "is being accessed by other users" <<< "$err"; then
+    echo "CREATE DATABASE $scratch failed after $tries attempt(s): $(tail -n 1 <<< "$err")" >&2
+    exit 1
+  fi
+  tries=$((tries + 1))
+  sleep 1
+done
 cleanup() {
   psql "$DATABASE_URL" -qAt -c "DROP DATABASE IF EXISTS $scratch" >/dev/null 2>&1 || true
 }

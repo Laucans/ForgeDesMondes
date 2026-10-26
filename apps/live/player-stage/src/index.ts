@@ -31,7 +31,7 @@ import {
 } from './model.ts';
 import { art, cover, mapSlot, scene, skeleton } from './render.ts';
 import { STYLE } from './style.ts';
-import type { Box, Campaign, Diffusion, Media, Props, Shell, Stage } from './types.ts';
+import type { Box, Campaign, Diffusion, Illustration, Media, Props, Shell, Stage } from './types.ts';
 
 /** How a command is followed until it settles, and how often the diffusion is asked: the projected screen follows within a second. */
 export interface Timing {
@@ -145,7 +145,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       }
     } else {
       const image = base.kind === 'illustration' ? illustrationOf(media, base.id) : undefined;
-      const html = image ? scene(image) : cover(campaign, media);
+      const html = image ? scene(image) : cover(campaign, media, windowImage() === undefined);
       if (html !== baseKey) {
         baseKey = html;
         box.innerHTML = html;
@@ -160,11 +160,16 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     return diffusion.window === null ? null : { ...diffusion.window, ...local };
   }
 
+  /** The illustration of the window the stage draws: none when no window is sent or the library does not list its image. */
+  function windowImage(): Illustration | undefined {
+    return diffusion.window === null ? undefined : illustrationOf(media, diffusion.window.media);
+  }
+
   function paintWindow(): void {
     const figure = part('player-window');
     if (!figure) return;
     const win = current();
-    const image = win === null ? undefined : illustrationOf(media, win.media);
+    const image = windowImage();
     if (win === null || image === undefined) {
       figure.hidden = true;
       return;

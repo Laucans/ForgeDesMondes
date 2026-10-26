@@ -31,11 +31,11 @@ export function skeleton(pilot: boolean): string {
   );
 }
 
-/** The campaign's cover and title; its session when the campaign says which one comes next. */
-export function cover(campaign: Campaign | null, media: Media): string {
+/** The campaign's cover and title; its session when the campaign says which one comes next. The title gives way while a window is shown. */
+export function cover(campaign: Campaign | null, media: Media, titled: boolean): string {
   const image = illustrationOf(media, campaign?.cover || media.cover);
   const picture = image ?? { art: campaign?.art ?? '', glyph: campaign?.glyph ?? '', title: 'Couverture de la campagne' };
-  const title = campaign === null ? '' : `<h1 id="player-cover-title">${esc(campaign.name)}</h1>${campaign.session === null ? '' : `<p>Séance ${campaign.session.order} — ${esc(campaign.session.title)}</p>`}`;
+  const title = campaign === null || !titled ? '' : `<h1 id="player-cover-title">${esc(campaign.name)}</h1>${campaign.session === null ? '' : `<p>Séance ${campaign.session.order} — ${esc(campaign.session.title)}</p>`}`;
   return `<div class="pv-cover" id="player-cover" data-reads="${GET_CAMPAIGN}">${art({ ...picture, title: 'Couverture de la campagne' })}<div class="pv-cover__title">${title}</div></div>`;
 }
 

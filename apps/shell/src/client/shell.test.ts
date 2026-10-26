@@ -38,6 +38,55 @@ test('commands go to /commands and are looked up by id', async () => {
   assert.deepEqual(urls, ['/commands', '/commands/a%20b']);
 });
 
+/** A shell whose server answers `POST /commands` with `submitted`, then each `GET /commands/<id>` with the next of `states`; every URL asked is kept. */
+function writer(submitted: { status: number; state?: string }, states: string[], polls = 50): { shell: ReturnType<typeof createShell>; urls: string[] } {
+  const urls: string[] = [];
+  const shell = createShell(
+    async (input) => {
+      const url = urlOf(input);
+      urls.push(url);
+      if (url === '/commands') return answer(submitted.status, { commandId: 'c1', result: { commandId: 'c1', status: submitted.state } });
+      if (url === '/commands/c1') return answer(200, { result: { commandId: 'c1', status: states.shift() ?? 'queued' } });
+      return answer(200, { asOf: 1, data: [] });
+    },
+    pageOf('http://shell/screens/x', metaOf(DM)),
+    { sleep: async () => undefined, everyMs: 0, polls },
+  );
+  return { shell, urls };
+}
+
+test("a read asked right after a command of the page waits for it to be applied: the page reads its own writes", async () => {
+  const { shell, urls } = writer({ status: 202, state: 'queued' }, ['confirmed', 'applied']);
+  const saved = shell.command({ dataCapability: 'x.save' });
+  await shell.capability('x.list', 'ab12');
+  assert.deepEqual(urls, ['/commands', '/commands/c1', '/commands/c1', '/capabilities/x.list']);
+  await saved;
+  // Settled: the next read asks at once.
+  await shell.capability('x.list', 'ab12');
+  assert.deepEqual(urls.slice(4), ['/capabilities/x.list']);
+});
+
+test('a read never waits for a command a person must act on, nor for one refused', async () => {
+  for (const state of ['awaiting_confirmation', 'awaiting_review', 'parked', 'applied']) {
+    const { shell, urls } = writer({ status: 202, state }, []);
+    void shell.command({ dataCapability: 'x.save' });
+    await shell.capability('x.list', 'ab12');
+    assert.deepEqual(urls, ['/commands', '/capabilities/x.list'], state);
+  }
+  const { shell, urls } = writer({ status: 422 }, []);
+  const refused = shell.command({ dataCapability: 'x.save' });
+  await shell.capability('x.list', 'ab12');
+  await assert.rejects(refused, (error: unknown) => error instanceof ProtocolError && error.status === 422);
+  assert.deepEqual(urls, ['/commands', '/capabilities/x.list']);
+});
+
+test('a read waits for a command that does not settle only so long', async () => {
+  const { shell, urls } = writer({ status: 202, state: 'queued' }, [], 3);
+  void shell.command({ dataCapability: 'x.save' });
+  await shell.capability('x.list', 'ab12');
+  assert.deepEqual(urls, ['/commands', '/commands/c1', '/commands/c1', '/commands/c1', '/capabilities/x.list']);
+});
+
 test('the data version is polled, and told only when it moved, until stopped', async () => {
   const served = [1, 1, 2];
   let polls = 0;
