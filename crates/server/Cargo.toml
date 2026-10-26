@@ -32,4 +32,5 @@ tokio = { version = "1", default-features = false, features = ["rt-multi-thread"
 uuid = { version = "1", default-features = false, features = ["v5"] }
 
 [dev-dependencies]
+platform-scratch-db = { path = "../platform/scratch-db" }
 tower = { version = "0.5", default-features = false, features = ["util"] }

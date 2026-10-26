@@ -2400,6 +2400,7 @@ dependencies = [
  "dataguard-registry",
  "dataguard-server",
  "list-provider-requests",
+ "platform-scratch-db",
  "ports-character-sheets",
  "ports-llm",
  "ports-speech-to-text",

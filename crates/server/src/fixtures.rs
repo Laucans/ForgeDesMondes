@@ -82,6 +82,17 @@
 //! microsecond apart so that two lines of one minute keep their order. A journal
 //! that runs past midnight does not map: its lines would sort before the evening's.
 //!
+//! The campaign's sounds (`sounds.json`) are one row of `sound` each, named
+//! by their slug (`snd-porte`): the name, the tags (already in the form
+//! `tags-normalized` asks, else the file is skipped), the file, and the
+//! volume as a fraction of 1 (the file says percents), stamped in the order of
+//! the file so that the soundbox lists them as it does. The campaign's
+//! `masterVolume` is its `sound_master_volume`, and every other campaign takes
+//! the column's default, 1. A sound's duration has no column and is not
+//! loaded, nor is the `soundbox.listSounds.json` that repeats the file. The
+//! master volume is the campaign row's, inserted once: a campaign the store
+//! already holds keeps the volume it has.
+//!
 //! A PC present at a session is one row of `session_present_character`, keyed
 //! by the pair `session_id,character_id`: a row the DM changed since is left
 //! alone, and a restart loads none twice. The stamps of `added_at` keep the
@@ -122,7 +133,15 @@ pub fn id(table: &str, slug: &str) -> String {
 }
 
 /// The columns of the tables the load fills; the others take their default.
-const CAMPAIGN: &[&str] = &["id", "name", "kind", "pitch", "art", "glyph"];
+const CAMPAIGN: &[&str] = &[
+    "id",
+    "name",
+    "kind",
+    "pitch",
+    "art",
+    "glyph",
+    "sound_master_volume",
+];
 const CAMPAIGN_DATED: &[&str] = &[
     "id",
     "name",
@@ -130,6 +149,7 @@ const CAMPAIGN_DATED: &[&str] = &[
     "pitch",
     "art",
     "glyph",
+    "sound_master_volume",
     "created_at",
     "last_exported_at",
 ];
@@ -164,6 +184,15 @@ const CHARACTER: &[&str] = &[
     "dndbeyond_synced_at",
 ];
 const ALIAS: &[&str] = &["id", "entity_id", "alias"];
+const SOUND: &[&str] = &[
+    "id",
+    "campaign_id",
+    "name",
+    "file_path",
+    "tags",
+    "volume",
+    "created_at",
+];
 const MEDIA: &[&str] = &[
     "id",
     "campaign_id",
@@ -297,6 +326,7 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             "campaign.getCampaign.json" => read.campaign_details(&value),
             "entities.json" => read.entities(&value),
             "media.json" => read.media(&value),
+            SOUNDS_FILE => read.sounds(&value),
             HISTORY_FILE => read.history(&value),
             SESSIONS => read.sessions(&value),
             BOARD_FILE => read.board(&value),
@@ -323,6 +353,10 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
     if let Err(why) = read.library_fits() {
         read.library = None;
         withdraw(&mut plan, LIBRARY, &why);
+    }
+    if let Err(why) = read.soundbox_fits() {
+        read.soundbox = None;
+        withdraw(&mut plan, SOUNDS_FILE, &why);
     }
     if let Err(why) = read.history_fits() {
         read.history = None;
@@ -359,6 +393,9 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
 
 /// The fixture of a campaign's media.
 const LIBRARY: &str = "media.json";
+/// The fixture of the Sound aggregate: a campaign's sounds and its master
+/// volume. `soundbox.listSounds.json` repeats it and is not read.
+const SOUNDS_FILE: &str = "sounds.json";
 /// The fixture of the Entity aggregate's version history: the versions of
 /// some elements, newest first. `campaign.getEntity.json` and the three lists
 /// repeat `entities.json`, which holds them, and are not read.
@@ -554,12 +591,30 @@ struct Read {
     /// made once the elements are known ([`Read::history_fits`]).
     versions: BTreeMap<String, Vec<(u64, Value)>>,
     library: Option<Library>,
+    soundbox: Option<Soundbox>,
     sessions: Option<Sessions>,
     board: Option<Board>,
     closing: Option<Closing>,
     brief: Option<Brief>,
     to_create: Option<ToCreate>,
     instance: Option<Instance>,
+}
+
+/// The `sounds.json` document, mapped: a campaign's soundbox.
+struct Soundbox {
+    campaign: String,
+    /// The campaign's master volume, a fraction of 1.
+    master: f64,
+    sounds: Vec<Sound>,
+}
+
+struct Sound {
+    slug: String,
+    name: String,
+    file: String,
+    tags: Vec<String>,
+    /// Its own volume, a fraction of 1.
+    volume: f64,
 }
 
 /// The `SessionList.json` document, mapped: a campaign's sessions.
@@ -867,6 +922,25 @@ impl Read {
         Ok(())
     }
 
+    fn sounds(&mut self, value: &Value) -> Result<(), String> {
+        let campaign = required(value, "campaign")?.to_string();
+        let master = fraction(&value["masterVolume"], "masterVolume")?;
+        let mut sounds = Vec::new();
+        for sound in array(&value["sounds"], "sounds")? {
+            sounds.push(sound_of(sound)?);
+        }
+        let mut slugs = BTreeSet::new();
+        if let Some(twice) = sounds.iter().find(|s| !slugs.insert(&s.slug)) {
+            return Err(format!("the slug {:?} names two rows", twice.slug));
+        }
+        self.soundbox = Some(Soundbox {
+            campaign,
+            master,
+            sounds,
+        });
+        Ok(())
+    }
+
     fn sessions(&mut self, value: &Value) -> Result<(), String> {
         let campaign = required(value, "campaign")?.to_string();
         let mut sessions = Vec::new();
@@ -965,10 +1039,19 @@ impl Read {
         Ok(())
     }
 
-    /// Whether a campaign, a player, an element or a medium of the files
-    /// read is named `slug`: the slugs of the rows planned before the
+    /// Whether a campaign, a player, an element, a medium or a sound of the
+    /// files read is named `slug`: the slugs of the rows planned before the
     /// sessions.
     fn named(&self, slug: &str) -> bool {
+        self.named_but_sounds(slug)
+            || self
+                .soundbox
+                .as_ref()
+                .is_some_and(|s| s.sounds.iter().any(|sound| sound.slug == slug))
+    }
+
+    /// [`Read::named`], the sounds left out: the slugs planned before them.
+    fn named_but_sounds(&self, slug: &str) -> bool {
         self.campaigns.contains_key(slug)
             || self.entities.as_ref().is_some_and(|e| {
                 e.players.iter().any(|p| p.slug == slug)
@@ -1367,13 +1450,44 @@ impl Read {
         Ok(())
     }
 
+    /// Whether the sounds read fit what the other files say: their campaign
+    /// is one of them, and no slug of theirs names another row. Checked once
+    /// every file is read.
+    fn soundbox_fits(&self) -> Result<(), String> {
+        let Some(soundbox) = &self.soundbox else {
+            return Ok(());
+        };
+        if !self.campaigns.contains_key(&soundbox.campaign) {
+            return Err(format!(
+                "no fixture describes the campaign {:?}",
+                soundbox.campaign
+            ));
+        }
+        match soundbox
+            .sounds
+            .iter()
+            .find(|sound| self.named_but_sounds(&sound.slug))
+        {
+            Some(sound) => Err(format!("the slug {:?} names two rows", sound.slug)),
+            None => Ok(()),
+        }
+    }
+
     /// The rows of everything read, in the order they are inserted.
     fn plan(self, plan: &mut Fixtures) {
+        // A campaign with no soundbox takes the column's default, 1.
+        let master = |slug: &String| {
+            self.soundbox
+                .as_ref()
+                .filter(|soundbox| &soundbox.campaign == slug)
+                .map_or(1.0, |soundbox| soundbox.master)
+        };
         let campaign_row = |slug: &String, row: &Map<String, Value>| {
             let mut out = json!({ "id": id("campaign", slug) });
             for column in CAMPAIGN_DATED.iter().skip(1) {
                 out[column] = row.get(*column).cloned().unwrap_or(Value::Null);
             }
+            out["sound_master_volume"] = json!(master(slug));
             out
         };
         let (dated, plain): (Vec<_>, Vec<_>) = self
@@ -1449,6 +1563,20 @@ impl Read {
                 table("media", "id", MEDIA, media),
                 table("battlemap_grid", "media_id", GRID, grids),
             ]);
+        }
+        if let Some(soundbox) = self.soundbox {
+            let campaign = id("campaign", &soundbox.campaign);
+            let mut sounds = Vec::new();
+            for (index, sound) in soundbox.sounds.into_iter().enumerate() {
+                let row = id("sound", &sound.slug);
+                sounds.push(json!({
+                    "id": row, "campaign_id": campaign, "name": sound.name,
+                    "file_path": sound.file, "tags": sound.tags, "volume": sound.volume,
+                    "created_at": stamp(FIRST, index),
+                }));
+                names.push((sound.slug, row));
+            }
+            tables.push(table("sound", "id", SOUND, sounds));
         }
         if let Some(sessions) = &self.sessions {
             let campaign = id("campaign", &sessions.campaign);
@@ -1994,6 +2122,42 @@ fn medium_of(value: &Value, kind: &'static str) -> Result<Medium, String> {
     })
 }
 
+/// A volume the fixture writes as a whole percent from 0 to 100, as the
+/// fraction of 1 with the two decimals the column keeps.
+fn fraction(value: &Value, what: &str) -> Result<f64, String> {
+    value
+        .as_f64()
+        .filter(|percent| (0.0..=100.0).contains(percent) && percent.fract() == 0.0)
+        .map(|percent| percent / 100.0)
+        .ok_or_else(|| format!("{what} is not a whole percent from 0 to 100"))
+}
+
+/// One sound of `sounds.json`, mapped. Its tags must be in the form
+/// `tags-normalized` asks: trimmed, lowercase, none empty, none twice.
+fn sound_of(value: &Value) -> Result<Sound, String> {
+    let slug = required(value, "id")?.to_string();
+    let mut tags: Vec<String> = Vec::new();
+    for tag in array(&value["tags"], "tags")? {
+        let tag = tag
+            .as_str()
+            .ok_or_else(|| format!("a tag of {slug} is not a text"))?;
+        if tag.is_empty() || tag != tag.trim() || tag != tag.to_lowercase() {
+            return Err(format!("the tag {tag:?} of {slug} is not normalised"));
+        }
+        if tags.iter().any(|known| known == tag) {
+            return Err(format!("the tag {tag:?} of {slug} is given twice"));
+        }
+        tags.push(tag.to_string());
+    }
+    Ok(Sound {
+        name: required(value, "name")?.to_string(),
+        file: required(value, "file")?.to_string(),
+        volume: fraction(&value["volume"], "volume")?,
+        slug,
+        tags,
+    })
+}
+
 /// One session of `SessionList.json`, mapped: `played` is the table's
 /// `closed`, the other two statuses are its own.
 fn session_of(value: &Value) -> Result<Session, String> {
@@ -2536,6 +2700,7 @@ mod tests {
                 "campaign.listEntityVersions.json",
                 "entities.json",
                 "media.json",
+                "sounds.json",
                 "table.getBattlemapInstance.json"
             ]
         );
@@ -2563,6 +2728,7 @@ mod tests {
                 "entity_version",
                 "media",
                 "battlemap_grid",
+                "sound",
                 "session",
                 "session_present_character",
                 "scene",
@@ -2631,6 +2797,216 @@ mod tests {
             plan.names
                 .contains(&("bm-gue".to_string(), id("media", "bm-gue")))
         );
+    }
+
+    #[test]
+    fn the_sounds_of_the_mock_up_are_planned_with_their_tags_volumes_and_master() {
+        let plan = mock();
+        assert!(plan.loaded.contains(&"sounds.json".to_string()));
+        assert!(
+            !plan
+                .loaded
+                .contains(&"soundbox.listSounds.json".to_string()),
+            "it repeats sounds.json"
+        );
+        let file = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures/sounds.json"),
+        )
+        .expect("the fixture");
+        let told: Value = serde_json::from_str(&file).expect("JSON");
+        let told = told["sounds"].as_array().expect("sounds");
+        let planted = rows(&plan, "sound");
+        assert_eq!(planted.len(), told.len());
+        let campaign = id("campaign", "cendres-valombre");
+        let mut stamps = Vec::new();
+        for (row, sound) in planted.iter().zip(told) {
+            let slug = sound["id"].as_str().expect("a slug");
+            assert_eq!(row["id"], id("sound", slug), "{slug}: its uuid by slug");
+            assert_eq!(row["campaign_id"], campaign, "{slug}");
+            assert_eq!(row["name"], sound["name"], "{slug}");
+            assert_eq!(row["file_path"], sound["file"], "{slug}");
+            assert_eq!(row["tags"], sound["tags"], "{slug}");
+            let percent = sound["volume"].as_f64().expect("a percent");
+            let fraction = row["volume"].as_f64().expect("a fraction");
+            assert!((fraction * 100.0 - percent).abs() < 1e-9, "{slug}: {row}");
+            assert!(
+                plan.names.contains(&(slug.to_string(), id("sound", slug))),
+                "{slug} is named"
+            );
+            stamps.push(row["created_at"].as_str().expect("a stamp").to_string());
+        }
+        let mut sorted = stamps.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted, stamps, "stamped in the order of the file");
+        // The master volume is the campaign's, and the others keep the default.
+        for row in rows(&plan, "campaign") {
+            let want = if row["id"] == campaign { 0.8 } else { 1.0 };
+            assert_eq!(row["sound_master_volume"], want, "{row}");
+        }
+        let door = planted[0];
+        assert_eq!(door["name"], "Porte qui grince");
+        assert_eq!(door["volume"], 0.8);
+        assert_eq!(planted[1]["volume"], 0.55);
+    }
+
+    #[test]
+    fn a_soundbox_that_does_not_fit_is_skipped_whole_and_the_rest_is_loaded() {
+        let sound = |tags: Value, volume: Value| json!({ "id": "snd-x", "name": "X", "tags": tags, "volume": volume, "file": "x.ogg" });
+        let cases = [
+            (
+                json!({ "campaign": "nowhere", "masterVolume": 80,
+                    "sounds": [sound(json!(["a"]), json!(50))] }),
+                "no fixture describes the campaign",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [{ "id": "elowen", "name": "E", "tags": [], "volume": 50,
+                        "file": "e.ogg" }] }),
+                "names two rows",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [sound(json!(["a"]), json!(50)), sound(json!(["b"]), json!(50))] }),
+                "names two rows",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [sound(json!(["Porte"]), json!(50))] }),
+                "not normalised",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [sound(json!([" porte"]), json!(50))] }),
+                "not normalised",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [sound(json!([""]), json!(50))] }),
+                "not normalised",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [sound(json!(["a", "a"]), json!(50))] }),
+                "given twice",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [sound(json!(["a"]), json!(100.5))] }),
+                "volume is not a whole percent",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [sound(json!(["a"]), json!(-1))] }),
+                "volume is not a whole percent",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+                    "sounds": [sound(json!(["a"]), json!(12.5))] }),
+                "volume is not a whole percent",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 80.5, "sounds": [] }),
+                "masterVolume is not a whole percent",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "masterVolume": 101, "sounds": [] }),
+                "masterVolume is not a whole percent",
+            ),
+            (
+                json!({ "campaign": "cendres-valombre", "sounds": [] }),
+                "masterVolume is not a whole percent",
+            ),
+        ];
+        for (soundbox, why) in cases {
+            let plan = soundbox_of(&soundbox);
+            assert_eq!(plan.loaded, ["entities.json"], "{why}");
+            assert_eq!(plan.skipped.len(), 1, "{why}");
+            assert_eq!(plan.skipped[0].0, "sounds.json");
+            assert!(plan.skipped[0].1.contains(why), "{why}: {:?}", plan.skipped);
+            assert!(rows(&plan, "sound").is_empty(), "{why}");
+            assert!(
+                rows(&plan, "campaign")
+                    .iter()
+                    .all(|c| c["sound_master_volume"] == 1.0),
+                "{why}: a soundbox left out leaves the master volume at its default"
+            );
+        }
+        let fits = soundbox_of(&json!({ "campaign": "cendres-valombre", "masterVolume": 0,
+            "sounds": [sound(json!([]), json!(0)), sound(json!(["é", "b"]), json!(100))] }));
+        // Two sounds of one slug are no soundbox; with distinct slugs they are.
+        assert!(
+            fits.skipped
+                .iter()
+                .any(|(_, why)| why.contains("names two rows"))
+        );
+        let fits = soundbox_of(&json!({ "campaign": "cendres-valombre", "masterVolume": 0,
+            "sounds": [
+                { "id": "a", "name": "A", "tags": [], "volume": 0, "file": "a.ogg" },
+                { "id": "b", "name": "B", "tags": ["é", "b"], "volume": 100, "file": "b.ogg" },
+            ] }));
+        assert_eq!(fits.loaded, ["entities.json", "sounds.json"]);
+        let planted = rows(&fits, "sound");
+        assert_eq!(planted[0]["volume"], 0.0);
+        assert_eq!(planted[1]["volume"], 1.0);
+        assert_eq!(planted[1]["tags"], json!(["é", "b"]));
+        let campaign = id("campaign", "cendres-valombre");
+        let master = rows(&fits, "campaign")
+            .into_iter()
+            .find(|c| c["id"] == campaign)
+            .map(|c| c["sound_master_volume"].clone());
+        assert_eq!(master, Some(json!(0.0)), "a master of 0 is a master");
+    }
+
+    #[test]
+    fn a_sound_named_as_a_session_leaves_the_sessions_skipped() {
+        let read = |name: &str| {
+            std::fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../mock/fixtures")
+                    .join(name),
+            )
+            .expect("the fixture")
+        };
+        let soundbox = json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+            "sounds": [{ "id": "s1", "name": "S", "tags": [], "volume": 50, "file": "s.ogg" }] });
+        let dir = folder(
+            "sound-and-session",
+            &[
+                ("entities.json", &read("entities.json")),
+                ("SessionList.json", &read("SessionList.json")),
+                ("sounds.json", &soundbox.to_string()),
+            ],
+        );
+        let plan = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        // The sounds are read first and fit; the sessions then find the slug taken.
+        assert_eq!(plan.loaded, ["entities.json", "sounds.json"]);
+        assert_eq!(plan.skipped.len(), 1, "{:?}", plan.skipped);
+        assert_eq!(plan.skipped[0].0, "SessionList.json");
+        assert!(plan.skipped[0].1.contains("names two rows"));
+        assert!(rows(&plan, "session").is_empty());
+    }
+
+    /// The plan of `entities.json` and `soundbox` (as `sounds.json`), alone.
+    fn soundbox_of(soundbox: &Value) -> Fixtures {
+        let entities = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures/entities.json"),
+        )
+        .expect("the fixture");
+        // A folder of its own each time: the tests run side by side.
+        static PLANNED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = PLANNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = folder(
+            &format!("soundbox-{n}"),
+            &[
+                ("entities.json", &entities),
+                ("sounds.json", &soundbox.to_string()),
+            ],
+        );
+        let plan = fixtures(&dir).expect("the folder is listed");
+        std::fs::remove_dir_all(&dir).ok();
+        plan
     }
 
     /// The plan of `entities.json` and `media` (as `media.json`), alone.
