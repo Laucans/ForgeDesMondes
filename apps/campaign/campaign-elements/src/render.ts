@@ -17,8 +17,11 @@ function art(name: string, glyph: string): string {
   return `<div class="art art--${tone}" role="img">${glyph === '' ? '' : `<span class="art__glyph">${esc(glyph)}</span>`}</div>`;
 }
 
+/** The page protocol's `campaign` parameter: the sheet keeps the campaign on show instead of the default one. */
+const campaignParam = (campaign: string): string => (campaign === '' ? '' : `&campaign=${encodeURIComponent(campaign)}`);
+
 /** The sheet of an element, where the tabs' links go (the mock-up's page protocol). */
-export const sheetHref = (id: string): string => `fiche-entite.html?id=${encodeURIComponent(id)}`;
+export const sheetHref = (id: string, campaign = ''): string => `fiche-entite.html?id=${encodeURIComponent(id)}${campaignParam(campaign)}`;
 
 /** Where « Nouveau… » leads from the tabs, by the kind of element it starts. */
 export const NEW_KINDS: Readonly<Record<string, string>> = { pnj: 'pnj', place: 'lieu', event: 'evenement' };
@@ -42,8 +45,8 @@ export const TABS: ReadonlyArray<readonly [string, string, string]> = [
 export const FIRST_TAB = 1;
 
 /** Tabs mode, its panels still empty. */
-export function tabsSkeleton(): string {
-  const newButtons = NEW_LABELS.map(([kind, label, variant]) => `<button type="button" class="${variant}" id="elements-new-${kind}" data-href="fiche-entite.html?new=${NEW_KINDS[kind] ?? ''}">${esc(label)}</button>`).join('');
+export function tabsSkeleton(campaign = ''): string {
+  const newButtons = NEW_LABELS.map(([kind, label, variant]) => `<button type="button" class="${variant}" id="elements-new-${kind}" data-href="fiche-entite.html?new=${NEW_KINDS[kind] ?? ''}${esc(campaignParam(campaign))}">${esc(label)}</button>`).join('');
   const tabs = TABS.map(
     ([key, label], i) => `<button type="button" role="tab" id="elements-tabs-tab-${i}" aria-controls="elements-tabs-panel-${i}" aria-selected="${i === FIRST_TAB}" data-tab="${key}">${esc(label)}</button>`,
   ).join('');
@@ -75,13 +78,13 @@ const when = (at: string): string => {
 };
 
 /** The kit's Table: each player with the characters they play, their D&D Beyond sync and level. */
-export function playersPanel(players: Player[], characters: Character[], charactersUnreadable = false): string {
+export function playersPanel(players: Player[], characters: Character[], charactersUnreadable = false, campaign = ''): string {
   const rows = players
     .map((player) => {
       const played = characters.filter((c) => c.kind === 'pj' && c.player === player.id);
       const cells = [
         esc(player.name),
-        played.map((c) => `<a href="${esc(sheetHref(c.id))}">${esc(c.name)}</a>`).join(', '),
+        played.map((c) => `<a href="${esc(sheetHref(c.id, campaign))}">${esc(c.name)}</a>`).join(', '),
         played.map((c) => esc(synced(c, when))).join(', '),
         played.map((c) => esc(level(c.type))).join(', '),
       ];
@@ -92,19 +95,19 @@ export function playersPanel(players: Player[], characters: Character[], charact
   return `${note}<table class="kit-table" id="elements-players-table"><thead><tr><th>Joueur</th><th>Personnage</th><th>D&amp;D Beyond</th><th class="num">Niveau</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-const characterEntry = (c: Character): string =>
-  entry(sheetHref(c.id), `elements-char-${c.id}`, art(c.art || 'night', c.initials), c.name, `${c.kind === 'pj' ? 'PJ' : 'PNJ'} · ${c.aliases.join(', ') || c.type}`);
+const characterEntry = (campaign: string) => (c: Character): string =>
+  entry(sheetHref(c.id, campaign), `elements-char-${c.id}`, art(c.art || 'night', c.initials), c.name, `${c.kind === 'pj' ? 'PJ' : 'PNJ'} · ${c.aliases.join(', ') || c.type}`);
 
 /** The PJ, then the PNJ under their own title. */
-export function charactersPanel(characters: Character[]): string {
-  return `${grid(characters.filter((c) => c.kind === 'pj').map(characterEntry))}<h3 class="mf-elements__links">PNJ</h3>${grid(characters.filter((c) => c.kind === 'pnj').map(characterEntry))}`;
+export function charactersPanel(characters: Character[], campaign = ''): string {
+  return `${grid(characters.filter((c) => c.kind === 'pj').map(characterEntry(campaign)))}<h3 class="mf-elements__links">PNJ</h3>${grid(characters.filter((c) => c.kind === 'pnj').map(characterEntry(campaign)))}`;
 }
 
-export const placesPanel = (places: Named[]): string =>
-  grid(places.map((p) => entry(sheetHref(p.id), `elements-place-${p.id}`, art(p.art || 'night', placeGlyph(p.name)), p.name, p.aliases.join(', '))));
+export const placesPanel = (places: Named[], campaign = ''): string =>
+  grid(places.map((p) => entry(sheetHref(p.id, campaign), `elements-place-${p.id}`, art(p.art || 'night', placeGlyph(p.name)), p.name, p.aliases.join(', '))));
 
-export const eventsPanel = (events: Named[]): string =>
-  grid(events.map((v) => entry(sheetHref(v.id), `elements-event-${v.id}`, art('blood', '!'), v.name, v.aliases.join(', '))));
+export const eventsPanel = (events: Named[], campaign = ''): string =>
+  grid(events.map((v) => entry(sheetHref(v.id, campaign), `elements-event-${v.id}`, art('blood', '!'), v.name, v.aliases.join(', '))));
 
 const link = (label: string, href: string): string => smallButtons(`<button type="button" class="secondary" data-href="${esc(href)}">${esc(label)}</button>`);
 
@@ -138,16 +141,16 @@ export function railSkeleton(): string {
 /** The Capability each section of the rail shows. */
 const GROUP_READS: Readonly<Record<Group, string>> = { pj: LIST_CHARACTERS, pnj: LIST_CHARACTERS, place: LIST_PLACES, event: LIST_EVENTS };
 
-function railEntry(e: RailEntry, current: string): string {
+function railEntry(e: RailEntry, current: string, campaign: string): string {
   const here = e.id === current;
   return (
-    `<li><a class="mf-rail__entry${here ? ' is-current' : ''}" id="rail-entry-${esc(e.id)}" href="${esc(sheetHref(e.id))}" data-entity="${esc(e.id)}"${here ? ' aria-current="true"' : ''}>` +
+    `<li><a class="mf-rail__entry${here ? ' is-current' : ''}" id="rail-entry-${esc(e.id)}" href="${esc(sheetHref(e.id, campaign))}" data-entity="${esc(e.id)}"${here ? ' aria-current="true"' : ''}>` +
     `<span class="mf-rail__thumb">${art(e.art, e.glyph)}</span><span class="mf-rail__text"><b>${esc(e.name)}</b><small>${esc(e.sub)}</small></span></a></li>`
   );
 }
 
 /** The sections of the rail that have a line to show; a folded one keeps its title and hides its list. */
-export function railGroups(found: RailEntry[], folded: ReadonlySet<Group>, current: string): string {
+export function railGroups(found: RailEntry[], folded: ReadonlySet<Group>, current: string, campaign = ''): string {
   return GROUPS.map(([group, label]) => {
     const rows = found.filter((e) => e.group === group);
     if (rows.length === 0) return '';
@@ -156,7 +159,7 @@ export function railGroups(found: RailEntry[], folded: ReadonlySet<Group>, curre
       `<section class="mf-rail__group" id="rail-group-${group}" aria-label="${label}" ${reads(GROUP_READS[group])}>` +
       `<h3><button type="button" class="mf-rail__group-toggle" id="rail-group-toggle-${group}" data-group="${group}" aria-expanded="${!closed}" aria-controls="rail-list-${group}">` +
       `<span class="mf-rail__caret" aria-hidden="true">${closed ? '▸' : '▾'}</span>${label}<small>${rows.length}</small></button></h3>` +
-      `<ul class="mf-rail__list" id="rail-list-${group}"${closed ? ' hidden' : ''}>${rows.map((e) => railEntry(e, current)).join('')}</ul></section>`
+      `<ul class="mf-rail__list" id="rail-list-${group}"${closed ? ' hidden' : ''}>${rows.map((e) => railEntry(e, current, campaign)).join('')}</ul></section>`
     );
   }).join('');
 }

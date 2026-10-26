@@ -189,6 +189,18 @@ test('« Nouveau… » in the tabs leads to the sheet of a new element; a link o
   assert.deepEqual(t.bus.opened, []);
 });
 
+test('the links to a sheet keep the campaign on show, from the prop or from the address', async () => {
+  const t = await panel({ campaign: 'c 1' });
+  assert.equal(t.$('#elements-char-elowen').getAttribute('href'), 'fiche-entite.html?id=elowen&campaign=c%201');
+  assert.equal(t.$('#player-jou-julie a').getAttribute('href'), 'fiche-entite.html?id=elowen&campaign=c%201');
+  assert.match(t.$('#elements-tabs-panel-2 a.mf-elements__entry').getAttribute('href') ?? '', /&campaign=c%201$/);
+  assert.match(t.$('#elements-tabs-panel-3 a.mf-elements__entry').getAttribute('href') ?? '', /&campaign=c%201$/);
+  await t.click('#elements-new-pnj');
+  assert.deepEqual(t.bus.left, ['fiche-entite.html?new=pnj&campaign=c%201']);
+  const byUrl = await panel({ mode: 'rail' }, { url: 'http://localhost/campagne.html?campaign=from-url' });
+  assert.equal(byUrl.$('#rail-entry-elowen').getAttribute('href'), 'fiche-entite.html?id=elowen&campaign=from-url');
+});
+
 test('one Capability that fails leaves the other tabs on screen, and says which list is unreadable', async () => {
   const t = await panel({}, { fail: ['media.listMedia'] });
   assert.equal(t.$('#elements-tabs-tab-4').textContent, 'Médias');
