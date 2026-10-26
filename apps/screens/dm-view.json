@@ -2,12 +2,13 @@
   "screen": "dm-view",
   "generatedFrom": "Le DM fait rouler la séance : il ouvre les éléments suggérés par le micro, déplace les tokens, mène le combat, joue les sons et envoie cartes et illustrations aux joueurs",
   "version": 1,
+  "surface": "dm",
   "layout": [
     { "LiveSessionBar": {} },
     { "ElementsPanel": {} },
-    { "TableSheet": {} },
-    { "Battlemap": { "instance": "$ctx.battlemap", "view": "dm" } },
+    { "TableSheet": { "campaign": "$ctx.campaign" } },
+    { "Battlemap": { "instance": "$ctx.battlemap", "view": "dm", "campaign": "$ctx.campaign" } },
     { "LiveSoundbox": {} },
-    { "SuggestionPill": {} }
+    { "SuggestionPill": { "campaign": "$ctx.campaign" } }
   ]
 }
