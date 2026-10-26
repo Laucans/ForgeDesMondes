@@ -3,6 +3,7 @@
   "pages": [
     {
       "path": "pages/campagnes.html",
+      "screen": "campagnes",
       "title": "Accueil des campagnes",
       "objective": "Le DM retrouve ses campagnes et oneshots avec leur couverture, en crée une, exporte une campagne en archive ou en importe une",
       "components": [
