@@ -33,18 +33,21 @@ const attr = (name: string, value: string): string => (value === '' ? '' : ` ${n
 /** A colour of the design system by its token name; anything else is no colour. */
 const tone = (color: string): string => (/^[a-z][a-z-]*$/.test(color) ? color : 'secondary');
 
-/** The Micro-UI, its regions empty: what never depends on the answers — the frame — is there from the first paint. */
+/**
+ * The Micro-UI, its regions empty: what never depends on the answers — the frame — is there from the first paint.
+ * The carousel follows the body in the markup, so the first token a name finds is the map's; the stylesheet shows it above.
+ */
 export function skeleton(props: Props): string {
   const modes = `${props.fill ? ' bm--fill' : ''}${props.view === 'player' && !props.pilot ? ' bm--readonly' : ''}${props.view === 'prep' ? ' bm--prep' : ''}`;
   return (
     `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}">` +
     '<div class="bm-toolbar" id="battlemap-toolbar"></div>' +
-    '<div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d’initiative" hidden></div>' +
     '<div class="bm-body" id="battlemap-body">' +
     `<aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props.view === 'prep' ? '' : ' hidden'}></aside>` +
     `<div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div>` +
     '<aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside>' +
     '</div>' +
+    '<div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d’initiative" hidden></div>' +
     '<p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p>' +
     '<div id="battlemap-dialog"></div>' +
     '</div>'
@@ -85,7 +88,7 @@ export function hexMap(map: MapInfo, canMove: boolean): string {
   return (
     '<div class="kit-hexmap">' +
     (canMove
-      ? '<div class="hm-bar"><span class="hm-zoom"><button type="button" data-act="out" aria-label="Dézoomer">−</button>' +
+      ? '<div class="hm-bar"><span class="hm-zoom"><button type="button" data-act="out" aria-label="Réduire le zoom">−</button>' +
         '<button type="button" data-act="reset">Ajuster</button><button type="button" data-act="in" aria-label="Zoomer">+</button></span></div>'
       : '') +
     `<div class="hm-view" tabindex="0" id="battlemap-view" aria-label="${esc(`Battlemap ${map.title}`)}">` +

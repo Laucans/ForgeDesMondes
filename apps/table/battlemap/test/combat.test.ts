@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { mount, type Timing } from '../src/index.ts';
+import { STYLE } from '../src/style.ts';
 import type { Shell } from '../src/types.ts';
 import { assertDeclared } from './manifests.ts';
 
@@ -467,6 +468,19 @@ test('the carousel reads each participant’s initiative as the Capability answe
   const reopened = await battlemap({ view: 'dm' }, { combat, wire: true });
   assert.deepEqual(items(before.document), ['t-elowen:18', 't-sirielle:14', 't-bandit-2:7']);
   assert.deepEqual(items(reopened.document), items(before.document));
+});
+
+// AC1: the first .kit-token__item named Elowen is the map's token, the carousel being shown above it
+test('during a combat the first token named Elowen is the map’s, and the carousel comes after the body in the page', async () => {
+  const { $, document } = await battlemap({ view: 'dm' }, { combat: underWay() });
+  const named = Array.from(document.querySelectorAll<HTMLElement>('.kit-token__item')).filter((el) => el.textContent?.includes('Elowen'));
+  assert.equal(named.length, 2);
+  assert.equal(named[0]?.id, 'token-t-elowen');
+  assert.ok(named[0]?.closest('#battlemap-map'));
+  assert.ok(named[1]?.closest('#initiative-carousel'));
+  assert.ok($('#battlemap-body').compareDocumentPosition($('#initiative-carousel')) & 4, 'the carousel follows the body');
+  assert.match(STYLE, /\.bm-toolbar \{ order: -2;/);
+  assert.match(STYLE, /\.bm-carousel \{ order: -1;/);
 });
 
 test('a refused combat command says why', async () => {
