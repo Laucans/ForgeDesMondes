@@ -40,9 +40,19 @@
 #       protocol from the fixtures, and every rule would hold without the
 #       product.
 #
+#   bash scripts/rules-runtime.sh reset
+#       Puts the store back as serve left it, for the next rule: stops the
+#       server, makes its database again from the migrated template serve
+#       kept (rules_seed_<epoch>_<owner>), starts the server on it with the
+#       fixtures, on the same port — the shell stays up. Every rule starts
+#       on the seed, whatever the rule before it wrote (ForgeDesMondes'
+#       PR #597: a business test left a live session open and three journeys
+#       followed it; a journey's scenes and deletions broke two more).
+#       Fails when serve started nothing.
+#
 #   bash scripts/rules-runtime.sh stop
 #       Stops what serve started, waits for it to exit, and drops its
-#       scratch database.
+#       scratch database and its template.
 #
 # Several runs may share one server (the factory's lanes, each through
 # scripts/gates-local.sh): each database is its own,
@@ -147,7 +157,69 @@ scratch_database() {
       return 1
     fi
   done < <(cd "$root" && git ls-files -- '*migrations/*.sql' | LC_ALL=C sort)
+  # The migrated store, before anyone connects: the template `reset` copies.
+  local seed="${name/rules_runtime_/rules_seed_}"
+  create_database "$seed TEMPLATE $name" || return 1
+  echo "$seed" > "$state/seed"
+  echo "$target" > "$state/database-url"
   echo "$target"
+}
+
+# Starts the server on the scratch database, with the fixtures, and waits
+# for it: what serve does once, and reset after every rule.
+start_server() {
+  local fixtures=""
+  [ -d "$root/mock/fixtures" ] && fixtures="$root/mock/fixtures"
+  # DATABASE_URL_READONLY emptied: the session's own would have the server
+  # read the dev database while it writes the scratch one.
+  PORT="$SERVER_PORT" DATABASE_URL="$(cat "$state/database-url")" DATABASE_URL_READONLY='' \
+    FIXTURES_DIR="$fixtures" PORTS=fake \
+    nohup "$(cat "$state/binary")" >>"$state/server.log" 2>&1 &
+  echo $! > "$state/server.pid"
+  wait_for "http://127.0.0.1:$SERVER_PORT/health" "the server" "$(cat "$state/server.pid")" "$SERVER_PORT"
+}
+
+# Stops the process whose pid `file` holds (and its children), and waits.
+stop_pid() {
+  local file="$1" pid waited=0
+  [ -f "$file" ] || return 0
+  pid="$(cat "$file")"
+  pkill -P "$pid" 2>/dev/null || true
+  kill "$pid" 2>/dev/null || true
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 20 ]; do
+    sleep 0.5
+    waited=$((waited + 1))
+  done
+  kill -9 "$pid" 2>/dev/null || true
+  rm -f "$file"
+}
+
+# DROP DATABASE `name`, whoever is still on it cut off (PostgreSQL 13+).
+drop_database() {
+  local admin="$1" name="$2"
+  psql "$admin" -qAt -c "DROP DATABASE IF EXISTS $name WITH (FORCE)" >/dev/null 2>&1 \
+    || psql "$admin" -qAt -c "DROP DATABASE IF EXISTS $name" >/dev/null 2>&1
+}
+
+reset() {
+  # Read off what serve kept of the store, never off the server's pid: a
+  # reset that failed half-way (the server stopped, the store not made
+  # again) is mended by the next one, not refused.
+  if [ ! -f "$state/seed" ] || [ ! -f "$state/database" ] || [ ! -f "$state/binary" ]; then
+    say "reset: serve started nothing to reset"
+    return 1
+  fi
+  stop_pid "$state/server.pid"
+  local admin database seed
+  admin="$(cat "$state/admin-url")"
+  database="$(cat "$state/database")"
+  seed="$(cat "$state/seed")"
+  DATABASE_URL="$admin" drop_database "$admin" "$database" || {
+    say "reset: the database $database could not be dropped"
+    return 1
+  }
+  DATABASE_URL="$admin" create_database "$database TEMPLATE $seed" || return 1
+  start_server
 }
 
 serve() {
@@ -180,15 +252,10 @@ serve() {
     (while kill -0 "$RULES_RUNTIME_OWNER" 2>/dev/null; do sleep 2; done; stop watchdog) </dev/null >/dev/null 2>&1 &
     echo $! > "$state/watchdog.pid"
   fi
-  local fixtures=""
-  [ -d "$root/mock/fixtures" ] && fixtures="$root/mock/fixtures"
-  # DATABASE_URL_READONLY emptied: the session's own would have the server
-  # read the dev database while it writes the scratch one.
-  PORT="$SERVER_PORT" DATABASE_URL="$database" DATABASE_URL_READONLY= FIXTURES_DIR="$fixtures" PORTS=fake \
-    nohup "$binary" >"$state/server.log" 2>&1 &
-  echo $! > "$state/server.pid"
+  echo "$binary" > "$state/binary"
+  : > "$state/server.log"
+  start_server
   local server_url="http://127.0.0.1:$SERVER_PORT"
-  wait_for "$server_url/health" "the server" "$(cat "$state/server.pid")" "$SERVER_PORT"
   echo "RULES_SERVER_URL=$server_url"
 
   if [ -f "$root/apps/shell/package.json" ]; then
@@ -234,19 +301,22 @@ stop() {
     local admin database
     admin="$(cat "$state/admin-url")"
     database="$(cat "$state/database")"
-    # Ours alone: whoever is still on it is cut off (PostgreSQL 13+).
-    psql "$admin" -qAt -c "DROP DATABASE IF EXISTS $database WITH (FORCE)" >/dev/null 2>&1 \
-      || psql "$admin" -qAt -c "DROP DATABASE IF EXISTS $database" >/dev/null 2>&1 \
+    drop_database "$admin" "$database" \
       || say "the database $database could not be dropped: the watch's sweep will"
-    rm -f "$state/database" "$state/admin-url"
+    if [ -f "$state/seed" ]; then
+      drop_database "$admin" "$(cat "$state/seed")" \
+        || say "the template $(cat "$state/seed") could not be dropped: the watch's sweep will"
+    fi
+    rm -f "$state/database" "$state/admin-url" "$state/seed" "$state/database-url"
   fi
 }
 
 case "${1:-}" in
   serve) serve ;;
+  reset) reset ;;
   stop) stop ;;
   *)
-    echo "usage: bash scripts/rules-runtime.sh serve | stop" >&2
+    echo "usage: bash scripts/rules-runtime.sh serve | reset | stop" >&2
     exit 2
     ;;
 esac

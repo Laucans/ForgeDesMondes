@@ -60,6 +60,7 @@
 //     ...
 //   });
 import { test, type APIResponse, type Browser, type BrowserContext, type Page, type Response as PageResponse, type Route } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -450,10 +451,33 @@ export const IN_FLIGHT = `(() => {
  * have in flight, and the kit, which takes `page`, tears down before the
  * page closes, waiting the same way for the body's last commands.
  */
-const journey = test.extend<{ payloadsDeclared: void }>({
+/// Every rule starts on the seeded store, whatever the rule before it wrote:
+/// the runtime's `reset` (scripts/rules-runtime.sh) makes the database again
+/// from the migrated template and restarts the server with the fixtures.
+/// RULES_RESET=0 turns it off; no runtime served, nothing to reset. One
+/// worker only (gates.yml runs `--workers=1`): a reset cuts the store every
+/// other test reads.
+export function freshStore(): void {
+  if (!process.env.RULES_SERVER_URL || process.env.RULES_RESET === '0') return;
+  execFileSync('bash', [join(root, 'scripts', 'rules-runtime.sh'), 'reset'], { stdio: 'inherit' });
+}
+
+const journey = test.extend<{ freshStore: void; payloadsDeclared: void }>({
+  // First, before any page opens: the store as the runtime served it.
+  freshStore: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      freshStore();
+      await use();
+    },
+    // Its own budget: a reset stops the server, copies the seed and waits
+    // for the server again — never charged to the rule's own timeout.
+    { auto: true, timeout: 120_000 },
+  ],
   payloadsDeclared: [
-    // `page` is taken for its order: this teardown runs while it is open.
-    async ({ context, browser, page: _page }, use, testInfo) => {
+    // `page` is taken for its order: this teardown runs while it is open;
+    // `freshStore` so the store is reset before the page opens.
+    async ({ context, browser, page: _page, freshStore: _fresh }, use, testInfo) => {
       const found = new Set<string>();
       // What the shell sent off its surface, and what waited for a review on a declared surface.
       const callers = new Set<string>();
