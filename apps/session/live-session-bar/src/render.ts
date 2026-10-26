@@ -3,7 +3,7 @@
 // shows what a Capability answers names it (`data-reads`), every actuator the
 // DataCapability it triggers (`data-writes`), by identifier.
 
-import { CLOSE_SESSION, CLOSE_WINDOW, GET_DIFFUSION, GET_LIVE_SESSION, GET_PREVIOUS_SESSION_SUMMARY, GET_SESSION_JOURNAL, SHOW_COVER } from './ids.ts';
+import { CLOSE_SESSION, CLOSE_WINDOW, GET_DIFFUSION, GET_LIVE_SESSION, GET_PREVIOUS_SESSION_SUMMARY, GET_SESSION_JOURNAL, LIST_SCENES, SHOW_COVER } from './ids.ts';
 import { linesLabel, showing } from './model.ts';
 import type { Diffusion, Live, Recap } from './types.ts';
 
@@ -19,7 +19,7 @@ export function skeleton(): string {
     '<div class="mf-live-bar__title"><h1 id="session-bar-title"></h1>' +
     `<span class="small muted" id="session-bar-meta" ${live}></span></div>` +
     `<div class="kit-badge" id="session-bar-badges" ${live}></div>` +
-    `<nav class="mf-live-bar__scenes" id="session-bar-scenes" aria-label="Scènes de la séance" ${live}></nav>` +
+    `<nav class="mf-live-bar__scenes" id="session-bar-scenes" aria-label="Scènes de la séance" data-reads="${LIST_SCENES}"></nav>` +
     `<div class="mf-live-bar__broadcast" id="session-bar-broadcast" data-reads="${GET_DIFFUSION}">` +
     '<span class="small" id="session-bar-showing" aria-live="polite"></span><div class="kit-button kit-button--bare kit-button--small" id="session-bar-broadcast-actions"></div></div>' +
     '<div class="kit-button kit-button--bare kit-button--small" id="session-bar-actions">' +
