@@ -4,7 +4,7 @@ import { component, open } from './helpers';
 
 // given: un combat en cours sur une battlemap
 // when: l'application est fermée puis rouverte
-// then: positions, PV, états et initiative sont identiques, et « Réinitialiser la carte » remet l'état à zéro.
+// then: positions, PV, états et initiative sont identiques, et « Réinitialiser la carte » vide la carte : plus aucun token ni ordre d'initiative, la carte et sa grille restent affichées.
 rule('R23', ['screen:dm-view', 'micro-ui:Battlemap'], "État de la carte conservé", async ({ page, browser }) => {
   const reach = async (scope: Page) => {
     await open(scope, 'dm-view');
@@ -57,13 +57,12 @@ rule('R23', ['screen:dm-view', 'micro-ui:Battlemap'], "État de la carte conserv
   await expect(sheet2.getByText(/\d+ \/ \d+ PV/)).toContainText('4 / 11');
   await expect(sheet2.getByRole('button', { name: /Effrayé/ })).toHaveClass(/is-on/);
 
-  // « Réinitialiser la carte » sets everything back to zero.
+  // « Réinitialiser la carte » empties the map: no token, no initiative order, the map and its grid stay.
   await map2.getByRole('button', { name: 'Réinitialiser la carte' }).click();
   await again.getByRole('button', { name: 'Réinitialiser', exact: true }).click();
   await expect(map2.getByLabel('Ordre d’initiative')).toBeHidden();
-  expect(await position(again, 'Elowen')).toEqual(start.elowen);
-  await token(map2, 'Bandit 2').click();
-  await expect(map2.getByRole('complementary', { name: 'Bandit 2' }).getByText(/\d+ \/ \d+ PV/)).toContainText('11 / 11');
-  await expect(map2.getByRole('complementary', { name: 'Bandit 2' }).getByRole('button', { name: /Effrayé/ })).not.toHaveClass(/is-on/);
+  await expect(map2.locator('.kit-token__item')).toHaveCount(0);
+  await expect(map2.locator('.hm-view').first()).toBeVisible();
+  await expect(map2.locator('.hm-grid-path').first()).toHaveAttribute('d', /\S/);
   await reopened.close();
 });

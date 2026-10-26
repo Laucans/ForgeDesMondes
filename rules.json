@@ -407,13 +407,13 @@
       "title": "Combat et carrousel d'initiative"
     },
     {
-      "body": "Tout l'état d'une battlemap, combat en cours compris, survit à la fermeture de l'application. Un bouton « Réinitialiser la carte » permet de repartir à zéro.",
+      "body": "Tout l'état d'une battlemap, combat en cours compris, survit à la fermeture de l'application. Un bouton « Réinitialiser la carte » vide la carte : tokens, combat et initiative sont retirés, la carte et sa grille restent.",
       "components": [
         "Battlemap"
       ],
       "criterion": {
         "given": "un combat en cours sur une battlemap",
-        "then": "positions, PV, états et initiative sont identiques, et « Réinitialiser la carte » remet l'état à zéro.",
+        "then": "positions, PV, états et initiative sont identiques, et « Réinitialiser la carte » vide la carte : plus aucun token ni ordre d'initiative, la carte et sa grille restent affichées.",
         "when": "l'application est fermée puis rouverte"
       },
       "family": "business",

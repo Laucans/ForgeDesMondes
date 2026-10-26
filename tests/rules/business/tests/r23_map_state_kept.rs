@@ -5,7 +5,7 @@ use common::*;
 
 // given: un combat en cours sur une battlemap
 // when: l'application est fermée puis rouverte
-// then: positions, PV, états et initiative sont identiques, et « Réinitialiser la carte » remet l'état à zéro.
+// then: positions, PV, états et initiative sont identiques, et « Réinitialiser la carte » vide la carte : plus aucun token ni ordre d'initiative, la carte et sa grille restent affichées.
 #[test]
 fn r23_map_state_kept() {
     rule(
@@ -106,6 +106,13 @@ fn r23_map_state_kept() {
             check(
                 instance(&reset)["state"] == instance(&initial)["state"],
                 "the map was not set back to zero",
+            )?;
+            check(
+                instance(&reset)["state"]["tokens"]
+                    .as_array()
+                    .is_none_or(Vec::is_empty)
+                    && instance(&reset)["state"]["combat"].is_null(),
+                "a token or the initiative order is left on the map",
             )?;
 
             Ok(())
