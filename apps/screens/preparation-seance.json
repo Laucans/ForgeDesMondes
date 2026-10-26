@@ -2,6 +2,7 @@
   "screen": "preparation-seance",
   "generatedFrom": "Le DM relit la séance précédente, raconte son brief au micro, vérifie les scènes et les entités détectées, crée les manquantes et place les tokens sur la battlemap d’une scène",
   "version": 1,
+  "surface": "dm",
   "layout": [
     { "PreviousSummary": { "session": "s4" } },
     { "OralBrief": { "session": "s4" } },

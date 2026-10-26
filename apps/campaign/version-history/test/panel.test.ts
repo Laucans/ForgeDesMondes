@@ -204,11 +204,12 @@ test('a restore can be followed until the server applies it', async () => {
 test('a restore the DataGuard refuses is said, and the history is left as it was', async () => {
   const p = await panel({ entity: 'morlox' }, { apply: () => ({ status: 'rejected', violations: ['alias-unique-in-campaign'] }) });
   await p.click('#versions-updated');
+  const opened = p.reads.length;
   await p.click('#version-2 [data-writes]');
   assert.match(p.$('#versions-status').textContent ?? '', /^Restauration refusée : un alias de cette version appartient déjà à un autre élément\.$/);
   assert.ok(p.$('#versions-status').classList.contains('is-error'));
   assert.deepEqual(p.ids(), ['version-4', 'version-3', 'version-2', 'version-1']);
-  assert.equal(p.reads.length, 1, 'nothing was applied: nothing is read again');
+  assert.equal(p.reads.length, opened, 'nothing was applied: nothing is read again');
   // The buttons are free again.
   assert.equal((p.$('#version-2 [data-writes]') as HTMLButtonElement).disabled, false);
 });
@@ -379,6 +380,60 @@ test('a click on the trigger while the history is being read opens it once it is
   p.mounted.update({ entity: 'morlox' });
   await p.click('#versions-open');
   assert.match(p.$('.kit-dialog__title').textContent ?? '', /Morlox/);
+});
+
+// AC1: a first read done, the server gains a version, the trigger is clicked: it reads again and the dialog lists the new version
+test('the trigger reads the history again, and the dialog opens on what the server holds now', async () => {
+  const p = await panel({ entity: 'gaspard' });
+  const before = p.reads.length;
+  // The server gains a version the shell has not told the panel about yet (its poll is 2 s).
+  p.data.gaspard?.versions.unshift({ v: 9, date: '2026-10-18T11:00:00', origin: 'manuelle', source: 'sauvegarde', restoredFrom: null, changes: [{ field: 'Notes', old: 'a', new: 'b' }] });
+  await p.click('#versions-open');
+  assert.equal(p.reads.length, before + 1);
+  assert.deepEqual(p.reads.at(-1)?.variables, { entity: 'gaspard' });
+  assert.equal(p.ids()[0], 'version-9');
+});
+
+// AC1: the programmatic open reads again as well
+test('open() reads the history again before it opens', async () => {
+  const p = await panel({ entity: 'gaspard' });
+  p.data.gaspard?.versions.unshift({ v: 9, date: '2026-10-18T11:00:00', origin: 'manuelle', source: 'sauvegarde', restoredFrom: null, changes: [{ field: 'Notes', old: 'a', new: 'b' }] });
+  await p.mounted.open();
+  assert.equal(p.ids()[0], 'version-9');
+});
+
+// AC2: the trigger clicked while a read of another element is in flight, the old answer is dropped
+test('the answer of an element left behind is dropped, whatever the click', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="VersionHistory"></div></body></html>');
+  const { document } = dom.window;
+  const host = document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
+  const fake = fakeShell();
+  const answers = new Map<string, (data: unknown) => void>();
+  let hold = false;
+  const shell: Shell = {
+    ...fake.shell,
+    capability(id, sha256, variables) {
+      const entity = String(variables?.entity);
+      if (!hold || entity !== 'morlox') return fake.shell.capability(id, sha256, variables);
+      return new Promise((resolve) => answers.set(entity, (data) => resolve({ asOf: 1, data })));
+    },
+  };
+  const mounted = mount(host, { entity: 'gaspard' }, shell, timing);
+  await settle();
+  // Morlox's read is in flight when the trigger of the panel (now Morlox's) is clicked.
+  hold = true;
+  mounted.update({ entity: 'morlox' });
+  hold = false;
+  host.querySelector<HTMLElement>('#versions-open')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await settle();
+  // Another element takes the panel before the answers arrive.
+  mounted.update({ entity: 'elowen' });
+  await settle();
+  answers.get('morlox')?.(structuredClone(fixture.morlox));
+  await settle();
+  assert.equal(document.querySelector('#versions-dialog'), null);
+  assert.equal(document.querySelector('#version-4'), null);
+  assert.match(host.querySelector('#versions-trigger')?.textContent ?? '', /Historique des versions/);
 });
 
 test('a panel taken off the page lets go of its dialog on the shell’s next word', async () => {

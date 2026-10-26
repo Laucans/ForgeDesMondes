@@ -2,13 +2,13 @@
 // the files its pages load, and the wire protocol forwarded to the server.
 
 import { createReadStream } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { Config } from './config.js';
 import { renderHome, renderScreen } from './page.js';
 import { isProtocol, proxy } from './proxy.js';
-import { contractValidator, InvalidScreen, isScreenName, loadScreen } from './screens.js';
+import { callerOf, contractValidator, InvalidScreen, isScreenName, loadScreen, loadSurfaces, type Screen } from './screens.js';
 
 const MICRO_UI = /^[A-Z][A-Za-z0-9]*$/;
 
@@ -35,6 +35,57 @@ async function sendFile(res: ServerResponse, path: string, type: string): Promis
     .pipe(res);
 }
 
+const CAMPAIGNS = 'campaign.listCampaigns';
+const UPSTREAM_MS = 5000;
+
+const attribute = (text: string): string => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** Whether a prop of the screen's layout reads the context's campaign. */
+const readsCampaign = (screen: Screen): boolean => screen.layout.some(({ props }) => Object.values(props).includes('$ctx.campaign'));
+
+/**
+ * The campaign a screen shows when its address names none: among the ones with the latest `lastPlayed` (none
+ * counts lowest) the one listed last, never the first row. `undefined` while the list is empty or cannot be read.
+ */
+async function defaultCampaign(config: Config): Promise<string | undefined> {
+  try {
+    const registry = JSON.parse(await readFile(join(config.root, 'queries/registry.json'), 'utf8')) as { queries?: Array<{ capability?: unknown; sha256?: unknown }> };
+    const sha256 = registry.queries?.find((q) => q.capability === CAMPAIGNS)?.sha256;
+    if (typeof sha256 !== 'string') return undefined;
+    const answer = await fetch(new URL(`/capabilities/${CAMPAIGNS}`, config.serverUrl.origin), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sha256, variables: {} }),
+      signal: AbortSignal.timeout(UPSTREAM_MS),
+    });
+    if (!answer.ok) return undefined;
+    const { data } = (await answer.json()) as { data?: unknown };
+    if (!Array.isArray(data)) return undefined;
+    let best: { id: string; lastPlayed: string } | undefined;
+    for (const row of data as Array<{ id?: unknown; lastPlayed?: unknown } | null>) {
+      if (typeof row?.id !== 'string' || !row.id) continue;
+      const lastPlayed = typeof row.lastPlayed === 'string' ? row.lastPlayed : '';
+      // `>=`: a tie goes to the one listed later.
+      if (!best || lastPlayed >= best.lastPlayed) best = { id: row.id, lastPlayed };
+    }
+    return best?.id;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The page of a screen with what the shell's client reads from its head: the caller of its commands, and the default campaign. */
+async function screenPage(config: Config, screen: Screen, url: URL, page: string): Promise<string> {
+  const caller = callerOf(screen, await loadSurfaces(config.root), url.searchParams);
+  const metas = [`<meta name="shell-caller" content="${attribute(JSON.stringify(caller))}">`];
+  if (readsCampaign(screen) && !url.searchParams.get('campaign')) {
+    const campaign = await defaultCampaign(config);
+    if (campaign !== undefined) metas.push(`<meta name="shell-default-campaign" content="${attribute(campaign)}">`);
+  }
+  const end = page.indexOf('</head>');
+  return end < 0 ? page : `${page.slice(0, end)}${metas.join('\n')}\n${page.slice(end)}`;
+}
+
 async function frozenScreens(config: Config): Promise<string[]> {
   const files = await readdir(join(config.root, 'apps/screens')).catch(() => []);
   return files
@@ -52,7 +103,8 @@ export async function createApp(config: Config): Promise<RequestListener> {
     // Only an origin-form target (`/path`): `//host/path` would name another host.
     const target = req.url ?? '/';
     if (!target.startsWith('/') || target.startsWith('//')) return send(res, 400, 'text/plain; charset=utf-8', 'bad request target\n');
-    const { pathname } = new URL(target, 'http://shell');
+    const url = new URL(target, 'http://shell');
+    const { pathname } = url;
     if (isProtocol(pathname)) return proxy(req, res, config.serverUrl);
 
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'text/plain; charset=utf-8', 'method not allowed\n');
@@ -70,7 +122,7 @@ export async function createApp(config: Config): Promise<RequestListener> {
       try {
         const frozen = await loadScreen(config.root, name, validate);
         if (!frozen) return send(res, 404, 'text/plain; charset=utf-8', `no frozen screen "${name}"\n`);
-        return send(res, 200, 'text/html; charset=utf-8', renderScreen(frozen));
+        return send(res, 200, 'text/html; charset=utf-8', await screenPage(config, frozen, url, renderScreen(frozen)));
       } catch (error) {
         if (error instanceof InvalidScreen) return send(res, 500, 'text/plain; charset=utf-8', `${error.message}\n`);
         throw error;

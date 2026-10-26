@@ -12,10 +12,17 @@ const REFERENCE = '$ctx.';
 export class Context {
   private readonly values = new Map<string, unknown>();
   private readonly listeners = new Set<ContextListener>();
+  private readonly held = new Set<string>();
 
-  /** Sets one value and tells everyone who follows the context; nothing happens when it did not change. */
+  /** Sets one value the address named and keeps it: a later `set` of that name changes nothing. */
+  hold(name: string, value: unknown): void {
+    this.set(name, value);
+    this.held.add(name);
+  }
+
+  /** Sets one value and tells everyone who follows the context; nothing happens when it did not change, or when the address holds the name. */
   set(name: string, value: unknown): void {
-    if (this.values.get(name) === value) return;
+    if (this.held.has(name) || this.values.get(name) === value) return;
     this.values.set(name, value);
     // One follower failing must not keep the others from the change.
     for (const listener of [...this.listeners]) {
