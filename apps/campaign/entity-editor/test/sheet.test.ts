@@ -95,6 +95,8 @@ function fakeShell(options: Options = {}) {
     });
   const context = new Map<string, unknown>(Object.entries(options.context ?? { campaign: 'cendres-valombre' }));
   const listeners = new Set<(name: string) => void>();
+  const versionListeners = new Set<(dataVersion: number) => void>();
+  let dataVersion = 1;
   const shell: Shell = {
     async capability(id, _sha256, variables) {
       reads.push({ id, variables });
@@ -119,6 +121,12 @@ function fakeShell(options: Options = {}) {
     async commandResult(commandId) {
       return { result: { commandId, status: 'applied', violations: [] } };
     },
+    onDataVersion: (listener) => {
+      versionListeners.add(listener);
+      // The shell's client says where the data stands as soon as it has asked.
+      void Promise.resolve().then(() => versionListeners.has(listener) && listener(dataVersion));
+      return () => void versionListeners.delete(listener);
+    },
     context: {
       get: (name) => context.get(name),
       set: (name, value) => {
@@ -132,7 +140,12 @@ function fakeShell(options: Options = {}) {
       },
     },
   };
-  return { shell, sent, reads, log, store, contextSets };
+  /** The data moves under the sheet: a new version for every listener the sheet still holds. */
+  const moveData = (): void => {
+    dataVersion += 1;
+    for (const listener of [...versionListeners]) listener(dataVersion);
+  };
+  return { shell, sent, reads, log, store, contextSets, moveData, subscriptions: () => versionListeners.size };
 }
 
 /** Lets every pending promise of the sheet finish. */
@@ -767,4 +780,75 @@ test('a sheet renamed and saved is announced under its new name when the rail as
   await s.click('#entity-save');
   await bus.ask('fdm:entity-query');
   assert.deepEqual(bus.opened.map((o) => o.name), ['Morlox l’Ancien']);
+});
+
+// AC1: a saved sheet with no draft reads campaign.getEntity again when the data version moves, and shows the new description
+test('the data moves under a clean sheet: it is read again and shows the new description', async () => {
+  const s = await sheet('morlox');
+  const reads = () => s.reads.filter((r) => r.id === 'campaign.getEntity').length;
+  // The shell's first word only says where the data stands: nothing is read for it.
+  assert.equal(reads(), 1);
+  const element = s.store.find((e) => e.id === 'morlox');
+  assert.ok(element);
+  element.description = 'Revenu à sa description d’avant.';
+  s.moveData();
+  await settle();
+  assert.equal(reads(), 2);
+  assert.deepEqual(s.reads.at(-1), { id: 'campaign.getEntity', variables: { id: 'morlox' } });
+  assert.equal(s.value('#entity-description'), 'Revenu à sa description d’avant.');
+  assert.equal(s.barShown(), false);
+  // Read again, the sheet is clean again: leaving it asks nothing.
+  const bus = busOf(s);
+  await bus.ask('fdm:open-entity', { id: 'gaspard' });
+  assert.equal(s.barShown(), false);
+  assert.equal(s.value('#entity-name'), 'Gaspard Grosmollet');
+});
+
+// AC2: a sheet with an unsaved draft keeps it when the data version moves
+test('the data moves under a modified sheet: the draft stays, nothing is read', async () => {
+  const s = await sheet('morlox');
+  await s.type('#entity-description', 'Ce que le DM écrit.');
+  const element = s.store.find((e) => e.id === 'morlox');
+  assert.ok(element);
+  element.description = 'Ce que le serveur a maintenant.';
+  s.moveData();
+  await settle();
+  assert.equal(s.reads.filter((r) => r.id === 'campaign.getEntity').length, 1);
+  assert.equal(s.value('#entity-description'), 'Ce que le DM écrit.');
+  // Still the DM's to save: nothing was written.
+  assert.equal(s.sent.length, 0);
+});
+
+// AC2: what is typed while the sheet is read again is kept as well
+test('a draft typed while the sheet is read again is not overwritten', async () => {
+  const s = await sheet('morlox');
+  const element = s.store.find((e) => e.id === 'morlox');
+  assert.ok(element);
+  element.description = 'Ce que le serveur a maintenant.';
+  s.moveData();
+  // The DM types before the answer is painted.
+  s.$<HTMLTextAreaElement>('#entity-description').value = 'Tapé pendant la lecture.';
+  await settle();
+  assert.equal(s.value('#entity-description'), 'Tapé pendant la lecture.');
+});
+
+// AC1: a sheet to create has no element to read again
+test('the data moves under a sheet to create: nothing is read', async () => {
+  const s = await sheet('new:pnj');
+  await s.type('#entity-name', 'Zorbak');
+  s.moveData();
+  await settle();
+  assert.equal(s.reads.filter((r) => r.id === 'campaign.getEntity').length, 0);
+  assert.equal(s.value('#entity-name'), 'Zorbak');
+});
+
+// AC3: a sheet taken off the page stops its subscription when the data version moves
+test('a sheet that left the page lets go of the data version', async () => {
+  const s = await sheet('morlox');
+  assert.equal(s.subscriptions(), 1);
+  s.host.remove();
+  s.moveData();
+  await settle();
+  assert.equal(s.subscriptions(), 0);
+  assert.equal(s.reads.filter((r) => r.id === 'campaign.getEntity').length, 1);
 });
