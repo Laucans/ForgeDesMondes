@@ -20,6 +20,16 @@
 //! the table, which no command wrote yet, is the engine's row as the table
 //! holds it ([`Stamps`]' `hydrate`): what an export is judged against.
 //!
+//! An import (`campaign.importCampaign`) writes the partition of its copy,
+//! `Campaign/<its new id>`, with the campaign's columns and the copy's
+//! sections; [`Stamps`] writes them into the tables inside the transaction
+//! that applies it, the campaign, its players, elements, media, sounds and
+//! sessions with what hangs from them, once ([`import`]): a campaign the
+//! table holds already is never written over, a row the tables refuse
+//! rejects the command, and its `last_exported_at` is left to an export. At
+//! a start it writes again every import the engine applied and the tables
+//! lost, each alone.
+//!
 //! A database whose `campaign` table is not migrated yet holds no campaign:
 //! nothing is stamped, nothing hydrated.
 
@@ -30,6 +40,8 @@ use harness_dataguard::plugins::{ProjectPg, ProjectionError};
 use harness_dataguard::store::Write;
 use harness_dataguard::tokio_postgres::{Client, Error, GenericClient, Transaction};
 use serde_json::Value;
+
+use crate::import;
 
 /// The partitions of the aggregate: `Campaign/<campaign id>`.
 const PARTITION: &str = "Campaign/";
@@ -101,7 +113,8 @@ const STAMP_EXPORTS: &str = "UPDATE campaign c
             OR c.last_exported_at < (r.fields ->> 'lastExportedAt')::timestamptz)";
 
 /// The aggregate's projection: the creations' campaigns and sessions, the
-/// exports' stamps, and the fixtures' campaigns hydrated.
+/// imports' copies, the exports' stamps, and the fixtures' campaigns
+/// hydrated.
 pub struct Stamps;
 
 /// Whether `client`'s database has the `campaign` table.
@@ -111,9 +124,10 @@ async fn migrated(client: &impl GenericClient) -> Result<bool, ProjectionError> 
 
 #[async_trait]
 impl ProjectPg for Stamps {
-    /// The campaign a creation wrote, with its oneshot's session, then the
-    /// stamp of the campaign written, on its row; a deletion creates and
-    /// stamps nothing (`UNCREATED` and `STAMP_EXPORTS` skip a tombstone).
+    /// The campaign a creation wrote, with its oneshot's session, or the
+    /// copy an import wrote, then the stamp of the campaign written, on its
+    /// row; a deletion creates, copies and stamps nothing (`UNCREATED`,
+    /// `UNIMPORTED` and `STAMP_EXPORTS` skip a tombstone).
     async fn project(&self, write: &Write, tx: &Transaction<'_>) -> Result<(), ProjectionError> {
         if !migrated(tx).await? {
             return Ok(());
@@ -124,15 +138,21 @@ impl ProjectPg for Stamps {
                 .await
                 .map_err(judged)?;
         }
+        for row in tx.query(import::UNIMPORTED, &[&partition]).await? {
+            import::copy(tx, &row.get::<_, Value>(1))
+                .await
+                .map_err(judged)?;
+        }
         tx.execute(STAMP_EXPORTS, &[&partition]).await?;
         Ok(())
     }
 
-    /// Every creation the tables lost, each alone, and every stamp the
-    /// table lost, written again: one whose write failed before this
-    /// projection ran in the apply's transaction. A creation the tables
-    /// refuse is logged by its SQLSTATE and its constraint, and keeps no
-    /// other from its row.
+    /// Every creation and every import the tables lost, each alone, and
+    /// every stamp the table lost, written again: one whose write failed
+    /// before this projection ran in the apply's transaction. A creation
+    /// the tables refuse is logged by its SQLSTATE and its constraint, and
+    /// keeps no other from its row; an import is written in a transaction
+    /// of its own, whole or not at all.
     async fn warm(&self, client: &Client) -> Result<(), ProjectionError> {
         if !migrated(client).await? {
             return Ok(());
@@ -143,6 +163,17 @@ impl ProjectPg for Stamps {
                 let db = e.as_db_error();
                 eprintln!(
                     "projection: {partition} not created: {} {}",
+                    db.map_or("-", |db| db.code().code()),
+                    db.and_then(|db| db.constraint()).unwrap_or_default()
+                );
+            }
+        }
+        for row in client.query(import::UNIMPORTED, &[&None::<&str>]).await? {
+            let partition: String = row.get(0);
+            if let Err(e) = copied(client, &row.get::<_, Value>(1)).await {
+                let db = e.as_db_error();
+                eprintln!(
+                    "projection: {partition} not imported: {} {}",
                     db.map_or("-", |db| db.code().code()),
                     db.and_then(|db| db.constraint()).unwrap_or_default()
                 );
@@ -170,6 +201,19 @@ impl ProjectPg for Stamps {
             Value::Object(fields) => Some(fields.into_iter().collect()),
             _ => None,
         })
+    }
+}
+
+/// An import's copy written in a transaction of its own, rolled back
+/// whole when the tables refuse any of it.
+async fn copied(client: &Client, row: &Value) -> Result<(), Error> {
+    client.batch_execute("BEGIN").await?;
+    match import::copy(client, row).await {
+        Ok(()) => client.batch_execute("COMMIT").await,
+        Err(e) => {
+            client.batch_execute("ROLLBACK").await?;
+            Err(e)
+        }
     }
 }
 

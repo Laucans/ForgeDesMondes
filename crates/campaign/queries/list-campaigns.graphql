@@ -1,8 +1,7 @@
-# fields: campaign.id, campaign.name, campaign.kind, campaign.art, campaign.glyph, campaign.pitch, campaign.createdAt
+# fields: campaign.id, campaign.name, campaign.kind, campaign.art, campaign.glyph, campaign.pitch, campaign.createdAt, session.campaignId, session.status, session.startedAt, session.plannedOn
 # Every campaign and oneshot of the home page, newest first: no account, no
-# owner. The session count and the dates are counted from the sessions in
-# campaign_overview_view, never stored: they join this read with the Session
-# aggregate's table.
+# owner. Each carries its session count and its last-played and next-session
+# days, counted from its rows of the session table, never stored.
 query ListCampaigns {
   campaigns {
     id
@@ -12,5 +11,8 @@ query ListCampaigns {
     glyph
     pitch
     createdAt
+    sessionCount
+    lastPlayed
+    nextSession
   }
 }

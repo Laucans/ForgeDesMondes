@@ -1,0 +1,8 @@
+{
+  "microUi": "CampaignList",
+  "system": "campaign",
+  "description": "Les campagnes et oneshots avec leur couverture ; création, export et import d’archive",
+  "needs": ["campaign.listCampaigns"],
+  "actions": ["campaign.createCampaign", "campaign.exportCampaign", "campaign.importCampaign"],
+  "props": {}
+}
