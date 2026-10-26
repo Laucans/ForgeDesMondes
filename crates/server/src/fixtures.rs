@@ -74,14 +74,27 @@
 //! same one is in `Battlemap.json`, not read) is one `battlemap_instance` row of
 //! the scene and the battlemap medium it is a copy of, and one `token` row per
 //! token, at its hex: the scene names it as its `battlemap`, and
-//! `session.listScenes` answers the row. Its roster and the initiative of its
-//! PCs belong to a combat starting; one already running is not loaded, and a
-//! file that has one is skipped. The tokens obey the aggregate's invariants as
+//! `session.listScenes` answers the row. Its roster belongs to a combat
+//! starting; one already running is not loaded, and a file that has one is
+//! skipped. The initiative each PC was last given (`pjInitiative`) is the
+//! seat of one combat that ended on the instance — round 1, its two stamps
+//! those of the session's start, a microsecond apart —, one `initiative_entry`
+//! per PC, ranked from the highest: the next combat starts from them. A figure
+//! outside 1 to 40, or a key that is no PC's character with a token, skips the
+//! file. The tokens obey the aggregate's invariants as
 //! a command would (`token-roster`, `multi-drop-numbering`, `pj-hp-not-tracked`,
 //! `dead-derived`): a file that breaks one is skipped, not loaded.
 //! A scene the store already gave an instance, under another id (the DM's), is
 //! left that one alone: [`Fixtures::leave_out_taken_scenes`] drops the
-//! fixture's instance and its tokens before the load.
+//! fixture's instance, its tokens, its combat and the combat's seats before
+//! the load.
+//!
+//! What the session under way has shown its players (`live.getDiffusion.json`)
+//! is one `diffusion` row of that session: the cover, no window, the framing
+//! at rest (zoom 1, pan 0). It is what `live.showWindowOnPlayerView` finds to
+//! open a window on; a file that shows more than the cover, or that no session
+//! under way receives, is skipped. A restart leaves the row the players' view
+//! has since changed alone.
 //!
 //! The summary of the closed session, its model and the day it was edited
 //! (read from `summaryMeta`, « Généré à la clôture par <model>, retouché le
@@ -275,6 +288,22 @@ const TOKEN: &[&str] = &[
     "hp_max",
     "conditions",
 ];
+const COMBAT: &[&str] = &["id", "instance_id", "round", "started_at", "ended_at"];
+const INITIATIVE_ENTRY: &[&str] = &[
+    "id",
+    "combat_id",
+    "token_id",
+    "initiative",
+    "tiebreak",
+    "rank",
+];
+const DIFFUSION: &[&str] = &[
+    "session_id",
+    "base_kind",
+    "view_zoom",
+    "view_pan_x",
+    "view_pan_y",
+];
 const TO_CREATE: &[&str] = &[
     "id",
     "campaign_id",
@@ -348,6 +377,7 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             TO_CREATE_FILE => read.creations(&value),
             INSTANCE_FILE => read.instance(&value),
             LIVE_FILE => read.running(&value),
+            DIFFUSION_FILE => read.shown(&value),
             _ => {
                 plan.skipped
                     .push((name, "no aggregate holds it".to_string()));
@@ -401,6 +431,10 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
         read.running = None;
         withdraw(&mut plan, LIVE_FILE, &why);
     }
+    if let Err(why) = read.shown_fits() {
+        read.diffusion = false;
+        withdraw(&mut plan, DIFFUSION_FILE, &why);
+    }
     if let Err(why) = read.instance_fits() {
         read.instance = None;
         withdraw(&mut plan, INSTANCE_FILE, &why);
@@ -434,13 +468,18 @@ const INSTANCE_FILE: &str = "table.getBattlemapInstance.json";
 /// and when it started. `LiveSessionBar.json` holds the same header for the
 /// Micro-UI, and is not read.
 const LIVE_FILE: &str = "session.getLiveSession.json";
+/// The fixture of the Diffusion aggregate: what the session under way has
+/// shown its players. `PlayerStage.json` holds the same for the Micro-UI, and
+/// is not read.
+const DIFFUSION_FILE: &str = "live.getDiffusion.json";
 
 impl Fixtures {
     /// Leaves out the instance planned for a scene where the store already
     /// holds an instance under another id (`one-instance-per-scene`): the
     /// DM's own would be hidden by a second, more recent one. `held` is the
     /// `(instance id, scene id)` of every instance of the store, see
-    /// [`held_instances`]; its tokens go with it.
+    /// [`held_instances`]; its tokens, its combat and the seats of the combat
+    /// go with it.
     pub fn leave_out_taken_scenes(&mut self, held: &[(String, String)]) {
         let Some(instances) = self
             .tables
@@ -476,6 +515,30 @@ impl Fixtures {
                     .filter_map(|row| row["id"].as_str().map(str::to_string)),
             );
             table.rows = kept;
+        }
+        // The combat of an instance goes with it, and the seats of the combat.
+        let mut ended = BTreeSet::new();
+        for table in self.tables.iter_mut().filter(|t| t.name == "combat") {
+            table.rows.retain(|row| {
+                let gone = row["instance_id"]
+                    .as_str()
+                    .is_some_and(|o| left.contains(o));
+                if gone && let Some(combat) = row["id"].as_str() {
+                    ended.insert(combat.to_string());
+                }
+                !gone
+            });
+        }
+        for table in self
+            .tables
+            .iter_mut()
+            .filter(|t| t.name == "initiative_entry")
+        {
+            table.rows.retain(|row| {
+                !row["combat_id"]
+                    .as_str()
+                    .is_some_and(|combat| ended.contains(combat))
+            });
         }
         self.names.retain(|(_, row)| !left.contains(row));
         self.withdraw_with(
@@ -624,6 +687,9 @@ struct Read {
     to_create: Option<ToCreate>,
     instance: Option<Instance>,
     running: Option<Running>,
+    /// Whether `live.getDiffusion.json` shows the cover alone, which the
+    /// session under way has received.
+    diffusion: bool,
 }
 
 /// The `session.getLiveSession.json` document, mapped: the session under way.
@@ -742,6 +808,9 @@ struct Instance {
     session: String,
     scene: String,
     tokens: Vec<Token>,
+    /// The initiative each PC was last given, by character slug, the highest
+    /// first (ties by slug): the seats of the combat that ended.
+    initiative: Vec<(String, i64)>,
 }
 
 struct Token {
@@ -1077,6 +1146,27 @@ impl Read {
         Ok(())
     }
 
+    /// `live.getDiffusion.json`: only a player view that has the cover and
+    /// nothing else — no window, no framing — is loaded; the row is the
+    /// session's, with the framing at rest (zoom 1, pan 0).
+    fn shown(&mut self, value: &Value) -> Result<(), String> {
+        if value["base"]["kind"] != "cover" {
+            return Err("only the cover as a background is loaded".to_string());
+        }
+        if !value["window"].is_null() || !value["view"].is_null() {
+            return Err("a window or a framing is not loaded".to_string());
+        }
+        self.diffusion = true;
+        Ok(())
+    }
+
+    fn shown_fits(&self) -> Result<(), String> {
+        if self.diffusion && self.running.is_none() {
+            return Err("no fixture describes the session under way".to_string());
+        }
+        Ok(())
+    }
+
     fn running(&mut self, value: &Value) -> Result<(), String> {
         let session = required(value, "id")?.to_string();
         let day = required(value, "date")?.to_string();
@@ -1377,6 +1467,15 @@ impl Read {
                     "the hit points of {:?} are not those of the sheet of {:?}",
                     token.slug, token.character
                 ));
+            }
+        }
+        for (character, _) in &instance.initiative {
+            if !instance
+                .tokens
+                .iter()
+                .any(|t| t.kind == "pj" && &t.character == character)
+            {
+                return Err(format!("pjInitiative names {character:?}, no PC's token"));
             }
         }
         Ok(())
@@ -1750,6 +1849,19 @@ impl Read {
                     present,
                 ),
             ]);
+            // What the session under way has shown its players: the cover, no
+            // window, the framing at rest.
+            if let (Some(running), true) = (&self.running, self.diffusion) {
+                tables.push(table(
+                    "diffusion",
+                    "session_id",
+                    DIFFUSION,
+                    vec![json!({
+                        "session_id": id("session", &running.session), "base_kind": "cover",
+                        "view_zoom": 1, "view_pan_x": 0, "view_pan_y": 0,
+                    })],
+                ));
+            }
             if let Some(board) = &self.board {
                 let session = id("session", &board.session);
                 let (mut scenes, mut entities, mut media) = (Vec::new(), Vec::new(), Vec::new());
@@ -1804,6 +1916,47 @@ impl Read {
                         ),
                         table("token", "id", TOKEN, tokens),
                     ]);
+                    // The PCs' last initiative is the seats of a combat that ended.
+                    if !instance.initiative.is_empty() {
+                        let combat = id("combat", &instance.slug);
+                        let moment = self
+                            .running
+                            .as_ref()
+                            .filter(|r| r.session == instance.session)
+                            .map_or_else(
+                                || FIRST.to_string(),
+                                |r| format!("{}T{}:00", r.day, r.started),
+                            );
+                        let mut seats = Vec::new();
+                        for (rank, (character, initiative)) in
+                            instance.initiative.iter().enumerate()
+                        {
+                            let Some(token) = instance
+                                .tokens
+                                .iter()
+                                .find(|t| t.kind == "pj" && &t.character == character)
+                            else {
+                                continue;
+                            };
+                            seats.push(json!({
+                                "id": id("initiative_entry", &format!("{}:{}", instance.slug, token.slug)),
+                                "combat_id": combat, "token_id": id("token", &token.slug),
+                                "initiative": initiative, "tiebreak": 0, "rank": rank + 1,
+                            }));
+                        }
+                        tables.extend([
+                            table(
+                                "combat",
+                                "id",
+                                COMBAT,
+                                vec![json!({
+                                    "id": combat, "instance_id": row, "round": 1,
+                                    "started_at": stamp(&moment, 0), "ended_at": stamp(&moment, 1),
+                                })],
+                            ),
+                            table("initiative_entry", "id", INITIATIVE_ENTRY, seats),
+                        ]);
+                    }
                     names.push((instance.slug.clone(), row));
                 }
             }
@@ -2401,13 +2554,46 @@ fn instance_of(value: &Value) -> Result<Instance, String> {
         }
         tokens.push(token);
     }
+    let initiative = initiative_of(&value["pjInitiative"])?;
     Ok(Instance {
         battlemap: required(value, "battlemap")?.to_string(),
         session: required(value, "session")?.to_string(),
         scene: required(value, "scene")?.to_string(),
         slug,
         tokens,
+        initiative,
     })
+}
+
+/// The bounds of an initiative the DM enters.
+const INITIATIVE: std::ops::RangeInclusive<i64> = 1..=40;
+
+/// The `pjInitiative` of an instance — each PC's last initiative, by
+/// character — as seats, the highest first and the ties by character: every
+/// figure a whole number of [`INITIATIVE`]. Absent or null, no PC was ever
+/// seated. The keys name PCs with a token ([`Read::instance_fits`]).
+fn initiative_of(value: &Value) -> Result<Vec<(String, i64)>, String> {
+    let seats = match value {
+        Value::Null => return Ok(Vec::new()),
+        Value::Object(seats) => seats,
+        _ => return Err("pjInitiative is not an object".to_string()),
+    };
+    let mut initiative = Vec::with_capacity(seats.len());
+    for (character, figure) in seats {
+        let figure = figure
+            .as_i64()
+            .filter(|n| INITIATIVE.contains(n))
+            .ok_or_else(|| {
+                format!(
+                    "the initiative of {character:?} is not a whole number from {} to {}",
+                    INITIATIVE.start(),
+                    INITIATIVE.end()
+                )
+            })?;
+        initiative.push((character.clone(), figure));
+    }
+    initiative.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    Ok(initiative)
 }
 
 /// One token of an instance, mapped, in the bounds of the columns and of the
@@ -2844,13 +3030,14 @@ mod tests {
                 "campaign.listCampaigns.json",
                 "campaign.listEntityVersions.json",
                 "entities.json",
+                "live.getDiffusion.json",
                 "media.json",
                 "session.getLiveSession.json",
                 "sounds.json",
                 "table.getBattlemapInstance.json"
             ]
         );
-        assert!(plan.skipped.len() > 30, "{}", plan.skipped.len());
+        assert!(plan.skipped.len() > 25, "{}", plan.skipped.len());
         assert!(
             plan.skipped
                 .iter()
@@ -2878,11 +3065,14 @@ mod tests {
                 "session",
                 "session",
                 "session_present_character",
+                "diffusion",
                 "scene",
                 "scene_entity",
                 "scene_media",
                 "battlemap_instance",
                 "token",
+                "combat",
+                "initiative_entry",
                 "session_journal_line",
                 "oral_brief",
                 "entity_to_create"
@@ -5028,6 +5218,7 @@ mod tests {
                 BRIEF_FILE,
                 TO_CREATE_FILE,
                 LIVE_FILE,
+                DIFFUSION_FILE,
                 INSTANCE_FILE,
             ];
             assert_eq!(
@@ -5039,6 +5230,7 @@ mod tests {
                     BRIEF_FILE,
                     TO_CREATE_FILE,
                     LIVE_FILE,
+                    DIFFUSION_FILE,
                     INSTANCE_FILE
                 ],
                 "{what}"
@@ -5336,6 +5528,155 @@ mod tests {
         );
     }
 
+    // AC1: the PCs' last initiative is planned as the seats of one ended combat
+    #[test]
+    fn the_pcs_last_initiative_is_planned_as_the_seats_of_a_combat_that_ended() {
+        let plan = mock();
+        let instance = id("battlemap_instance", "bmi-gue-s4");
+        let combats = rows(&plan, "combat");
+        assert_eq!(
+            combats,
+            [&json!({
+                "id": id("combat", "bmi-gue-s4"), "instance_id": instance, "round": 1,
+                "started_at": "2026-10-17T20:02:00.000000Z",
+                "ended_at": "2026-10-17T20:02:00.000001Z",
+            })],
+            "round 1, over, at the start of the session under way"
+        );
+        // elowen 18, sirielle 14, kael 12, brannoc 9: rank 1 to 4, one entry per PC token.
+        let wanted = [
+            ("t-elowen", 18),
+            ("t-sirielle", 14),
+            ("t-kael", 12),
+            ("t-brannoc", 9),
+        ];
+        let seats = rows(&plan, "initiative_entry");
+        assert_eq!(seats.len(), wanted.len());
+        for (index, (seat, (token, initiative))) in seats.iter().zip(wanted).enumerate() {
+            assert_eq!(
+                seat,
+                &&json!({
+                    "id": id("initiative_entry", &format!("bmi-gue-s4:{token}")),
+                    "combat_id": id("combat", "bmi-gue-s4"), "token_id": id("token", token),
+                    "initiative": initiative, "tiebreak": 0, "rank": index + 1,
+                })
+            );
+        }
+        let tables: Vec<&str> = plan.tables.iter().map(|t| t.name).collect();
+        let at = |name: &str| tables.iter().position(|t| *t == name).expect(name);
+        assert_eq!(at("token") + 1, at("combat"));
+        assert_eq!(at("combat") + 1, at("initiative_entry"));
+        let keyed = |table: &str| plan.tables.iter().find(|t| t.name == table).map(|t| t.key);
+        assert_eq!(keyed("combat"), Some("id"));
+        assert_eq!(keyed("initiative_entry"), Some("id"));
+    }
+
+    #[test]
+    fn equal_initiatives_are_ranked_by_character_and_no_initiative_plans_no_combat() {
+        let edited = |edit: &dyn Fn(&mut Value)| {
+            let mut value = mock_file(INSTANCE_FILE);
+            edit(&mut value);
+            replaced(&[(INSTANCE_FILE, value)])
+        };
+        let plan = edited(&|v| v["pjInitiative"] = json!({ "kael": 12, "elowen": 12 }));
+        let seats = rows(&plan, "initiative_entry");
+        let order: Vec<_> = seats.iter().map(|s| s["token_id"].clone()).collect();
+        assert_eq!(
+            order,
+            [id("token", "t-elowen"), id("token", "t-kael")],
+            "ties by character"
+        );
+        // The bounds are inclusive.
+        let plan = edited(&|v| v["pjInitiative"] = json!({ "kael": 1, "elowen": 40 }));
+        let figures: Vec<_> = rows(&plan, "initiative_entry")
+            .iter()
+            .map(|s| s["initiative"].clone())
+            .collect();
+        assert_eq!(figures, [json!(40), json!(1)]);
+        // None entered, or none given: the instance loads with no combat.
+        for none in [json!({}), json!(null)] {
+            let plan = edited(&|v| v["pjInitiative"] = none.clone());
+            assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+            assert_eq!(rows(&plan, "token").len(), 8);
+            assert!(rows(&plan, "combat").is_empty());
+            assert!(rows(&plan, "initiative_entry").is_empty());
+        }
+    }
+
+    // AC2: the session under way has received the cover, as its fixture says
+    #[test]
+    fn the_session_under_way_has_received_the_cover_and_nothing_else() {
+        let plan = mock();
+        assert_eq!(
+            rows(&plan, "diffusion"),
+            [&json!({
+                "session_id": id("session", "s4"), "base_kind": "cover",
+                "view_zoom": 1, "view_pan_x": 0, "view_pan_y": 0,
+            })]
+        );
+        let keyed = plan.tables.iter().find(|t| t.name == "diffusion");
+        assert_eq!(keyed.map(|t| t.key), Some("session_id"));
+        let tables: Vec<&str> = plan.tables.iter().map(|t| t.name).collect();
+        let at = |name: &str| tables.iter().position(|t| *t == name).expect(name);
+        assert!(at("session") < at("diffusion"), "{tables:?}");
+    }
+
+    #[test]
+    fn a_diffusion_that_shows_more_than_the_cover_or_that_nobody_receives_is_skipped_alone() {
+        let edited = |edit: &dyn Fn(&mut Value)| {
+            let mut value = mock_file(DIFFUSION_FILE);
+            edit(&mut value);
+            (DIFFUSION_FILE, value)
+        };
+        let cases = [
+            (
+                "a background that is an illustration",
+                vec![edited(&|v| {
+                    v["base"] = json!({ "kind": "illustration", "id": "ill-moulin" })
+                })],
+                "only the cover",
+            ),
+            (
+                "a window",
+                vec![edited(
+                    &|v| {
+                        v["window"] = json!({ "media": "ill-moulin", "x": 0.1, "y": 0.1, "w": 0.3 })
+                    },
+                )],
+                "a window or a framing",
+            ),
+            (
+                "a framing",
+                vec![edited(&|v| {
+                    v["view"] = json!({ "zoom": 2, "panX": 0, "panY": 0 })
+                })],
+                "a window or a framing",
+            ),
+            (
+                "no session under way",
+                vec![(
+                    LIVE_FILE,
+                    json!({ "id": "s4", "date": "not a day", "startedAt": "20:02" }),
+                )],
+                "no fixture describes the session under way",
+            ),
+        ];
+        for (what, over, why) in cases {
+            let plan = replaced(&over);
+            let left: Vec<&Skipped> = unmapped(&plan)
+                .into_iter()
+                .filter(|(name, _)| name == DIFFUSION_FILE)
+                .collect();
+            assert_eq!(left.len(), 1, "{what}: {:?}", plan.skipped);
+            assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
+            assert!(rows(&plan, "diffusion").is_empty(), "{what}");
+            assert!(!plan.loaded.iter().any(|n| n == DIFFUSION_FILE), "{what}");
+            // The instance and its combat stay planned.
+            assert_eq!(rows(&plan, "token").len(), 8, "{what}");
+        }
+    }
+
+    // AC3: a scene the store gave another instance loads neither the instance nor its tokens, combat or seats
     #[test]
     fn a_scene_the_store_gave_another_instance_loads_neither_instance_nor_tokens() {
         let (instance, scene) = (id("battlemap_instance", "bmi-gue-s4"), id("scene", "sc3"));
@@ -5343,6 +5684,8 @@ mod tests {
             (
                 rows(plan, "battlemap_instance").len(),
                 rows(plan, "token").len(),
+                rows(plan, "combat").len(),
+                rows(plan, "initiative_entry").len(),
             )
         };
         // Another scene's instance, and the fixture's own after a restart: planned as is.
@@ -5355,7 +5698,7 @@ mod tests {
             let before = mock();
             plan.leave_out_taken_scenes(&held);
             assert_eq!(plan, before, "{held:?}");
-            assert_eq!(table_rows(&plan), (1, 8));
+            assert_eq!(table_rows(&plan), (1, 8, 1, 4));
         }
         // The DM's own instance on sc3, with or without the fixture's.
         for held in [
@@ -5364,7 +5707,7 @@ mod tests {
         ] {
             let mut plan = mock();
             plan.leave_out_taken_scenes(&held);
-            assert_eq!(table_rows(&plan), (0, 0), "{held:?}");
+            assert_eq!(table_rows(&plan), (0, 0, 0, 0), "{held:?}");
             assert!(!plan.loaded.iter().any(|f| f == INSTANCE_FILE));
             assert_eq!(plan.skipped.len(), mock().skipped.len() + 1);
             assert!(
@@ -5403,6 +5746,41 @@ mod tests {
                 "a combat running",
                 vec![instance(&|v| v["state"]["combat"] = json!({ "round": 1 }))],
                 "combat running",
+            ),
+            (
+                "an initiative of nobody's",
+                vec![instance(&|v| v["pjInitiative"]["nobody"] = json!(10))],
+                "names \"nobody\", no PC's token",
+            ),
+            (
+                "an initiative of an NPC's",
+                vec![instance(&|v| v["pjInitiative"]["vesna"] = json!(10))],
+                "names \"vesna\", no PC's token",
+            ),
+            (
+                "an initiative of 0",
+                vec![instance(&|v| v["pjInitiative"]["elowen"] = json!(0))],
+                "not a whole number from 1 to 40",
+            ),
+            (
+                "an initiative of 41",
+                vec![instance(&|v| v["pjInitiative"]["elowen"] = json!(41))],
+                "not a whole number from 1 to 40",
+            ),
+            (
+                "an initiative with a fraction",
+                vec![instance(&|v| v["pjInitiative"]["elowen"] = json!(12.5))],
+                "not a whole number from 1 to 40",
+            ),
+            (
+                "an initiative that is a text",
+                vec![instance(&|v| v["pjInitiative"]["elowen"] = json!("18"))],
+                "not a whole number from 1 to 40",
+            ),
+            (
+                "initiatives that are a list",
+                vec![instance(&|v| v["pjInitiative"] = json!([18]))],
+                "pjInitiative is not an object",
             ),
             (
                 "a session nobody gives scenes to",
@@ -5621,7 +5999,7 @@ mod tests {
             assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
             assert!(left[0].1.starts_with("cannot be mapped"), "{what}");
             assert!(!plan.loaded.iter().any(|n| n == INSTANCE_FILE), "{what}");
-            for table in ["battlemap_instance", "token"] {
+            for table in ["battlemap_instance", "token", "combat", "initiative_entry"] {
                 assert!(rows(&plan, table).is_empty(), "{what}: {table}");
             }
             assert!(
