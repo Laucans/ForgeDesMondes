@@ -113,10 +113,10 @@
   async function pageCaller(page) {
     try {
       const meta = page.meta("shell-caller");
-      if (meta !== void 0) return asCaller(JSON.parse(meta)) ?? FAIL_CLOSED;
-      return await mockupCaller(page);
+      if (meta !== void 0) return { caller: asCaller(JSON.parse(meta)) ?? FAIL_CLOSED, settled: true };
+      return { caller: await mockupCaller(page), settled: true };
     } catch {
-      return FAIL_CLOSED;
+      return { caller: FAIL_CLOSED, settled: false };
     }
   }
   function withCaller(body, caller) {
@@ -125,7 +125,13 @@
     return { ...body, caller: { ...sent && typeof sent === "object" ? sent : {}, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
   }
   function createShell(fetcher = (input2, init) => fetch(input2, init), page = browserPage()) {
-    let caller;
+    let resolving;
+    const callerOf = async () => {
+      const asked = resolving ??= pageCaller(page);
+      const { caller, settled: settled2 } = await asked;
+      if (!settled2 && resolving === asked) resolving = void 0;
+      return caller;
+    };
     const context2 = new Context();
     const named = page.href ? new URL(page.href, "http://shell").searchParams.get("campaign") : null;
     if (named) context2.hold("campaign", named);
@@ -135,7 +141,7 @@
     }
     return {
       capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
-      command: async (body) => call(fetcher, "POST", "/commands", withCaller(body, await (caller ??= pageCaller(page)))),
+      command: async (body) => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())),
       commandResult: (commandId2) => call(fetcher, "GET", `/commands/${encodeURIComponent(commandId2)}`),
       onDataVersion(listener, everyMs = POLL_MS) {
         let last;

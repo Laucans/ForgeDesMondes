@@ -116,14 +116,17 @@ async function mockupCaller(page: Page): Promise<Caller> {
   return (surface !== undefined && declared && Object.hasOwn(declared, surface) ? asCaller(declared[surface]) : undefined) ?? FAIL_CLOSED;
 }
 
-/** The caller every command of this page carries: the metas' when the shell's server wrote them, else the mock-up's; the players' for any doubt. */
-async function pageCaller(page: Page): Promise<Caller> {
+/**
+ * The caller every command of this page carries: the metas' when the shell's server wrote them, else the mock-up's;
+ * the players' for any doubt. `settled` is false when a file could not be read: the next command asks again.
+ */
+async function pageCaller(page: Page): Promise<{ caller: Caller; settled: boolean }> {
   try {
     const meta = page.meta('shell-caller');
-    if (meta !== undefined) return asCaller(JSON.parse(meta)) ?? FAIL_CLOSED;
-    return await mockupCaller(page);
+    if (meta !== undefined) return { caller: asCaller(JSON.parse(meta)) ?? FAIL_CLOSED, settled: true };
+    return { caller: await mockupCaller(page), settled: true };
   } catch {
-    return FAIL_CLOSED;
+    return { caller: FAIL_CLOSED, settled: false };
   }
 }
 
@@ -135,7 +138,14 @@ function withCaller(body: unknown, caller: Caller): unknown {
 }
 
 export function createShell(fetcher: typeof fetch = (input, init) => fetch(input, init), page: Page = browserPage()): Shell {
-  let caller: Promise<Caller> | undefined;
+  let resolving: ReturnType<typeof pageCaller> | undefined;
+  const callerOf = async (): Promise<Caller> => {
+    const asked = (resolving ??= pageCaller(page));
+    const { caller, settled } = await asked;
+    // A failure to read is not remembered: a later command tries again, failing closed meanwhile.
+    if (!settled && resolving === asked) resolving = undefined;
+    return caller;
+  };
   const context = new Context();
   // The context's campaign follows one precedence: the address, then the live session (a Micro-UI's write), then the default.
   const named = page.href ? new URL(page.href, 'http://shell').searchParams.get('campaign') : null;
@@ -146,7 +156,7 @@ export function createShell(fetcher: typeof fetch = (input, init) => fetch(input
   }
   return {
     capability: async (id, sha256, variables = {}) => (await call(fetcher, 'POST', `/capabilities/${encodeURIComponent(id)}`, { sha256, variables })) as Read,
-    command: async (body) => call(fetcher, 'POST', '/commands', withCaller(body, await (caller ??= pageCaller(page)))),
+    command: async (body) => call(fetcher, 'POST', '/commands', withCaller(body, await callerOf())),
     commandResult: (commandId) => call(fetcher, 'GET', `/commands/${encodeURIComponent(commandId)}`),
     onDataVersion(listener, everyMs = POLL_MS) {
       let last: number | undefined;

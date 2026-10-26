@@ -200,6 +200,26 @@ test('the caller of a page is resolved once, for all its commands', async () => 
   assert.equal(asked.length, 3);
 });
 
+test('a file the mock-up could not be read is asked again by the next command, failing closed meanwhile', async () => {
+  let up = false;
+  const held = files();
+  const page: Page = {
+    href: `${MOCKUP}?pilote=1`,
+    meta: () => undefined,
+    fetch: async (input) => (up ? answer(200, held[urlOf(input)] ?? null) : Promise.reject(new TypeError('offline'))),
+  };
+  const sent: unknown[] = [];
+  const shell = createShell(async (_input, init) => {
+    sent.push((JSON.parse(init?.body as string) as { caller: unknown }).caller);
+    return answer(200, {});
+  }, page);
+  await shell.command({});
+  up = true;
+  await shell.command({});
+  await shell.command({});
+  assert.deepEqual(sent, [PLAYER, DM, DM]);
+});
+
 // AC9: an address campaign holds against a later context write; a default seed does not
 test("the address' campaign is held against a later write of the context; the default one is replaced", () => {
   const named = createShell(async () => answer(200, {}), pageOf('http://shell/screens/campagne?campaign=ember', { 'shell-default-campaign': 'dflt' }));
