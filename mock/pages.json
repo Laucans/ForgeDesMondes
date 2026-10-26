@@ -619,11 +619,13 @@
       "fragment": "components/PlayerStage.html",
       "fixtures": [
         "fixtures/live.getDiffusion.json",
+        "fixtures/session.getLiveSession.json",
         "fixtures/campaign.getCampaign.json",
         "fixtures/media.listMedia.json"
       ],
       "needs": [
         "live.getDiffusion",
+        "session.getLiveSession",
         "campaign.getCampaign",
         "media.listMedia"
       ],
@@ -636,7 +638,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "655853430e92fd40"
+      "builtFrom": "22d89ca18b842a33"
     }
   ]
 }

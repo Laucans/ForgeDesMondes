@@ -97,6 +97,7 @@
   // apps/live/player-stage/src/ids.ts
   var GET_DIFFUSION = "live.getDiffusion";
   var GET_CAMPAIGN = "campaign.getCampaign";
+  var GET_LIVE_SESSION = "session.getLiveSession";
   var LIST_MEDIA = "media.listMedia";
   var MOVE_WINDOW = "live.moveWindow";
   var RESIZE_WINDOW = "live.resizeWindow";
@@ -146,6 +147,10 @@
       glyph: text(data.glyph),
       session: next !== null && order !== null && text(next.title) !== "" ? { order, title: text(next.title) } : null
     };
+  }
+  function parseLiveCampaign(data) {
+    const session = isRecord(data) && isRecord(data.session) ? data.session : null;
+    return session === null ? "" : text(session.campaign);
   }
   function ratioOf(entry) {
     const [width, height] = [num(entry.width), num(entry.height)];
@@ -215,7 +220,7 @@
     const bar = pilot ? `<figcaption class="pv-window__bar" id="player-window-bar" data-writes="${MOVE_WINDOW}"></figcaption>` : "";
     const corner = pilot ? `<span class="pv-window__resize" id="player-window-resize" data-writes="${RESIZE_WINDOW}" aria-hidden="true"></span>` : "";
     const badge = pilot ? '<p class="pv-pilot" id="player-pilot-badge">Vue pilot\xE9e par le MJ \xB7 d\xE9placez les tokens et la fen\xEAtre, zoomez la carte</p>' : "";
-    return `<div class="pv${pilot ? " pv--pilot" : ""}" id="player-stage"><div class="pv-base" id="player-base" data-reads="${GET_DIFFUSION}"></div><figure class="pv-window" id="player-window" hidden>${bar}<div class="pv-window__art" id="player-window-art" data-reads="${LIST_MEDIA}"></div>${corner}</figure>` + badge + '<p class="pv-status" id="player-status" role="status" hidden></p></div>';
+    return `<div class="pv${pilot ? " pv--pilot" : ""}" id="player-stage" data-reads="${GET_LIVE_SESSION}"><div class="pv-base" id="player-base" data-reads="${GET_DIFFUSION}"></div><figure class="pv-window" id="player-window" hidden>${bar}<div class="pv-window__art" id="player-window-art" data-reads="${LIST_MEDIA}"></div>${corner}</figure>` + badge + '<p class="pv-status" id="player-status" role="status" hidden></p></div>';
   }
   function cover(campaign, media) {
     const image = illustrationOf(media, campaign?.cover || media.cover);
@@ -365,6 +370,14 @@
       paintBase();
       paintWindow();
     }
+    async function readCampaign() {
+      try {
+        const id = props2.campaign || parseLiveCampaign((await shell2.capability(GET_LIVE_SESSION, void 0, {})).data);
+        return id === "" ? void 0 : await shell2.capability(GET_CAMPAIGN, void 0, { id });
+      } catch {
+        return void 0;
+      }
+    }
     async function refresh() {
       const mine = generation;
       const no = readNo += 1;
@@ -375,7 +388,7 @@
         const unknown = (id) => id !== "" && illustrationOf(media, id) === void 0 && !missing.has(id);
         const wantsMedia = !mediaRead || unknown(next.window?.media ?? "") || next.base.kind === "illustration" && unknown(next.base.id);
         const [named, listed] = await Promise.all([
-          campaignRead ? void 0 : shell2.capability(GET_CAMPAIGN, void 0, props2.campaign === "" ? {} : { id: props2.campaign }).catch(() => void 0),
+          campaignRead ? void 0 : readCampaign(),
           wantsMedia ? shell2.capability(LIST_MEDIA, void 0, scope()).catch(() => void 0) : void 0
         ]);
         if (mine !== generation || no < readNo) return;
