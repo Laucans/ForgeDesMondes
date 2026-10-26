@@ -296,10 +296,10 @@
     const badge = pilot ? '<p class="pv-pilot" id="player-pilot-badge">Vue pilot\xE9e par le MJ \xB7 d\xE9placez les tokens et la fen\xEAtre, zoomez la carte</p>' : "";
     return `<div class="pv${pilot ? " pv--pilot" : ""}" id="player-stage" data-reads="${GET_LIVE_SESSION}"><div class="pv-base" id="player-base" data-reads="${GET_DIFFUSION}"></div><figure class="pv-window" id="player-window" hidden>${bar}<div class="pv-window__art" id="player-window-art" data-reads="${LIST_MEDIA}"></div>${corner}</figure>` + badge + '<p class="pv-status" id="player-status" role="status" hidden></p></div>';
   }
-  function cover(campaign, media) {
+  function cover(campaign, media, titled) {
     const image = illustrationOf(media, campaign?.cover || media.cover);
     const picture = image ?? { art: campaign?.art ?? "", glyph: campaign?.glyph ?? "", title: "Couverture de la campagne" };
-    const title = campaign === null ? "" : `<h1 id="player-cover-title">${esc(campaign.name)}</h1>${campaign.session === null ? "" : `<p>S\xE9ance ${campaign.session.order} \u2014 ${esc(campaign.session.title)}</p>`}`;
+    const title = campaign === null || !titled ? "" : `<h1 id="player-cover-title">${esc(campaign.name)}</h1>${campaign.session === null ? "" : `<p>S\xE9ance ${campaign.session.order} \u2014 ${esc(campaign.session.title)}</p>`}`;
     return `<div class="pv-cover" id="player-cover" data-reads="${GET_CAMPAIGN}">${art({ ...picture, title: "Couverture de la campagne" })}<div class="pv-cover__title">${title}</div></div>`;
   }
   function scene(image) {
@@ -408,7 +408,7 @@
         }
       } else {
         const image = base3.kind === "illustration" ? illustrationOf(media, base3.id) : void 0;
-        const html = image ? scene(image) : cover(campaign, media);
+        const html = image ? scene(image) : cover(campaign, media, windowImage() === void 0);
         if (html !== baseKey) {
           baseKey = html;
           box.innerHTML = html;
@@ -419,11 +419,14 @@
     function current() {
       return diffusion.window === null ? null : { ...diffusion.window, ...local };
     }
+    function windowImage() {
+      return diffusion.window === null ? void 0 : illustrationOf(media, diffusion.window.media);
+    }
     function paintWindow() {
       const figure = part("player-window");
       if (!figure) return;
       const win = current();
-      const image = win === null ? void 0 : illustrationOf(media, win.media);
+      const image = windowImage();
       if (win === null || image === void 0) {
         figure.hidden = true;
         return;
