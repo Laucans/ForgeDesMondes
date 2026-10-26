@@ -899,6 +899,97 @@
         "pages/player-view.html"
       ],
       "title": "Synchronisation des onglets sous une seconde"
+    },
+    {
+      "body": "Sur la soundbox, le DM ajoute un son à la bibliothèque de la campagne que l'écran montre : celle que l'adresse nomme (?campaign=), sinon la campagne par défaut. Son geste vaut approbation : le son est enregistré aussitôt, sans attendre de revue.",
+      "components": [
+        "SoundLibrary"
+      ],
+      "criterion": {
+        "given": "la soundbox ouverte sur la campagne « Les Héritiers de la Tour d’Ébène » par son adresse",
+        "then": "le son apparaît dans la bibliothèque de cette campagne et y est encore après rechargement, sans refus « un son nomme sa campagne » ni attente de revue",
+        "when": "le DM y ajoute un son nommé et tagué"
+      },
+      "family": "journey",
+      "id": "R115",
+      "pages": [
+        "pages/soundbox.html"
+      ],
+      "state": "conform",
+      "title": "Un son ajouté rejoint la soundbox de la campagne"
+    },
+    {
+      "body": "Sur l'écran d'une campagne, le DM crée une séance : elle est enregistrée aussitôt dans cette campagne, sans attendre de revue. L'écran montre la campagne que l'adresse nomme (?campaign=), sinon la campagne par défaut.",
+      "components": [
+        "SessionList"
+      ],
+      "criterion": {
+        "given": "l'écran campagne ouvert sur la campagne « Les Héritiers de la Tour d’Ébène » par son adresse",
+        "then": "la séance apparaît dans la liste des séances de cette campagne et y est encore après rechargement",
+        "when": "le DM y crée une séance titrée"
+      },
+      "family": "journey",
+      "id": "R116",
+      "pages": [
+        "pages/campagne.html"
+      ],
+      "state": "conform",
+      "title": "Une séance créée existe vraiment"
+    },
+    {
+      "body": "Sur l'écran d'une campagne, « Exporter l'archive » fait enregistrer au navigateur le fichier d'archive que le serveur répond à l'export.",
+      "components": [
+        "CampaignOverview"
+      ],
+      "criterion": {
+        "given": "l'écran campagne ouvert sans campagne dans l'adresse",
+        "then": "le navigateur enregistre un fichier JSON : l'archive « campaign-archive » de la campagne affichée, qui porte son nom",
+        "when": "le DM exporte l'archive de la campagne"
+      },
+      "family": "journey",
+      "id": "R117",
+      "pages": [
+        "pages/campagne.html"
+      ],
+      "state": "conform",
+      "title": "L'export de la campagne donne un fichier"
+    },
+    {
+      "body": "Sur l'écran des médias, le DM téléverse une illustration dans la médiathèque de la campagne affichée, celle que l'adresse nomme, sinon la campagne par défaut : elle est enregistrée aussitôt, sans attendre de revue.",
+      "components": [
+        "MediaLibrary"
+      ],
+      "criterion": {
+        "given": "l'écran médias ouvert sans campagne dans l'adresse",
+        "then": "l'illustration apparaît sous ce titre parmi les illustrations de la médiathèque et y est encore après rechargement",
+        "when": "le DM y téléverse une illustration sous un titre qu'aucun autre média ne porte"
+      },
+      "family": "journey",
+      "id": "R118",
+      "pages": [
+        "pages/medias.html"
+      ],
+      "state": "conform",
+      "title": "Une illustration téléversée reste dans la médiathèque"
+    },
+    {
+      "body": "Sur la fiche d'une entité, le DM revient à une version antérieure depuis l'historique : la fiche reprend les valeurs de cette version et l'historique garde la trace du retour, aussitôt et sans attendre de revue.",
+      "components": [
+        "VersionHistory",
+        "EntityEditor"
+      ],
+      "criterion": {
+        "given": "la fiche de Mère Ombeline, dont le DM vient de changer la description et de l'enregistrer",
+        "then": "la fiche reprend sa description d'origine, une nouvelle version apparaît en tête de l'historique, et l'une comme l'autre sont encore là après rechargement",
+        "when": "il revient à la version précédente depuis l'historique"
+      },
+      "family": "journey",
+      "id": "R119",
+      "pages": [
+        "pages/fiche-entite.html"
+      ],
+      "state": "conform",
+      "title": "Revenir à une version d'une fiche"
     }
   ],
   "version": 1
