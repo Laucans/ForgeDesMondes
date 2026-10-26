@@ -477,10 +477,12 @@
       "description": "La bibliothèque des effets sonores : téléversement, nom, tags et volume propre",
       "fragment": "components/SoundLibrary.html",
       "fixtures": [
-        "fixtures/soundbox.listSounds.json"
+        "fixtures/soundbox.listSounds.json",
+        "fixtures/session.getLiveSession.json"
       ],
       "needs": [
-        "soundbox.listSounds"
+        "soundbox.listSounds",
+        "session.getLiveSession"
       ],
       "actions": [
         "soundbox.addSound",
@@ -491,7 +493,7 @@
         "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
       },
       "source": "apps/soundbox/sound-library",
-      "builtFrom": "f9f3fbd6d2d4f744"
+      "builtFrom": "9bd75ae823a4ecb1"
     },
     {
       "name": "LiveSessionBar",
