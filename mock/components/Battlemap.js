@@ -208,9 +208,9 @@
     "Concentration": "\u25CE"
   };
   var MAX_COUNT = 12;
-  function parseProps(raw) {
+  function parseProps(raw, search = "") {
     const view = raw.view === void 0 || raw.view === "dm" ? "dm" : raw.view === "prep" ? "prep" : "player";
-    return { instance: text(raw.instance), view, pilot: raw.pilot === true, fill: raw.fill === true, campaign: text(raw.campaign) };
+    return { instance: text(raw.instance), view, pilot: raw.pilot === true || new URLSearchParams(search).get("pilote") === "1", fill: raw.fill === true, campaign: text(raw.campaign) };
   }
   function token(value) {
     const name = text(value.name);
@@ -237,7 +237,7 @@
     };
   }
   function participant(value) {
-    return { id: text(value.id), init: num(value.init, 0), dex: num(value.dex, 0) };
+    return { id: text(value.id), init: num(value.initiative, num(value.init, 0)), dex: num(value.dex, 0) };
   }
   function parseCombat(value) {
     if (!isRecord(value) || !Array.isArray(value.order)) return null;
@@ -578,7 +578,8 @@
   }
   function mount(host2, raw, shell2, timing = WAITING) {
     ensureStyle(host2.ownerDocument);
-    let props2 = parseProps(raw);
+    const addressSearch = () => host2.ownerDocument.defaultView?.location.search ?? "";
+    let props2 = parseProps(raw, addressSearch());
     let instance = null;
     let map = null;
     let characters = {};
@@ -1183,7 +1184,7 @@
     void start();
     return {
       update(next) {
-        const parsed = parseProps(next);
+        const parsed = parseProps(next, addressSearch());
         const same2 = parsed.instance === props2.instance && parsed.view === props2.view && parsed.pilot === props2.pilot && parsed.fill === props2.fill && parsed.campaign === props2.campaign;
         props2 = parsed;
         if (!same2) void start();

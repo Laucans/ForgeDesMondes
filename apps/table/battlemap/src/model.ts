@@ -27,10 +27,11 @@ export const CONDITIONS: Readonly<Record<string, string>> = {
 
 export const MAX_COUNT = 12;
 
-export function parseProps(raw: Record<string, unknown>): Props {
+/** The props, the pilot tab being asked for by `pilot` or by `?pilote=1` in the address (as the player stage reads it). */
+export function parseProps(raw: Record<string, unknown>, search = ''): Props {
   // Absent, the DM's view; a value that is none of the three, the safest: the players'.
   const view: View = raw.view === undefined || raw.view === 'dm' ? 'dm' : raw.view === 'prep' ? 'prep' : 'player';
-  return { instance: text(raw.instance), view, pilot: raw.pilot === true, fill: raw.fill === true, campaign: text(raw.campaign) };
+  return { instance: text(raw.instance), view, pilot: raw.pilot === true || new URLSearchParams(search).get('pilote') === '1', fill: raw.fill === true, campaign: text(raw.campaign) };
 }
 
 function token(value: Record<string, unknown>): Token {
@@ -58,8 +59,9 @@ function token(value: Record<string, unknown>): Token {
   };
 }
 
+/** A line of the order: the Capability answers `initiative`, the mock-up's store keeps `init`. */
 function participant(value: Record<string, unknown>): Participant {
-  return { id: text(value.id), init: num(value.init, 0), dex: num(value.dex, 0) };
+  return { id: text(value.id), init: num(value.initiative, num(value.init, 0)), dex: num(value.dex, 0) };
 }
 
 /** The combat of an instance, or null when none is under way. */

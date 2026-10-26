@@ -111,7 +111,8 @@ interface Pan {
 export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Shell, timing: Timing = WAITING): Mounted {
   ensureStyle(host.ownerDocument);
 
-  let props: Props = parseProps(raw);
+  const addressSearch = (): string => host.ownerDocument.defaultView?.location.search ?? '';
+  let props: Props = parseProps(raw, addressSearch());
   let instance: Instance | null = null;
   let map: MapInfo | null = null;
   let characters: Record<string, Character> = {};
@@ -809,7 +810,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   void start();
   return {
     update(next) {
-      const parsed = parseProps(next);
+      const parsed = parseProps(next, addressSearch());
       const same = parsed.instance === props.instance && parsed.view === props.view && parsed.pilot === props.pilot && parsed.fill === props.fill && parsed.campaign === props.campaign;
       props = parsed;
       if (!same) void start();
