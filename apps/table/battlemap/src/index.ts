@@ -14,6 +14,7 @@ import {
   END_COMBAT,
   GET_BATTLEMAP,
   GET_BATTLEMAP_INSTANCE,
+  GET_DIFFUSION,
   LIST_CHARACTERS,
   MOVE_TOKEN,
   NEXT_TURN,
@@ -42,8 +43,10 @@ import {
   parseInstance,
   parseMap,
   parseProps,
+  parseShownFrame,
   reasons,
   reordered,
+  roundFrame,
   settled,
   shown,
   tableCommand,
@@ -65,6 +68,8 @@ export interface Timing {
   polls: number;
   /** How often the data version is asked: a drop shows on the other view within a second. */
   watchMs: number;
+  /** How long the pilot tab's frame rests before it is sent to the players: the last gesture wins (250 ms when unset). */
+  frameMs?: number;
   /** The d20 an NPC rolls for its initiative, 1 to 20. */
   roll?: () => number;
 }
@@ -126,10 +131,14 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   let readNo = 0;
   let stopWatching: () => void = () => undefined;
   let observer: ResizeObserver | null = null;
+  /** The frame the players' view took from the diffusion, rather than its own fit. */
+  let followed = false;
+  let frameTimer: ReturnType<typeof setTimeout> | undefined;
 
   const part = <T extends HTMLElement = HTMLElement>(id: string): T | null => host.querySelector<T>(`#${id}`);
   const canMove = (): boolean => props.view !== 'player' || props.pilot;
   const dm = (): boolean => props.view !== 'player';
+  const piloting = (): boolean => props.view === 'player' && props.pilot;
 
   // ---------- painting ----------
   function say(kind: 'ok' | 'error' | 'none', text = ''): void {
@@ -142,7 +151,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   function applyFrame(): void {
     const stage = part('battlemap-stage');
-    if (stage) stage.style.transform = `translate(${frame.panX}px,${frame.panY}px) scale(${frame.zoom})`;
+    if (stage) stage.style.transform = `translate(${frame.panX}px, ${frame.panY}px) scale(${frame.zoom})`;
   }
 
   function fit(): boolean {
@@ -153,6 +162,38 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     fitted = true;
     applyFrame();
     return true;
+  }
+
+  /** The map is fitted now, or as soon as its view has a size. */
+  function fitWhenSized(): void {
+    fitted = false;
+    frame = { zoom: 1, panX: 0, panY: 0 };
+    applyFrame();
+    observer?.disconnect();
+    observer = null;
+    if (!fit() && typeof ResizeObserver !== 'undefined') {
+      const view = part('battlemap-view');
+      if (view) {
+        observer = new ResizeObserver(() => {
+          if (!fitted) fit();
+        });
+        observer.observe(view);
+      }
+    }
+  }
+
+  /** The projected view takes the frame the DM gave the diffusion; with none, it is fitted again. */
+  function follow(framed: Frame | null): void {
+    if (!map || props.view !== 'player' || props.pilot) return;
+    if (framed) {
+      frame = framed;
+      fitted = true;
+      followed = true;
+      applyFrame();
+    } else if (followed) {
+      followed = false;
+      fitWhenSized();
+    }
   }
 
   function zoomAt(factor: number, cx: number, cy: number): void {
@@ -255,20 +296,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     }
     box.innerHTML = hexMap(map, canMove());
     paintGrid();
-    fitted = false;
-    frame = { zoom: 1, panX: 0, panY: 0 };
-    applyFrame();
-    observer?.disconnect();
-    observer = null;
-    if (!fit() && typeof ResizeObserver !== 'undefined') {
-      const view = part('battlemap-view');
-      if (view) {
-        observer = new ResizeObserver(() => {
-          if (!fitted) fit();
-        });
-        observer.observe(view);
-      }
-    }
+    followed = false;
+    fitWhenSized();
   }
 
   function paintAll(): void {
@@ -294,12 +323,22 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     }
   }
 
+  /** The frame the players are shown for this instance (null: none); undefined when the projected view does not follow, or the read failed. */
+  async function readFrame(): Promise<Frame | null | undefined> {
+    if (dm() || props.pilot) return undefined;
+    try {
+      return parseShownFrame((await shell.capability(GET_DIFFUSION, undefined, { view: 'player' })).data, props.instance);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Reads the instance again; answers whether it could. An older answer never replaces a newer one. */
   async function refresh(): Promise<boolean> {
     const mine = generation;
     const no = (readNo += 1);
     try {
-      const read = await shell.capability(GET_BATTLEMAP_INSTANCE, undefined, { instance: props.instance, view: dm() ? 'dm' : 'player' });
+      const [read, framed] = await Promise.all([shell.capability(GET_BATTLEMAP_INSTANCE, undefined, { instance: props.instance, view: dm() ? 'dm' : 'player' }), readFrame()]);
       if (mine !== generation || no < readNo) return true;
       const next = parseInstance(read.data);
       if (next === null) {
@@ -318,6 +357,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
         paintMap();
       }
       if (selected !== null && !next.tokens.some((t) => t.id === selected)) selected = null;
+      if (framed !== undefined) follow(framed);
       paintAll();
       return true;
     } catch {
@@ -330,6 +370,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     generation += 1;
     const mine = generation;
     stopWatching();
+    clearTimeout(frameTimer);
+    followed = false;
     instance = null;
     map = null;
     selected = null;
@@ -554,18 +596,30 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     pop.querySelector<HTMLInputElement>('#battlemap-drop-count')?.focus();
   }
 
-  const showOnPlayerView = async (): Promise<void> => {
+  /** The map goes to the players with the frame it has; `quiet` is a frame sent on its own, which says nothing when it settles. */
+  const showOnPlayerView = async (quiet = false): Promise<void> => {
     if (!instance) return;
     try {
-      const body = commandBody(SHOW_ON_PLAYER_VIEW, 'Diffusion', instance.session === '' ? undefined : instance.session, { kind: 'battlemap', instance: instance.id, zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+      const body = commandBody(SHOW_ON_PLAYER_VIEW, 'Diffusion', instance.session === '' ? undefined : instance.session, { kind: 'battlemap', instance: instance.id, ...roundFrame(frame) });
       const state = await send(body);
       if (state.status === 'rejected') say('error', `L’envoi aux joueurs est refusé : ${reasons(state.violations)}.`);
       else if (state.status !== 'applied') say('error', `L’envoi aux joueurs n’a pas abouti (état : ${state.status || 'inconnu'}).`);
-      else say('ok', 'Carte envoyée aux joueurs.');
+      else if (!quiet) say('ok', 'Carte envoyée aux joueurs.');
     } catch {
       say('error', 'L’envoi aux joueurs a échoué.');
     }
   };
+
+  /** A zoom, wheel or pan of the pilot tab has ended: once it rests, its rounded frame is the pilot's own and the players'. The last gesture wins. */
+  function frameGestureEnded(): void {
+    if (!piloting()) return;
+    clearTimeout(frameTimer);
+    frameTimer = setTimeout(() => {
+      frame = roundFrame(frame);
+      applyFrame();
+      void showOnPlayerView(true);
+    }, timing.frameMs ?? 250);
+  }
 
   // ---------- gestures ----------
   const tokenOf = (el: Element | null): Token | undefined => {
@@ -633,6 +687,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   });
 
   const release = (): void => {
+    if (pan?.moved) frameGestureEnded();
     pan = null;
     if (!drag) return;
     const d = drag;
@@ -657,6 +712,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     e.preventDefault();
     const box = part('battlemap-view')?.getBoundingClientRect();
     zoomAt(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - (box?.left ?? 0), e.clientY - (box?.top ?? 0));
+    frameGestureEnded();
   });
 
   host.addEventListener('dragstart', (event) => {
@@ -731,9 +787,11 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     const zoomBox = part('battlemap-view');
     const [cx, cy] = [(zoomBox?.clientWidth ?? 0) / 2, (zoomBox?.clientHeight ?? 0) / 2];
     const gesture = button.dataset.act;
-    if (gesture === 'in') zoomAt(1.25, cx, cy);
-    else if (gesture === 'out') zoomAt(1 / 1.25, cx, cy);
-    else if (gesture === 'reset') fit();
+    if (gesture === 'in' || gesture === 'out' || gesture === 'reset') {
+      if (gesture === 'reset') fit();
+      else zoomAt(gesture === 'in' ? 1.25 : 1 / 1.25, cx, cy);
+      frameGestureEnded();
+    }
     else if (gesture === 'dialog-close') closeDialog();
     else if (gesture === 'close') {
       selected = null;

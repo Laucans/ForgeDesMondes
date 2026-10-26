@@ -4,7 +4,7 @@
 
 import { AGGREGATE, APPROVER, DATA_CAPABILITY_VERSION } from './ids.ts';
 import { FEET_PER_HEX } from './hexgrid.ts';
-import type { Character, Combat, Grid, Instance, MapInfo, Participant, Props, Shape, Token, View } from './types.ts';
+import type { Character, Combat, Frame, Grid, Instance, MapInfo, Participant, Props, Shape, Token, View } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
@@ -260,3 +260,14 @@ export function commandId(answer: unknown): string {
 
 /** « 1 hex = 5 pi », from HexGrid@1. */
 export const SCALE = `1 hex = ${FEET_PER_HEX} pi`;
+
+/** The frame as live.showOnPlayerView takes it: the zoom to 3 decimals, the pans whole pixels. */
+export const roundFrame = (frame: Frame): Frame => ({ zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+
+/** The frame live.getDiffusion shows the players for `instance`: null when its base is another map or it carries no view. */
+export function parseShownFrame(data: unknown, instance: string): Frame | null {
+  if (!isRecord(data) || !isRecord(data.base) || data.base.kind !== 'battlemap' || data.base.id !== instance || !isRecord(data.view)) return null;
+  const { zoom, panX, panY } = data.view;
+  const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+  return finite(zoom) && zoom > 0 && finite(panX) && finite(panY) ? { zoom, panX, panY } : null;
+}
