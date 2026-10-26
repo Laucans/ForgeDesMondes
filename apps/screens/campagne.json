@@ -1,13 +1,13 @@
 {
   "screen": "campagne",
   "generatedFrom": "Le DM parcourt les séances et les éléments de sa campagne, crée ou lance une séance, importe ses notes et traite les entités à créer",
-  "version": 1,
+  "version": 2,
   "surface": "dm",
   "layout": [
-    { "CampaignOverview": { "campaign": "cendres-valombre" } },
-    { "SessionList": { "campaign": "cendres-valombre" } },
-    { "CampaignElements": { "mode": "tabs", "campaign": "cendres-valombre" } },
-    { "ToCreateList": { "campaign": "cendres-valombre" } },
-    { "NoteImport": { "campaign": "cendres-valombre" } }
+    { "CampaignOverview": { "campaign": "$ctx.campaign" } },
+    { "SessionList": { "campaign": "$ctx.campaign" } },
+    { "CampaignElements": { "mode": "tabs", "campaign": "$ctx.campaign" } },
+    { "ToCreateList": { "campaign": "$ctx.campaign" } },
+    { "NoteImport": { "campaign": "$ctx.campaign" } }
   ]
 }
