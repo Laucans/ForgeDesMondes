@@ -301,7 +301,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "856f8b808e0501cf"
+      "builtFrom": "159947d2515d96e7"
     },
     {
       "name": "PreviousSummary",
