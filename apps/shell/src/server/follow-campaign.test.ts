@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { Context } from '../client/context.js';
 import { repositoryRoot } from './config.js';
 import { contractValidator, loadScreen } from './screens.js';
 
@@ -36,9 +37,28 @@ test('the four screens read $ctx.campaign, at version 2, on the dm surface, thei
     { microUi: 'EntityEditor', props: {} },
     { microUi: 'VersionHistory', props: { entity: '$ctx.entity' } },
   ]);
-  // medias keeps the session cendres-valombre's fourth, whatever campaign is shown.
+  // The spec has medias keep session s4 (number 4) whatever campaign is shown: pinned as specified, not as a wish.
   assert.deepEqual(await layoutOf('medias'), [
     { microUi: 'MediaLibrary', props: { ...follow, session: 's4', sessionNumber: 4 } },
     { microUi: 'GridSettings', props: { battlemap: '$ctx.battlemap' } },
   ]);
+});
+
+// The follow props are resolved from the address's campaign; the other props stay as frozen.
+test("the address's campaign reaches every campaign prop of the four screens, and nothing else", async () => {
+  const validate = await contractValidator(root);
+  const context = new Context();
+  context.hold('campaign', 'ember');
+  for (const name of ['soundbox', 'campagne', 'fiche-entite', 'medias']) {
+    const screen = await loadScreen(root, name, validate);
+    assert.ok(screen, name);
+    for (const { microUi, props } of screen.layout) {
+      const resolved = context.resolve(props);
+      assert.deepEqual(Object.keys(resolved), Object.keys(props), `${name} ${microUi}`);
+      for (const [key, value] of Object.entries(props)) {
+        if (value === '$ctx.campaign') assert.equal(resolved[key], 'ember', `${name} ${microUi}.${key}`);
+        else if (typeof value !== 'string' || !value.startsWith('$ctx.')) assert.deepEqual(resolved[key], value, `${name} ${microUi}.${key}`);
+      }
+    }
+  }
 });
