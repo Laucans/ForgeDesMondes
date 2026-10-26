@@ -68,7 +68,7 @@ test('the create command names its DataCapability and version, trims the name, a
 });
 
 test('the export names the campaign by its id; the import sends the archive and names no campaign', () => {
-  assert.deepEqual(exportCommand('campaign.exportCampaign', 'c1'), { dataCapability: 'campaign.exportCampaign@1', payload: { id: 'c1' }, caller: { by: 'dm', from: 'CampaignList', roles: [] } });
+  assert.deepEqual(exportCommand('campaign.exportCampaign', 'c1', 'k1'), { dataCapability: 'campaign.exportCampaign@1', payload: { id: 'c1' }, idempotencyKey: 'k1', caller: { by: 'dm', from: 'CampaignList', roles: [] } });
   const archive = { format: 'campaign-archive', version: 1 };
   const body = importCommand('campaign.importCampaign', archive, 'k1') as Record<string, unknown>;
   assert.equal(body.dataCapability, 'campaign.importCampaign@1');

@@ -593,3 +593,50 @@ test('the download is the archive as a JSON file under the name the export gave,
   assert.throws(() => downloadIn({ defaultView: null } as unknown as Document)('a.json', {}), /no window/);
   dom.window.close();
 });
+
+test('an export still queued, clicked again, is the same command; once settled, a click is a new one', async () => {
+  const queued = await list({ later: 100 });
+  await queued.click('#campaign-cendres-valombre [data-action="export"]');
+  await queued.click('#campaign-cendres-valombre [data-action="export"]');
+  assert.equal(queued.sent.length, 2);
+  assert.ok(queued.sent[0]?.idempotencyKey, 'the export carries a key');
+  assert.equal(queued.sent[1]?.idempotencyKey, queued.sent[0]?.idempotencyKey, 'one export, not two');
+
+  const done = await list();
+  await done.click('#campaign-cendres-valombre [data-action="export"]');
+  await done.click('#campaign-cendres-valombre [data-action="export"]');
+  assert.ok(done.sent[0]?.idempotencyKey);
+  assert.notEqual(done.sent[1]?.idempotencyKey, done.sent[0]?.idempotencyKey, 'an applied export is over: the next click is a new one');
+});
+
+test('a creation still queued keeps its key when the dialog is opened again; once applied, the same form is a new command', async () => {
+  const queued = await list({ later: 100 });
+  await queued.click('#campaign-new');
+  queued.type('#campaign-create-name', 'Les Brumes');
+  await queued.click('#campaign-create-submit');
+  await queued.click('#campaign-create-dialog [data-close]');
+  assert.equal(queued.document.getElementById('campaign-create-dialog'), null, 'closed');
+  await queued.click('#campaign-new');
+  queued.type('#campaign-create-name', 'Les Brumes');
+  await queued.click('#campaign-create-submit');
+  assert.equal(queued.sent.length, 2);
+  assert.equal(queued.sent[1]?.idempotencyKey, queued.sent[0]?.idempotencyKey, 'reopened: the same command');
+
+  const done = await list();
+  for (let i = 0; i < 2; i += 1) {
+    await done.click('#campaign-new');
+    done.type('#campaign-create-name', 'Les Brumes');
+    await done.click('#campaign-create-submit');
+  }
+  assert.notEqual(done.sent[1]?.idempotencyKey, done.sent[0]?.idempotencyKey, 'an applied creation is over');
+});
+
+test('the file input is reset once a file is taken, so the same file chosen again fires a change', async () => {
+  const { click, choose, document } = await list();
+  await click('#campaign-import');
+  const input = document.querySelector<HTMLInputElement>('#campaign-import-file') as HTMLInputElement;
+  const values: string[] = [];
+  Object.defineProperty(input, 'value', { set: (v: string) => values.push(v), get: () => '', configurable: true });
+  await choose('archive.json', JSON.stringify(ARCHIVE.content));
+  assert.deepEqual(values, ['']);
+});

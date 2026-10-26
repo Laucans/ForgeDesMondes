@@ -126,6 +126,8 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     key = newKey();
     keyed = null;
   };
+  /** Export keys by campaign: kept while that export may still be queued, so a second click is the same command. */
+  const exportKeys = new Map<string, string>();
   const keyFor = (payload: unknown): string => {
     const sent = JSON.stringify(payload);
     if (keyed !== null && keyed !== sent) key = newKey();
@@ -211,7 +213,10 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     const campaign = campaigns.find((c) => c.id === id);
     if (!campaign) return;
     say(`Export de « ${campaign.name} » en cours…`);
-    const state = await run(exportCommand(EXPORT_CAMPAIGN, id));
+    const exportKey = exportKeys.get(id) ?? newKey();
+    exportKeys.set(id, exportKey);
+    const state = await run(exportCommand(EXPORT_CAMPAIGN, id, exportKey));
+    if (!mayBeQueued(state)) exportKeys.delete(id);
     // A replaced mount hands nothing over: the one that holds the host answers its own clicks.
     if (!current()) return;
     if (state.status !== 'applied') return say(unapplied(state, EXPORT_WORDS));
@@ -239,6 +244,7 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
       if (!mayBeQueued(state)) renewKey();
       return dialogError('campaign-create-error', unapplied(state, CREATE_WORDS));
     }
+    renewKey();
     closeDialog();
     await reload(`Campagne « ${name.trim()} » créée.`);
   }
@@ -253,6 +259,7 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
       if (!mayBeQueued(state)) renewKey();
       return dialogError('campaign-import-error', unapplied(state, IMPORT_WORDS));
     }
+    renewKey();
     closeDialog();
     await reload('Archive importée : une nouvelle campagne a été ajoutée.');
   }
@@ -293,7 +300,6 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   const open = (html: string): void => {
     dialogs += 1;
     archive = undefined;
-    renewKey();
     part('campaign-dialogs').innerHTML = html;
     paintBusy();
   };
@@ -317,6 +323,8 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     if (target?.id !== 'campaign-import-file') return;
     const file = target.files?.[0];
     if (file) void takeFile(file);
+    // Picking the same file again must fire a `change`.
+    target.value = '';
   });
 
   // The kit's FileDrop: a file dropped on the zone is taken as one chosen.
