@@ -399,6 +399,100 @@ describe('the shell', () => {
       assert.equal(await answer.text(), ':root { --space-1: 4px; }\n');
     });
 
+    describe('serves the sound library at /sounds/<file>', () => {
+      let library: Server;
+      let at: string;
+
+      before(async () => {
+        library = createServer(await createApp(readConfig({ PORT: '0', SERVER_URL: 'http://127.0.0.1:1' }, repositoryRoot())));
+        at = await listen(library);
+      });
+      after(() => close(library));
+
+      /** The length of an Ogg Opus file, from the granule position of its last page (48 kHz). */
+      const seconds = (file: Buffer): number => {
+        const last = file.lastIndexOf('OggS');
+        assert.ok(last >= 0, 'an Ogg file');
+        return Number(file.readBigUInt64LE(last + 6)) / 48000;
+      };
+
+      // AC1: GET /sounds/foule-taverne.ogg answers 200 with an audio type
+      test('answers 200 with an audio type for a file of the library', async () => {
+        const answer = await fetch(`${at}/sounds/foule-taverne.ogg`);
+        assert.equal(answer.status, 200);
+        assert.equal(answer.headers.get('content-type'), 'audio/ogg');
+        assert.equal(Buffer.from(await answer.arrayBuffer()).subarray(0, 4).toString(), 'OggS');
+      });
+
+      // The soundbox plays each sound of sounds.json (R16 needs two of them), so each has a file at least as long
+      test('holds a playable file, as long as its duration, for each sound of sounds.json', async () => {
+        const { sounds } = JSON.parse(readFileSync(join(repositoryRoot(), 'mock/fixtures/sounds.json'), 'utf8')) as {
+          sounds: Array<{ file: string; duration: number }>;
+        };
+        assert.ok(sounds.length > 0);
+        for (const { file, duration } of sounds) {
+          const answer = await fetch(`${at}/sounds/${encodeURIComponent(file)}`);
+          assert.equal(answer.status, 200, file);
+          assert.ok(seconds(Buffer.from(await answer.arrayBuffer())) >= duration, `${file} lasts at least ${duration} s`);
+        }
+      });
+
+      test('answers a Range with the 206 a browser plays audio from, and a HEAD with the headers alone', async () => {
+        const url = `${at}/sounds/foule-taverne.ogg`;
+        const whole = Buffer.from(await (await fetch(url)).arrayBuffer());
+        const head = await fetch(url, { method: 'HEAD' });
+        assert.equal(head.status, 200);
+        assert.equal(head.headers.get('accept-ranges'), 'bytes');
+        assert.equal(head.headers.get('content-length'), String(whole.length));
+        assert.equal((await head.arrayBuffer()).byteLength, 0);
+
+        const part = await fetch(url, { headers: { range: 'bytes=0-1' } });
+        assert.equal(part.status, 206);
+        assert.equal(part.headers.get('content-range'), `bytes 0-1/${whole.length}`);
+        assert.deepEqual(Buffer.from(await part.arrayBuffer()), whole.subarray(0, 2));
+
+        const open = await fetch(url, { headers: { range: 'bytes=10-' } });
+        assert.equal(open.headers.get('content-range'), `bytes 10-${whole.length - 1}/${whole.length}`);
+        assert.deepEqual(Buffer.from(await open.arrayBuffer()), whole.subarray(10));
+
+        const tail = await fetch(url, { headers: { range: 'bytes=-4' } });
+        assert.equal(tail.status, 206);
+        assert.deepEqual(Buffer.from(await tail.arrayBuffer()), whole.subarray(whole.length - 4));
+
+        const beyond = await fetch(url, { headers: { range: `bytes=${whole.length}-` } });
+        assert.equal(beyond.status, 416);
+        assert.equal(beyond.headers.get('content-range'), `bytes */${whole.length}`);
+      });
+
+      test('answers 404 for a file the library lacks', async () => {
+        assert.equal((await fetch(`${at}/sounds/absent.ogg`)).status, 404);
+      });
+
+      test('never leaves the library, nor serves what is not audio', async () => {
+        const net = (path: string) =>
+          new Promise<number>((done, fail) => {
+            const { port } = new URL(at);
+            request({ host: '127.0.0.1', port, path }, (res) => (res.resume(), done(res.statusCode ?? 0))).on('error', fail).end();
+          });
+        for (const path of [
+          '/sounds/../../CLAUDE.md',
+          '/sounds/%2e%2e/%2e%2e/CLAUDE.md',
+          '/sounds/..%2f..%2fCLAUDE.md',
+          '/sounds/%5C..%5Cfoule-taverne.ogg',
+          '/sounds/foule-taverne.ogg%00.txt',
+          '/sounds/.hidden.ogg',
+          '/sounds//foule-taverne.ogg',
+          '/sounds/%E0%A4%A.ogg',
+          '/sounds/',
+        ]) {
+          assert.equal(await net(path), 404, path);
+        }
+        // An extension that is not audio is no sound, whatever the library holds.
+        assert.equal((await fetch(`${at}/sounds/README.md`)).status, 404);
+        assert.equal((await fetch(`${at}/sounds/foule-taverne.ogg`, { method: 'POST' })).status, 405);
+      });
+    });
+
     test('a file outside the allowlist, or a write, is refused', async () => {
       assert.equal((await fetch(`${base}/assets/../../CLAUDE.md`)).status, 404);
       assert.equal((await fetch(`${base}/micro-ui/Missing.js`)).status, 404);
