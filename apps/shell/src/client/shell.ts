@@ -50,6 +50,26 @@ async function call(fetcher: typeof fetch, method: string, path: string, body?: 
 
 const POLL_MS = 2000;
 
+/** How a command of this page is followed while a read waits for it: every `everyMs`, `polls` times at most. */
+export interface Settling {
+  sleep(ms: number): Promise<void>;
+  everyMs: number;
+  polls: number;
+}
+
+const SETTLING: Settling = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 100, polls: 50 };
+
+/** The states the single applier moves on its own: a read waits them out; one waiting for a person is never waited for. */
+const ADVANCING = new Set(['queued', 'confirmed']);
+
+const record = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
+/** Where a command stands, from `POST /commands`' answer or `GET /commands/<id>`'s. */
+const stateOf = (answer: unknown): { id: string; status: string } => {
+  const result = record(record(answer).result);
+  const id = record(answer).commandId ?? result.commandId;
+  return { id: typeof id === 'string' ? id : '', status: typeof result.status === 'string' ? result.status : '' };
+};
+
 /** The caller of a command (contract S): the surface of the screen it is sent from. */
 export interface Caller {
   by: string;
@@ -137,7 +157,27 @@ function withCaller(body: unknown, caller: Caller): unknown {
   return { ...body, caller: { ...(sent && typeof sent === 'object' ? sent : {}), by: caller.by, roles: caller.roles, permissions: caller.permissions } };
 }
 
-export function createShell(fetcher: typeof fetch = (input, init) => fetch(input, init), page: Page = browserPage()): Shell {
+export function createShell(fetcher: typeof fetch = (input, init) => fetch(input, init), page: Page = browserPage(), settling: Settling = SETTLING): Shell {
+  // Read-your-writes: a Capability read waits for the commands this page sent before it to leave the queue,
+  // so a panel opened right after a save shows that save (the applier runs on its own clock).
+  const writing = new Set<Promise<void>>();
+  const follow = async (sent: Promise<unknown>): Promise<void> => {
+    try {
+      const first = stateOf(await sent);
+      const { id } = first;
+      let { status } = first;
+      for (let asked = 0; ADVANCING.has(status) && id !== '' && asked < settling.polls; asked += 1) {
+        await settling.sleep(settling.everyMs);
+        ({ status } = stateOf(await call(fetcher, 'GET', `/commands/${encodeURIComponent(id)}`)));
+      }
+    } catch {
+      // Refused or unreachable: nothing of it to wait for.
+    }
+  };
+  const track = (sent: Promise<unknown>): void => {
+    const settled = follow(sent).finally(() => writing.delete(settled));
+    writing.add(settled);
+  };
   let resolving: ReturnType<typeof pageCaller> | undefined;
   const callerOf = async (): Promise<Caller> => {
     const asked = (resolving ??= pageCaller(page));
@@ -155,8 +195,16 @@ export function createShell(fetcher: typeof fetch = (input, init) => fetch(input
     if (fallback) context.set('campaign', fallback);
   }
   return {
-    capability: async (id, sha256, variables = {}) => (await call(fetcher, 'POST', `/capabilities/${encodeURIComponent(id)}`, { sha256, variables })) as Read,
-    command: async (body) => call(fetcher, 'POST', '/commands', withCaller(body, await callerOf())),
+    capability: async (id, sha256, variables = {}) => {
+      await Promise.all([...writing]);
+      return (await call(fetcher, 'POST', `/capabilities/${encodeURIComponent(id)}`, { sha256, variables })) as Read;
+    },
+    command: (body) => {
+      // Tracked before its first await: a read asked right after it, even before it is sent, waits for it.
+      const sent = (async () => call(fetcher, 'POST', '/commands', withCaller(body, await callerOf())))();
+      track(sent);
+      return sent;
+    },
     commandResult: (commandId) => call(fetcher, 'GET', `/commands/${encodeURIComponent(commandId)}`),
     onDataVersion(listener, everyMs = POLL_MS) {
       let last: number | undefined;

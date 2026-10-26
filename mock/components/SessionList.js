@@ -70,6 +70,14 @@
     return parsed;
   }
   var POLL_MS = 2e3;
+  var SETTLING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 100, polls: 50 };
+  var ADVANCING = /* @__PURE__ */ new Set(["queued", "confirmed"]);
+  var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  var stateOf = (answer) => {
+    const result = record(record(answer).result);
+    const id = record(answer).commandId ?? result.commandId;
+    return { id: typeof id === "string" ? id : "", status: typeof result.status === "string" ? result.status : "" };
+  };
   var FAIL_CLOSED = { by: "player", roles: [], permissions: [] };
   var browserPage = () => ({
     href: typeof location === "undefined" ? "" : location.href,
@@ -124,7 +132,24 @@
     const sent = body.caller;
     return { ...body, caller: { ...sent && typeof sent === "object" ? sent : {}, by: caller.by, roles: caller.roles, permissions: caller.permissions } };
   }
-  function createShell(fetcher = (input2, init) => fetch(input2, init), page = browserPage()) {
+  function createShell(fetcher = (input2, init) => fetch(input2, init), page = browserPage(), settling = SETTLING) {
+    const writing = /* @__PURE__ */ new Set();
+    const follow = async (sent) => {
+      try {
+        const first = stateOf(await sent);
+        const { id } = first;
+        let { status } = first;
+        for (let asked = 0; ADVANCING.has(status) && id !== "" && asked < settling.polls; asked += 1) {
+          await settling.sleep(settling.everyMs);
+          ({ status } = stateOf(await call(fetcher, "GET", `/commands/${encodeURIComponent(id)}`)));
+        }
+      } catch {
+      }
+    };
+    const track = (sent) => {
+      const settled2 = follow(sent).finally(() => writing.delete(settled2));
+      writing.add(settled2);
+    };
     let resolving;
     const callerOf = async () => {
       const asked = resolving ??= pageCaller(page);
@@ -140,8 +165,15 @@
       if (fallback) context2.set("campaign", fallback);
     }
     return {
-      capability: async (id, sha256, variables = {}) => await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables }),
-      command: async (body) => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())),
+      capability: async (id, sha256, variables = {}) => {
+        await Promise.all([...writing]);
+        return await call(fetcher, "POST", `/capabilities/${encodeURIComponent(id)}`, { sha256, variables });
+      },
+      command: (body) => {
+        const sent = (async () => call(fetcher, "POST", "/commands", withCaller(body, await callerOf())))();
+        track(sent);
+        return sent;
+      },
       commandResult: (commandId2) => call(fetcher, "GET", `/commands/${encodeURIComponent(commandId2)}`),
       onDataVersion(listener, everyMs = POLL_MS) {
         let last;
