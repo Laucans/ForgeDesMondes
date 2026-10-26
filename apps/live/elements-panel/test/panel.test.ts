@@ -209,7 +209,7 @@ test('what the DM unfolded and the scene the session is at stay as they were whe
   p.$<HTMLDetailsElement>('#elements-scene-sc3').open = true;
   p.fake.setContext('session', 's5');
   await settle();
-  assert.deepEqual([...p.host.querySelectorAll<HTMLDetailsElement>('#elements-scenes details')].map((d) => d.open), [false, true, true]);
+  assert.deepEqual([...p.host.querySelectorAll<HTMLDetailsElement>('#elements-scenes details')].map((d) => d.open), [true, true, true]);
   assert.deepEqual([...p.host.querySelectorAll('#elements-scenes details.is-current')].map((d) => d.id), ['elements-scene-sc2']);
   assert.ok(p.$<HTMLDetailsElement>('#elements-group-pnj').open);
   assert.ok(!p.$<HTMLDetailsElement>('#elements-group-pj').open);
@@ -386,13 +386,26 @@ test('a PC is dragged by the Battlemap’s own type, which opens the map for the
   assert.ok(draggable.every((row) => /-character-/.test(row.id)), 'only the characters can be dragged');
 });
 
-test('the scene the session is at opens, the others fold', async () => {
+test('the scene the session reaches opens and is marked, the others stay as they are', async () => {
   const p = await panel({ context: CONTEXT });
   p.doc.dispatchEvent(new p.dom.window.CustomEvent('fdm:scene', { detail: { index: 2 } }));
   const open = [...p.host.querySelectorAll<HTMLDetailsElement>('#elements-scenes details')].map((d) => d.open);
-  assert.deepEqual(open, [false, false, true]);
-  assert.ok(p.$('#elements-scene-sc3').classList.contains('is-current'));
+  assert.deepEqual(open, [true, false, true]);
+  assert.deepEqual([...p.host.querySelectorAll('#elements-scenes details.is-current')].map((d) => d.id), ['elements-scene-sc3']);
+});
+
+// AC1: fdm:scene {index: 1} opens scene 2 and marks it is-current, scene 1 stays open
+// AC2: with scene 2 current, a click on Gaspard (scene 1) raises fdm:open {type: character, id: gaspard}
+test('moving to the next scene keeps the earlier one unfolded, and its elements stay clickable', async () => {
+  const p = await panel({ context: CONTEXT });
+  assert.ok(p.$<HTMLDetailsElement>('#elements-scene-sc1').open);
+  p.doc.dispatchEvent(new p.dom.window.CustomEvent('fdm:scene', { detail: { index: 1 } }));
+  assert.ok(p.$<HTMLDetailsElement>('#elements-scene-sc2').open);
+  assert.ok(p.$('#elements-scene-sc2').classList.contains('is-current'));
+  assert.ok(p.$<HTMLDetailsElement>('#elements-scene-sc1').open, 'scene 1 is still open');
   assert.ok(!p.$('#elements-scene-sc1').classList.contains('is-current'));
+  await p.click('#sc1-character-gaspard .mf-ep__open');
+  assert.deepEqual(p.heard, [{ name: 'fdm:open', detail: { type: 'character', id: 'gaspard' } }]);
 });
 
 test('every need is shown by a part that names it, every action triggered by an actuator that names it', async () => {

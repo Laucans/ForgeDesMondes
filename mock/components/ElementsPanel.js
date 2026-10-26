@@ -546,7 +546,7 @@
       current = detail.index;
       host2.querySelectorAll("#elements-scenes details").forEach((d) => {
         const at = Number(d.dataset.sceneIndex) === current;
-        d.open = at;
+        if (at) d.open = true;
         d.classList.toggle("is-current", at);
       });
     });
