@@ -209,6 +209,127 @@ fn expected(output: &Value) -> BTreeMap<String, usize> {
     .collect()
 }
 
+/// The rows of `table` whose `key` is `value`, ordered by `order`.
+fn rows_of(tables: &Tables, table: &str, key: &str, value: &Value, order: &str) -> Vec<Value> {
+    let mut rows: Vec<Value> = tables[table]
+        .iter()
+        .filter(|row| &row[key] == value)
+        .cloned()
+        .collect();
+    rows.sort_by_key(|row| row[order].to_string());
+    rows
+}
+
+/// `row` with `member` set to `value`.
+fn with(mut row: Value, member: &str, value: Value) -> Value {
+    row[member] = value;
+    row
+}
+
+/// `value` with every whole float written as an integer, as the Concept's
+/// fixtures write `12` where a `float8` column reads back `12.0`.
+fn whole(value: Value) -> Value {
+    match value {
+        Value::Number(number) => number
+            .as_f64()
+            .filter(|float| number.is_f64() && float.fract() == 0.0 && float.abs() < 1e15)
+            .map_or(Value::Number(number), |float| json!(float as i64)),
+        Value::Array(items) => Value::Array(items.into_iter().map(whole).collect()),
+        Value::Object(members) => {
+            Value::Object(members.into_iter().map(|(k, v)| (k, whole(v))).collect())
+        }
+        other => other,
+    }
+}
+
+/// The sections of the copy `campaign` as the tables hold them, nested as the
+/// Concept writes them: players, elements (their sheet, aliases and
+/// versions), media (their grid), sounds, sessions (their present
+/// characters, scenes and journal).
+fn sections(tables: &Tables, campaign: &str) -> Value {
+    let campaign = json!(campaign);
+    let children = |table: &str, key: &str, id: &Value, order: &str| {
+        Value::Array(rows_of(tables, table, key, id, order))
+    };
+    let elements = rows_of(tables, "entity", "campaign_id", &campaign, "id")
+        .into_iter()
+        .map(|element| {
+            let id = element["id"].clone();
+            let sheet = rows_of(tables, "character", "entity_id", &id, "entity_id").pop();
+            let aliases: Vec<Value> = rows_of(tables, "entity_alias", "entity_id", &id, "alias")
+                .into_iter()
+                .map(|row| row["alias"].clone())
+                .collect();
+            let element = with(element, "character", sheet.unwrap_or(Value::Null));
+            let element = with(element, "aliases", Value::Array(aliases));
+            with(
+                element,
+                "versions",
+                children("entity_version", "entity_id", &id, "version_number"),
+            )
+        })
+        .collect();
+    let media = rows_of(tables, "media", "campaign_id", &campaign, "id")
+        .into_iter()
+        .map(|medium| {
+            let grid = rows_of(
+                tables,
+                "battlemap_grid",
+                "media_id",
+                &medium["id"],
+                "media_id",
+            )
+            .pop();
+            with(medium, "battlemap_grid", grid.unwrap_or(Value::Null))
+        })
+        .collect();
+    let sessions = rows_of(tables, "session", "campaign_id", &campaign, "position")
+        .into_iter()
+        .map(|session| {
+            let id = session["id"].clone();
+            let scenes: Vec<Value> = rows_of(tables, "scene", "session_id", &id, "position")
+                .into_iter()
+                .map(|scene| {
+                    let id = scene["id"].clone();
+                    let scene = with(
+                        scene,
+                        "scene_entity",
+                        children("scene_entity", "scene_id", &id, "position"),
+                    );
+                    with(
+                        scene,
+                        "scene_media",
+                        children("scene_media", "scene_id", &id, "media_id"),
+                    )
+                })
+                .collect();
+            let session = with(
+                session,
+                "session_present_character",
+                children(
+                    "session_present_character",
+                    "session_id",
+                    &id,
+                    "character_id",
+                ),
+            );
+            let session = with(session, "scenes", Value::Array(scenes));
+            with(
+                session,
+                "journal_lines",
+                children("session_journal_line", "session_id", &id, "id"),
+            )
+        })
+        .collect();
+    json!({
+        "players": rows_of(tables, "player", "campaign_id", &campaign, "id"),
+        "elements": Value::Array(elements),
+        "media": Value::Array(media),
+        "sounds": rows_of(tables, "sound", "campaign_id", &campaign, "id"),
+        "sessions": Value::Array(sessions),
+    })
+}
+
 /// How many rows of the copy `campaign` made reach a row of another
 /// campaign, through each reference the copy holds.
 const REACHING_OUT: &str = "SELECT count(*) FROM (
@@ -451,8 +572,8 @@ async fn campaign(scratch: &Scratch, id: &str) -> Value {
 // AC2: every case of CampaignArchive@2's fixtures, imported over PostgreSQL —
 // its ids the case's, its clock the case's time of import — leaves the tables
 // the rows the Concept gives, and the copy's campaign as the Concept gives
-// it, whole. The sections' rows are held by the counts of `expected` and
-// the engine's test, which reads them back as written.
+// it, whole; the sections' rows are read back from the tables and held to
+// the Concept's, with the counts of `expected`.
 // AC1: the copy's created_at is that time, as is its imported_at.
 // AC3: one new campaign under a new id; every row of the original is as it was.
 //
@@ -469,13 +590,15 @@ async fn conformance_the_copy_the_tables_hold_follows_the_fixtures_of_the_concep
             continue;
         }
         let scratch = scratch("import_campaign_conformance").await;
-        let served = served_with(&scratch, Arc::new(common::Given::of(&case.input))).await;
+        let ids = Arc::new(common::Given::of(&case.input));
+        let served = served_with(&scratch, ids.clone()).await;
         let at = case.input["imported_at"].as_str().expect("a time");
         served.clock.set_millis(common::millis(at));
         let before = tables(&scratch).await;
 
         let (copy, status) = imported(&served, &case.input["archive"]).await;
         assert_eq!(status, State::Applied, "{}", case.name);
+        ids.spent();
 
         let after = tables(&scratch).await;
         assert_eq!(
@@ -501,7 +624,10 @@ async fn conformance_the_copy_the_tables_hold_follows_the_fixtures_of_the_concep
         assert_eq!(campaign["imported_at"], json!(at), "{}", case.name);
         assert_ne!(campaign["id"], json!(ORIGINAL), "{}", case.name);
 
-        let mut output = case.output.clone();
+        // The sections are read back from the tables, not echoed.
+        let mut output = whole(sections(&after, &copy));
+        output["origin_campaign_id"] = campaign["origin_campaign_id"].clone();
+        output["imported_at"] = campaign["imported_at"].clone();
         output["campaign"] = campaign;
         copies.push(output);
     }
