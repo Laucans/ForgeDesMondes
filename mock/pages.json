@@ -120,7 +120,7 @@
       ],
       "props": {},
       "source": "apps/campaign/campaign-list",
-      "builtFrom": "174e0df869f60fa9"
+      "builtFrom": "92facc07b31655cf"
     },
     {
       "name": "AiSettings",
