@@ -1110,6 +1110,34 @@ ${heard}`;
         paintAll();
       });
     });
+    async function follow() {
+      if (busy || target === null || stored === null || isNew()) return;
+      collect();
+      if (dirty()) return;
+      const mine = opening;
+      const id = stored.id;
+      let fresh;
+      try {
+        fresh = await read(id);
+      } catch {
+        return;
+      }
+      if (fresh === null || mine !== opening || busy || stored === null || stored.id !== id) return;
+      collect();
+      if (dirty() || !isDirty(fresh, stored)) return;
+      stored = fresh;
+      draft = structuredClone(fresh);
+      dm.url = fresh.ddb?.url ?? "";
+      ddbDiff = null;
+      paintAll();
+    }
+    let firstWord = true;
+    const stopWatching = {};
+    stopWatching.stop = shell2.onDataVersion?.(() => {
+      if (!host2.isConnected) return stopWatching.stop?.();
+      if (firstWord) firstWord = false;
+      else void follow();
+    });
     const query = new URLSearchParams(view?.location.search ?? "");
     const first = parseTarget(props2.entity) ?? parseTarget(query.get("id") || (query.get("new") ? `${NEW_PREFIX}${query.get("new")}` : null));
     if (first === null) say({ kind: "error", text: "Aucune fiche choisie." });

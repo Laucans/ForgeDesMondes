@@ -349,7 +349,6 @@
     let generation = 0;
     let busy = false;
     let modal = null;
-    let loading = Promise.resolve(true);
     const entity = () => current2.entity ? current2.entity : void 0;
     const unseenNow = () => {
       const id = entity();
@@ -431,7 +430,12 @@
         return false;
       }
     }
-    const load = () => loading = fetchHistory();
+    const load = () => fetchHistory();
+    async function openFresh() {
+      const id = entity();
+      await load();
+      if (id === entity()) open();
+    }
     function close() {
       modal?.close();
     }
@@ -527,7 +531,7 @@
     }
     host2.addEventListener("click", (event) => {
       if (!event.target?.closest("#versions-updated, #versions-open")) return;
-      void loading.then(() => open());
+      void openFresh();
     });
     let first2 = true;
     const poll = {};
@@ -551,10 +555,7 @@
         } else current2 = next;
         void load();
       },
-      open: async () => {
-        await loading;
-        open();
-      }
+      open: openFresh
     };
   }
 

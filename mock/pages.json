@@ -281,7 +281,7 @@
         "entity": "string — id de l’entité, remplacé par ?id= dans l’adresse ; « new:pj », « new:pnj », « new:lieu » ou « new:evenement » ouvre une fiche à créer"
       },
       "source": "apps/campaign/entity-editor",
-      "builtFrom": "4700f265d0ba7617"
+      "builtFrom": "adadd3c0768edd8c"
     },
     {
       "name": "VersionHistory",
@@ -302,7 +302,7 @@
         "title": "string — optionnel : affiché en panneau titré, avec la fiche que le dernier brief a modifiée"
       },
       "source": "apps/campaign/version-history",
-      "builtFrom": "2074a6102197910b"
+      "builtFrom": "d915597514dfea13"
     },
     {
       "name": "PreviousSummary",
