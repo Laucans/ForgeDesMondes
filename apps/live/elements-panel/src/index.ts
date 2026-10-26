@@ -228,7 +228,7 @@ export function mount(host: HTMLElement, _raw: Record<string, unknown>, shell: S
     if (sendWindow !== undefined) void send(SHOW_WINDOW_ON_PLAYER_VIEW, { media: sendWindow }, `« ${nameOf('illustration', sendWindow)} » envoyée aux joueurs en fenêtre.`);
   });
 
-  // The scene the session reaches opens and is marked; the others stay as they are, so what an earlier scene listed stays reachable.
+  // The scene the session reaches is marked and opened if the DM had folded it; the others stay as they are, so what any scene listed stays reachable.
   doc.addEventListener(SCENE_EVENT, (event) => {
     const detail = (event as CustomEvent<{ index?: unknown } | null>).detail;
     if (typeof detail?.index !== 'number') return;

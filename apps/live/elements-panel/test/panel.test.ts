@@ -114,7 +114,8 @@ test('the session comes first, one details per scene in the order given, then th
   assert.deepEqual(scenes.map((d) => d.dataset.sceneIndex), ['0', '1', '2']);
   assert.deepEqual(scenes.map((d) => d.id), ['elements-scene-sc1', 'elements-scene-sc2', 'elements-scene-sc3']);
   assert.ok(scenes[0]?.open && scenes[0].classList.contains('is-current'));
-  assert.ok(!scenes[1]?.open);
+  assert.ok(scenes.every((d) => d.open), 'every scene is open: any element is reachable at once');
+  assert.deepEqual(scenes.map((d) => d.classList.contains('is-current')), [true, false, false]);
   const groups = [...p.host.querySelectorAll('#elements-groups > details > summary')].map((s) => s.textContent?.replace(/\s+/g, ' ').trim());
   assert.deepEqual(groups, ['PJ 4', 'PNJ 5', 'Lieux 4', 'Événements 3', 'Médias 7']);
   assert.ok(p.$('#elements-session').compareDocumentPosition(p.$('#elements-campaign')) & 4, 'the session region precedes the campaign');
@@ -213,6 +214,17 @@ test('what the DM unfolded and the scene the session is at stay as they were whe
   assert.deepEqual([...p.host.querySelectorAll('#elements-scenes details.is-current')].map((d) => d.id), ['elements-scene-sc2']);
   assert.ok(p.$<HTMLDetailsElement>('#elements-group-pnj').open);
   assert.ok(!p.$<HTMLDetailsElement>('#elements-group-pj').open);
+});
+
+// AC1: an element listed only in scene 3 (Vesna) is visible when the panel opens and a click on it raises fdm:open
+// AC2: the first scene is open and is-current when the panel opens
+test('an element of a later scene is clickable at open, with no scene unfolded first', async () => {
+  const p = await panel({ context: CONTEXT });
+  const sc3 = p.$<HTMLDetailsElement>('#elements-scene-sc3');
+  assert.ok(sc3.open && !sc3.classList.contains('is-current'));
+  assert.ok(p.$<HTMLDetailsElement>('#elements-scene-sc1').open && p.$('#elements-scene-sc1').classList.contains('is-current'));
+  await p.click('#sc3-character-vesna .mf-ep__open');
+  assert.deepEqual(p.heard, [{ name: 'fdm:open', detail: { type: 'character', id: 'vesna' } }]);
 });
 
 test('a scene event with no scene in it changes nothing', async () => {
@@ -386,16 +398,17 @@ test('a PC is dragged by the Battlemap’s own type, which opens the map for the
   assert.ok(draggable.every((row) => /-character-/.test(row.id)), 'only the characters can be dragged');
 });
 
-test('the scene the session reaches opens and is marked, the others stay as they are', async () => {
+test('the scene the session reaches is marked, and opened again if the DM had folded it; the others stay as they are', async () => {
   const p = await panel({ context: CONTEXT });
+  p.$<HTMLDetailsElement>('#elements-scene-sc2').open = false;
+  p.$<HTMLDetailsElement>('#elements-scene-sc3').open = false;
   p.doc.dispatchEvent(new p.dom.window.CustomEvent('fdm:scene', { detail: { index: 2 } }));
   const open = [...p.host.querySelectorAll<HTMLDetailsElement>('#elements-scenes details')].map((d) => d.open);
   assert.deepEqual(open, [true, false, true]);
   assert.deepEqual([...p.host.querySelectorAll('#elements-scenes details.is-current')].map((d) => d.id), ['elements-scene-sc3']);
 });
 
-// AC1: fdm:scene {index: 1} opens scene 2 and marks it is-current, scene 1 stays open
-// AC2: with scene 2 current, a click on Gaspard (scene 1) raises fdm:open {type: character, id: gaspard}
+// AC2: after fdm:scene {index: 1} scene 2 is open and is-current, scene 1 stays open and clickable
 test('moving to the next scene keeps the earlier one unfolded, and its elements stay clickable', async () => {
   const p = await panel({ context: CONTEXT });
   assert.ok(p.$<HTMLDetailsElement>('#elements-scene-sc1').open);
