@@ -449,6 +449,7 @@ dependencies = [
  "async-trait",
  "data",
  "harness-dataguard",
+ "platform-scratch-db",
  "ports-llm",
  "serde_json",
  "tokio",
