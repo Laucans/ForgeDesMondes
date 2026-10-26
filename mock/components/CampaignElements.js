@@ -343,7 +343,8 @@
     const tone = /^[a-z]+$/.test(name) ? name : "ember";
     return `<div class="art art--${tone}" role="img">${glyph === "" ? "" : `<span class="art__glyph">${esc(glyph)}</span>`}</div>`;
   }
-  var sheetHref = (id) => `fiche-entite.html?id=${encodeURIComponent(id)}`;
+  var campaignParam = (campaign) => campaign === "" ? "" : `&campaign=${encodeURIComponent(campaign)}`;
+  var sheetHref = (id, campaign = "") => `fiche-entite.html?id=${encodeURIComponent(id)}${campaignParam(campaign)}`;
   var NEW_KINDS = { pnj: "pnj", place: "lieu", event: "evenement" };
   var NEW_LABELS = [
     ["pnj", "Nouveau PNJ", "secondary"],
@@ -360,8 +361,8 @@
     ["sounds", "Sons", LIST_SOUNDS]
   ];
   var FIRST_TAB = 1;
-  function tabsSkeleton() {
-    const newButtons = NEW_LABELS.map(([kind, label, variant]) => `<button type="button" class="${variant}" id="elements-new-${kind}" data-href="fiche-entite.html?new=${NEW_KINDS[kind] ?? ""}">${esc(label)}</button>`).join("");
+  function tabsSkeleton(campaign = "") {
+    const newButtons = NEW_LABELS.map(([kind, label, variant]) => `<button type="button" class="${variant}" id="elements-new-${kind}" data-href="fiche-entite.html?new=${NEW_KINDS[kind] ?? ""}${esc(campaignParam(campaign))}">${esc(label)}</button>`).join("");
     const tabs = TABS.map(
       ([key, label], i) => `<button type="button" role="tab" id="elements-tabs-tab-${i}" aria-controls="elements-tabs-panel-${i}" aria-selected="${i === FIRST_TAB}" data-tab="${key}">${esc(label)}</button>`
     ).join("");
@@ -380,12 +381,12 @@
     const date = new Date(at);
     return Number.isNaN(date.getTime()) ? at : date.toLocaleDateString("fr-FR");
   };
-  function playersPanel(players, characters, charactersUnreadable = false) {
+  function playersPanel(players, characters, charactersUnreadable = false, campaign = "") {
     const rows = players.map((player) => {
       const played = characters.filter((c) => c.kind === "pj" && c.player === player.id);
       const cells = [
         esc(player.name),
-        played.map((c) => `<a href="${esc(sheetHref(c.id))}">${esc(c.name)}</a>`).join(", "),
+        played.map((c) => `<a href="${esc(sheetHref(c.id, campaign))}">${esc(c.name)}</a>`).join(", "),
         played.map((c) => esc(synced(c, when))).join(", "),
         played.map((c) => esc(level(c.type))).join(", ")
       ];
@@ -394,12 +395,12 @@
     const note = charactersUnreadable ? unreadable("les personnages") : "";
     return `${note}<table class="kit-table" id="elements-players-table"><thead><tr><th>Joueur</th><th>Personnage</th><th>D&amp;D Beyond</th><th class="num">Niveau</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
-  var characterEntry = (c) => entry(sheetHref(c.id), `elements-char-${c.id}`, art(c.art || "night", c.initials), c.name, `${c.kind === "pj" ? "PJ" : "PNJ"} \xB7 ${c.aliases.join(", ") || c.type}`);
-  function charactersPanel(characters) {
-    return `${grid(characters.filter((c) => c.kind === "pj").map(characterEntry))}<h3 class="mf-elements__links">PNJ</h3>${grid(characters.filter((c) => c.kind === "pnj").map(characterEntry))}`;
+  var characterEntry = (campaign) => (c) => entry(sheetHref(c.id, campaign), `elements-char-${c.id}`, art(c.art || "night", c.initials), c.name, `${c.kind === "pj" ? "PJ" : "PNJ"} \xB7 ${c.aliases.join(", ") || c.type}`);
+  function charactersPanel(characters, campaign = "") {
+    return `${grid(characters.filter((c) => c.kind === "pj").map(characterEntry(campaign)))}<h3 class="mf-elements__links">PNJ</h3>${grid(characters.filter((c) => c.kind === "pnj").map(characterEntry(campaign)))}`;
   }
-  var placesPanel = (places) => grid(places.map((p) => entry(sheetHref(p.id), `elements-place-${p.id}`, art(p.art || "night", placeGlyph(p.name)), p.name, p.aliases.join(", "))));
-  var eventsPanel = (events) => grid(events.map((v) => entry(sheetHref(v.id), `elements-event-${v.id}`, art("blood", "!"), v.name, v.aliases.join(", "))));
+  var placesPanel = (places, campaign = "") => grid(places.map((p) => entry(sheetHref(p.id, campaign), `elements-place-${p.id}`, art(p.art || "night", placeGlyph(p.name)), p.name, p.aliases.join(", "))));
+  var eventsPanel = (events, campaign = "") => grid(events.map((v) => entry(sheetHref(v.id, campaign), `elements-event-${v.id}`, art("blood", "!"), v.name, v.aliases.join(", "))));
   var link = (label, href) => smallButtons(`<button type="button" class="secondary" data-href="${esc(href)}">${esc(label)}</button>`);
   var mediaPanel = (media) => grid(media.map((m) => entry("medias.html", `elements-media-${m.id}`, art(m.art, m.glyph), m.title, `${m.kind === "battlemap" ? "Battlemap" : "Illustration"} \xB7 ${m.size}`))) + `<div class="mf-elements__links">${link("G\xE9rer les m\xE9dias et les grilles", "medias.html")}</div>`;
   var soundsPanel = (sounds) => grid(sounds.map((s) => `<li class="item" id="elements-sound-${esc(s.id)}"><span>\u266A ${esc(s.name)}</span><small class="muted">${esc(s.tags.join(" \xB7 "))}</small></li>`)) + `<div class="mf-elements__links">${link("Ouvrir la biblioth\xE8que de sons", "soundbox.html")}</div>`;
@@ -408,16 +409,16 @@
     return `<div class="mf-rail" id="elements-rail" data-collapsed="false" data-open="false"><button type="button" class="chip mf-rail__open" id="rail-open" aria-controls="rail-panel" aria-expanded="false">\u2630 \xC9l\xE9ments</button><div class="mf-rail__veil" id="rail-veil" hidden></div><nav class="mf-rail__panel" id="rail-panel" aria-label="\xC9l\xE9ments de la campagne"><div class="mf-rail__bar"><button type="button" class="icon-btn" id="rail-toggle" aria-controls="rail-body" aria-expanded="true" title="Replier la liste">\xAB</button><h2 id="rail-title">\xC9l\xE9ments</h2></div><span class="mf-rail__strip" id="rail-strip" aria-hidden="true">\xC9l\xE9ments</span><div class="mf-rail__body" id="rail-body"><div id="rail-search"><div class="kit-input"><label>Rechercher<input type="search" id="rail-search-input" placeholder="Nom ou alias" autocomplete="off"></label></div></div><p class="small muted" id="rail-count" aria-live="polite"></p><div class="mf-rail__groups" id="rail-groups" ${reads(LIST_CHARACTERS, LIST_PLACES, LIST_EVENTS)}></div><div class="mf-rail__new" id="rail-new">${smallButtons(newButtons)}</div></div></nav></div>`;
   }
   var GROUP_READS = { pj: LIST_CHARACTERS, pnj: LIST_CHARACTERS, place: LIST_PLACES, event: LIST_EVENTS };
-  function railEntry(e, current) {
+  function railEntry(e, current, campaign) {
     const here = e.id === current;
-    return `<li><a class="mf-rail__entry${here ? " is-current" : ""}" id="rail-entry-${esc(e.id)}" href="${esc(sheetHref(e.id))}" data-entity="${esc(e.id)}"${here ? ' aria-current="true"' : ""}><span class="mf-rail__thumb">${art(e.art, e.glyph)}</span><span class="mf-rail__text"><b>${esc(e.name)}</b><small>${esc(e.sub)}</small></span></a></li>`;
+    return `<li><a class="mf-rail__entry${here ? " is-current" : ""}" id="rail-entry-${esc(e.id)}" href="${esc(sheetHref(e.id, campaign))}" data-entity="${esc(e.id)}"${here ? ' aria-current="true"' : ""}><span class="mf-rail__thumb">${art(e.art, e.glyph)}</span><span class="mf-rail__text"><b>${esc(e.name)}</b><small>${esc(e.sub)}</small></span></a></li>`;
   }
-  function railGroups(found, folded, current) {
+  function railGroups(found, folded, current, campaign = "") {
     return GROUPS.map(([group, label]) => {
       const rows = found.filter((e) => e.group === group);
       if (rows.length === 0) return "";
       const closed = folded.has(group);
-      return `<section class="mf-rail__group" id="rail-group-${group}" aria-label="${label}" ${reads(GROUP_READS[group])}><h3><button type="button" class="mf-rail__group-toggle" id="rail-group-toggle-${group}" data-group="${group}" aria-expanded="${!closed}" aria-controls="rail-list-${group}"><span class="mf-rail__caret" aria-hidden="true">${closed ? "\u25B8" : "\u25BE"}</span>${label}<small>${rows.length}</small></button></h3><ul class="mf-rail__list" id="rail-list-${group}"${closed ? " hidden" : ""}>${rows.map((e) => railEntry(e, current)).join("")}</ul></section>`;
+      return `<section class="mf-rail__group" id="rail-group-${group}" aria-label="${label}" ${reads(GROUP_READS[group])}><h3><button type="button" class="mf-rail__group-toggle" id="rail-group-toggle-${group}" data-group="${group}" aria-expanded="${!closed}" aria-controls="rail-list-${group}"><span class="mf-rail__caret" aria-hidden="true">${closed ? "\u25B8" : "\u25BE"}</span>${label}<small>${rows.length}</small></button></h3><ul class="mf-rail__list" id="rail-list-${group}"${closed ? " hidden" : ""}>${rows.map((e) => railEntry(e, current, campaign)).join("")}</ul></section>`;
     }).join("");
   }
 
@@ -570,10 +571,10 @@
       return found;
     };
     const sections = {
-      players: { own: LIST_PLAYERS, also: [LIST_CHARACTERS], html: () => playersPanel(players, characters, status.get(LIST_CHARACTERS) === "failed"), count: () => players.length },
-      characters: { own: LIST_CHARACTERS, also: [], html: () => charactersPanel(characters), count: () => characters.length },
-      places: { own: LIST_PLACES, also: [], html: () => placesPanel(places), count: () => places.length },
-      events: { own: LIST_EVENTS, also: [], html: () => eventsPanel(events), count: () => events.length },
+      players: { own: LIST_PLAYERS, also: [LIST_CHARACTERS], html: () => playersPanel(players, characters, status.get(LIST_CHARACTERS) === "failed", campaignOf(current)), count: () => players.length },
+      characters: { own: LIST_CHARACTERS, also: [], html: () => charactersPanel(characters, campaignOf(current)), count: () => characters.length },
+      places: { own: LIST_PLACES, also: [], html: () => placesPanel(places, campaignOf(current)), count: () => places.length },
+      events: { own: LIST_EVENTS, also: [], html: () => eventsPanel(events, campaignOf(current)), count: () => events.length },
       media: { own: LIST_MEDIA, also: [], html: () => mediaPanel(media), count: () => media.length },
       sounds: { own: LIST_SOUNDS, also: [], html: () => soundsPanel(sounds), count: () => sounds.length }
     };
@@ -598,7 +599,7 @@
     function paintRail() {
       const found = search(index, query);
       const failed = NEEDED.rail.some((id) => status.get(id) === "failed");
-      put(part("rail-groups"), (failed ? unreadable("une partie des \xE9l\xE9ments") : "") + railGroups(found, folded, shown2));
+      put(part("rail-groups"), (failed ? unreadable("une partie des \xE9l\xE9ments") : "") + railGroups(found, folded, shown2, campaignOf(current)));
       part("rail-count").textContent = countText(query, found.length);
     }
     function syncRail() {
@@ -678,7 +679,7 @@
     function frame() {
       status.clear();
       query = "";
-      host2.innerHTML = modeOf(current) === "rail" ? railSkeleton() : tabsSkeleton();
+      host2.innerHTML = modeOf(current) === "rail" ? railSkeleton() : tabsSkeleton(campaignOf(current));
       if (modeOf(current) === "tabs") return;
       part("elements-rail").dataset.collapsed = String(readFolded(memory));
       syncRail();
