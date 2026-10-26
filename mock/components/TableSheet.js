@@ -329,7 +329,7 @@
       return `<li class="kit-statblock__ability"><span class="kit-statblock__abbr">${k}</span><span class="kit-statblock__score">${score === null ? "\u2014" : score}</span><span class="kit-statblock__mod">${modifierText(score, entity.modifiers[k])}</span></li>`;
     }).join("");
     const features2 = entity.features.map((f) => `<li class="kit-statblock__feature"><strong>${esc(f.name)}.</strong> ${esc(f.text)}</li>`).join("");
-    return `<div class="kit-statblock" id="sheet-statblock"><div class="kit-statblock__rule"></div><div class="kit-statblock__body"><h3 class="kit-statblock__name">${esc(entity.name)}</h3><p class="kit-statblock__type">${esc(entity.creature)}</p><dl class="kit-statblock__vitals">${vital("CA", entity.ca === null ? "" : String(entity.ca))}${vital("PV", entity.pvMax === null ? "" : String(entity.pvMax))}${vital("Vitesse", entity.speed)}</dl><ul class="kit-statblock__abilities">${abilities}</ul><ul class="kit-statblock__features">${features2}</ul></div></div>`;
+    return `<div class="kit-statblock" id="sheet-statblock"><div class="kit-statblock__rule"></div><div class="kit-statblock__body"><p class="kit-statblock__name">${esc(entity.name)}</p><p class="kit-statblock__type">${esc(entity.creature)}</p><dl class="kit-statblock__vitals">${vital("CA", entity.ca === null ? "" : String(entity.ca))}${vital("PV", entity.pvMax === null ? "" : String(entity.pvMax))}${vital("Vitesse", entity.speed)}</dl><ul class="kit-statblock__abilities">${abilities}</ul><ul class="kit-statblock__features">${features2}</ul></div></div>`;
   }
   function meetings(refs) {
     if (refs.length === 0) return "";

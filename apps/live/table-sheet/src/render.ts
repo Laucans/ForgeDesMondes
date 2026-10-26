@@ -94,7 +94,7 @@ function statBlock(entity: Entity): string {
   const features = entity.features.map((f) => `<li class="kit-statblock__feature"><strong>${esc(f.name)}.</strong> ${esc(f.text)}</li>`).join('');
   return (
     '<div class="kit-statblock" id="sheet-statblock"><div class="kit-statblock__rule"></div><div class="kit-statblock__body">' +
-    `<h3 class="kit-statblock__name">${esc(entity.name)}</h3><p class="kit-statblock__type">${esc(entity.creature)}</p>` +
+    `<p class="kit-statblock__name">${esc(entity.name)}</p><p class="kit-statblock__type">${esc(entity.creature)}</p>` +
     `<dl class="kit-statblock__vitals">${vital('CA', entity.ca === null ? '' : String(entity.ca))}${vital('PV', entity.pvMax === null ? '' : String(entity.pvMax))}${vital('Vitesse', entity.speed)}</dl>` +
     `<ul class="kit-statblock__abilities">${abilities}</ul><ul class="kit-statblock__features">${features}</ul></div></div>`
   );
