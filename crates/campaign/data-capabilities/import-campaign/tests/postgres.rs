@@ -9,9 +9,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod common;
+
 use harness_dataguard::command::State;
 use harness_dataguard::plugins::RefusalKind;
-use harness_dataguard::store::RandomIds;
+use harness_dataguard::store::{Ids, RandomIds};
 use platform_test_kit::{Bench, Scratch, Served, file, refused};
 use serde_json::{Value, json};
 
@@ -47,12 +49,17 @@ async fn scratch(label: &str) -> Scratch {
 /// The engine as the server plants this unit and its aggregate over
 /// `scratch`'s tables, the ids drawn at random as in the product.
 async fn served(scratch: &Scratch) -> Served {
+    served_with(scratch, Arc::new(RandomIds)).await
+}
+
+/// The same, drawing its ids from `ids`.
+async fn served_with(scratch: &Scratch, ids: Arc<dyn Ids>) -> Served {
     Bench::new(
         include_str!("../data-capability.json"),
         &file("crates/campaign/aggregates/Campaign/aggregate.json"),
         [aggregate_campaign::plugin(), import_campaign::plugin()],
     )
-    .ids(Arc::new(RandomIds))
+    .ids(ids)
     .postgres(scratch)
     .await
 }
@@ -60,7 +67,7 @@ async fn served(scratch: &Scratch) -> Served {
 /// The Concept's case whose name starts with `name`: the archive, and the
 /// copy the Concept gives it.
 fn case(name: &str) -> (Value, Value) {
-    let case = platform_conformance::fixtures_of("CampaignArchive@1")
+    let case = platform_conformance::fixtures_of(common::CONCEPT)
         .cases
         .into_iter()
         .find(|case| case.name.starts_with(name))
@@ -418,4 +425,86 @@ async fn an_archive_that_is_none_writes_nothing() {
     }
     assert!(served.settled().await.is_empty(), "nothing was queued");
     assert_eq!(tables(&scratch).await, before, "no row was written");
+}
+
+/// The campaign `id` as its table holds it, under the columns' names of the
+/// Concept's copy, a time as the Concept writes one.
+async fn campaign(scratch: &Scratch, id: &str) -> Value {
+    const TIME: &str = "'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'";
+    let rows = scratch
+        .rows(
+            &format!(
+                "SELECT id::text, name, kind, pitch, art, glyph, cover_media_id::text,
+                     to_char(created_at AT TIME ZONE 'UTC', {TIME}) AS created_at,
+                     to_char(last_exported_at AT TIME ZONE 'UTC', {TIME}) AS last_exported_at,
+                     to_char(imported_at AT TIME ZONE 'UTC', {TIME}) AS imported_at,
+                     origin_campaign_id::text, sound_master_volume::float8
+                 FROM campaign WHERE id::text = $1"
+            ),
+            &[json!(id)],
+        )
+        .await;
+    assert_eq!(rows.len(), 1, "the copy's campaign");
+    rows.into_iter().next().expect("a campaign")
+}
+
+// AC2: every case of CampaignArchive@2's fixtures, imported over PostgreSQL —
+// its ids the case's, its clock the case's time of import — leaves the tables
+// the rows the Concept gives, and the copy's campaign as the Concept gives
+// it, whole. The sections' rows are held by the counts of `expected` and
+// the engine's test, which reads them back as written.
+// AC1: the copy's created_at is that time, as is its imported_at.
+// AC3: one new campaign under a new id; every row of the original is as it was.
+//
+// The case of a reference outside the archive is left to the engine's test:
+// its restoration points at a version outside the archive, which the copy
+// nulls as the Concept says, and the `restore-exact` trigger of the tables
+// refuses a restoration that restores nothing.
+#[tokio::test]
+async fn conformance_the_copy_the_tables_hold_follows_the_fixtures_of_the_concept() {
+    let mut copies = Vec::new();
+    for case in platform_conformance::fixtures_of(common::CONCEPT).cases {
+        if case.name.starts_with("a reference to") {
+            copies.push(case.output);
+            continue;
+        }
+        let scratch = scratch("import_campaign_conformance").await;
+        let served = served_with(&scratch, Arc::new(common::Given::of(&case.input))).await;
+        let at = case.input["imported_at"].as_str().expect("a time");
+        served.clock.set_millis(common::millis(at));
+        let before = tables(&scratch).await;
+
+        let (copy, status) = imported(&served, &case.input["archive"]).await;
+        assert_eq!(status, State::Applied, "{}", case.name);
+
+        let after = tables(&scratch).await;
+        assert_eq!(
+            added(&before, &after),
+            expected(&case.output),
+            "{}",
+            case.name
+        );
+        assert!(untouched(&before, &after), "{}: the original", case.name);
+        assert_eq!(
+            count(
+                &scratch,
+                "SELECT count(*) FROM campaign WHERE id <> $1",
+                &copy
+            )
+            .await,
+            1,
+            "{}: one campaign more, the original",
+            case.name
+        );
+        let campaign = campaign(&scratch, &copy).await;
+        assert_eq!(campaign["created_at"], json!(at), "{}", case.name);
+        assert_eq!(campaign["imported_at"], json!(at), "{}", case.name);
+        assert_ne!(campaign["id"], json!(ORIGINAL), "{}", case.name);
+
+        let mut output = case.output.clone();
+        output["campaign"] = campaign;
+        copies.push(output);
+    }
+    let mut copies = copies.into_iter();
+    platform_conformance::check(common::CONCEPT, |_| copies.next().expect("a copy per case"));
 }

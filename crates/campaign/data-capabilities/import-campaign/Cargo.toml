@@ -17,7 +17,7 @@ uuid = { version = "1", default-features = false }
 # Its target aggregate, which its tests plant beside it. A normal
 # dependency instead when src/ calls one of its helpers.
 aggregate-campaign = { path = "../../aggregates/Campaign" }
-# The CampaignArchive@1 fixtures the copy is held to.
+# The CampaignArchive@2 fixtures the copy is held to.
 platform-conformance = { path = "../../../platform/conformance" }
 # The harness's test kit: the engine planted, the scratch database, planters.
 platform-test-kit = { path = "../../../platform/test-kit" }

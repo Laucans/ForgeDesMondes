@@ -7,6 +7,8 @@ export interface Shell {
   capability(id: string, sha256: string | undefined, variables?: Record<string, unknown>): Promise<{ asOf: number; data: unknown }>;
   command(body: unknown): Promise<unknown>;
   commandResult(commandId: string): Promise<unknown>;
+  /** Told each time the data moved; answers how to stop. The shell's client has it, a bare fake need not. */
+  onDataVersion?(listener: (dataVersion: number) => void): () => void;
   /** The screen's context: the sheet on show is `entity`, the campaign a new sheet joins is `campaign`. */
   context?: { get(name: string): unknown; set(name: string, value: unknown): void; on?(listener: (name: string) => void): () => void };
 }
