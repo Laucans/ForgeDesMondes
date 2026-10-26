@@ -421,7 +421,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "40f7d2a4ce473173"
+      "builtFrom": "b303740c06514434"
     },
     {
       "name": "MediaLibrary",

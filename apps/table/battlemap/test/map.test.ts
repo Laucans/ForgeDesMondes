@@ -97,8 +97,8 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 12; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
-async function battlemap(props: Record<string, unknown>, options?: Parameters<typeof fakeShell>[0]) {
-  const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="Battlemap"></div></body></html>');
+async function battlemap(props: Record<string, unknown>, options?: Parameters<typeof fakeShell>[0], url = 'http://localhost/') {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="Battlemap"></div></body></html>', { url });
   const { document } = dom.window;
   const host = document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
@@ -339,6 +339,35 @@ test('the DM driving the players’ tab moves tokens there, but sees no menu', a
   await flush();
   assert.equal(fake.sent[0]?.dataCapability, 'table.moveToken@1');
   assert.equal(document.querySelector('#token-inspector')?.hasAttribute('hidden'), true);
+});
+
+// AC2: the DM opening player-view?pilote=1 gets 'Zoomer', and a token dragged there moves
+test('player-view?pilote=1 is the DM’s pilot tab without the prop: the zoom bar and the moving tokens', async () => {
+  const { document, fake, pointer, at, token } = await battlemap({ view: 'player', fill: true }, undefined, 'http://localhost/screens/player-view?pilote=1');
+  assert.ok(document.querySelector('.hm-bar [aria-label="Zoomer"]'));
+  assert.ok(!document.querySelector('.bm--readonly'));
+  const from = at(0, 6);
+  pointer('pointerdown', token('t-elowen'), from);
+  pointer('pointermove', token('t-elowen'), { x: from.x + 10, y: from.y });
+  pointer('pointermove', token('t-elowen'), at(1, 7));
+  pointer('pointerup', token('t-elowen'), at(1, 7));
+  await flush();
+  assert.equal(fake.sent[0]?.dataCapability, 'table.moveToken@1');
+});
+
+// AC3: player-view with no ?pilote=1 stays read-only with no zoom bar
+test('player-view with no ?pilote=1, or another value, stays read-only with no zoom bar', async () => {
+  for (const url of ['http://localhost/screens/player-view', 'http://localhost/screens/player-view?pilote=0', 'http://localhost/screens/player-view?pilote=true']) {
+    const { document, fake, pointer, at, token } = await battlemap({ view: 'player' }, undefined, url);
+    assert.ok(document.querySelector('.bm--readonly'), url);
+    assert.equal(document.querySelector('.hm-bar'), null, url);
+    assert.equal(document.querySelector('[aria-label="Zoomer"]'), null, url);
+    pointer('pointerdown', token('t-elowen'), at(0, 6));
+    pointer('pointermove', token('t-elowen'), at(1, 7));
+    pointer('pointerup', token('t-elowen'), at(1, 7));
+    await flush();
+    assert.equal(fake.sent.length, 0, url);
+  }
 });
 
 test('new props make the Micro-UI follow another instance or view', async () => {
