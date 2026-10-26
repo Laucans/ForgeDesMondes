@@ -1005,6 +1005,20 @@ mod tests {
     }
 
     #[test]
+    fn the_root_wrappers_read_the_products_own_files() {
+        // The wrappers resolve against the product's root: what they answer
+        // is exactly what the file there holds.
+        let fixture = read::fixture("AiSettings");
+        let held: Value = serde_json::from_str(&file("mock/fixtures/AiSettings.json"))
+            .expect("the fixture is JSON");
+        assert!(fixture.is_object(), "{fixture}");
+        assert_eq!(fixture, held);
+        let query = read::query("ai", "getSettings");
+        assert_ne!(query, "");
+        assert_eq!(query, file("crates/ai/queries/getSettings.graphql"));
+    }
+
+    #[test]
     fn a_selected_field_may_start_with_a_capital() {
         let sql = "SELECT foo FROM t WHERE a::text = $1";
         let query = "query Q($id: ID!) {\n  Foo\n}\n";
