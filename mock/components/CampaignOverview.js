@@ -244,7 +244,12 @@
     const violations = Array.isArray(result.violations) ? result.violations.filter((v) => typeof v === "string") : [];
     return { status: text(result.status), violations, archive: archiveOf(result.attachment) };
   }
-  var safeFileName = (file) => file.replace(/[\\/:*?"<>|]+/g, "-");
+  var DEFAULT_FILE_NAME = "campaign-archive.json";
+  var RESERVED_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+  function safeFileName(file) {
+    const name = file.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, "-").replace(/^\.+/, "").replace(/[. ]+$/, "");
+    return name === "" || RESERVED_NAME.test(name) ? DEFAULT_FILE_NAME : name;
+  }
   var isFinal = (status) => FINAL.has(status);
   function commandId(answer) {
     return isRecord(answer) ? text(answer.commandId) || (isRecord(answer.result) ? text(answer.result.commandId) : "") : "";
@@ -382,6 +387,7 @@
       try {
         const state = await send();
         if (state.status === "rejected") return say(`Export refus\xE9 : ${state.violations.join(", ") || "raison inconnue"}. ${before}`);
+        if (state.status === "cancelled" || state.status === "expired") return say(`L\u2019export est ${state.status === "cancelled" ? "annul\xE9" : "expir\xE9"} : l\u2019\xE9tat est final, aucune archive ne viendra. ${before}`);
         if (state.status !== "applied") return say(`L\u2019export n\u2019est pas encore appliqu\xE9 (\xE9tat : ${state.status || "inconnu"}). ${before}`);
         const problems = keep(state.archive);
         let fresh = null;
