@@ -122,6 +122,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     try {
       const state = await send();
       if (state.status === 'rejected') return say(`Export refusé : ${state.violations.join(', ') || 'raison inconnue'}. ${before}`);
+      if (state.status === 'cancelled' || state.status === 'expired') return say(`L’export est ${state.status === 'cancelled' ? 'annulé' : 'expiré'} : l’état est final, aucune archive ne viendra. ${before}`);
       if (state.status !== 'applied') return say(`L’export n’est pas encore appliqué (état : ${state.status || 'inconnu'}). ${before}`);
       // The file first: it is what the DM asked for, whether or not the date can be read again.
       const problems = keep(state.archive);

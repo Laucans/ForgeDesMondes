@@ -81,7 +81,18 @@ test('an applied export carries its archive as the attachment; a file with no na
 // AC1: a safe file name
 test('a file name keeps nothing that is a path', () => {
   assert.equal(safeFileName('les-cendres-2026-10-14T10-00-00Z.json'), 'les-cendres-2026-10-14T10-00-00Z.json');
-  assert.equal(safeFileName('../../etc/passwd'), '..-..-etc-passwd');
+  assert.equal(safeFileName('../../etc/passwd'), '-..-etc-passwd');
   assert.equal(safeFileName('a:b*c.json'), 'a-b-c.json');
   assert.equal(safeFileName('a\\b.json'), 'a-b.json');
+});
+
+test('a file name has no leading dot, no control character, no reserved name, and a default', () => {
+  assert.equal(safeFileName('..'), 'campaign-archive.json');
+  assert.equal(safeFileName('.hidden.json'), 'hidden.json');
+  assert.equal(safeFileName('a\u0000b\nc.json'), 'a-b-c.json');
+  assert.equal(safeFileName('CON.json'), 'campaign-archive.json');
+  assert.equal(safeFileName('nul'), 'campaign-archive.json');
+  assert.equal(safeFileName('console.json'), 'console.json');
+  assert.equal(safeFileName('name.json. '), 'name.json');
+  assert.equal(safeFileName(''), 'campaign-archive.json');
 });

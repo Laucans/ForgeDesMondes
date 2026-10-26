@@ -106,8 +106,15 @@ export function settled(answer: unknown): Settled {
   return { status: text(result.status), violations, archive: archiveOf(result.attachment) };
 }
 
-/** The file name a download is saved under: the one the export gave, with nothing that is a path. */
-export const safeFileName = (file: string): string => file.replace(/[\\/:*?"<>|]+/g, '-');
+const DEFAULT_FILE_NAME = 'campaign-archive.json';
+const RESERVED_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+
+/** The file name a download is saved under: the one the export gave, with nothing that is a path, a control character, a leading dot or a reserved name. */
+export function safeFileName(file: string): string {
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what is stripped
+  const name = file.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, '-').replace(/^\.+/, '').replace(/[. ]+$/, '');
+  return name === '' || RESERVED_NAME.test(name) ? DEFAULT_FILE_NAME : name;
+}
 
 export const isFinal = (status: string): boolean => FINAL.has(status);
 
