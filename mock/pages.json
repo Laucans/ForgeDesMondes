@@ -159,7 +159,7 @@
         "campaign": "string — id de la campagne ouverte, remplacé par ?id= dans l’adresse"
       },
       "source": "apps/campaign/campaign-overview",
-      "builtFrom": "665c9da3e0a32145"
+      "builtFrom": "dd17132301153474"
     },
     {
       "name": "SessionList",
