@@ -55,7 +55,8 @@ function fakeShell(options: Options = {}) {
       if (id === 'session.getLiveSession') return { asOf: 1, data: 'session' in options ? options.session : { session: { id: 's4', campaign: CAMPAIGN.id }, microphone: { on: true } } };
       // The real read requires the campaign's id and has no answer without it.
       if (id === 'campaign.getCampaign') return { asOf: 1, data: variables?.id === undefined ? null : (options.campaign ?? { ...CAMPAIGN, id: variables.id }) };
-      return { asOf: 1, data: options.media ?? MEDIA };
+      // The real read lists nothing for no campaign.
+      return { asOf: 1, data: variables?.campaign === undefined ? { cover: '', illustrations: [] } : (options.media ?? MEDIA) };
     },
     async command(body) {
       const command = body as Sent;
@@ -309,7 +310,7 @@ test('a screen that names no campaign leaves the server\u2019s live session to d
   assert.deepEqual(s.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
   assert.deepEqual(s.reads.find((r) => r.id === 'session.getLiveSession')?.variables, {});
   assert.deepEqual(s.reads.find((r) => r.id === 'campaign.getCampaign')?.variables, { id: 'c-live' });
-  assert.deepEqual(s.reads.find((r) => r.id === 'media.listMedia')?.variables, {});
+  assert.deepEqual(s.reads.find((r) => r.id === 'media.listMedia')?.variables, { campaign: 'c-live' });
   assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
   assert.ok(s.$('#player-cover [role="img"]'));
 });
@@ -319,6 +320,30 @@ test('with no live session the stage asks no campaign and draws no title', async
   const s = await stage({}, { session: null });
   assert.equal(s.reads.filter((r) => r.id === 'campaign.getCampaign').length, 0);
   assert.equal(s.host.querySelector('h1'), null);
+});
+
+// AC1: the live session's campaign lists the library, so the window the DM opened shows its illustration
+test('a window on a stage with no campaign prop shows the illustration of the live campaign’s library', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  assert.deepEqual(s.reads.find((r) => r.id === 'media.listMedia')?.variables, { campaign: CAMPAIGN.id });
+  assert.equal(s.$('#player-window').hidden, false);
+  assert.ok(s.$('#player-window [aria-label="Gaspard"]'));
+});
+
+// AC2: the window of a stage with no campaign prop is resized from the pilot tab and keeps the image's ratio
+test('the corner resizes a window found through the live campaign’s library, ratio kept', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  // 300 × 450 px window at (100, 80), its corner dragged to a 600 px square.
+  await s.drag(s.$('#player-window-resize'), [400, 530], [700, 630]);
+  assert.equal(s.sent[0]?.dataCapability, 'live.resizeWindow@1');
+  assert.ok(Math.abs(s.drawn().ratio - 2 / 3) < 1e-9);
+  assert.ok(parseFloat(s.drawn().width) > 30, 'the window grew');
+});
+
+// AC3: with no live session and no campaign prop, no media read is made
+test('with no live session the library is never asked without a campaign', async () => {
+  const s = await stage({}, { session: null });
+  assert.equal(s.reads.filter((r) => r.id === 'media.listMedia').length, 0);
 });
 
 // AC2: the window commands name the live campaign when the screen gives no campaign prop

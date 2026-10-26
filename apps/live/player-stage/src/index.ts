@@ -83,6 +83,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   let props: Props = parseProps(raw, host.ownerDocument.defaultView?.location.search ?? '');
   let diffusion: Diffusion = parseDiffusion(undefined);
   let campaign: Campaign | null = null;
+  /** The id of the campaign the library is asked for: the screen's, else the live session's. */
+  let libraryCampaign = '';
   let media: Media = parseMedia(undefined);
   let campaignRead = false;
   let mediaRead = false;
@@ -188,12 +190,13 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   // ---------- reading ----------
   /** The campaign's overview: the screen's campaign, else the live session's. Nothing when no session is running, never a read with no id. */
-  async function readCampaign(): Promise<{ asOf: number; data: unknown } | undefined> {
+  async function readCampaign(): Promise<{ id: string; overview?: { asOf: number; data: unknown } }> {
+    let id = props.campaign;
     try {
-      const id = props.campaign || parseLiveCampaign((await shell.capability(GET_LIVE_SESSION, undefined, {})).data);
-      return id === '' ? undefined : await shell.capability(GET_CAMPAIGN, undefined, { id });
+      if (id === '') id = parseLiveCampaign((await shell.capability(GET_LIVE_SESSION, undefined, {})).data);
+      return id === '' ? { id } : { id, overview: await shell.capability(GET_CAMPAIGN, undefined, { id }) };
     } catch {
-      return undefined;
+      return { id };
     }
   }
 
@@ -205,17 +208,20 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       const read = await shell.capability(GET_DIFFUSION, undefined, { view: props.pilot ? 'dm' : 'player', ...scope() });
       if (mine !== generation || no < readNo) return;
       const next = parseDiffusion(read.data);
-      const unknown = (id: string): boolean => id !== '' && illustrationOf(media, id) === undefined && !missing.has(id);
-      const wantsMedia = !mediaRead || unknown(next.window?.media ?? '') || (next.base.kind === 'illustration' && unknown(next.base.id));
-      const [named, listed] = await Promise.all([
-        campaignRead ? undefined : readCampaign(),
-        wantsMedia ? shell.capability(LIST_MEDIA, undefined, scope()).catch(() => undefined) : undefined,
-      ]);
+      // The library is the campaign's: the campaign found for the cover is found first, and with none the library is not asked.
+      const named = campaignRead ? undefined : await readCampaign();
       if (mine !== generation || no < readNo) return;
       if (named) {
-        campaign = parseCampaign(named.data);
-        campaignRead = true;
+        libraryCampaign = named.id;
+        if (named.overview) {
+          campaign = parseCampaign(named.overview.data);
+          campaignRead = true;
+        }
       }
+      const unknown = (id: string): boolean => id !== '' && illustrationOf(media, id) === undefined && !missing.has(id);
+      const wantsMedia = libraryCampaign !== '' && (!mediaRead || unknown(next.window?.media ?? '') || (next.base.kind === 'illustration' && unknown(next.base.id)));
+      const listed = wantsMedia ? await shell.capability(LIST_MEDIA, undefined, { campaign: libraryCampaign }).catch(() => undefined) : undefined;
+      if (mine !== generation || no < readNo) return;
       if (listed) {
         media = parseMedia(listed.data);
         mediaRead = true;
@@ -248,6 +254,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     stopWatching();
     diffusion = parseDiffusion(undefined);
     campaign = null;
+    libraryCampaign = '';
     media = parseMedia(undefined);
     campaignRead = false;
     mediaRead = false;
