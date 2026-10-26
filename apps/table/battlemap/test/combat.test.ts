@@ -51,7 +51,7 @@ const underWay = (): Combat => ({
 });
 
 /** A shell over a small table that applies the combat commands the way the DataGuard's invariants say, and answers each view as it should. */
-function fakeShell(options: { combat?: Combat | null; tokens?: (all: Raw[]) => Raw[] } = {}) {
+function fakeShell(options: { combat?: Combat | null; tokens?: (all: Raw[]) => Raw[]; wire?: boolean } = {}) {
   const table = initial();
   if (options.combat !== undefined) table.state.combat = options.combat;
   if (options.tokens) table.state.tokens = options.tokens(table.state.tokens);
@@ -82,6 +82,8 @@ function fakeShell(options: { combat?: Combat | null; tokens?: (all: Raw[]) => R
         const seen = new Set(own.state.tokens.map((t) => t.id));
         if (own.state.combat) own.state.combat.order = own.state.combat.order.filter((o) => seen.has(o.id));
       }
+      // The Capability's own shape: each participant of the order carries `initiative`, not `init`.
+      if (options.wire && own.state.combat) own.state.combat.order = own.state.combat.order.map(({ id, init }) => ({ id, initiative: init })) as unknown as Order[];
       return { asOf: 1, data: own };
     },
     async command(body) {
@@ -454,6 +456,17 @@ test('the player view’s carousel is read-only and shows no HP figure, only the
   assert.equal($('#initiative-carousel').getAttribute('aria-label'), 'Ordre d’initiative');
   assert.doesNotMatch($('#initiative-carousel').textContent ?? '', /\d+\/\d+ PV/);
   assert.match($('#carousel-t-bandit-1').textContent ?? '', /Indemne/);
+});
+
+// AC1: a combat under way reads the same names and initiatives in the same order after a reopen
+test('the carousel reads each participant’s initiative as the Capability answers it, before and after a reopen', async () => {
+  const combat: Combat = { round: 1, current: 't-elowen', order: [{ id: 't-elowen', init: 18, dex: 0 }, { id: 't-sirielle', init: 14, dex: 0 }, { id: 't-bandit-2', init: 7, dex: 0 }] };
+  const items = (document: Document): string[] =>
+    Array.from(document.querySelectorAll('#carousel-track .kit-token__item')).map((el) => `${(el as HTMLElement).dataset.token}:${el.querySelector('.bm-init')?.textContent}`);
+  const before = await battlemap({ view: 'dm' }, { combat, wire: true });
+  const reopened = await battlemap({ view: 'dm' }, { combat, wire: true });
+  assert.deepEqual(items(before.document), ['t-elowen:18', 't-sirielle:14', 't-bandit-2:7']);
+  assert.deepEqual(items(reopened.document), items(before.document));
 });
 
 test('a refused combat command says why', async () => {
