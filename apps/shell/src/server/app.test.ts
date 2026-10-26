@@ -2,12 +2,14 @@
 // repository root for the frozen screens. Nothing outside the process.
 
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, request, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
+import Ajv2020 from 'ajv/dist/2020.js';
 import { createApp } from './app.js';
 import { readConfig, repositoryRoot } from './config.js';
 
@@ -174,6 +176,210 @@ describe('the shell', () => {
       await writeFile(join(root, 'apps/screens/hostile.json'), JSON.stringify(frozen('hostile', [{ Note: { text: '"><script>x()</script>' } }])));
       const page = await (await fetch(`${base}/screens/hostile`)).text();
       assert.doesNotMatch(page, /<script>x\(\)/);
+    });
+  });
+
+  describe('writes the caller and the default campaign into the head of a screen', () => {
+    const SHA = 'ab'.repeat(32);
+    const metaOf = (page: string, name: string): string | undefined => {
+      const found = new RegExp(`<meta name="${name}" content="([^"]*)">`).exec(page)?.[1];
+      return found?.replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+    };
+    const listing = (campaigns: unknown): void => {
+      answerWith = (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ asOf: 1, data: campaigns }));
+      };
+    };
+    const row = (id: string, lastPlayed: string | null) => ({ id, name: id, type: 'campagne', lastPlayed });
+    const defaultOf = async (path = '/screens/reader'): Promise<string | undefined> => metaOf(await (await fetch(`${base}${path}`)).text(), 'shell-default-campaign');
+
+    before(async () => {
+      await writeFile(
+        join(root, 'surfaces.json'),
+        JSON.stringify({ default: 'dm', surfaces: { dm: { by: 'dm', roles: ['role:approver'], permissions: [] }, player: { by: 'player', roles: [], permissions: [] } } }),
+      );
+      await mkdir(join(root, 'queries'), { recursive: true });
+      await writeFile(join(root, 'queries/registry.json'), JSON.stringify({ queries: [{ query: 'Other', capability: 'x.y', sha256: 'ff' }, { query: 'ListCampaigns', capability: 'campaign.listCampaigns', sha256: SHA }] }));
+      const withSurface = (screen: string, extra: object, layout: unknown) => ({ ...frozen(screen, layout), ...extra });
+      await writeFile(join(root, 'apps/screens/player-view.json'), JSON.stringify(withSurface('player-view', { surface: 'player', pilot: { surface: 'dm', query: 'pilote' } }, [{ PlayerStage: {} }])));
+      await writeFile(join(root, 'apps/screens/desk.json'), JSON.stringify(withSurface('desk', { surface: 'dm' }, [{ MediaLibrary: {} }])));
+      await writeFile(join(root, 'apps/screens/bare.json'), JSON.stringify(frozen('bare', [{ MediaLibrary: {} }])));
+      await writeFile(join(root, 'apps/screens/ghost.json'), JSON.stringify(withSurface('ghost', { surface: 'phantom' }, [{ MediaLibrary: {} }])));
+      await writeFile(join(root, 'apps/screens/reader.json'), JSON.stringify(withSurface('reader', { surface: 'dm' }, [{ MediaLibrary: { campaign: '$ctx.campaign' } }])));
+    });
+
+    const callerOn = async (path: string): Promise<unknown> => JSON.parse(metaOf(await (await fetch(`${base}${path}`)).text(), 'shell-caller') ?? 'null');
+    const DM = { by: 'dm', roles: ['role:approver'], permissions: [] };
+    const PLAYER = { by: 'player', roles: [], permissions: [] };
+
+    // AC10: the player's caller on player-view, the DM's with ?pilote=1 and on a DM screen, before </head>
+    test("player-view acts as the player, unless the DM pilots the tab; a DM screen acts as the DM", async () => {
+      assert.deepEqual(await callerOn('/screens/player-view'), PLAYER);
+      assert.deepEqual(await callerOn('/screens/player-view?pilote=1'), DM);
+      assert.deepEqual(await callerOn('/screens/player-view?pilote=0'), PLAYER);
+      assert.deepEqual(await callerOn('/screens/player-view?pilot=1'), PLAYER);
+      assert.deepEqual(await callerOn('/screens/desk'), DM);
+      assert.deepEqual(await callerOn('/screens/desk?pilote=1'), DM);
+      const page = await (await fetch(`${base}/screens/desk`)).text();
+      assert.ok(page.indexOf('name="shell-caller"') < page.indexOf('</head>'));
+      assert.equal(page.split('</head>').length, 2);
+    });
+
+    // AC7: a screen with no surface, or one surfaces.json does not declare, acts with no role
+    test('a screen with no surface, or an undeclared one, acts with no role and no permission', async () => {
+      assert.deepEqual(await callerOn('/screens/bare'), PLAYER);
+      assert.deepEqual(await callerOn('/screens/ghost'), PLAYER);
+    });
+
+    test('a surfaces.json that is missing or unreadable gives the players\' caller on every screen', async () => {
+      const path = join(root, 'surfaces.json');
+      const kept = await readFile(path, 'utf8');
+      try {
+        for (const text of ['{not json', '[]', '{"surfaces":{"dm":{"by":"dm","roles":"role:approver"}}}', '{"surfaces":{"dm":{"by":"","roles":[]}}}']) {
+          await writeFile(path, text);
+          assert.deepEqual(await callerOn('/screens/desk'), PLAYER, text);
+        }
+        await rm(path);
+        assert.deepEqual(await callerOn('/screens/desk?pilote=1'), PLAYER);
+        assert.deepEqual(await callerOn('/screens/player-view?pilote=1'), PLAYER);
+      } finally {
+        await writeFile(path, kept);
+      }
+    });
+
+    test('the caller meta cannot leave its attribute', async () => {
+      const path = join(root, 'surfaces.json');
+      const kept = await readFile(path, 'utf8');
+      try {
+        await writeFile(path, JSON.stringify({ surfaces: { dm: { by: '"><script>x()</script>', roles: [] } } }));
+        const page = await (await fetch(`${base}/screens/desk`)).text();
+        assert.doesNotMatch(page, /<script>x\(\)/);
+      } finally {
+        await writeFile(path, kept);
+      }
+    });
+
+    // AC11: the default campaign meta, from campaign.listCampaigns read server-side
+    test('the campaign with the latest lastPlayed is the default, and a tie goes to the one listed last', async () => {
+      listing([row('a', '2026-03-01'), row('b', '2026-05-02'), row('c', null), row('d', '2026-04-01')]);
+      assert.equal(await defaultOf(), 'b');
+      listing([row('a', '2026-05-02'), row('b', '2026-05-02'), row('c', '2026-01-01')]);
+      assert.equal(await defaultOf(), 'b');
+      listing([row('a', '2026-05-02'), row('b', '2026-01-01'), row('c', '2026-05-02')]);
+      assert.equal(await defaultOf(), 'c');
+    });
+
+    test('when no campaign was played, the one listed last is the default, never the first row', async () => {
+      listing([row('a', null), row('b', null), row('c', null)]);
+      assert.equal(await defaultOf(), 'c');
+      listing([row('a', null), row('b', '2026-01-01'), row('c', null)]);
+      assert.equal(await defaultOf(), 'b');
+    });
+
+    test('no default campaign is named for an empty or unreadable list', async () => {
+      listing([]);
+      assert.equal(await defaultOf(), undefined);
+      listing(null);
+      assert.equal(await defaultOf(), undefined);
+      listing([{ name: 'no id' }, null, row('', null)]);
+      assert.equal(await defaultOf(), undefined);
+      answerWith = (_req, res) => {
+        res.writeHead(500);
+        res.end('boom');
+      };
+      assert.equal(await defaultOf(), undefined);
+      answerWith = (_req, res) => res.end('not json');
+      assert.equal(await defaultOf(), undefined);
+      const registry = join(root, 'queries/registry.json');
+      const kept = await readFile(registry, 'utf8');
+      try {
+        listing([row('a', null)]);
+        await writeFile(registry, JSON.stringify({ queries: [] }));
+        assert.equal(await defaultOf(), undefined);
+        await rm(registry);
+        assert.equal(await defaultOf(), undefined);
+      } finally {
+        await writeFile(registry, kept);
+      }
+    });
+
+    test('the default campaign is asked of the server by its registered hash, and only for a screen that reads the context\'s campaign without one in its address', async () => {
+      listing([row('a', null)]);
+      seen.length = 0;
+      assert.equal(await defaultOf(), 'a');
+      assert.deepEqual(seen.map((s) => [s.method, s.url, s.body]), [['POST', '/capabilities/campaign.listCampaigns', JSON.stringify({ sha256: SHA, variables: {} })]]);
+      seen.length = 0;
+      assert.equal(await defaultOf('/screens/reader?campaign=ember'), undefined);
+      assert.equal(await defaultOf('/screens/desk'), undefined);
+      assert.equal(await defaultOf('/screens/player-view'), undefined);
+      assert.equal(seen.length, 0);
+      assert.equal(await defaultOf('/screens/reader?campaign='), 'a');
+    });
+
+    test('a default campaign cannot leave its attribute', async () => {
+      listing([row('"><script>x()</script>', null)]);
+      assert.doesNotMatch(await (await fetch(`${base}/screens/reader`)).text(), /<script>x\(\)/);
+    });
+
+    test('a server that is not there leaves the default unset, and the screen is still served', async () => {
+      const dead = createServer();
+      const url = await listen(dead);
+      await close(dead);
+      const lonely = createServer(await createApp(readConfig({ PORT: '0', SERVER_URL: url }, root)));
+      const lonelyBase = await listen(lonely);
+      const answer = await fetch(`${lonelyBase}/screens/reader`);
+      assert.equal(answer.status, 200);
+      assert.equal(metaOf(await answer.text(), 'shell-default-campaign'), undefined);
+      await close(lonely);
+    });
+  });
+
+  describe('the product declares its surfaces', () => {
+    const repository = repositoryRoot();
+    const validator = (schema: string) => new Ajv2020.default({ allErrors: true, strict: false }).compile(JSON.parse(readFileSync(join(repository, 'contracts', schema), 'utf8')) as object);
+    const surfaces = JSON.parse(readFileSync(join(repository, 'surfaces.json'), 'utf8')) as { default: string; surfaces: Record<string, { by: string; roles: string[]; permissions: string[]; description?: string }> };
+
+    // AC1: surfaces.json validates against contract S, dm and player as declared
+    test('surfaces.json is valid (contract S): the DM approves, the player holds nothing', () => {
+      const validate = validator('s-surfaces.schema.json');
+      assert.ok(validate(surfaces), JSON.stringify(validate.errors));
+      assert.equal(surfaces.default, 'dm');
+      assert.deepEqual(surfaces.surfaces.dm, { by: 'dm', roles: ['role:approver'], permissions: [], description: surfaces.surfaces.dm?.description });
+      assert.deepEqual(surfaces.surfaces.player, { by: 'player', roles: [], permissions: [], description: surfaces.surfaces.player?.description });
+    });
+
+    // AC2: every frozen screen declares a surface; player-view the player's with the DM as pilot
+    test('every frozen screen declares its surface (contract E): the DM\'s, but the player view\'s', () => {
+      const validate = validator('e-screen-composition.schema.json');
+      const names = readdirSync(join(repository, 'apps/screens')).filter((f) => f.endsWith('.json'));
+      assert.ok(names.length > 0);
+      for (const file of names) {
+        const screen = JSON.parse(readFileSync(join(repository, 'apps/screens', file), 'utf8')) as { surface?: string; pilot?: unknown };
+        assert.ok(validate(screen), `${file}: ${JSON.stringify(validate.errors)}`);
+        if (file === 'player-view.json') {
+          assert.equal(screen.surface, 'player');
+          assert.deepEqual(screen.pilot, { surface: 'dm', query: 'pilote' });
+        } else {
+          assert.equal(screen.surface, 'dm', file);
+          assert.equal(screen.pilot, undefined, file);
+        }
+        assert.ok(screen.surface && screen.surface in surfaces.surfaces, file);
+      }
+    });
+
+    // AC3: the dm-view page, which no frozen screen names, declares surface dm after its objective
+    test('the dm-view page declares the DM\'s surface, on a line after its objective (contract N)', () => {
+      const text = readFileSync(join(repository, 'mock/pages.json'), 'utf8');
+      const validate = validator('n-mock-pages.schema.json');
+      const pages = JSON.parse(text) as { pages: Array<{ path: string; screen?: string; surface?: string }> };
+      assert.ok(validate(pages), JSON.stringify(validate.errors));
+      const page = pages.pages.find((p) => p.path === 'pages/dm-view.html');
+      assert.equal(page?.screen, undefined);
+      assert.equal(page?.surface, 'dm');
+      const lines = text.split('\n');
+      const objective = lines.findIndex((l) => l.includes('"objective": "Le DM fait rouler la séance'));
+      assert.match(lines[objective + 1] ?? '', /^\s+"surface": "dm",$/);
     });
   });
 

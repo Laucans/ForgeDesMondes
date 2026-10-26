@@ -1,0 +1,17 @@
+{
+  "default": "dm",
+  "surfaces": {
+    "dm": {
+      "by": "dm",
+      "roles": ["role:approver"],
+      "permissions": [],
+      "description": "The DM's screens: every gesture is the DM's, who approves a critical field's change."
+    },
+    "player": {
+      "by": "player",
+      "roles": [],
+      "permissions": [],
+      "description": "The players' view: no role, no permission; a critical field's change waits for a review."
+    }
+  }
+}

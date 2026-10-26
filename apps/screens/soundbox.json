@@ -2,6 +2,7 @@
   "screen": "soundbox",
   "generatedFrom": "Le DM téléverse ses effets sonores, les nomme et leur donne des tags, puis les joue à plusieurs à la fois, règle le volume global et coupe tout d’un clic",
   "version": 1,
+  "surface": "dm",
   "layout": [
     { "SoundLibrary": {} },
     { "LiveSoundbox": {} }
