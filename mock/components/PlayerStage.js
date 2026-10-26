@@ -285,6 +285,7 @@
     let props2 = parseProps(raw, host2.ownerDocument.defaultView?.location.search ?? "");
     let diffusion = parseDiffusion(void 0);
     let campaign = null;
+    let libraryCampaign = "";
     let media = parseMedia(void 0);
     let campaignRead = false;
     let mediaRead = false;
@@ -371,11 +372,12 @@
       paintWindow();
     }
     async function readCampaign() {
+      let id = props2.campaign;
       try {
-        const id = props2.campaign || parseLiveCampaign((await shell2.capability(GET_LIVE_SESSION, void 0, {})).data);
-        return id === "" ? void 0 : await shell2.capability(GET_CAMPAIGN, void 0, { id });
+        if (id === "") id = parseLiveCampaign((await shell2.capability(GET_LIVE_SESSION, void 0, {})).data);
+        return id === "" ? { id } : { id, overview: await shell2.capability(GET_CAMPAIGN, void 0, { id }) };
       } catch {
-        return void 0;
+        return { id };
       }
     }
     async function refresh() {
@@ -385,17 +387,19 @@
         const read = await shell2.capability(GET_DIFFUSION, void 0, { view: props2.pilot ? "dm" : "player", ...scope() });
         if (mine !== generation || no < readNo) return;
         const next = parseDiffusion(read.data);
-        const unknown = (id) => id !== "" && illustrationOf(media, id) === void 0 && !missing.has(id);
-        const wantsMedia = !mediaRead || unknown(next.window?.media ?? "") || next.base.kind === "illustration" && unknown(next.base.id);
-        const [named, listed] = await Promise.all([
-          campaignRead ? void 0 : readCampaign(),
-          wantsMedia ? shell2.capability(LIST_MEDIA, void 0, scope()).catch(() => void 0) : void 0
-        ]);
+        const named = campaignRead ? void 0 : await readCampaign();
         if (mine !== generation || no < readNo) return;
         if (named) {
-          campaign = parseCampaign(named.data);
-          campaignRead = true;
+          libraryCampaign = named.id;
+          if (named.overview) {
+            campaign = parseCampaign(named.overview.data);
+            campaignRead = true;
+          }
         }
+        const unknown = (id) => id !== "" && illustrationOf(media, id) === void 0 && !missing.has(id);
+        const wantsMedia = libraryCampaign !== "" && (!mediaRead || unknown(next.window?.media ?? "") || next.base.kind === "illustration" && unknown(next.base.id));
+        const listed = wantsMedia ? await shell2.capability(LIST_MEDIA, void 0, { campaign: libraryCampaign }).catch(() => void 0) : void 0;
+        if (mine !== generation || no < readNo) return;
         if (listed) {
           media = parseMedia(listed.data);
           mediaRead = true;
@@ -427,6 +431,7 @@
       stopWatching();
       diffusion = parseDiffusion(void 0);
       campaign = null;
+      libraryCampaign = "";
       media = parseMedia(void 0);
       campaignRead = false;
       mediaRead = false;

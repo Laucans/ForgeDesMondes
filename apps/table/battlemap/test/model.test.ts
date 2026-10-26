@@ -133,6 +133,9 @@ describe('what the Capabilities answer', () => {
     assert.deepEqual(parseProps({}), { instance: '', view: 'dm', pilot: false, fill: false, campaign: '' });
     assert.deepEqual(parseProps({ instance: 'i', view: 'player', pilot: true, fill: true, campaign: 'c' }), { instance: 'i', view: 'player', pilot: true, fill: true, campaign: 'c' });
     assert.equal(parseProps({ view: 'prep' }).view, 'prep');
+    assert.equal(parseProps({ view: 'player' }, '?pilote=1').pilot, true, 'the address pilots the tab as the prop does');
+    assert.equal(parseProps({ view: 'player' }, '?x=2&pilote=1').pilot, true);
+    for (const search of ['', '?pilote=0', '?pilote=true', '?pilote=', '?pilot=1']) assert.equal(parseProps({ view: 'player' }, search).pilot, false, search);
     assert.equal(parseProps({ view: 'other' }).view, 'player', 'a view nobody knows is the players’, never the DM’s');
   });
 });
@@ -260,6 +263,14 @@ describe('the order of a combat', () => {
     assert.equal(parseCombat(null), null);
     assert.equal(parseCombat({ round: 1, order: [] }), null);
     assert.equal(parseInstance({ id: 'i', state: { tokens: [], combat: { round: 1, current: 'a', order: [{ id: 'a', init: 3 }] } } })?.combat?.current, 'a');
+  });
+
+  // AC1: the carousel reads the initiatives table.getBattlemapInstance answers, in the same order
+  test('a participant’s initiative is the `initiative` the Capability answers, `init` the mock-up’s', () => {
+    const wire = { round: 1, current: 'e', order: [{ id: 'e', name: 'Elowen', initiative: 18 }, { id: 's', name: 'Sirielle', initiative: 14 }, { id: 'b', name: 'Bandit 2', initiative: 7, hidden: true }] };
+    assert.deepEqual(parseCombat(wire)?.order.map((o) => [o.id, o.init]), [['e', 18], ['s', 14], ['b', 7]]);
+    assert.equal(parseCombat({ round: 1, order: [{ id: 'a', initiative: 5, init: 9 }] })?.order[0]?.init, 5, 'the Capability’s field wins');
+    assert.equal(parseCombat({ round: 1, order: [{ id: 'a', initiative: 'x' }] })?.order[0]?.init, 0);
   });
 
   test('the DEX modifier of a sheet is floor((score - 10) / 2)', () => {
