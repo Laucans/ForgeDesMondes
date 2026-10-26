@@ -19,7 +19,8 @@
     "milestone/29-dm-view-elements-panel-and-table-sheet": "b9b1924bba4dbdbe9e6ab36227c342fe2109e0cc",
     "milestone/30-campaign-home-and-archive-import": "934dbf123195112af98a6b2228ec31968edeb03a",
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
-    "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017"
+    "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017",
+    "milestone/637-dm-gestures-apply-the-shell-acts-as-each-screen-s-surface-the-archive-downloads-screens-follow-the-campaign": "f6f4b666d90cf254608ea563ebfb5e928b7ab90f"
   },
   "snapshots": [
     {
@@ -347,6 +348,14 @@
       "sha": "dbc55ed8d61d93fb78322a75d9981f7ff467ee6f",
       "at": "2026-10-25T14:53:31Z",
       "dir": "milestone/30-campaign-home-and-archive-import/20261025T145331Z-dbc55ed",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/637-dm-gestures-apply-the-shell-acts-as-each-screen-s-surface-the-archive-downloads-screens-follow-the-campaign",
+      "sha": "f6f4b666d90cf254608ea563ebfb5e928b7ab90f",
+      "at": "2026-10-26T07:40:07Z",
+      "dir": "milestone/637-dm-gestures-apply-the-shell-acts-as-each-screen-s-surface-the-archive-downloads-screens-follow-the-campaign/20261026T074007Z-f6f4b66",
       "schema": true,
       "model": true
     }
