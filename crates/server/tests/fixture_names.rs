@@ -311,7 +311,8 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
         summary(&described),
         "in order: {sessions}"
     );
-    assert_eq!(sessions[3]["status"], "prep", "{sessions}");
+    // The session under way is the one `session.getLiveSession.json` names.
+    assert_eq!(sessions[3]["status"], "live", "{sessions}");
     assert_eq!(sessions[0]["status"], "closed", "{sessions}");
 
     let listed = read(&renamed, "campaign.listEntitiesToCreate", campaign.clone()).await;
