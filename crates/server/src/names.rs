@@ -10,8 +10,9 @@
 //! `variables` in and its `data` out; on `POST /commands`, a command's
 //! target (`target`, `targetId`), its `payload` and the values it was
 //! `basedOn` in, and the whole answer out; on `GET /commands/{id}`, the
-//! whole answer. A whole text is renamed, nested or not; a part of one never
-//! is. Nothing else is touched: no other route, no refusal, no other field,
+//! whole answer. A whole text is renamed, nested or not, as a value or as the
+//! key of an object (`pjInitiative` is keyed by character, `startCombat`'s
+//! `initiative` too); a part of one never is. Nothing else is touched: no other route, no refusal, no other field,
 //! and a body nothing renames passes byte for byte.
 
 use std::collections::BTreeMap;
@@ -62,12 +63,14 @@ impl Names {
         names
     }
 
-    /// `value` with every text that is a wire name turned into its stored id.
+    /// `value` with every text that is a wire name, a key included, turned
+    /// into its stored id.
     fn to_stored(&self, value: &Value) -> Value {
         Self::rename(&self.stored, value)
     }
 
-    /// `value` with every text that is a stored id turned into its wire name.
+    /// `value` with every text that is a stored id, a key included, turned
+    /// into its wire name.
     fn to_wire(&self, value: &Value) -> Value {
         Self::rename(&self.wire, value)
     }
@@ -83,7 +86,7 @@ impl Names {
             Value::Object(fields) => Value::Object(
                 fields
                     .iter()
-                    .map(|(k, v)| (k.clone(), Self::rename(by, v)))
+                    .map(|(k, v)| (by.get(k).unwrap_or(k).clone(), Self::rename(by, v)))
                     .collect(),
             ),
             _ => value.clone(),
@@ -255,6 +258,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_key_that_is_a_name_is_renamed_as_a_value_is_and_a_part_of_one_never_is() {
+        let names = names();
+        let sent = json!({ "initiative": { "elowen": 18, "julie": 9, "elowen-x": 4 } });
+        let stored = json!({ "initiative": { "uuid-elowen": 18, "uuid-julie": 9, "elowen-x": 4 } });
+        assert_eq!(names.to_stored(&sent), stored);
+        assert_eq!(
+            names.to_wire(&stored),
+            json!({
+                "initiative": { "elowen": 18, "julie": 9, "elowen-x": 4 }
+            })
+        );
+        // Nested in an array, and a key that is no name stays.
+        let nested = json!([{ "uuid-elowen": { "uuid-julie": "uuid-elowen", "kind": "pj" } }]);
+        assert_eq!(
+            names.to_wire(&nested),
+            json!([{ "elowen": { "julie": "elowen", "kind": "pj" } }])
+        );
+    }
+
     /// What the route behind the renaming was sent, body by body.
     type Seen = Arc<Mutex<Vec<String>>>;
 
@@ -392,6 +415,30 @@ mod tests {
                 "caller": { "by": "julie", "from": "elowen", "roles": [] },
             }),
             "the target, the payload and what it was based on renamed, nothing else"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_keys_of_what_a_read_or_a_command_carries_are_renamed_where_its_values_are() {
+        let seen = Seen::default();
+        let answer = json!({ "data": { "pjInitiative": { "uuid-elowen": 18 } },
+            "uuid-julie": 1 });
+        let app = renaming(echo(&seen, StatusCode::OK, &answer), names());
+        let (_, body) = send(app, "/capabilities/table.getBattlemapInstance", "{}").await;
+        assert_eq!(
+            json_of(&body),
+            json!({ "data": { "pjInitiative": { "elowen": 18 } }, "uuid-julie": 1 }),
+            "the keys of the data, not of the envelope"
+        );
+
+        let app = renaming(echo(&seen, StatusCode::ACCEPTED, &json!({})), names());
+        let sent = json!({ "payload": { "initiative": { "elowen": 18 } }, "elowen": 1 });
+        send(app, "/commands", &sent.to_string()).await;
+        let seen = seen.lock().expect("unpoisoned").clone();
+        assert_eq!(
+            json_of(seen.last().expect("a command")),
+            json!({ "payload": { "initiative": { "uuid-elowen": 18 } }, "elowen": 1 }),
+            "the keys of the payload, not of the command"
         );
     }
 
