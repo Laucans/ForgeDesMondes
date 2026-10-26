@@ -417,6 +417,15 @@ const VALUES = new Map([
     "github.event_name == 'pull_request' && github.base_ref == 'main_agent' && !startsWith(github.head_ref, 'rules/') && '--strict' || ''",
     (c) => (c.baseRef === 'main_agent' && NOT_RULES_BRANCH(c) ? '--strict' : ''),
   ],
+  // A red base's repair into main_agent is not strict: the rules that landed
+  // red would fail it on every pending rule.
+  [
+    "github.event_name == 'pull_request' && github.base_ref == 'main_agent' && !startsWith(github.head_ref, 'rules/') && !startsWith(github.head_ref, 'base-repair/') && '--strict' || ''",
+    (c) =>
+      c.baseRef === 'main_agent' && NOT_RULES_BRANCH(c) && !String(c.headRef ?? '').startsWith('base-repair/')
+        ? '--strict'
+        : '',
+  ],
 ]);
 
 const normalize = (expression) =>

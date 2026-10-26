@@ -50,6 +50,18 @@
 //! aggregate give the sessions, the PCs present at each, the scenes of
 //! `SceneBoard.json`, the closed session's journal and summary of
 //! `PreviousSummary.json`, the last brief and the to-create list.
+//! A oneshot those fixtures do not describe gets the one session its
+//! creation writes (`oneshot-single-session`), titled after it: closed on the
+//! day the campaign list says it was last played, else in preparation for
+//! its next day.
+//!
+//! The session under way is the exception, and `session.getLiveSession.json`
+//! names it: that session of `SessionList.json` (which still says `prep`) is
+//! loaded `live`, started on its day at the file's `startedAt` (`HH:MM`, UTC),
+//! so the DM view finds the running session. It is the one session that is
+//! live, a session going from `prep` to `live` once (`status-lifecycle`); a
+//! file that names a session already played, a day other than the session's,
+//! or no session at all is skipped, and the session stays as the list has it.
 //!
 //! A scene is one row of `scene` (its order is its rank, from 1 to n), and
 //! each place, character, event and medium it lists one row of `scene_entity`
@@ -230,6 +242,7 @@ const SESSION: &[&str] = &[
     "title",
     "planned_on",
     "status",
+    "started_at",
     "microphone_on",
     "summary",
     "summary_model",
@@ -334,6 +347,7 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
             BRIEF_FILE => read.brief(&value),
             TO_CREATE_FILE => read.creations(&value),
             INSTANCE_FILE => read.instance(&value),
+            LIVE_FILE => read.running(&value),
             _ => {
                 plan.skipped
                     .push((name, "no aggregate holds it".to_string()));
@@ -383,6 +397,10 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
         read.to_create = None;
         withdraw(&mut plan, TO_CREATE_FILE, &why);
     }
+    if let Err(why) = read.running_fits() {
+        read.running = None;
+        withdraw(&mut plan, LIVE_FILE, &why);
+    }
     if let Err(why) = read.instance_fits() {
         read.instance = None;
         withdraw(&mut plan, INSTANCE_FILE, &why);
@@ -412,6 +430,10 @@ const TO_CREATE_FILE: &str = "ToCreateList.json";
 /// battlemap, with its tokens. `Battlemap.json` holds the same instance for
 /// the Micro-UI, and is not read: it would name the same rows twice.
 const INSTANCE_FILE: &str = "table.getBattlemapInstance.json";
+/// The fixture of the session under way: which session of the list is live,
+/// and when it started. `LiveSessionBar.json` holds the same header for the
+/// Micro-UI, and is not read.
+const LIVE_FILE: &str = "session.getLiveSession.json";
 
 impl Fixtures {
     /// Leaves out the instance planned for a scene where the store already
@@ -585,6 +607,9 @@ struct Read {
     /// The campaigns by slug: name, kind, pitch, art, glyph, and the dates
     /// when a fixture gives them.
     campaigns: BTreeMap<String, Map<String, Value>>,
+    /// The days the campaign list gives each campaign, by slug: the last it
+    /// was played, and the next.
+    days: BTreeMap<String, (Value, Value)>,
     entities: Option<Entities>,
     history: Option<History>,
     /// The version rows of each element `history` gives a history, by slug,
@@ -598,6 +623,17 @@ struct Read {
     brief: Option<Brief>,
     to_create: Option<ToCreate>,
     instance: Option<Instance>,
+    running: Option<Running>,
+}
+
+/// The `session.getLiveSession.json` document, mapped: the session under way.
+struct Running {
+    /// The session, by slug.
+    session: String,
+    /// The day it was played.
+    day: String,
+    /// The time of that day it started, `HH:MM`.
+    started: String,
 }
 
 /// The `sounds.json` document, mapped: a campaign's soundbox.
@@ -803,10 +839,12 @@ impl Read {
                 required(row, "id")?.to_string(),
                 json!({ "name": required(row, "name")?, "kind": required(row, "type")?,
                         "pitch": row["pitch"], "art": row["art"], "glyph": row["glyph"] }),
+                (day(row, "lastPlayed")?, day(row, "next")?),
             ));
         }
-        for (slug, row) in rows {
+        for (slug, row, days) in rows {
             self.campaign(&slug, &row);
+            self.days.insert(slug, days);
         }
         Ok(())
     }
@@ -1039,6 +1077,24 @@ impl Read {
         Ok(())
     }
 
+    fn running(&mut self, value: &Value) -> Result<(), String> {
+        let session = required(value, "id")?.to_string();
+        let day = required(value, "date")?.to_string();
+        let started = required(value, "startedAt")?.to_string();
+        if !is_day(&day) {
+            return Err(format!("the day {day:?} is not a day"));
+        }
+        if !is_clock(&started) {
+            return Err(format!("{started:?} is not a time of the day"));
+        }
+        self.running = Some(Running {
+            session,
+            day,
+            started,
+        });
+        Ok(())
+    }
+
     /// Whether a campaign, a player, an element, a medium or a sound of the
     /// files read is named `slug`: the slugs of the rows planned before the
     /// sessions.
@@ -1184,6 +1240,52 @@ impl Read {
                 .iter()
                 .flat_map(|l| &l.entries)
                 .any(|e| e.slug == slug)
+    }
+
+    /// Whether the session under way fits the list of sessions: one the list
+    /// gives, still in preparation (a session goes from `prep` to `live`, and
+    /// never back: `status-lifecycle`), on the day the list plans it, and with
+    /// no other session already live.
+    fn running_fits(&self) -> Result<(), String> {
+        let Some(running) = &self.running else {
+            return Ok(());
+        };
+        let Some(sessions) = &self.sessions else {
+            return Err(format!(
+                "no fixture describes the session {:?}",
+                running.session
+            ));
+        };
+        let Some(session) = sessions.sessions.iter().find(|s| s.slug == running.session) else {
+            return Err(format!(
+                "no fixture describes the session {:?}",
+                running.session
+            ));
+        };
+        if session.status != "prep" {
+            return Err(format!(
+                "the session {:?} is {}, not in preparation",
+                running.session, session.status
+            ));
+        }
+        if session
+            .planned_on
+            .as_str()
+            .is_some_and(|day| day != running.day)
+        {
+            return Err(format!(
+                "the session {:?} is of {}, not of {}",
+                running.session, session.planned_on, running.day
+            ));
+        }
+        if let Some(other) = sessions
+            .sessions
+            .iter()
+            .find(|s| s.status == "live" && s.slug != running.session)
+        {
+            return Err(format!("the session {:?} is live already", other.slug));
+        }
+        Ok(())
     }
 
     /// Whether the instance read fits what the other files say: its scene is
@@ -1473,8 +1575,35 @@ impl Read {
         }
     }
 
+    /// The one session of each oneshot no session fixture describes, as its
+    /// creation writes it: the first, the microphone off, titled after the
+    /// oneshot. Closed on the day it was last played, else in preparation
+    /// for its next day; named `session:<oneshot slug>:1`.
+    fn oneshot_sessions(&self) -> Vec<Value> {
+        let described = self.sessions.as_ref().map(|s| s.campaign.as_str());
+        let mut rows = Vec::new();
+        for (slug, row) in &self.campaigns {
+            if row.get("kind") != Some(&json!("oneshot")) || described == Some(slug) {
+                continue;
+            }
+            let (played, next) = self.days.get(slug).cloned().unwrap_or_default();
+            let (status, planned_on) = if played.is_null() {
+                ("prep", next)
+            } else {
+                ("closed", played)
+            };
+            rows.push(json!({
+                "id": id("session", &format!("{slug}:1")), "campaign_id": id("campaign", slug),
+                "position": 1, "title": row.get("name"), "planned_on": planned_on,
+                "status": status, "microphone_on": false, "summary": null,
+            }));
+        }
+        rows
+    }
+
     /// The rows of everything read, in the order they are inserted.
     fn plan(self, plan: &mut Fixtures) {
+        let oneshots = self.oneshot_sessions();
         // A campaign with no soundbox takes the column's default, 1.
         let master = |slug: &String| {
             self.soundbox
@@ -1578,6 +1707,9 @@ impl Read {
             }
             tables.push(table("sound", "id", SOUND, sounds));
         }
+        if !oneshots.is_empty() {
+            tables.push(table("session", "id", SESSION, oneshots));
+        }
         if let Some(sessions) = &self.sessions {
             let campaign = id("campaign", &sessions.campaign);
             let mut rows = Vec::new();
@@ -1586,10 +1718,14 @@ impl Read {
                 let row = id("session", &session.slug);
                 // How a closed session ended is the closing's, when the fixtures have it.
                 let closing = self.closing.as_ref().filter(|c| c.session == session.slug);
+                // The session under way is live, since the time of its day it started.
+                let running = self.running.as_ref().filter(|r| r.session == session.slug);
                 rows.push(json!({
                     "id": row, "campaign_id": campaign, "position": session.position,
                     "title": session.title, "planned_on": session.planned_on,
-                    "status": session.status, "microphone_on": false,
+                    "status": if running.is_some() { "live" } else { session.status },
+                    "started_at": running.map(|r| format!("{}T{}:00Z", r.day, r.started)),
+                    "microphone_on": false,
                     "summary": closing.map_or(session.summary.clone(), |c| json!(c.summary)),
                     "summary_model": closing.map(|c| &c.model),
                     "summary_edited_at": closing
@@ -2598,6 +2734,15 @@ fn is_clock(text: &str) -> bool {
     text.len() == 5 && text.as_bytes()[2] == b':' && hour < 24 && minute < 60
 }
 
+/// The day `key` of `value` (`2026-07-11`), as a `date` column holds it, or
+/// null when it has none.
+fn day(value: &Value, key: &str) -> Result<Value, String> {
+    Ok(match date(value, key)? {
+        Value::String(at) => json!(&at[..10]),
+        other => other,
+    })
+}
+
 /// A day (`2026-08-20`) as the midnight UTC the column holds; null stays null.
 fn date(value: &Value, key: &str) -> Result<Value, String> {
     match value[key].as_str() {
@@ -2700,6 +2845,7 @@ mod tests {
                 "campaign.listEntityVersions.json",
                 "entities.json",
                 "media.json",
+                "session.getLiveSession.json",
                 "sounds.json",
                 "table.getBattlemapInstance.json"
             ]
@@ -2729,6 +2875,7 @@ mod tests {
                 "media",
                 "battlemap_grid",
                 "sound",
+                "session",
                 "session",
                 "session_present_character",
                 "scene",
@@ -3878,6 +4025,79 @@ mod tests {
     }
 
     /// The mock-up's fixtures, the files named in `over` replaced by theirs.
+    /// The sessions planned for the campaign `slug`.
+    fn sessions_of<'a>(plan: &'a Fixtures, slug: &str) -> Vec<&'a Value> {
+        let campaign = id("campaign", slug);
+        rows(plan, "session")
+            .into_iter()
+            .filter(|s| s["campaign_id"] == campaign)
+            .collect()
+    }
+
+    #[test]
+    fn the_oneshot_of_the_mock_up_has_its_one_session_closed_on_its_last_day() {
+        let plan = mock();
+        let oneshot = sessions_of(&plan, "nuit-carnaval");
+        assert_eq!(
+            oneshot,
+            [&json!({ "id": id("session", "nuit-carnaval:1"),
+                "campaign_id": id("campaign", "nuit-carnaval"), "position": 1,
+                "title": "La Nuit du Carnaval Pourpre", "planned_on": "2026-07-11",
+                "status": "closed", "microphone_on": false, "summary": null })]
+        );
+        assert!(
+            sessions_of(&plan, "heritiers-ebene").is_empty(),
+            "a campaign no session fixture describes has none"
+        );
+    }
+
+    #[test]
+    fn a_oneshot_never_played_is_in_preparation_for_its_next_day() {
+        let list = json!([
+            { "id": "o", "name": "O", "type": "oneshot", "lastPlayed": null, "next": "2026-11-02" },
+            { "id": "p", "name": "P", "type": "oneshot" },
+        ]);
+        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
+        let next = sessions_of(&plan, "o");
+        assert_eq!(next.len(), 1, "{next:?}");
+        assert_eq!(next[0]["status"], "prep");
+        assert_eq!(next[0]["planned_on"], "2026-11-02");
+        assert_eq!(next[0]["title"], "O");
+        let undated = sessions_of(&plan, "p");
+        assert_eq!(undated.len(), 1, "{undated:?}");
+        assert_eq!(undated[0]["status"], "prep");
+        assert!(undated[0]["planned_on"].is_null());
+    }
+
+    #[test]
+    fn a_oneshot_the_session_fixture_describes_gets_no_other_session() {
+        let mut list = mock_file("campaign.listCampaigns.json");
+        list[0]["type"] = json!("oneshot");
+        list[0]["lastPlayed"] = json!("2026-10-03");
+        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
+        let sessions = sessions_of(&plan, "cendres-valombre");
+        assert_eq!(sessions.len(), 4, "the fixture's, and none added");
+        assert!(
+            sessions
+                .iter()
+                .all(|s| s["title"] != "Les Cendres de Valombre")
+        );
+    }
+
+    #[test]
+    fn a_campaign_list_with_a_day_that_is_none_is_skipped() {
+        let list = json!([{ "id": "o", "name": "O", "type": "oneshot", "lastPlayed": "hier" }]);
+        let plan = replaced(&[("campaign.listCampaigns.json", list)]);
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(n, why)| n == "campaign.listCampaigns.json" && why.contains("not a day")),
+            "{:?}",
+            plan.skipped
+        );
+        assert!(sessions_of(&plan, "o").is_empty());
+    }
+
     fn replaced(over: &[(&str, Value)]) -> Fixtures {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
         let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
@@ -3923,10 +4143,8 @@ mod tests {
     #[test]
     fn the_sessions_of_the_mock_up_are_planned_with_the_pcs_present() {
         let plan = mock();
-        let sessions = rows(&plan, "session");
+        let sessions = sessions_of(&plan, "cendres-valombre");
         assert_eq!(sessions.len(), 4);
-        let campaign = id("campaign", "cendres-valombre");
-        assert!(sessions.iter().all(|s| s["campaign_id"] == campaign));
         assert!(sessions.iter().all(|s| s["microphone_on"] == false));
         let session = |slug: &str| {
             sessions
@@ -3945,7 +4163,16 @@ mod tests {
                 .as_str()
                 .is_some_and(|s| s.starts_with("Le moulin brûle"))
         );
-        assert_eq!(session("s4")["status"], "prep");
+        // AC1: the session under way is loaded live, started on its day.
+        assert_eq!(session("s4")["status"], "live");
+        assert_eq!(session("s4")["started_at"], "2026-10-17T20:02:00Z");
+        assert!(
+            sessions
+                .iter()
+                .filter(|s| s["id"] != id("session", "s4"))
+                .all(|s| s["started_at"].is_null() && s["status"] != "live"),
+            "no other session is live or started"
+        );
         let order: Vec<i64> = sessions
             .iter()
             .filter_map(|s| s["position"].as_i64())
@@ -4556,6 +4783,182 @@ mod tests {
     }
 
     #[test]
+    fn the_running_session_is_the_one_the_live_fixture_names_and_nothing_else_changes() {
+        // AC1: the session s4 is loaded live, from the time the fixture says it started.
+        let live = mock_file(LIVE_FILE);
+        assert_eq!(
+            live["startedAt"],
+            mock_file("LiveSessionBar.json")["session"]["startedAt"],
+            "the Micro-UI's fixture is the same session"
+        );
+        let plan = mock();
+        assert!(
+            plan.loaded.iter().any(|f| f == LIVE_FILE),
+            "{:?}",
+            plan.skipped
+        );
+        assert!(!plan.skipped.iter().any(|(f, _)| f == LIVE_FILE));
+        let stated = |plan: &Fixtures| {
+            rows(plan, "session")
+                .iter()
+                .map(|s| {
+                    (
+                        s["id"].clone(),
+                        s["status"].clone(),
+                        s["started_at"].clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let with = stated(&plan);
+        assert_eq!(
+            with.iter()
+                .filter(|(_, status, _)| status == "live")
+                .count(),
+            1
+        );
+        // Without the file, s4 is the list's own (in preparation, never started).
+        let without = mock_files_without(LIVE_FILE);
+        let s4 = id("session", "s4");
+        let state_of = |all: &[(Value, Value, Value)]| {
+            all.iter()
+                .find(|(row, _, _)| *row == s4)
+                .map(|(_, status, started)| (status.clone(), started.clone()))
+        };
+        assert_eq!(state_of(&without), Some((json!("prep"), Value::Null)));
+        assert_eq!(
+            state_of(&with).map(|(status, _)| status),
+            Some(json!("live"))
+        );
+        let others = |all: &[(Value, Value, Value)]| {
+            all.iter()
+                .filter(|(row, _, _)| *row != s4)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            others(&with),
+            others(&without),
+            "the other sessions are untouched"
+        );
+    }
+
+    /// The `(id, status, started_at)` of every session planned with `file` taken out.
+    fn mock_files_without(file: &str) -> Vec<(Value, Value, Value)> {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
+        let files: Vec<(String, String)> = std::fs::read_dir(&dir)
+            .expect("the fixtures folder")
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let name = path.file_name()?.to_str()?.to_string();
+                (name != file && path.extension().is_some_and(|e| e == "json"))
+                    .then(|| (name, std::fs::read_to_string(&path).expect("a fixture")))
+            })
+            .collect();
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(n, t)| (n.as_str(), t.as_str()))
+            .collect();
+        let folder = folder("without-live", &files);
+        let plan = fixtures(&folder).expect("the folder is listed");
+        std::fs::remove_dir_all(&folder).ok();
+        rows(&plan, "session")
+            .iter()
+            .map(|s| {
+                (
+                    s["id"].clone(),
+                    s["status"].clone(),
+                    s["started_at"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_live_fixture_that_does_not_fit_is_skipped_alone_and_the_session_stays_in_preparation() {
+        let live = |edit: &dyn Fn(&mut Value)| {
+            let mut file = mock_file(LIVE_FILE);
+            edit(&mut file);
+            file
+        };
+        let cases = [
+            (
+                "a session nobody lists",
+                live(&|l| l["id"] = json!("s9")),
+                "no fixture describes",
+            ),
+            (
+                "a session already played",
+                live(&|l| l["id"] = json!("s3")),
+                "not in preparation",
+            ),
+            (
+                "another day than the list's",
+                live(&|l| l["date"] = json!("2026-10-18")),
+                "not of 2026-10-18",
+            ),
+            (
+                "a day that is not a day",
+                live(&|l| l["date"] = json!("17 octobre")),
+                "is not a day",
+            ),
+            (
+                "a time that is not a time",
+                live(&|l| l["startedAt"] = json!("25:61")),
+                "not a time of the day",
+            ),
+            (
+                "no start",
+                live(&|l| l["startedAt"] = Value::Null),
+                "startedAt",
+            ),
+        ];
+        for (what, file, why) in cases {
+            let plan = replaced(&[(LIVE_FILE, file)]);
+            let skipped: Vec<&Skipped> = plan
+                .skipped
+                .iter()
+                .filter(|(f, _)| f == LIVE_FILE)
+                .collect();
+            assert_eq!(skipped.len(), 1, "{what}: {:?}", plan.skipped);
+            assert!(skipped[0].1.contains(why), "{what}: {skipped:?}");
+            let session = rows(&plan, "session")
+                .into_iter()
+                .find(|s| s["id"] == id("session", "s4"))
+                .expect("s4 is planned");
+            assert_eq!(session["status"], "prep", "{what}");
+            assert!(session["started_at"].is_null(), "{what}");
+            assert!(
+                plan.loaded.iter().any(|f| f == SESSIONS)
+                    && plan.loaded.iter().any(|f| f == BOARD_FILE),
+                "{what}: the rest is loaded"
+            );
+        }
+        // A list that is withdrawn leaves the live fixture with no session to start.
+        let mut list = mock_file(SESSIONS);
+        list["campaign"] = json!("nowhere");
+        let plan = replaced(&[(SESSIONS, list)]);
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(f, why)| f == LIVE_FILE && why.contains("no fixture describes the session")),
+            "{:?}",
+            plan.skipped
+        );
+        // Two sessions live: the list's own live one is not displaced.
+        let mut list = mock_file(SESSIONS);
+        list["sessions"][1]["status"] = json!("live");
+        let plan = replaced(&[(SESSIONS, list)]);
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(f, why)| f == LIVE_FILE && why.contains("live already")),
+            "{:?}",
+            plan.skipped
+        );
+    }
+
+    #[test]
     fn a_session_file_that_does_not_fit_is_skipped_with_what_hangs_on_it() {
         let sessions = |edit: &dyn Fn(&mut Value)| {
             let mut list = mock_file(SESSIONS);
@@ -4624,6 +5027,7 @@ mod tests {
                 CLOSING_FILE,
                 BRIEF_FILE,
                 TO_CREATE_FILE,
+                LIVE_FILE,
                 INSTANCE_FILE,
             ];
             assert_eq!(
@@ -4634,6 +5038,7 @@ mod tests {
                     CLOSING_FILE,
                     BRIEF_FILE,
                     TO_CREATE_FILE,
+                    LIVE_FILE,
                     INSTANCE_FILE
                 ],
                 "{what}"
@@ -4649,8 +5054,12 @@ mod tests {
                 assert!(!plan.loaded.iter().any(|n| n == file), "{what}: {file}");
             }
             assert!(plan.loaded.iter().any(|n| n == "entities.json"), "{what}");
+            // The oneshot's own session hangs on no file.
+            assert!(
+                sessions_of(&plan, "cendres-valombre").is_empty(),
+                "{what}: session"
+            );
             for table in [
-                "session",
                 "session_present_character",
                 "scene",
                 "scene_entity",
@@ -4763,7 +5172,7 @@ mod tests {
             assert_eq!(left[0].0, file, "{what}");
             assert!(left[0].1.contains(why), "{what}: {:?}", left[0]);
             assert_eq!(
-                rows(&plan, "session").len(),
+                sessions_of(&plan, "cendres-valombre").len(),
                 4,
                 "{what}: the sessions are loaded"
             );

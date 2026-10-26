@@ -34,6 +34,11 @@
             "pattern": "^[a-z][a-z0-9-]*$",
             "description": "The frozen screen composition this page mocks (`apps/screens/<screen>.json`), once it exists."
           },
+          "surface": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "Who acts on the page, a surface of `surfaces.json` (contract S), for a page no frozen screen names yet; once its screen exists, the screen's `surface` (contract E), which this one equals."
+          },
           "components": {
             "type": "array",
             "items": {

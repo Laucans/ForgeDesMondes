@@ -23,6 +23,20 @@
 // page reads a Capability with a variable its capability.json `input` does
 // not take: the real server ignores it and answers null.
 //
+// A running test also checks the caller its pages send, as the product's
+// shell must set it (caller model A, contract S): on a screen that declares
+// a `surface` (contract E) — once `surfaces.json` exists — every
+// `POST /commands` carries that surface's caller (its `by` and its set of
+// roles; the `pilot`'s while the page's URL carries `<query>=1`), else the
+// journey fails, "fix the shell, this is not a rule contest"; and a
+// command that waits for a review (its result or a follow-up's
+// `awaiting_review`) fails it too — the shell's surfaces, never a rule —
+// unless the body called `reviewExpected()`. A screen that declares no
+// surface acts with no role (fail closed): once `surfaces.json` exists, a
+// caller carrying a role there fails the journey the same way, while a
+// command parked there is only a `::warning::` annotation. Nothing turns
+// red before the product declares its surfaces.
+//
 // A running test is also checked for how it is mounted: a screen it opens
 // (at RULES_SCREEN_ROUTE) that its needs do not name, and a Capability or a
 // DataCapability its pages reach that none of its needs covers — named, or
@@ -188,6 +202,118 @@ export function screenOf(url: URL): string | undefined {
   }
 }
 
+/** One surface of `surfaces.json` (contract S): the caller its screens send. */
+export type Surface = { by: string; roles: string[]; permissions: string[] };
+/** The product's surfaces, by name, and the default a test acts as. */
+export type Surfaces = { default: string; surfaces: Record<string, Surface> };
+let surfacesRead: Surfaces | null | undefined;
+
+/** The product's `surfaces.json`, read once: `null` while it declares none, or declares it unreadably. */
+export function surfaces(): Surfaces | null {
+  if (surfacesRead === undefined) {
+    surfacesRead = null;
+    try {
+      const read = JSON.parse(readFileSync(join(root, 'surfaces.json'), 'utf8'));
+      if (read && typeof read === 'object' && read.surfaces && typeof read.surfaces === 'object') {
+        const all: Record<string, Surface> = {};
+        for (const [name, s] of Object.entries(read.surfaces as Record<string, Record<string, unknown>>)) {
+          all[name] = { by: String((s && s.by) ?? ''), roles: strings(s && s.roles), permissions: strings(s && s.permissions) };
+        }
+        surfacesRead = { default: String(read.default ?? ''), surfaces: all };
+      }
+    } catch {
+      // Absent or no JSON: nothing declared.
+    }
+  }
+  return surfacesRead;
+}
+
+/** The surface a screen's commands act as, on the page at `url`: its `pilot`'s while the URL carries `<query>=1`, else its own `surface`; `undefined` for a screen that declares none. */
+export function surfaceOf(screen: string, url: URL): string | undefined {
+  const manifest = manifestOf('screen', screen)?.manifest;
+  const own = typeof manifest?.surface === 'string' ? manifest.surface : undefined;
+  const pilot = manifest?.pilot as { surface?: unknown; query?: unknown } | undefined;
+  if (own && pilot && typeof pilot.surface === 'string' && typeof pilot.query === 'string' && url.searchParams.get(pilot.query) === '1') return pilot.surface;
+  return own;
+}
+
+/** What is wrong with the caller a page sent on `screen`, acting as `surface`: the shell sets that surface's `by` and roles, whatever the Micro-UI sent. */
+export function callerOff(caller: unknown, screen: string, surface: string, declared: Surfaces): string | undefined {
+  const want = declared.surfaces[surface];
+  if (!want) return `screen:${screen} acts as the surface ${surface}, which surfaces.json does not declare`;
+  const sent = caller && typeof caller === 'object' ? (caller as Record<string, unknown>) : {};
+  const by = typeof sent.by === 'string' ? sent.by : '';
+  const roles = strings(sent.roles).sort();
+  const wanted = [...want.roles].sort();
+  if (by === want.by && roles.join() === wanted.join()) return undefined;
+  return `the shell sent the caller ${JSON.stringify({ by, roles })} on screen:${screen} (surface ${surface}); surfaces.json says ${JSON.stringify({ by: want.by, roles: wanted })}`;
+}
+
+/** What is wrong with the caller a page sent on `screen`, which declares no surface while surfaces.json exists: the shell acts there with no role (fail closed), so any role it sends is off. */
+export function roleOffNoSurface(caller: unknown, screen: string): string | undefined {
+  const sent = caller && typeof caller === 'object' ? (caller as Record<string, unknown>) : {};
+  const roles = strings(sent.roles).sort();
+  if (!roles.length) return undefined;
+  return `the shell sent the roles ${JSON.stringify(roles)} on screen:${screen}, which declares no surface: it acts there with no role (fail closed) — declare the screen's surface (contract E) or send none`;
+}
+
+/** The review a `POST /commands` answer waits on — its result's, or a follow-up's (`then[].submitted`) — `undefined` when none waits. */
+export function awaitingReview(answer: unknown): string | undefined {
+  const of = (result: unknown): string | undefined => {
+    const r = result && typeof result === 'object' ? (result as Record<string, unknown>) : undefined;
+    return r && r.status === 'awaiting_review' ? String(r.reviewId ?? '(no id)') : undefined;
+  };
+  const body = answer && typeof answer === 'object' ? (answer as Record<string, unknown>) : {};
+  const followUps = Array.isArray(body.then) ? body.then : [];
+  return of(body.result) ?? followUps.map((f) => of(f && typeof f === 'object' ? (f as { submitted?: { result?: unknown } }).submitted?.result : undefined)).find(Boolean);
+}
+
+/** The annotation a body sets when it expects a command to wait for a review. */
+export const REVIEW_EXPECTED = 'review-expected';
+
+/** Says the body expects a command to wait for a review: a parked command then fails nothing. */
+export function reviewExpected(): void {
+  test.info().annotations.push({ type: REVIEW_EXPECTED, description: 'the rule expects a review' });
+}
+
+/** Why a journey fails on commands its shell sent off their surface, or that wait for a review: the first line names the first one, then each, then what to do. */
+export function offSurface(callers: string[], parked: string[]): string[] {
+  const out: string[] = [];
+  if (callers.length) {
+    out.push(
+      [
+        `caller off its surface — fix the shell, this is not a rule contest: ${callers[0]}`,
+        ...callers.map((c) => `  - ${c}`),
+        'The shell sets the caller of every command from its screen\'s surface (surfaces.json, contract S), whatever the Micro-UI sends; a Micro-UI never writes a caller or a role.',
+      ].join('\n'),
+    );
+  }
+  if (parked.length) {
+    out.push(
+      [
+        `parked for review — fix the shell or surfaces.json, this is not a rule contest: ${parked[0]}`,
+        ...parked.map((p) => `  - ${p}`),
+        'Its caller lacks a critical field\'s review role: give the role to the surface whose gesture approves (surfaces.json), set the screen\'s surface (contract E), or change the aggregate\'s review — never the rule. A rule that expects the review calls reviewExpected().',
+      ].join('\n'),
+    );
+  }
+  return out;
+}
+
+/** The page a request comes from: its frame's URL, else its referer. */
+function pageOf(route: Route): URL | undefined {
+  try {
+    return new URL(route.request().frame().url());
+  } catch {
+    try {
+      const referer = route.request().headers().referer;
+      return referer ? new URL(referer) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
 /** A fixture of the mock-up (`mock/fixtures/<name>.json`): the data the human validated with it. */
 export function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(root, 'mock/fixtures', `${name}.json`), 'utf8'));
@@ -329,6 +455,9 @@ const journey = test.extend<{ payloadsDeclared: void }>({
     // `page` is taken for its order: this teardown runs while it is open.
     async ({ context, browser, page: _page }, use, testInfo) => {
       const found = new Set<string>();
+      // What the shell sent off its surface, and what waited for a review on a declared surface.
+      const callers = new Set<string>();
+      const parked = new Set<string>();
       // What the pages reached, for the mounting: screens opened, units reached, reads off their input.
       const screens = new Set<string>();
       const unserved = new Set<string>();
@@ -349,8 +478,24 @@ const journey = test.extend<{ payloadsDeclared: void }>({
       const answer = async (route: Route): Promise<void> => {
         try {
           if (route.request().method() !== 'POST') return await route.fallback();
-          const command = sent(route)?.dataCapability;
+          const body = sent(route);
+          const command = body?.dataCapability;
           if (typeof command === 'string') reached.add(`data-capability:${unversioned(command)}`);
+          const page = pageOf(route);
+          const screenName = page && screenOf(page);
+          const declared = surfaces();
+          const surface = screenName && page && declared ? surfaceOf(screenName, page) : undefined;
+          if (screenName && declared && surface) {
+            const off = callerOff(body?.caller, screenName, surface, declared);
+            if (off) callers.add(off);
+            // A wrong `from` is only said: `callableBy` judges it on the server.
+            const from = body?.caller && typeof body.caller === 'object' ? (body.caller as Record<string, unknown>).from : undefined;
+            if (typeof from !== 'string' || !from) process.stderr.write(`::warning::${String(command)} on screen:${screenName} carries a caller with no \`from\`: the shell names the Micro-UI that sent it\n`);
+          } else if (screenName && declared) {
+            // A screen with no surface fails closed: a role sent there is the shell's fail-open.
+            const off = roleOffNoSurface(body?.caller, screenName);
+            if (off) callers.add(off);
+          }
           let response: APIResponse;
           try {
             response = await route.fetch();
@@ -358,8 +503,11 @@ const journey = test.extend<{ payloadsDeclared: void }>({
             // The server never answered: the page sees the request fail, as it would have.
             return await route.abort('failed');
           }
-          const body: unknown = await response.json().catch(() => null);
-          for (const w of undeclared(body)) found.add(w);
+          const answered: unknown = await response.json().catch(() => null);
+          for (const w of undeclared(answered)) found.add(w);
+          const review = awaitingReview(answered);
+          if (review && surface) parked.add(`${String(command)} on screen:${screenName} (surface ${surface}) waits for review ${review}`);
+          else if (review) process.stderr.write(`::warning::${String(command)} waits for review ${review}${screenName ? ` on screen:${screenName}, which declares no surface` : ''}: the shell sends no role there — declare surfaces.json and the screen's surface (contracts S, E)\n`);
           await route.fulfill({ response });
         } catch {
           // The page or its context closed meanwhile: what was read is kept.
@@ -468,10 +616,12 @@ const journey = test.extend<{ payloadsDeclared: void }>({
           process.stderr.write(`mis-mounted: ${why} — the test is mounted wrong, not the product: the rules' task fixes it\n`);
         }
       }
+      const expectsReview = (testInfo?.annotations ?? []).some((a) => a.type === REVIEW_EXPECTED);
       const failures = [
         ...(found.size ? [offManifest([...found])] : []),
         ...(reads.size ? [offRead([...reads])] : []),
         ...(unserved.size ? [unservedLinks([...unserved])] : []),
+        ...offSurface([...callers], expectsReview ? [] : [...parked]),
       ];
       if (failures.length) throw new Error(failures.join('\n'));
     },

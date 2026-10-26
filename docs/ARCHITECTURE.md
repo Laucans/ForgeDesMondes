@@ -389,7 +389,7 @@ bypass a port is how the list stays true.
 
 ## Interface contracts
 
-Fourteen contracts define every frontier. They live as **JSON Schema (draft
+Nineteen contracts define every frontier. They live as **JSON Schema (draft
 2020-12) in `contracts/`**, one file per contract; the examples below are YAML
 for readability. Contracts A, B, F and I fix the frontier between reading and
 writing: they are the first to stabilise.
@@ -414,6 +414,7 @@ writing: they are the first to stabilise.
 | P. Rules | What the product keeps ↔ the tests that prove it | Human (in the factory's design), rules' agent |
 | Q. Ports | The product ↔ everything outside it | Human (in the factory's design, and every new port), the agents that build adapters |
 | R. Plan graph | The milestones ↔ what each produces and consumes | The planner (writes it), the watch (the critical path, what runs side by side), the merge train |
+| S. Surfaces | Who acts on each screen ↔ the caller of every command it sends | Human (in the factory's design), UI agents (a screen's `surface`) |
 
 ### A. Concept
 
@@ -494,6 +495,12 @@ layout:
   - LimitReviewForm:  { customerId: $ctx.customerId }
 ```
 
+A screen says who acts on it: `surface: dm`, a surface of `surfaces.json`
+(contract S); `pilot: { surface: dm, query: pilote }` when another surface
+drives it while the page's URL carries `pilote=1` (a DM piloting the
+player's view). The shell sets the caller of every command the screen
+sends from it.
+
 ### F. DataCapability
 
 A folder, `crates/<system>/data-capabilities/<name>/`: `data-capability.json`
@@ -564,6 +571,7 @@ pages:
     title: Credit review
     objective: "Assess whether we can raise this customer's limit"
     screen: credit-review          # once the composition is frozen
+    surface: analyst               # who acts on it (contract S): its screen's once frozen
     components: [RiskBadge, LatePaymentsList, LimitReviewForm]
 components:
   - name: RiskBadge
@@ -739,6 +747,35 @@ needs>`, and the contract manager evolves it for every consumer at once.
  "ids": {"session.listScenes": {"kind": "capability", "producer": 20, "state": "mocked", "version": 1}}}
 ```
 
+### S. Surfaces
+
+`surfaces.json`, at the product's root: who acts on each surface, and so
+who calls — **caller model A**. The product's shell sets the caller of
+every command a screen sends from the screen's `surface` (contract E; the
+`pilot`'s while the page's URL carries `<query>=1`), replacing whatever the
+Micro-UI sent: a Micro-UI never writes a caller, a role or a permission. A
+gesture of a surface that holds a critical field's review role (contract I
+`review`, by default `role:approver`) approves it; a surface without the
+role queues the command `awaiting_review`. A screen whose surface is not
+declared, or that declares none, acts with no role (fail closed).
+
+```json
+{"default": "dm",
+ "surfaces": {
+   "dm":     {"by": "dm",     "roles": ["role:approver"], "permissions": []},
+   "player": {"by": "player", "roles": []}}}
+```
+
+The tests act as a surface the same way, never with a role written by hand:
+the units' test kit (`Bench`, its `default` surface, `.surface(..)` for
+another), the rules' business kit (the surface of the screen a test's needs
+name, else the `default`; `command_as`), and the journeys check that the
+shell sent its screen's caller. A new product starts with one surface whose
+user approves; a product that already has screens declares its own. A
+`pilot` grants a surface from a URL query: that rests on the shell serving
+loopback only. A caller per Micro-UI (one user among several, each with
+their roles) waits for a product with several DMs.
+
 ## CI gates
 
 Contracts protect only if they are verified automatically. These gates block
@@ -775,12 +812,14 @@ red carries the same name in the run's log.
 | Unit conventions | A unit a change adds or changes keeps the house conventions its neighbours drift from: a DataCapability reads no clock, declares its id constant, lists its ports-* crates as its `ports`, plants its real manifest in a test and runs the SQL it reads on PostgreSQL; a Capability is one SELECT binding its variables in order, compared as text, filtered once (never again by `answer`), its query file named after its folder and declaring what the SQL selects. What older units break is judged on added units only (`data-capability-conventions`, `capability-conventions`, `scripts/unit-conventions-gate.mjs`) | B, C, F |
 | Relations | Every foreign key has a declared `onDelete` and `onUpdate` policy | I |
 | Compositions | Every Micro-UI of a frozen screen exists in the referenced version | D, E |
+| Screen surfaces | A screen a change adds or changes declares a surface of `surfaces.json`; its Micro-UIs' actions find their critical fields' review roles (a warning) and their permissions on that surface or its pilot; every review role an aggregate asks is held by some surface; a page's surface is its screen's. Nothing to judge without `surfaces.json` (`scripts/unit-conventions-gate.mjs screens`) | E, I, N, S |
 | Pages mocked | `mock/pages.json` validates; every page and every micro-frontend it lists exists; every frozen screen has a page; every Micro-UI has a micro-frontend whose listing says its needs and actions; the bundles are rebuilt from the Micro-UIs' code | D, E, N |
 | Ports declared | Every port a unit names is in `ports.json`, every port lists its users back, a Capability never reads a stateful port, every port has its fake and contract tests (`scripts/ports-gate.mjs declared`, `contracts`) | Q, B, F |
 | Externals behind ports | No HTTP client, provider SDK or database client outside a port's adapter (the Data layer and the DataGuard for PostgreSQL), no network call from a Micro-UI (`behind`) | Q |
 | Secrets encrypted | Only sops-encrypted `secrets/<env>.enc.yaml` and no `.env` file are committed (`secrets`) | Q |
 | Rules covered | Every rule of `rules.json` has a test of its family naming it, its criterion copied as it is; no test names a rule `rules.json` has not (`scripts/rules-gate.mjs coverage`) | P |
-| Rules hold | Every rule's test whose units are built runs on the product the runtime serves, and passes; each rule's state (pending, green, red) is kept as `rules-status.json`; a rule marked `conform` may be red in a task, never where a milestone lands (`scripts/rules-gate.mjs status`) | P |
+| Rules hold | Every rule's test whose units are built runs on the product the runtime serves, and passes; each rule's state (pending, green, red) is kept as `rules-status.json`; a rule marked `conform` may be red in a task, never where a milestone lands. The suites only record their exit code: `scripts/rules-gate.mjs status` is the one verdict, and fails a suite that crashed (a non-zero exit leaving a rule its tests name with no status line) | P |
+| Rules callers | A line a change adds to a rule's test sets no role by hand (no `role:` literal, no `roles` key): a test acts as a surface, the kits' own files aside (`scripts/rules-gate.mjs callers`) | P, S |
 | Rule tests untouched | A change that is not the rules' task leaves `rules.json` and `tests/rules/` alone (`scripts/rules-gate.mjs untouched`), and carries no `CONTEST.md` — which opens the `Rules contested` issue the rules' task settles (`contest`). The rules' task's own PR is told by its branch, `rules/<n>`, read when the job runs. A `CONTEST.md` the change took from its base is the base's: warned, the gate passes, no issue opened; the harness deletes `CONTEST.md` itself once the contest is settled | P |
 
 Beside the gates, the project's own CI (`.github/workflows/ci.yml`) judges

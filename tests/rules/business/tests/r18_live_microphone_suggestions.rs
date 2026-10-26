@@ -36,17 +36,19 @@ fn r18_live_microphone_suggestions() {
             )?;
             let wanted = text(named_by_alias, "id").to_string();
 
-            // The microphone listens in one session: the fixture campaign's planned one, named
-            // explicitly (unscoped, any campaign's live session would be picked first).
+            // The microphone listens in one session: the fixture campaign's live one, else its
+            // planned one (the manifest's order), named explicitly (unscoped, any campaign's live
+            // session would be picked first).
             let sessions = items(
                 &s.read("session.listSessions", json!({ "campaign": CAMPAIGN }))?,
                 "sessions",
             );
             let planned = sessions
                 .iter()
-                .find(|x| text(x, "status") == "prep")
+                .find(|x| text(x, "status") == "live")
+                .or_else(|| sessions.iter().find(|x| text(x, "status") == "prep"))
                 .map(|x| text(x, "id").to_string())
-                .ok_or("the fixture campaign has no planned session")?;
+                .ok_or("the fixture campaign has no live or planned session")?;
 
             apply(s, "live.setMicrophone", json!({ "on": true }), Some(&planned))?;
             let started = std::time::Instant::now();
