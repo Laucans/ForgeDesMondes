@@ -28,6 +28,23 @@
 //       contested, and a development only copies the line into CONTEST.md.
 //       The rule's other red tests are listed under it: those are the
 //       product's, fixed in the same pass.
+//       The one verdict of the job `rules-hold`: its two suites record
+//       their exit code in RULES_EXITS (by default target/rules-exits.txt,
+//       one `<family> <code>` line each) and never fail on their own. A
+//       suite that exited non-zero while it wrote no status line, or left
+//       a rule its tests name with none, crashed — a compile error, a
+//       panic outside a rule, a timeout: that fails, `conform` or not.
+//
+//   node scripts/rules-gate.mjs callers <base>
+//       A rule's test acts as a surface of the product (surfaces.json,
+//       contract S), never as a role written by hand: a line a change adds
+//       to a test file — tests/rules/business/tests/**/*.rs,
+//       tests/rules/journey/**/*.spec.ts — holds no `role:` literal and no
+//       `roles` key. The kits act as the surface the test names (the
+//       business kit: the screen of its needs, else the default, or
+//       `command_as`; the journeys: the shell itself), so the kits' own
+//       files (src/, kit.ts) are never judged — the rules' task may fix
+//       them — and the lines already there are not either.
 //
 //   node scripts/rules-gate.mjs untouched <base>
 //       A change measured against <base> leaves tests/rules/ and rules.json
@@ -141,6 +158,7 @@ function status(args) {
     say(`${r.id} ${r.state}${r.conform ? ' (to conform)' : ''}${why ? ` — ${why}` : ''}`);
     if (r.state === 'red' && blocks(r)) { fail(`${r.id} does not hold${why ? `: ${why}` : ''}`); failed += 1; }
   }
+  failed += crashed(outcomes, all);
   const misMounted = told.filter((r) => r.state === 'mis-mounted');
   if (misMounted.length) {
     say('');
@@ -155,6 +173,70 @@ function status(args) {
     // Its red tests are the product's: a development fixes them in the same pass.
     for (const t of r.tests.filter((t) => t.state === 'red')) say(`  ${r.id} also red: ${t.test}${t.why ? ` — ${t.why}` : ''} (the product's, fix it now)`);
   }
+  return failed ? 1 : 0;
+}
+
+/** The test files of each family, as coverage reads them. */
+const testsOf = (family) => (family === 'business'
+  ? files(BUSINESS, (n) => n.endsWith('.rs'))
+  : files(JOURNEY, (n) => n.endsWith('.spec.ts')));
+
+/**
+ * The suites that crashed: each `<family> <code>` line of RULES_EXITS with
+ * a non-zero code, when the family wrote no status line at all, or left a
+ * rule of rules.json its tests name without one. Said, and counted.
+ */
+function crashed(outcomes, all) {
+  const path = process.env.RULES_EXITS || join(root, 'target/rules-exits.txt');
+  if (!existsSync(path)) return 0;
+  let failed = 0;
+  for (const line of readFileSync(path, 'utf8').split('\n').filter(Boolean)) {
+    const [family, code] = line.trim().split(/\s+/);
+    if (!family || code === '0' || !['business', 'journey'].includes(family)) continue;
+    const lines = outcomes.filter((o) => o.family === family);
+    const cited = new Set(testsOf(family).flatMap((test) => named(readFileSync(test, 'utf8'))));
+    const untested = all.filter((r) => r.family === family && cited.has(r.id) && !lines.some((o) => o.rule === r.id)).map((r) => r.id);
+    if (lines.length && !untested.length) {
+      say(`the ${family} suite exited ${code}: every rule its tests name said its state`);
+      continue;
+    }
+    const left = untested.length ? `, leaving ${untested.join(', ')} with no status line` : ', and no test wrote a status line';
+    fail(`the ${family} rules' suite crashed — it exited ${code}${left}: a compile error, a panic outside a rule or a timeout, read its step's log`);
+    failed += 1;
+  }
+  return failed;
+}
+
+/** A test file of the rules: a business test or a journey spec, never a kit's own file. */
+const isRuleTest = (path) => /^tests\/rules\/business\/tests\/.+\.rs$/.test(path) || /^tests\/rules\/journey\/.+\.spec\.ts$/.test(path);
+
+/** A role written by hand: a `role:` literal, or a `roles` key. */
+const HAND_ROLE = /["'`]role:[A-Za-z]|(^|[^A-Za-z0-9_])["']?roles["']?\s*:/;
+
+/** A comment-only line (`//`, `/*`, ` *`): a criterion copied above a test may speak of roles, it sets none. */
+const COMMENT_ONLY = /^\s*(\/\/|\/\*|\*)/;
+
+function callers(base) {
+  if (!base) { fail('callers needs the base the change is measured against'); return 1; }
+  const diff = execFileSync('git', ['diff', '-U0', '--no-color', `${base}...HEAD`, '--', 'tests/rules/'], { encoding: 'utf8' });
+  let file = null;
+  let line = 0;
+  let failed = 0;
+  for (const text of diff.split('\n')) {
+    const header = /^\+\+\+ b\/(.+)$/.exec(text);
+    if (header) { file = header[1]; continue; }
+    if (text.startsWith('+++ ')) { file = null; continue; }
+    const hunk = /^@@ -\S+ \+(\d+)(?:,\d+)? @@/.exec(text);
+    if (hunk) { line = Number(hunk[1]); continue; }
+    if (!file || !text.startsWith('+')) continue;
+    const added = text.slice(1);
+    if (isRuleTest(file) && !COMMENT_ONLY.test(added) && HAND_ROLE.test(added)) {
+      process.stdout.write(`::error file=${file},line=${line}::a rule's test acts as a surface, never with a role written by hand — the business kit as the screen its needs name (else the default surface, or command_as), the journeys as the shell sets it: ${added.trim()}\n`);
+      failed += 1;
+    }
+    line += 1;
+  }
+  say(failed ? `${failed} line(s) set a role by hand` : 'no rule test sets a role by hand');
   return failed ? 1 : 0;
 }
 
@@ -201,6 +283,6 @@ function contest(pr, base) {
 }
 
 const [mode, ...rest] = process.argv.slice(2);
-const run = { coverage: () => coverage(), status: () => status(rest), untouched: () => untouched(rest[0]), contest: () => contest(rest[0], rest[1]) }[mode];
-if (!run) { say('usage: rules-gate.mjs coverage | status [--strict] [<status.jsonl>…] | untouched <base> | contest <pr> [<base>]'); process.exit(2); }
+const run = { coverage: () => coverage(), status: () => status(rest), callers: () => callers(rest[0]), untouched: () => untouched(rest[0]), contest: () => contest(rest[0], rest[1]) }[mode];
+if (!run) { say('usage: rules-gate.mjs coverage | status [--strict] [<status.jsonl>…] | callers <base> | untouched <base> | contest <pr> [<base>]'); process.exit(2); }
 process.exit(run());

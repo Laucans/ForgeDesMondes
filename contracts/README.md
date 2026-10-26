@@ -1,6 +1,6 @@
 # Contracts
 
-The eighteen interface contracts of the agent-native architecture
+The nineteen interface contracts of the agent-native architecture
 (`docs/ARCHITECTURE.md`, "Interface contracts"), as JSON Schema draft 2020-12.
 Installed by `harness init-repo`; the repository owns them from here. A change
 to one of them is its own task, and lists the units it touches.
@@ -25,6 +25,7 @@ to one of them is its own task, and lists the units it touches.
 | `p-rules.schema.json` | P. Rules | `rules.json`: the rules the product keeps, each with the criterion its tests prove |
 | `q-ports.schema.json` | Q. Ports | `ports.json`: every dependency outside the product, behind a port, with its provider, adapter, fake, secrets, cost and users |
 | `r-plan-graph.schema.json` | R. Plan graph | `plan/graph.json`: what every milestone produces and consumes, and the dependencies that follow — the critical path, what may run side by side, and the register of contracts a consumer builds against before they are built |
+| `s-surfaces.schema.json` | S. Surfaces | `surfaces.json`: who acts on each surface of the product — the caller the shell sets on every command a screen of that surface sends (caller model A), and the one a test acts as |
 
 Validate a manifest by hand the way the `gates` workflow does:
 

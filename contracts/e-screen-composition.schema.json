@@ -33,6 +33,27 @@
         },
         "additionalProperties": false
       }
+    },
+    "surface": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Who acts on this screen: a surface of `surfaces.json` (contract S). The shell sets the caller of every command the screen sends from it, whatever a Micro-UI sent (caller model A); a screen with none, or with one `surfaces.json` does not declare, acts with no role (fail closed)."
+    },
+    "pilot": {
+      "type": "object",
+      "description": "Another surface the screen acts as while the page's URL carries `<query>=1` (a DM piloting the player's view acts as the DM): the shell's caller is then this surface's. It grants a surface from a URL, which rests on the shell serving loopback only.",
+      "properties": {
+        "surface": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "query": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        }
+      },
+      "required": ["surface", "query"],
+      "additionalProperties": false
     }
   },
   "required": [
