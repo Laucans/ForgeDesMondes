@@ -24,6 +24,8 @@ interface Options {
   diffusion?: unknown;
   media?: unknown;
   campaign?: unknown;
+  /** What session.getLiveSession answers: the live session of the campaign, by default. */
+  session?: unknown;
   /** What the server answers each command, in order; the last answer repeats. */
   status?: string | string[];
   /** Keeps every command waiting until it is released. */
@@ -50,7 +52,9 @@ function fakeShell(options: Options = {}) {
       reads.push({ id, variables });
       if (id === 'live.getDiffusion' && options.failRead?.()) throw new Error('the server is not there');
       if (id === 'live.getDiffusion') return { asOf: options.readAt ?? 1, data: structuredClone(row) };
-      if (id === 'campaign.getCampaign') return { asOf: 1, data: options.campaign ?? CAMPAIGN };
+      if (id === 'session.getLiveSession') return { asOf: 1, data: 'session' in options ? options.session : { session: { id: 's4', campaign: CAMPAIGN.id }, microphone: { on: true } } };
+      // The real read requires the campaign's id and has no answer without it.
+      if (id === 'campaign.getCampaign') return { asOf: 1, data: variables?.id === undefined ? null : (options.campaign ?? { ...CAMPAIGN, id: variables.id }) };
       return { asOf: 1, data: options.media ?? MEDIA };
     },
     async command(body) {
@@ -118,13 +122,13 @@ test('a diffusion on the cover shows the campaign’s cover and title', async ()
   assert.match(s.$('#player-cover').textContent ?? '', /Séance 4 — L’embuscade du Gué/);
   assert.ok(s.$('#player-cover [role="img"]'));
   assert.equal(s.$('#player-window').hidden, true);
-  assert.deepEqual(s.reads.map((r) => r.id).sort(), ['campaign.getCampaign', 'live.getDiffusion', 'media.listMedia']);
+  assert.deepEqual(s.reads.map((r) => r.id).sort(), ['campaign.getCampaign', 'live.getDiffusion', 'media.listMedia', 'session.getLiveSession']);
 });
 
 test('its parts name what they read and what they trigger', async () => {
   const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
   const named = (attribute: string): string[] => [...s.host.querySelectorAll(`[${attribute}]`)].map((e) => e.getAttribute(attribute) ?? '');
-  assert.deepEqual([...new Set(named('data-reads'))].sort(), ['campaign.getCampaign', 'live.getDiffusion', 'media.listMedia']);
+  assert.deepEqual([...new Set(named('data-reads'))].sort(), ['campaign.getCampaign', 'live.getDiffusion', 'media.listMedia', 'session.getLiveSession']);
   assert.deepEqual(named('data-writes').sort(), ['live.moveWindow', 'live.resizeWindow']);
 });
 
@@ -299,11 +303,30 @@ test('a campaign named by the screen is the one every read and every command nam
   assert.equal(s.sent[0]?.payload.campaign, 'c-9');
 });
 
+// AC1: no campaign prop, nothing sent — the live campaign's title is the h1 and its cover is drawn
 test('a screen that names no campaign leaves the server\u2019s live session to decide', async () => {
-  const s = await stage({});
+  const s = await stage({}, { session: { session: { id: 's4', campaign: 'c-live' }, microphone: { on: true } } });
   assert.deepEqual(s.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
-  assert.deepEqual(s.reads.find((r) => r.id === 'campaign.getCampaign')?.variables, {});
+  assert.deepEqual(s.reads.find((r) => r.id === 'session.getLiveSession')?.variables, {});
+  assert.deepEqual(s.reads.find((r) => r.id === 'campaign.getCampaign')?.variables, { id: 'c-live' });
   assert.deepEqual(s.reads.find((r) => r.id === 'media.listMedia')?.variables, {});
+  assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
+  assert.ok(s.$('#player-cover [role="img"]'));
+});
+
+// AC1: no live session, no campaign to show — campaign.getCampaign is never asked without its id
+test('with no live session the stage asks no campaign and draws no title', async () => {
+  const s = await stage({}, { session: null });
+  assert.equal(s.reads.filter((r) => r.id === 'campaign.getCampaign').length, 0);
+  assert.equal(s.host.querySelector('h1'), null);
+});
+
+// AC2: the window commands name the live campaign when the screen gives no campaign prop
+test('a window moved on a stage with no campaign prop names the live session’s campaign', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, session: { session: { id: 's4', campaign: 'c-live' } } });
+  await s.drag(s.$('#player-window-bar'), [200, 200], [300, 260]);
+  assert.equal(s.sent[0]?.payload.campaign, 'c-live');
+  assert.equal(s.$('#player-status').hidden, true);
 });
 
 test('the DM is told when the diffusion cannot be read, and the next good read takes it down', async () => {

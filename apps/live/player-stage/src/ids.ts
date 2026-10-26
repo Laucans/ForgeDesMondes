@@ -4,6 +4,8 @@
 export const GET_DIFFUSION = 'live.getDiffusion';
 // Read through the shell all the same: the system frontier admits a Capability of any system in `needs`.
 export const GET_CAMPAIGN = 'campaign.getCampaign';
+// The live session's header: its `campaign` is the one the stage shows when the screen names none.
+export const GET_LIVE_SESSION = 'session.getLiveSession';
 export const LIST_MEDIA = 'media.listMedia';
 
 export const MOVE_WINDOW = 'live.moveWindow';
