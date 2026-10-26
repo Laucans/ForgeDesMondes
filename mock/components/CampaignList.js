@@ -143,7 +143,7 @@
     const pitch = form.pitch.trim();
     return command(dataCapability, { name, type: form.type, pitch: pitch === "" ? null : pitch, glyph: glyphOf(name) }, idempotencyKey);
   }
-  var exportCommand = (dataCapability, id) => command(dataCapability, { id });
+  var exportCommand = (dataCapability, id, idempotencyKey) => command(dataCapability, { id }, idempotencyKey);
   var importCommand = (dataCapability, archive, idempotencyKey) => command(dataCapability, { archive }, idempotencyKey);
   var mayBeQueued = (state) => !isFinal(state.status) && !(state.status === "failed" && state.violations.length > 0);
   function parseArchive(source) {
@@ -319,6 +319,7 @@
       key = newKey();
       keyed = null;
     };
+    const exportKeys = /* @__PURE__ */ new Map();
     const keyFor = (payload) => {
       const sent = JSON.stringify(payload);
       if (keyed !== null && keyed !== sent) key = newKey();
@@ -391,7 +392,10 @@
       const campaign = campaigns.find((c) => c.id === id);
       if (!campaign) return;
       say(`Export de \xAB ${campaign.name} \xBB en cours\u2026`);
-      const state = await run(exportCommand(EXPORT_CAMPAIGN, id));
+      const exportKey = exportKeys.get(id) ?? newKey();
+      exportKeys.set(id, exportKey);
+      const state = await run(exportCommand(EXPORT_CAMPAIGN, id, exportKey));
+      if (!mayBeQueued(state)) exportKeys.delete(id);
       if (!current()) return;
       if (state.status !== "applied") return say(unapplied(state, EXPORT_WORDS));
       if (state.archive === null) return say("Export effectu\xE9, mais l\u2019archive n\u2019a pas \xE9t\xE9 re\xE7ue.");
@@ -416,6 +420,7 @@
         if (!mayBeQueued(state)) renewKey();
         return dialogError("campaign-create-error", unapplied(state, CREATE_WORDS));
       }
+      renewKey();
       closeDialog();
       await reload(`Campagne \xAB ${name.trim()} \xBB cr\xE9\xE9e.`);
     }
@@ -428,6 +433,7 @@
         if (!mayBeQueued(state)) renewKey();
         return dialogError("campaign-import-error", unapplied(state, IMPORT_WORDS));
       }
+      renewKey();
       closeDialog();
       await reload("Archive import\xE9e : une nouvelle campagne a \xE9t\xE9 ajout\xE9e.");
     }
@@ -464,7 +470,6 @@
     const open = (html) => {
       dialogs += 1;
       archive = void 0;
-      renewKey();
       part("campaign-dialogs").innerHTML = html;
       paintBusy();
     };
@@ -485,6 +490,7 @@
       if (target?.id !== "campaign-import-file") return;
       const file = target.files?.[0];
       if (file) void takeFile(file);
+      target.value = "";
     });
     on("dragover", (event) => {
       if (event.target?.closest("#campaign-import-drop")) {

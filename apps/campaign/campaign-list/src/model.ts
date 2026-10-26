@@ -64,8 +64,8 @@ export function createCommand(dataCapability: string, form: NewCampaign, idempot
   return command(dataCapability, { name, type: form.type, pitch: pitch === '' ? null : pitch, glyph: glyphOf(name) }, idempotencyKey);
 }
 
-/** `POST /commands` for the export: the campaign is named by its id, nothing else is sent. */
-export const exportCommand = (dataCapability: string, id: string): unknown => command(dataCapability, { id });
+/** `POST /commands` for the export: the campaign is named by its id, nothing else is sent but the key. */
+export const exportCommand = (dataCapability: string, id: string, idempotencyKey: string): unknown => command(dataCapability, { id }, idempotencyKey);
 
 /** `POST /commands` for the import: the archive as the export wrote it, nothing else. An import never names a campaign to overwrite. */
 export const importCommand = (dataCapability: string, archive: unknown, idempotencyKey: string): unknown => command(dataCapability, { archive }, idempotencyKey);
