@@ -4,13 +4,50 @@
 //! expectation of v2 is v1's, with that one change made, so that v2 cannot
 //! drift from the version it replaces.
 
-use platform_conformance::{fixtures_of, repository_root};
+use platform_conformance::{concept_of, fixtures_of};
 use serde_json::Value;
 
 fn concept(version: u64) -> Value {
-    let path = repository_root().join(format!("concepts/CampaignArchive/v{version}/concept.json"));
-    let text = std::fs::read_to_string(&path).expect("concept.json");
-    serde_json::from_str(&text).expect("concept.json is JSON")
+    concept_of(&format!("CampaignArchive@{version}"))
+}
+
+/// An RFC 3339 instant as milliseconds since the Unix epoch.
+fn instant(text: &str) -> i64 {
+    let number = |range: std::ops::Range<usize>| -> i64 {
+        text.get(range)
+            .and_then(|digits| digits.parse().ok())
+            .unwrap_or_else(|| panic!("{text:?} is not an RFC 3339 date"))
+    };
+    let (year, month, day) = (number(0..4), number(5..7), number(8..10));
+    let (hour, minute, second) = (number(11..13), number(14..16), number(17..19));
+    // Days since 1970-01-01 of a civil date (proleptic Gregorian).
+    let shifted_year = if month <= 2 { year - 1 } else { year };
+    let era = shifted_year.div_euclid(400);
+    let year_of_era = shifted_year - era * 400;
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+
+    let mut rest = &text[19..];
+    let mut millis = 0;
+    if let Some(fraction) = rest.strip_prefix('.') {
+        let digits = fraction
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(fraction.len());
+        let padded = format!("{:0<3}", &fraction[..digits]);
+        millis = padded[..3].parse::<i64>().expect("fraction digits");
+        rest = &fraction[digits..];
+    }
+    let offset_minutes = match rest {
+        "Z" | "z" => 0,
+        _ => {
+            let sign = if rest.starts_with('-') { -1 } else { 1 };
+            let hours: i64 = rest[1..3].parse().expect("offset hours");
+            let minutes: i64 = rest[4..6].parse().expect("offset minutes");
+            sign * (hours * 60 + minutes)
+        }
+    };
+    (((days * 24 + hour) * 60 + minute - offset_minutes) * 60 + second) * 1000 + millis
 }
 
 /// The paragraph of the definition that opens with rule 5.
@@ -96,8 +133,10 @@ fn every_case_of_v2_is_v1s_but_for_the_copys_created_at() {
             new.name
         );
         // The case shows the change: the original was created before.
+        let text = |value: &Value| value.as_str().expect("a date").to_owned();
         assert_ne!(
-            new.input["archive"]["campaign"]["created_at"], *imported_at,
+            instant(&text(&new.input["archive"]["campaign"]["created_at"])),
+            instant(&text(imported_at)),
             "{}: a case where the import time is the original's tells nothing",
             new.name
         );
@@ -108,13 +147,49 @@ fn every_case_of_v2_is_v1s_but_for_the_copys_created_at() {
     }
 }
 
+// The parser behind the instants: offsets, fractions and the epoch.
+#[test]
+fn instants_are_compared_as_instants_not_as_text() {
+    assert_eq!(instant("1970-01-01T00:00:00Z"), 0);
+    assert_eq!(instant("2026-03-01T10:00:00+00:00"), 1_772_359_200_000);
+    assert_eq!(
+        instant("2026-03-01T11:00:00.000+01:00"),
+        instant("2026-03-01T10:00:00Z")
+    );
+    assert_eq!(instant("2026-03-01T10:00:00.5Z"), 1_772_359_200_500);
+    assert_eq!(instant("2026-03-01T04:30:00-05:30"), 1_772_359_200_000);
+}
+
+/// A concept with what version 2 changes taken out: the intro sentence that
+/// says so, rule 5, the two output rules that mention `created_at`, and the
+/// version numbers.
+fn without_the_change(mut concept: Value) -> Value {
+    let intro = "This version replaces CampaignArchive@1 in one rule only: the copy's campaign is \
+                 created when it is imported (rule 5). ";
+    let rule = rule_5(&concept);
+    let definition = concept["definition"].as_str().expect("definition");
+    concept["definition"] = definition.replace(intro, "").replace(&rule, "").into();
+    for field in ["imported_at", "campaign"] {
+        concept["output"][field]["rule"] = Value::Null;
+    }
+    concept["version"] = Value::Null;
+    concept["deprecates"] = Value::Null;
+    concept
+}
+
 // AC4: v1 is as it was — its copy keeps the original's created_at — so that
-// what holds the archive's shape to it still holds.
+// what holds the archive's shape to it still holds. v2 is v1 but for the one
+// rule, so every member of v1 (definition, inputs, output) is pinned by it.
 #[test]
 fn v1_is_unchanged_its_copy_keeps_the_originals_created_at() {
     let v1 = concept(1);
     assert_eq!(v1["version"], 1);
     assert_eq!(v1["deprecates"], Value::Null);
+    assert_eq!(
+        without_the_change(v1),
+        without_the_change(concept(2)),
+        "v2 differs from v1 by more than rule 5"
+    );
     for case in fixtures_of("CampaignArchive@1").cases {
         assert_eq!(
             case.output["campaign"]["created_at"], case.input["archive"]["campaign"]["created_at"],
