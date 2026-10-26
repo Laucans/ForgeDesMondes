@@ -23,7 +23,7 @@ const at = (html: string, needle: string): number => {
   return found;
 };
 
-// AC2, AC10, AC12: the DM view puts the session bar on top, the panel in the left column, the sheet, battlemap and soundbox behind three tabs, and the pill over the page
+// AC2, AC10: the DM view puts the session bar on top, the panel in the left column, the sheet, battlemap and soundbox behind three tabs, and the pill over the page
 test('the DM view is framed: header, left column, centre tabs, overlay', () => {
   const html = renderScreen(dmView);
   const bar = at(html, 'data-component="LiveSessionBar"');
