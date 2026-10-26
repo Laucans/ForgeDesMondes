@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
+import { EXPORT_CAMPAIGN, GET_CAMPAIGN } from '../src/ids.ts';
 import { downloadIn, mount, type Save, type Timing } from '../src/index.ts';
 import type { Shell } from '../src/types.ts';
 
@@ -347,4 +348,18 @@ test('the download is the archive as a JSON file under a safe name, its address 
   assert.equal(made[0]?.type, 'application/json');
   assert.throws(() => downloadIn({ defaultView: null } as unknown as Document)('a.json', {}), /no window/);
   dom.window.close();
+});
+
+// AC3: the manifest still names what the panel reads and triggers, and nothing else
+test('micro-ui.json needs and actions are the two identifiers the panel uses', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../micro-ui.json', import.meta.url), 'utf8')) as { microUi: string; needs: string[]; actions: string[] };
+  assert.equal(manifest.microUi, 'CampaignOverview');
+  assert.deepEqual(manifest.needs, [GET_CAMPAIGN]);
+  assert.deepEqual(manifest.actions, [EXPORT_CAMPAIGN]);
+});
+
+// AC4: the bundle the mock-up serves was rebuilt from the code that saves the archive
+test('the committed mock-up bundle carries the download', () => {
+  const bundle = mock('components/CampaignOverview.js');
+  for (const part of ['downloadIn', 'archiveOf(result.attachment)', 'application/json', 'revokeObjectURL']) assert.ok(bundle.includes(part), `the bundle lacks ${part}`);
 });
