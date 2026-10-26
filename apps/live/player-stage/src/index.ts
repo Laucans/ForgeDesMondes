@@ -1,9 +1,9 @@
 // PlayerStage (system live): what the players see — the campaign cover, an
 // illustration, or the battlemap frame — and the floating illustration window
 // over it. Both player views read the same diffusion (`single-diffusion-source`):
-// the projected screen draws it, the DM's piloted tab draws it too and lets
-// the DM drag the window by its bar (`live.moveWindow`) and resize it by its
-// corner (`live.resizeWindow`), the image's ratio always kept
+// the projected screen draws it and lets its corner resize the window
+// (`live.resizeWindow`), the DM's piloted tab draws it too and adds the bar that
+// drags it (`live.moveWindow`), the image's ratio always kept
 // (`window-proportional`). It reads `live.getDiffusion`, `session.getLiveSession`
 // (the campaign of the live session, when the screen names none), `campaign.getCampaign`
 // and `media.listMedia` and triggers the two window commands, by identifier,
@@ -324,9 +324,10 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   // ---------- the DM's gestures ----------
   host.addEventListener('pointerdown', (event) => {
-    if (!props.pilot || gesture || event.button !== 0) return;
+    if (gesture || event.button !== 0) return;
     const target = event.target as Element | null;
-    const mode = target?.closest('#player-window-resize') ? 'resize' : target?.closest('#player-window-bar') ? 'move' : null;
+    // The corner resizes on the projected stage too; only the DM's tab moves the window by its bar.
+    const mode = target?.closest('#player-window-resize') ? 'resize' : props.pilot && target?.closest('#player-window-bar') ? 'move' : null;
     const win = current();
     const image = win === null ? undefined : illustrationOf(media, win.media);
     if (mode === null || win === null || image === undefined) return;
