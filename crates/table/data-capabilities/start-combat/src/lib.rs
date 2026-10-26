@@ -74,12 +74,13 @@ const NAMESPACE: Uuid = Uuid::from_u128(0x5a1c_e0b4_27d9_4f63_9b1e_c4f0_83a6_2d1
 
 /// What the tables and the engine's rows hold of the instance `$1`, now
 /// being `$2` milliseconds since the epoch: whether the table holds the
-/// instance; its tokens the engine holds — a token is the engine's row,
-/// which no projection writes into `token` yet — with their character, its
-/// kind and its DEX score — a PC or an NPC with its sheet alone —, by id:
-/// the order the ties keep; whether a combat of the instance has no end, in
-/// the table or in the engine's rows; and now. What the engine tombstoned
-/// is not there.
+/// instance; its tokens — the engine's rows, and the rows of `token` the
+/// engine holds no row of, a fixture's: one per token whichever side holds
+/// it, the engine's when both do — with their character, its kind and its
+/// DEX score — a PC or an NPC with its sheet alone —, by id: the order the
+/// ties keep; whether a combat of the instance has no end, in the table or
+/// in the engine's rows; and now. What the engine tombstoned is not there,
+/// whatever the table still holds of it.
 pub const LINEUP: &str = "WITH gone AS (SELECT partition FROM dataguard_rows WHERE tombstoned),
     placed AS (
         SELECT lower(r.fields ->> 'tokenId') AS token,
@@ -88,6 +89,12 @@ pub const LINEUP: &str = "WITH gone AS (SELECT partition FROM dataguard_rows WHE
         WHERE r.partition LIKE 'BattlemapInstance/%' AND NOT r.tombstoned
             AND r.partition = 'BattlemapInstance/' || lower(r.fields ->> 'tokenId')
             AND lower(r.fields ->> 'tokenInstanceId') = $1::text
+        UNION ALL
+        SELECT t.id::text AS token, t.character_id::text AS character
+        FROM token t
+        WHERE t.instance_id::text = $1::text
+            AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
+                WHERE r.partition = 'BattlemapInstance/' || t.id::text)
     )
     SELECT
         EXISTS (SELECT 1 FROM battlemap_instance i WHERE i.id::text = $1::text
