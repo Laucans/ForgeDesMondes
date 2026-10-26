@@ -16,10 +16,10 @@ export function art(image: { art: string; glyph: string; title: string }): strin
   return `<div class="art art--${name}" role="img" aria-label="${esc(image.title)}">${image.glyph === '' ? '' : `<span class="art__glyph">${esc(image.glyph)}</span>`}</div>`;
 }
 
-/** The stage, its regions empty: the pilot's handles are there only in the DM's tab. */
+/** The stage, its regions empty: the corner is on every stage, the bar and the badge only in the DM's tab. */
 export function skeleton(pilot: boolean): string {
   const bar = pilot ? `<figcaption class="pv-window__bar" id="player-window-bar" data-writes="${MOVE_WINDOW}"></figcaption>` : '';
-  const corner = pilot ? `<span class="pv-window__resize" id="player-window-resize" data-writes="${RESIZE_WINDOW}" aria-hidden="true"></span>` : '';
+  const corner = `<span class="pv-window__resize" id="player-window-resize" data-writes="${RESIZE_WINDOW}" aria-hidden="true"></span>`;
   const badge = pilot ? '<p class="pv-pilot" id="player-pilot-badge">Vue pilotée par le MJ · déplacez les tokens et la fenêtre, zoomez la carte</p>' : '';
   return (
     `<div class="pv${pilot ? ' pv--pilot' : ''}" id="player-stage" data-reads="${GET_LIVE_SESSION}">` +
