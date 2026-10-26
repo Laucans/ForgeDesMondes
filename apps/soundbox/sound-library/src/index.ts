@@ -4,12 +4,16 @@
 // and triggers `soundbox.addSound`, `soundbox.updateSound` and
 // `soundbox.removeSound`, by identifier, through the shell it is handed: no
 // network call of its own. The search and the tag filter read the name and
-// the tags only (tags-normalized).
+// the tags only (tags-normalized). With no campaign given, the library is the
+// one of the screen's context or, failing that, of the running session
+// (`session.getLiveSession`), and publishes it to the context for the
+// Micro-UIs that follow it (LiveSoundbox).
 
-import { ADD_SOUND, LIST_SOUNDS, REMOVE_SOUND, UPDATE_SOUND } from './ids.ts';
+import { ADD_SOUND, CAMPAIGN_CONTEXT, GET_LIVE_SESSION, LIST_SOUNDS, REMOVE_SOUND, UPDATE_SOUND } from './ids.ts';
 import {
   addPayload,
   addProblem,
+  campaignOf,
   commandBody,
   commandId,
   editProblem,
@@ -54,7 +58,8 @@ const size = (bytes: number): string =>
 export function mount(host: HTMLElement, props: Record<string, unknown>, shell: Shell, timing: Timing = WAITING): void {
   ensureStyle(host.ownerDocument);
   host.innerHTML = skeleton();
-  const campaign = typeof props.campaign === 'string' ? props.campaign : '';
+  /** The campaign the screen names, else the one found below. */
+  let campaign = typeof props.campaign === 'string' ? props.campaign : '';
 
   const part = (id: string): HTMLElement => {
     const found = host.querySelector<HTMLElement>(`#${id}`);
@@ -90,11 +95,39 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     }
   };
 
+  /** Finds the campaign when none was given: the screen's context first, the running session's then, which it publishes for the others. */
+  const locate = async (): Promise<void> => {
+    if (campaign !== '') return;
+    // Whatever goes wrong here leaves the library to its plain read: the sounds are listed all the same.
+    try {
+      const named = shell.context.get(CAMPAIGN_CONTEXT);
+      if (typeof named === 'string' && named !== '') {
+        campaign = named;
+        return;
+      }
+      campaign = campaignOf((await shell.capability(GET_LIVE_SESSION, undefined)).data);
+      if (campaign === '') return;
+      part('sounds-campaign').textContent = `Campagne : ${campaign}`;
+      shell.context.set(CAMPAIGN_CONTEXT, campaign);
+    } catch {
+      // The next read asks again while no campaign is known.
+    }
+  };
+  let located: Promise<void> | null = null;
+  /** Waits for the campaign; asked again by the next read while no session was found, since one may start. */
+  const campaignKnown = (): Promise<void> => {
+    located ??= locate().then(() => {
+      if (campaign === '') located = null;
+    });
+    return located;
+  };
+
   /** The newest read asked for: an older answer that arrives after it is dropped. */
   let latest = 0;
 
   /** Reads the sounds again; false when they cannot be read. */
   const refresh = async (): Promise<boolean> => {
+    await campaignKnown();
     const mine = (latest += 1);
     let fresh: Sound[];
     try {
@@ -199,6 +232,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     const form = add;
     return act('sounds-upload-result', 'L’ajout a échoué.', async () => {
       say('sounds-upload-result', { kind: 'busy', text: 'Ajout en cours…' });
+      await campaignKnown();
       const state = await send(ADD_SOUND, addPayload(form, campaign));
       const wrong = failure('Ajout refusé', 'L’ajout', state);
       if (wrong) return wrong;
