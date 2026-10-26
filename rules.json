@@ -915,7 +915,6 @@
       "pages": [
         "pages/soundbox.html"
       ],
-      "state": "conform",
       "title": "Un son ajouté rejoint la soundbox de la campagne"
     },
     {
@@ -933,7 +932,6 @@
       "pages": [
         "pages/campagne.html"
       ],
-      "state": "conform",
       "title": "Une séance créée existe vraiment"
     },
     {
@@ -951,7 +949,6 @@
       "pages": [
         "pages/campagne.html"
       ],
-      "state": "conform",
       "title": "L'export de la campagne donne un fichier"
     },
     {
@@ -969,7 +966,6 @@
       "pages": [
         "pages/medias.html"
       ],
-      "state": "conform",
       "title": "Une illustration téléversée reste dans la médiathèque"
     },
     {
@@ -988,7 +984,6 @@
       "pages": [
         "pages/fiche-entite.html"
       ],
-      "state": "conform",
       "title": "Revenir à une version d'une fiche"
     }
   ],
