@@ -148,6 +148,16 @@ test("the caller the shell's server wrote replaces what the Micro-UI sent, and i
   assert.deepEqual(body, { dataCapability: 'x.y', caller: { by: 'player', from: 'PlayerStage', roles: [], permissions: [] } });
 });
 
+test("only the Micro-UI's from survives of the caller it sent", async () => {
+  const sent = { by: 'dm', from: 'PlayerStage', roles: ['role:approver'], permissions: ['x'], admin: true, extra: { a: 1 } };
+  const body = (await sendOn(pageOf('http://shell/screens/player-view', metaOf(PLAYER)), { caller: sent })) as { caller: unknown };
+  assert.deepEqual(body.caller, { from: 'PlayerStage', ...PLAYER });
+  for (const caller of [undefined, null, 'dm', ['dm']]) {
+    const bare = (await sendOn(pageOf('http://shell/screens/player-view', metaOf(PLAYER)), { caller })) as { caller: unknown };
+    assert.deepEqual(bare.caller, PLAYER, JSON.stringify(caller));
+  }
+});
+
 // AC5: the same page with ?pilote=1 sends the DM's caller
 // AC6: on a DM screen, the roles a Micro-UI sends are replaced by the DM's
 test("the DM's caller is the surface's, whatever roles the Micro-UI sent", async () => {
@@ -211,6 +221,15 @@ test('in the mock-up, a file the factory view does not serve is read from the re
 test('a page no frozen screen names acts as the surface its page declares', async () => {
   const body = (await sendOn(pageOf('http://mock/mock/pages/dm-view.html', {}, files()), {})) as { caller: unknown };
   assert.deepEqual(body.caller, DM);
+});
+
+test("in the mock-up, a page whose screen file cannot be fetched acts as the surface the page declares, else fails closed", async () => {
+  const held = files();
+  const pages = { pages: [{ path: 'pages/player-view.html', screen: 'player-view', surface: 'dm' }, { path: 'pages/orphan.html', screen: 'orphan' }] };
+  const served: Record<string, unknown> = { ...held, 'http://mock/mock/pages.json': pages };
+  delete served['http://mock/mock/__product/apps/screens/player-view.json'];
+  assert.deepEqual(((await sendOn(pageOf(MOCKUP, {}, served), {})) as { caller: unknown }).caller, DM);
+  assert.deepEqual(((await sendOn(pageOf('http://mock/mock/pages/orphan.html', {}, served), {})) as { caller: unknown }).caller, PLAYER);
 });
 
 // AC7: a screen with no surface, a missing surfaces.json, an unreadable one, fail closed
