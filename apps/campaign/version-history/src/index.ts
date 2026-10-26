@@ -42,7 +42,7 @@ const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(res
 export interface Mounted {
   /** The props changed — another element, or the same one after a write: read its history again. */
   update(props: Props): void;
-  /** Opens the history once the element's own is read. */
+  /** Reads the element's history again, then opens it: what the DM opens is what the server holds now. */
   open(): Promise<void>;
 }
 
@@ -95,7 +95,6 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, timing: Tim
   let generation = 0;
   let busy = false;
   let modal: Modal | null = null;
-  let loading: Promise<boolean> = Promise.resolve(true);
 
   const entity = (): string | undefined => (current.entity ? current.entity : undefined);
   const unseenNow = (): Version[] => {
@@ -193,7 +192,15 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, timing: Tim
       return false;
     }
   }
-  const load = (): Promise<boolean> => (loading = fetchHistory());
+  const load = (): Promise<boolean> => fetchHistory();
+
+  /** The trigger reads again, not trusting the last read: a save may be newer than the shell's next word. */
+  async function openFresh(): Promise<void> {
+    const id = entity();
+    await load();
+    // The panel moved on to another element while it read: that one's answer is not this dialog's.
+    if (id === entity()) open();
+  }
 
   function close(): void {
     modal?.close();
@@ -303,8 +310,8 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, timing: Tim
 
   host.addEventListener('click', (event) => {
     if (!(event.target as Element | null)?.closest('#versions-updated, #versions-open')) return;
-    // What is on the button is the element's history: once it is read, not before.
-    void loading.then(() => open());
+    // What is on the button is the element's history as the server holds it now: read again, then open.
+    void openFresh();
   });
 
   // The data moved under the panel (the AI, D&D Beyond, an editor saved): its history may have a new version.
@@ -335,9 +342,6 @@ export function mount(host: HTMLElement, props: Props, shell: Shell, timing: Tim
       } else current = next;
       void load();
     },
-    open: async () => {
-      await loading;
-      open();
-    },
+    open: openFresh,
   };
 }
