@@ -158,7 +158,8 @@ async fn a_restart_loads_nothing_twice_and_leaves_the_session_the_dm_closed() {
         count("SELECT count(*) FROM battlemap_instance").await,
         count("SELECT count(*) FROM token").await,
     );
-    assert_eq!(before, (4, 3, 1, 8));
+    // Four sessions of the list and the one a oneshot's creation writes.
+    assert_eq!(before, (5, 3, 1, 8));
 
     // AC4: the same plan again inserts nothing.
     let again = fixtures(&folder()).expect("the fixtures");

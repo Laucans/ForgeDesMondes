@@ -41,6 +41,11 @@
 //! not. A Capability's guard checks are [`read`]'s: what the gate
 //! `capability-conventions` judges, said before the pull request.
 //!
+//! A bench submits as a surface of the product (`surfaces.json`, contract
+//! S, read by [`surfaces`]): its default surface, or the one
+//! [`Bench::surface`] names — never a role written by hand. While the
+//! product declares no surfaces, as the fallback approver `dm`.
+//!
 //! A dev-dependency only: `platform-test-kit = { path = "<to the
 //! root>/crates/platform/test-kit" }`. Every helper panics with what went
 //! wrong: it runs in a test, where a panic is the failure.
@@ -68,6 +73,8 @@ use harness_dataguard::{Error, Result};
 use platform_scratch_db::ScratchDb;
 use serde_json::{Value, json};
 
+pub mod surfaces;
+
 /// One partition's row, as the engine holds it.
 pub type Row = BTreeMap<String, Value>;
 
@@ -84,6 +91,11 @@ pub fn uuid(prefix: u8, n: u64) -> String {
     format!("{prefix:02x}000000-0000-4000-8000-{n:012x}")
 }
 
+/// The product's root: this crate sits at `crates/platform/test-kit`.
+fn root() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
+}
+
 /// A file of the product, read from its root: the aggregate's document a
 /// unit's tests plant it beside — a unit includes nothing outside its
 /// folder (`scripts/isolation.sh`).
@@ -93,11 +105,28 @@ pub fn uuid(prefix: u8, n: u64) -> String {
 /// When the file is missing.
 #[must_use]
 pub fn file(path: &str) -> String {
-    let full = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .join(path);
+    let full = root().join(path);
     std::fs::read_to_string(&full)
         .unwrap_or_else(|e| panic!("the product's {}: {e}", full.display()))
+}
+
+/// The engine's caller for surface `name` of the product's `surfaces.json`
+/// — its default when `None` — from `test`; the fallback approver while
+/// the product declares none.
+///
+/// # Panics
+///
+/// When `surfaces.json` does not read, or names no such surface.
+#[must_use]
+pub fn surface_caller(name: Option<&str>) -> Caller {
+    let declared = surfaces::read(&root())
+        .transpose()
+        .unwrap_or_else(|e| panic!("{e}"));
+    let caller =
+        surfaces::caller(declared.as_ref(), name, "test").unwrap_or_else(|e| panic!("{e}"));
+    let roles: Vec<&str> = caller.roles.iter().map(String::as_str).collect();
+    let permissions: Vec<&str> = caller.permissions.iter().map(String::as_str).collect();
+    Engine::caller(&caller.by, &caller.from, &permissions, &roles)
 }
 
 /// A `DataCapability`'s manifest (contract F), parsed.
@@ -199,11 +228,14 @@ impl Bench {
     /// The unit's manifest (`include_str!("../data-capability.json")`)
     /// beside its aggregate's document, with the plugins of both —
     /// `[aggregate_x::plugin(), my_unit::plugin()]`. Submissions come from
-    /// the caller `dm`, from `test`, holding `role:approver`.
+    /// `test`, as the default surface of the product's `surfaces.json`
+    /// ([`surface_caller`]) — the caller `dm` holding `role:approver` while
+    /// it declares none.
     ///
     /// # Panics
     ///
-    /// When the manifest or the document does not parse.
+    /// When the manifest or the document does not parse, or
+    /// `surfaces.json` does not read.
     #[must_use]
     pub fn new(manifest: &str, aggregate: &str, plugins: impl IntoIterator<Item = Plugin>) -> Self {
         Self {
@@ -212,8 +244,21 @@ impl Bench {
             plugins: plugins.into_iter().collect(),
             shared: None,
             ids: None,
-            caller: Engine::caller("dm", "test", &[], &["role:approver"]),
+            caller: surface_caller(None),
         }
+    }
+
+    /// Submits as surface `name` of `surfaces.json` — a player's, say —
+    /// instead of the default one: the caller the shell sets on that
+    /// surface's screens.
+    ///
+    /// # Panics
+    ///
+    /// When the product declares no such surface.
+    #[must_use]
+    pub fn surface(mut self, name: &str) -> Self {
+        self.caller = surface_caller(Some(name));
+        self
     }
 
     /// A test-only `DataCapability` beside the unit ([`planter`]).
@@ -252,7 +297,8 @@ impl Bench {
         self
     }
 
-    /// Who submits, in place of `dm` from `test`.
+    /// Who submits, in place of the surface's caller: an AI or a system
+    /// caller, which no surface stands for.
     #[must_use]
     pub fn caller(mut self, caller: Caller) -> Self {
         self.caller = caller;
@@ -558,8 +604,13 @@ pub mod read {
     /// When the file is missing or is not JSON.
     #[must_use]
     pub fn fixture(capability: &str) -> Value {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../mock/fixtures")
+        fixture_at(&crate::root(), capability)
+    }
+
+    /// [`fixture`], under the product's root `root`.
+    pub(crate) fn fixture_at(root: &Path, capability: &str) -> Value {
+        let path = root
+            .join("mock/fixtures")
             .join(format!("{capability}.json"));
         let text = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("the mock-up's fixture {}: {e}", path.display()));
@@ -575,9 +626,12 @@ pub mod read {
     /// When the file is missing.
     #[must_use]
     pub fn query(system: &str, name: &str) -> String {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .join(format!("crates/{system}/queries/{name}.graphql"));
+        query_at(&crate::root(), system, name)
+    }
+
+    /// [`query`], under the product's root `root`.
+    pub(crate) fn query_at(root: &Path, system: &str, name: &str) -> String {
+        let path = root.join(format!("crates/{system}/queries/{name}.graphql"));
         std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("the persisted query {}: {e}", path.display()))
     }
@@ -885,6 +939,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_scratch_seeds_answers_and_names_its_database() {
+        // A product's CI runs it on its PostgreSQL; a checkout with none
+        // (the harness's own skeleton check) says so and skips it.
+        if std::env::var("DATABASE_URL").is_err() {
+            eprintln!("no DATABASE_URL: the scratch database is not checked here");
+            return;
+        }
         let scratch = Scratch::new("kit_scratch").await;
         scratch
             .seed("CREATE TABLE kit_probe (id int, name text); INSERT INTO kit_probe VALUES (1, 'a'), (2, 'b');")
@@ -908,13 +968,40 @@ mod tests {
         assert_eq!(count.get::<_, i64>(0), 2);
     }
 
+    /// A product root of its own, removed when the test ends.
+    struct Root(std::path::PathBuf);
+
+    impl Drop for Root {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn the_mock_up_fixture_and_the_query_file_are_read() {
-        let fixture = read::fixture("AiSettings");
-        assert!(fixture.is_object(), "{fixture}");
-        assert!(fixture.get("provider").is_some(), "{fixture}");
-        let query = read::query("ai", "getSettings");
+        let root = Root(std::env::temp_dir().join(format!(
+            "platform-test-kit-read-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        )));
+        let write = |path: &str, text: &str| {
+            let full = root.0.join(path);
+            std::fs::create_dir_all(full.parent().expect("a parent")).expect("mkdir");
+            std::fs::write(full, text).expect("write");
+        };
+        write("mock/fixtures/kit.getSettings.json", r#"{"provider": "x"}"#);
+        write(
+            "crates/kit/queries/getSettings.graphql",
+            "query GetSettings {\n  provider\n}\n",
+        );
+        let fixture = read::fixture_at(&root.0, "kit.getSettings");
+        assert_eq!(fixture, json!({ "provider": "x" }));
+        let query = read::query_at(&root.0, "kit", "getSettings");
         assert!(query.contains("query GetSettings"), "{query}");
+        assert!(std::panic::catch_unwind(|| read::fixture_at(&root.0, "kit.nothing")).is_err());
+        assert!(std::panic::catch_unwind(|| read::query_at(&root.0, "kit", "nothing")).is_err());
+        write("mock/fixtures/kit.broken.json", "{");
+        assert!(std::panic::catch_unwind(|| read::fixture_at(&root.0, "kit.broken")).is_err());
     }
 
     #[test]
@@ -935,5 +1022,27 @@ mod tests {
         read::query_file_matches(sql, query, &["id"]);
         let spaced = "query Q($a b: ID!, $id: ID!) {\n  id\n}\n";
         read::query_file_matches(sql, spaced, &["id"]);
+    }
+
+    #[test]
+    fn a_bench_acts_as_the_product_s_surface_and_never_a_role_by_hand() {
+        let declared = surfaces::read(&root()).transpose().expect("readable");
+        let caller = surface_caller(None);
+        match declared {
+            None => {
+                assert_eq!(caller.by, surfaces::FALLBACK_BY);
+                assert_eq!(caller.roles, ["role:approver"]);
+            }
+            Some(declared) => {
+                let default = &declared.surfaces[&declared.default];
+                assert_eq!(caller.by, default.by);
+                assert_eq!(caller.roles, default.roles);
+            }
+        }
+        assert_eq!(caller.from, "test");
+        assert!(
+            std::panic::catch_unwind(|| surface_caller(Some("no-such-surface"))).is_err(),
+            "an undeclared surface is the test's error"
+        );
     }
 }

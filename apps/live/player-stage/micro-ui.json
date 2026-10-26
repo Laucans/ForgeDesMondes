@@ -4,6 +4,7 @@
   "description": "L’écran des joueurs : couverture, battlemap ou illustration en scène, et fenêtre d’illustration flottante ; dans l’onglet piloté par le MJ, la fenêtre se déplace par sa barre et se redimensionne par son coin, proportions de l’image gardées",
   "needs": [
     "live.getDiffusion",
+    "session.getLiveSession",
     "campaign.getCampaign",
     "media.listMedia"
   ],

@@ -1,0 +1,8 @@
+{
+  "screen": "campagnes",
+  "generatedFrom": "Le DM retrouve ses campagnes et oneshots avec leur couverture, en crée une, exporte une campagne en archive ou en importe une",
+  "version": 1,
+  "layout": [
+    { "CampaignList": {} }
+  ]
+}

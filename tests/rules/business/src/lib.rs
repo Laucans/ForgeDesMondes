@@ -14,6 +14,17 @@
 //! hold. Each outcome is written, one JSON line, to `RULES_STATUS` (default
 //! `target/rules-status.jsonl`), which `scripts/rules-gate.mjs` reads.
 //!
+//! A test acts as a surface of the product (`surfaces.json`, contract S),
+//! as its shell would (caller model A): every command carries the caller of
+//! the first screen its needs name (`screen:<s>`, that screen's `surface`;
+//! one that declares none acts with no role, fail closed), else of the
+//! default surface; [`Server::command_as`] names another surface. A test
+//! never writes a caller or a role itself. While the product declares no
+//! surfaces, it acts as the fallback approver (`surfaces::FALLBACK_BY`). A
+//! command that waits for a review settles red at once, saying which caller
+//! lacked which role — a rule that expects the review says so with
+//! [`Server::command_reviewed`].
+//!
 //! A running test is also checked for how it is mounted (`mounting`): a
 //! unit it reaches that its needs do not name, a read's variable its
 //! `capability.json` `input` does not take, a payload key its
@@ -53,15 +64,10 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 mod mounting;
+pub mod surfaces;
 
 /// How long a command may take to settle before the test says so.
 const SETTLE: Duration = Duration::from_secs(20);
-
-/// Who the tests act as: the DM, approver of their own campaign, as the
-/// shell's Micro-UIs send them (a critical field's review needs the role).
-fn dm() -> Value {
-    json!({ "by": "dm", "from": "rules", "roles": ["role:approver"] })
-}
 
 /// The repository's root: this crate sits at `tests/rules/business`.
 #[must_use]
@@ -77,6 +83,15 @@ pub struct Server {
     needs: Vec<String>,
     /// Each way the test is mis-mounted, in the order found.
     mis_mounted: RefCell<Vec<String>>,
+}
+
+/// What a command is expected to become.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Expect {
+    /// It applies, or is rejected: a review is the shell's defect.
+    Settles,
+    /// It waits for a review: the rule says so.
+    Review,
 }
 
 impl Server {
@@ -121,32 +136,119 @@ impl Server {
     }
 
     /// Sends a command to a DataCapability (`<name>@<version>`, the version
-    /// 1 when absent), as the DM, and waits for its result (contract H) to
-    /// settle.
+    /// 1 when absent), as the surface the test acts on, and waits for its
+    /// result (contract H) to settle — and for the follow-ups it queued
+    /// (`then`) to settle too.
     ///
     /// # Errors
     ///
-    /// The server refused it, or it did not settle in time; or the test is
-    /// mis-mounted: its needs do not name the `DataCapability` (nothing is
-    /// sent), or the engine warned of a payload key its manifest does not
-    /// declare.
+    /// The server refused it, it did not settle in time, or it waits for a
+    /// review (its caller lacks a critical field's role: the shell's
+    /// surfaces, never the rule); or the test is mis-mounted: its needs do
+    /// not name the `DataCapability` (nothing is sent), or the engine warned
+    /// of a payload key its manifest does not declare.
     pub fn command(
         &self,
         data_capability: &str,
         payload: Value,
         target: Option<&str>,
     ) -> Result<Value, String> {
+        self.send(data_capability, payload, target, None, Expect::Settles)
+    }
+
+    /// [`Self::command`], as the surface `surface` of `surfaces.json` — a
+    /// player's, say — instead of the one the test's screen acts on.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::command`]; and `surface` is no surface the product
+    /// declares.
+    pub fn command_as(
+        &self,
+        surface: &str,
+        data_capability: &str,
+        payload: Value,
+        target: Option<&str>,
+    ) -> Result<Value, String> {
+        self.send(
+            data_capability,
+            payload,
+            target,
+            Some(surface),
+            Expect::Settles,
+        )
+    }
+
+    /// A command the rule expects to wait for a review: its result once it
+    /// does (`awaiting_review`, its `reviewId`).
+    ///
+    /// # Errors
+    ///
+    /// It applied or was rejected instead, or as [`Self::command`].
+    pub fn command_reviewed(
+        &self,
+        data_capability: &str,
+        payload: Value,
+        target: Option<&str>,
+    ) -> Result<Value, String> {
+        self.send(data_capability, payload, target, None, Expect::Review)
+    }
+
+    /// The caller a command carries: of `surface` when named, else of the
+    /// first screen the needs name, else of the default surface — the
+    /// fallback approver while the product declares none.
+    fn caller(&self, surface: Option<&str>) -> Result<surfaces::Caller, String> {
+        let declared = match surfaces::read(&root()) {
+            None => None,
+            Some(read) => Some(read?),
+        };
+        if surface.is_some() {
+            return surfaces::caller(declared.as_ref(), surface, "rules");
+        }
+        let Some(declared) = declared else {
+            return surfaces::caller(None, None, "rules");
+        };
+        let screen = self
+            .needs
+            .iter()
+            .find_map(|need| need.strip_prefix("screen:"));
+        Ok(match screen {
+            Some(screen) => {
+                let on = named(&format!("screen:{screen}")).and_then(|(_, manifest)| {
+                    manifest
+                        .get("surface")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                });
+                surfaces::on_screen(&declared, on.as_deref(), "rules")
+            }
+            None => surfaces::caller(Some(&declared), None, "rules")?,
+        })
+    }
+
+    /// Sends a command as the caller it is owed, and settles it as `expect`
+    /// says.
+    fn send(
+        &self,
+        data_capability: &str,
+        payload: Value,
+        target: Option<&str>,
+        surface: Option<&str>,
+        expect: Expect,
+    ) -> Result<Value, String> {
         self.mounted(
             mounting::unnamed_need(&self.needs, "data-capability", data_capability)
                 .into_iter()
                 .collect(),
         )?;
+        let caller = self.caller(surface)?;
         let name = if data_capability.contains('@') {
             data_capability.to_string()
         } else {
             format!("{data_capability}@1")
         };
-        let mut body = json!({ "dataCapability": name, "payload": payload, "caller": dm() });
+        let mut body =
+            json!({ "dataCapability": name, "payload": payload, "caller": caller.to_json() });
         if let Some(id) = target {
             body["target"] = json!({ "id": id });
         }
@@ -156,9 +258,8 @@ impl Server {
             .into_json()
             .map_err(|e| format!("commanding {data_capability}: {e}"))?;
         self.mounted(mounting::off_payload(&accepted))?;
-        let result = self.settle(data_capability, &accepted)?;
-        // A command may queue follow-ups (`then`, one command per playback
-        // for « Tout arrêter »): it is done when they are, not before.
+        let mut results = vec![self.settle(data_capability, &accepted)?];
+        // A command may queue follow-ups (`then`): it is done when they are.
         for follow_up in accepted
             .get("then")
             .and_then(Value::as_array)
@@ -167,18 +268,34 @@ impl Server {
         {
             // On the wire: `{"submitted": {…}}` or `{"refused": {…, "error"}}`.
             match follow_up.get("submitted") {
-                Some(submitted) => self.settle(data_capability, submitted)?,
+                Some(submitted) => results.push(self.settle(data_capability, submitted)?),
                 None => {
                     return Err(format!(
                         "{data_capability}: a follow-up was refused: {follow_up}"
                     ));
                 }
-            };
+            }
         }
-        Ok(result)
+        // A follow-up inherits its leader's caller: one waiting is the same defect.
+        let waits = surfaces::parked(&accepted) || results.iter().any(awaits_review);
+        let result = results.swap_remove(0);
+        match (waits, expect) {
+            (true, Expect::Review) | (false, Expect::Settles) => Ok(result),
+            (true, Expect::Settles) => Err(parked_line(data_capability, &accepted, &caller)),
+            (false, Expect::Review) => Err(format!(
+                "{data_capability}: {}, while the rule expects it to wait for a review — the caller {} (surface {}) holds every role its critical fields ask",
+                result
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("settled"),
+                caller.by,
+                caller.named()
+            )),
+        }
     }
 
-    /// Waits for the command an `accepted` answer names to settle.
+    /// Waits for the command an `accepted` answer names to settle (or to
+    /// wait for a review).
     fn settle(&self, data_capability: &str, accepted: &Value) -> Result<Value, String> {
         let mut result = accepted.get("result").cloned().unwrap_or(Value::Null);
         let id = accepted
@@ -206,12 +323,34 @@ impl Server {
     }
 }
 
-/// A command's result has settled: applied or rejected.
+/// Why a command that waits for a review fails a rule's test: the caller
+/// lacked a critical field's role — the product's surfaces, never the rule.
+fn parked_line(data_capability: &str, accepted: &Value, caller: &surfaces::Caller) -> String {
+    let review = surfaces::review_of(accepted).unwrap_or_else(|| "(no id)".to_string());
+    let fix = if root().join(surfaces::FILE).exists() {
+        "fix surfaces.json, the screen's surface or the aggregate's review, never the rule"
+    } else {
+        "declare surfaces.json (contract S) with the role, never the rule"
+    };
+    format!(
+        "{data_capability}: parked for review {review}, the caller {} (surface {}) lacks a critical field's role: {fix}",
+        caller.by,
+        caller.named()
+    )
+}
+
+/// A command's result has settled: applied or rejected — or it waits for
+/// a review, which no amount of waiting settles.
 fn settled(result: &Value) -> bool {
     matches!(
         result.get("status").and_then(Value::as_str),
-        Some("applied" | "rejected")
+        Some("applied" | "rejected" | "awaiting_review")
     )
+}
+
+/// A result that waits for a review.
+fn awaits_review(result: &Value) -> bool {
+    result.get("status").and_then(Value::as_str) == Some("awaiting_review")
 }
 
 /// A fixture of the mock-up (`mock/fixtures/<name>.json`): the data the

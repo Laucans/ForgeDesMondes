@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.agent-native.dev/s-surfaces.schema.json",
+  "title": "S. Surfaces",
+  "description": "`surfaces.json`: who acts on each surface of the product (caller model A). The product's shell sets the caller of every command a screen sends from the screen's surface (contract E `surface`, or its `pilot`'s when the page's URL carries `<query>=1`), replacing whatever the Micro-UI sent; a screen whose surface is not declared here, or that declares none, acts with no role and no permission (fail closed). The kits act as a surface too: the test kit's Bench and the rules' business kit as `default` unless a test names another, the journey kit checks the shell sent its screen's caller. A critical field's review role (contract I `review`, by default `role:approver`) is held by the surfaces whose gestures approve; `pilot` grants a surface from a URL query, a choice that rests on the shell serving loopback only.",
+  "type": "object",
+  "required": ["default", "surfaces"],
+  "additionalProperties": false,
+  "properties": {
+    "default": {
+      "description": "The surface a test acts as when it names none: the test kit's Bench, the rules' business kit when its needs name no screen (a named screen without a surface acts with no role). Never a screen's: a screen declares its own.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "surfaces": {
+      "description": "Every surface, by name: the caller its screens send.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": { "$ref": "#/$defs/surface" }
+    }
+  },
+  "$defs": {
+    "surface": {
+      "type": "object",
+      "required": ["by", "roles"],
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "description": "The author the caller names (contract G `by`): who hears the messages.",
+          "type": "string",
+          "minLength": 1
+        },
+        "roles": {
+          "description": "The roles its gestures hold: what a critical field's review needs (contract I `review`, by default `role:approver`). Empty: every command on a critical field waits for a review.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^role:[a-z][a-z0-9-]*$" }
+        },
+        "permissions": {
+          "description": "The permissions its gestures hold: what a DataCapability's `permissions` asks (contract F).",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "description": {
+          "description": "Who uses it, in a sentence.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

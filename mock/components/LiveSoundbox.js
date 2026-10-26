@@ -667,6 +667,15 @@
     const declares = (key) => declared.some((d) => d === key || d.startsWith(key) && d[key.length] === ".");
     return Object.keys(payload || {}).filter((key) => key !== id && !declares(key)).sort();
   }
+  function fieldsOf(manifest, payload) {
+    const touches = Array.isArray(manifest && manifest.touches) ? manifest.touches.filter((t) => typeof t === "string") : [];
+    return touches.length ? touches.map((t) => t.split(".").pop()) : Object.keys(payload || {});
+  }
+  function reviewNeeded(aggregate, fields, caller) {
+    const declared = aggregate && aggregate.fields || {};
+    const roles = caller && Array.isArray(caller.roles) ? caller.roles : [];
+    return fields.filter((f) => Object.hasOwn(declared, f) && declared[f] && declared[f].criticality === "critical").map((f) => [f, declared[f].review || "role:approver"]).filter(([, role]) => !roles.includes(role)).map(([f, role]) => `${f} (${role})`);
+  }
   var undeclaredWarning = (keys, dataCapability) => `payload key(s) ${keys.join(", ")} not declared by ${dataCapability}`;
   function mockServer() {
     if (window.__mockServer) return window.__mockServer;
@@ -741,6 +750,21 @@
       }
       return index && index.manifests || {};
     };
+    s.aggregates = async () => {
+      const index = await s.product("aggregates.json");
+      if (index && !s.aggregatesSaid) {
+        s.aggregatesSaid = true;
+        for (const problem of index.problems || []) console.error(`mock server: ${problem}`);
+      }
+      return index && index.aggregates || {};
+    };
+    s.aggregate = async (name) => {
+      if (!name) return void 0;
+      const fixture = await s.load(`aggregates/${name}`);
+      if (fixture !== void 0) return fixture;
+      const known = (await s.aggregates())[name];
+      return known ? known.manifest : void 0;
+    };
     s.undeclared = [];
     s.planned = async (id) => {
       const graph = await s.product("plan/graph.json");
@@ -766,7 +790,7 @@
     const invariants = async (aggregate, payload) => {
       const out = { reject: [], review: [] };
       if (!aggregate) return out;
-      const manifest = await s.load(`aggregates/${aggregate}`);
+      const manifest = await s.aggregate(aggregate);
       for (const inv of manifest && manifest.invariants || []) {
         if (!ruleHolds(inv.rule, payload)) (inv.onViolation === "review" ? out.review : out.reject).push(inv.id);
       }
@@ -843,8 +867,10 @@
         const seen = [...s.queue.values()].find((e) => e.idempotencyKey === body.idempotencyKey && e.dataCapability === dataCapability);
         if (seen) return answer(seen, true);
       }
-      const aggregate = target.aggregate || null;
-      const declared = (aggregate && await s.load(`aggregates/${aggregate}`) || { fields: {} }).fields || {};
+      const known = (await s.manifests())[dataCapability];
+      const aggregate = known && known.manifest && known.manifest.target && known.manifest.target.aggregate || target.aggregate || null;
+      const document2 = await s.aggregate(aggregate) || { fields: {} };
+      const declared = document2.fields || {};
       const derived = Object.keys(payload).filter((f) => declared[f] && declared[f].kind === "derived");
       if (derived.length) return json({ error: `${dataCapability} writes the derived field(s) ${derived.join(", ")}: ${aggregate} recomputes them` }, 403);
       const commandId2 = uuid();
@@ -852,7 +878,6 @@
       const entry = { commandId: commandId2, dataCapability, version: Number(version) || 1, aggregate, partition, targetId, by, payload, basedOn: body.basedOn, idempotencyKey: body.idempotencyKey, handler, position: s.next(), state: "queued", warnings: [] };
       s.queue.set(commandId2, entry);
       s.commands.set(commandId2, entry);
-      const known = (await s.manifests())[dataCapability];
       const keys = known ? undeclaredKeys(known.manifest, payload) : [];
       const warnUndeclared = () => {
         if (!keys.length) return;
@@ -882,14 +907,17 @@
         s.tell("InvariantAtRisk", by, commandId2, { violations: verdict.reject.concat(verdict.review) });
       }
       warnUndeclared();
-      const needsReview = verdict.review.length > 0 || Object.keys(payload).some((f) => declared[f] && declared[f].criticality === "critical");
+      const needed = reviewNeeded(document2, fieldsOf(known && known.manifest, payload), body.caller);
+      const needsReview = verdict.review.length > 0 || needed.length > 0;
       const merging = new Set(Object.keys(declared).filter((f) => declared[f].merge));
       const ahead = declaredAhead(entry, merging);
       if (needsReview) {
         entry.state = "awaiting_review";
         entry.reviewId = `r_${s.next()}`;
         entry.warnings.push(`review ${entry.reviewId} required`);
-        s.tell("ReviewRequired", "role:approver", commandId2, { actions: ["approve", "reject"] });
+        const first = fieldsOf(known && known.manifest, payload)[0];
+        const approver = first && declared[first] && declared[first].review || "role:approver";
+        s.tell("ReviewRequired", approver, commandId2, { actions: ["approve", "reject"], reason: needed.length ? `critical: ${needed.join(", ")}` : "an invariant wants a review" });
       } else if (ahead && (body.mode || "confirm_on_stale") === "confirm_on_stale") {
         entry.state = "awaiting_confirmation";
         entry.aheadOf = ahead.command;

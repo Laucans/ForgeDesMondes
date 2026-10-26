@@ -4,7 +4,7 @@
 // an image, a battlemap slot — the tokens over it are the Battlemap's, composed
 // in view 'player'.
 
-import { BATTLEMAP, GET_CAMPAIGN, GET_DIFFUSION, LIST_MEDIA, MOVE_WINDOW, RESIZE_WINDOW } from './ids.ts';
+import { BATTLEMAP, GET_CAMPAIGN, GET_DIFFUSION, GET_LIVE_SESSION, LIST_MEDIA, MOVE_WINDOW, RESIZE_WINDOW } from './ids.ts';
 import type { Campaign, Illustration, Media } from './types.ts';
 import { illustrationOf } from './model.ts';
 
@@ -22,7 +22,7 @@ export function skeleton(pilot: boolean): string {
   const corner = pilot ? `<span class="pv-window__resize" id="player-window-resize" data-writes="${RESIZE_WINDOW}" aria-hidden="true"></span>` : '';
   const badge = pilot ? '<p class="pv-pilot" id="player-pilot-badge">Vue pilotée par le MJ · déplacez les tokens et la fenêtre, zoomez la carte</p>' : '';
   return (
-    `<div class="pv${pilot ? ' pv--pilot' : ''}" id="player-stage">` +
+    `<div class="pv${pilot ? ' pv--pilot' : ''}" id="player-stage" data-reads="${GET_LIVE_SESSION}">` +
     `<div class="pv-base" id="player-base" data-reads="${GET_DIFFUSION}"></div>` +
     `<figure class="pv-window" id="player-window" hidden>${bar}<div class="pv-window__art" id="player-window-art" data-reads="${LIST_MEDIA}"></div>${corner}</figure>` +
     badge +

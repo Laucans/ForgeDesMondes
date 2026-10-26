@@ -11,6 +11,12 @@
 //!   session, in the order they were ticked — those added later included
 //!   (`present-only-pj`) — then every other character that has a token on
 //!   it;
+//! - `pjInitiative`: the initiative the DM last entered for each PC with a
+//!   token on the instance, by character id, from the entry of the
+//!   instance's latest combat that seated it — running or ended —, so that
+//!   the next combat can be prefilled; `{}` when none ever did (or the map
+//!   was reset: its entries are tombstoned). No NPC is in it, and it is the
+//!   same in both views;
 //! - `state.tokens`: each token with its character (`char`), `kind` (`pj` or
 //!   `pnj`), `name`, `num`, hex (`q`, `r`), `visible`, `states` (its
 //!   conditions), `status` (its health band), `dead`, and its disc — `color`,
@@ -48,7 +54,9 @@ pub const CAPABILITY: &str = "table.getBattlemapInstance";
 /// uuid finds nothing instead of failing) with its tokens — each joined to
 /// the sheet it stands for — and the combat running, with its initiative
 /// entries in the order of `initiative_order_view`, and the PCs ticked
-/// present at its session, in the order they were ticked. The tables' generated
+/// present at its session, in the order they were ticked, and, for each PC with
+/// a token on it, the initiative of its entry in the instance's latest combat —
+/// running or ended, the one that started last. The tables' generated
 /// columns (`dead`, `health_band`, `label_initial`) are not read: they are
 /// derived here.
 pub const SQL: &str = r#"SELECT i.id::text AS id,
@@ -105,7 +113,24 @@ pub const SQL: &str = r#"SELECT i.id::text AS id,
         WHERE k.instance_id = i.id AND k.ended_at IS NULL
         ORDER BY k.started_at DESC
         LIMIT 1
-    ) AS combat
+    ) AS combat,
+    coalesce((
+        SELECT jsonb_agg(jsonb_build_object(
+            'character_id', last.character_id,
+            'initiative', last.initiative
+        ) ORDER BY last.character_id)
+        FROM (
+            SELECT DISTINCT ON (t.character_id)
+                t.character_id::text AS character_id,
+                en.initiative
+            FROM combat k
+            JOIN initiative_entry en ON en.combat_id = k.id
+            JOIN token t ON t.id = en.token_id
+            JOIN entity e ON e.id = t.character_id
+            WHERE k.instance_id = i.id AND e.type = 'pj'
+            ORDER BY t.character_id, k.started_at DESC, k.id DESC, en.rank
+        ) last
+    ), '[]'::jsonb) AS pj_initiative
 FROM battlemap_instance i
 WHERE i.id::text = lower($1)"#;
 
@@ -241,6 +266,26 @@ fn combat(row: &Value, dm: bool) -> Value {
     })
 }
 
+/// The initiative each PC was last given, by character id: the rows of
+/// `pj_initiative`, one per character, as an object — `{}` when no combat ever
+/// seated a PC. The same in both views.
+fn pj_initiative(row: &Value) -> Value {
+    let seats = row["pj_initiative"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    Value::Object(
+        seats
+            .iter()
+            .filter_map(|seat| {
+                Some((
+                    seat["character_id"].as_str()?.to_owned(),
+                    seat["initiative"].clone(),
+                ))
+            })
+            .collect(),
+    )
+}
+
 /// The instance in `rows` — an array of the objects [`SQL`] selects — as
 /// `view` (`dm`, anything else being the players') shows it; `null` when
 /// there is no row.
@@ -275,6 +320,7 @@ pub fn answer_rows(rows: &Value, view: &str) -> Value {
         "session": row["session"],
         "scene": row["scene"],
         "roster": roster,
+        "pjInitiative": pj_initiative(row),
         "state": { "tokens": tokens, "combat": combat(row, dm) },
     })
 }
@@ -741,5 +787,40 @@ mod tests {
     fn an_unknown_instance_has_no_answer() {
         assert_eq!(answer_rows(&json!([]), "dm"), Value::Null);
         assert_eq!(answer_rows(&Value::Null, "dm"), Value::Null);
+    }
+
+    // AC1, AC2: the initiatives of the PCs are an object by character, the same in both
+    // views; none entered (or the column absent) is `{}`.
+    #[test]
+    fn the_pcs_last_initiatives_are_mapped_by_character_in_both_views() {
+        let mut with_map = board();
+        with_map[0]["pj_initiative"] = json!([
+            { "character_id": "c-elowen", "initiative": 18 },
+            { "character_id": "c-brannoc", "initiative": 9 },
+        ]);
+        let expected = json!({ "c-elowen": 18, "c-brannoc": 9 });
+        for view in ["dm", "player"] {
+            assert_eq!(answer_rows(&with_map, view)["pjInitiative"], expected);
+        }
+        let mut none = board();
+        none[0]["pj_initiative"] = json!([]);
+        for rows in [none, board()] {
+            for view in ["dm", "player"] {
+                assert_eq!(answer_rows(&rows, view)["pjInitiative"], json!({}));
+            }
+        }
+    }
+
+    #[test]
+    fn a_seat_without_a_character_is_left_out_of_the_initiatives() {
+        let mut odd = board();
+        odd[0]["pj_initiative"] = json!([
+            { "initiative": 5 },
+            { "character_id": "c-kael", "initiative": 12 },
+        ]);
+        assert_eq!(
+            answer_rows(&odd, "dm")["pjInitiative"],
+            json!({ "c-kael": 12 })
+        );
     }
 }

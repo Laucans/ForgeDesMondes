@@ -96,6 +96,7 @@
 
   // apps/session/live-session-bar/src/ids.ts
   var GET_LIVE_SESSION = "session.getLiveSession";
+  var LIST_SCENES = "session.listScenes";
   var GET_DIFFUSION = "live.getDiffusion";
   var GET_SESSION_JOURNAL = "session.getSessionJournal";
   var GET_PREVIOUS_SESSION_SUMMARY = "session.getPreviousSessionSummary";
@@ -105,6 +106,9 @@
   var DATA_CAPABILITY_VERSION = 1;
   var SESSION_AGGREGATE = "Session";
   var SCENE_CONTEXT = "scene";
+  var SESSION_CONTEXT = "session";
+  var CAMPAIGN_CONTEXT = "campaign";
+  var BATTLEMAP_CONTEXT = "battlemap";
 
   // apps/session/live-session-bar/src/model.ts
   var isDict = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -114,25 +118,30 @@
   function parseScene(value) {
     if (!isDict(value)) return null;
     const id = text(value.id);
-    return id === "" ? null : { id, order: typeof value.order === "number" ? value.order : 0, title: text(value.title) };
+    return id === "" ? null : { id, order: typeof value.order === "number" ? value.order : 0, title: text(value.title), battlemap: text(value.battlemap) || null };
   }
+  var parseScenes = (data) => list(data).flatMap((s) => parseScene(s) ?? []);
   function parseLive(data) {
     if (!isDict(data)) return null;
     const header = isDict(data.session) ? data.session : data;
     const id = text(header.id);
     if (id === "") return null;
-    const scenes2 = list(header.scenes ?? data.scenes).flatMap((s) => parseScene(s) ?? []);
     const current = header.currentScene ?? data.currentScene;
     const mic = isDict(data.microphone) ? data.microphone.on : void 0;
     return {
       id,
+      campaign: text(header.campaign),
       order: typeof header.order === "number" ? header.order : 0,
       title: text(header.title),
       startedAt: text(header.startedAt),
       micOn: typeof mic === "boolean" ? mic : null,
-      scenes: scenes2,
-      currentScene: typeof current === "number" && current >= 0 && current < scenes2.length ? current : 0
+      scenes: [],
+      currentScene: typeof current === "number" && current >= 0 ? current : 0
     };
+  }
+  var withScenes = (live, scenes2) => ({ ...live, scenes: scenes2, currentScene: live.currentScene < scenes2.length ? live.currentScene : 0 });
+  function battlemapOf(live) {
+    return live.scenes[live.currentScene]?.battlemap ?? live.scenes.find((s) => s.battlemap !== null)?.battlemap ?? null;
   }
   var KINDS = /* @__PURE__ */ new Set(["cover", "illustration", "battlemap"]);
   function parseDiffusion(data) {
@@ -204,7 +213,7 @@
   var button = (id, label, variant, extra = "") => `<button type="button" class="${variant}" id="${id}"${extra}>${esc(label)}</button>`;
   function skeleton() {
     const live = `data-reads="${GET_LIVE_SESSION}"`;
-    return `<section class="mf-live-bar" id="session-bar" aria-labelledby="session-bar-title" ${live}><div class="mf-live-bar__title"><h1 id="session-bar-title"></h1><span class="small muted" id="session-bar-meta" ${live}></span></div><div class="kit-badge" id="session-bar-badges" ${live}></div><nav class="mf-live-bar__scenes" id="session-bar-scenes" aria-label="Sc\xE8nes de la s\xE9ance" ${live}></nav><div class="mf-live-bar__broadcast" id="session-bar-broadcast" data-reads="${GET_DIFFUSION}"><span class="small" id="session-bar-showing" aria-live="polite"></span><div class="kit-button kit-button--bare kit-button--small" id="session-bar-broadcast-actions"></div></div><div class="kit-button kit-button--bare kit-button--small" id="session-bar-actions">` + button("session-bar-player", "Ouvrir la player view", "secondary", ' data-href="player-view.html" data-target="_blank"') + button("session-bar-pilot", "Player view pilot\xE9e", "ghost", ' data-href="player-view.html?pilote=1" data-target="_blank"') + button("session-bar-close", "Clore la s\xE9ance", "danger", ` data-writes="${CLOSE_SESSION}"`) + '</div><div class="mf-modal" id="session-close-modal" hidden></div></section>';
+    return `<section class="mf-live-bar" id="session-bar" aria-labelledby="session-bar-title" ${live}><div class="mf-live-bar__title"><h1 id="session-bar-title"></h1><span class="small muted" id="session-bar-meta" ${live}></span></div><div class="kit-badge" id="session-bar-badges" ${live}></div><nav class="mf-live-bar__scenes" id="session-bar-scenes" aria-label="Sc\xE8nes de la s\xE9ance" data-reads="${LIST_SCENES}"></nav><div class="mf-live-bar__broadcast" id="session-bar-broadcast" data-reads="${GET_DIFFUSION}"><span class="small" id="session-bar-showing" aria-live="polite"></span><div class="kit-button kit-button--bare kit-button--small" id="session-bar-broadcast-actions"></div></div><div class="kit-button kit-button--bare kit-button--small" id="session-bar-actions">` + button("session-bar-player", "Ouvrir la player view", "secondary", ' data-href="player-view.html" data-target="_blank"') + button("session-bar-pilot", "Player view pilot\xE9e", "ghost", ' data-href="player-view.html?pilote=1" data-target="_blank"') + button("session-bar-close", "Clore la s\xE9ance", "danger", ` data-writes="${CLOSE_SESSION}"`) + '</div><div class="mf-modal" id="session-close-modal" hidden></div></section>';
   }
   var heading = (live) => `S\xE9ance ${live.order} \u2014 ${live.title}`;
   var meta = (live) => live.startedAt === "" ? "En direct" : `En direct depuis ${live.startedAt}`;
@@ -307,10 +316,24 @@
       part("session-bar-showing").innerHTML = showingHtml(diffusion);
       part("session-bar-broadcast-actions").innerHTML = broadcastActions(diffusion);
     };
+    const publishScene = (session) => {
+      shell2.context.set(SCENE_CONTEXT, session.currentScene);
+      shell2.context.set(BATTLEMAP_CONTEXT, battlemapOf(session) ?? void 0);
+    };
     const readLive = async () => {
-      live = parseLive((await shell2.capability(GET_LIVE_SESSION, void 0, requested)).data);
+      const answered = parseLive((await shell2.capability(GET_LIVE_SESSION, void 0, requested)).data);
+      live = answered;
       paintLive();
-      if (live !== null) shell2.context.set(SCENE_CONTEXT, live.currentScene);
+      if (answered === null) return;
+      shell2.context.set(SESSION_CONTEXT, answered.id);
+      if (answered.campaign !== "") shell2.context.set(CAMPAIGN_CONTEXT, answered.campaign);
+      const scenes2 = await shell2.capability(LIST_SCENES, void 0, { session: answered.id }).then(
+        (answer) => parseScenes(answer.data),
+        () => []
+      );
+      live = withScenes(answered, scenes2);
+      paintLive();
+      publishScene(live);
     };
     const readDiffusion = async () => {
       diffusion = parseDiffusion((await shell2.capability(GET_DIFFUSION, void 0)).data);
@@ -394,7 +417,7 @@
       } else if (button2.dataset.scene !== void 0 && live !== null) {
         live = { ...live, currentScene: Number(button2.dataset.scene) };
         paintLive();
-        shell2.context.set(SCENE_CONTEXT, live.currentScene);
+        publishScene(live);
       } else if (button2.dataset.writes === SHOW_COVER || button2.dataset.writes === CLOSE_WINDOW) void broadcast(button2.dataset.writes);
       else if (button2.id === "session-bar-close" && live !== null) show(confirmDialog(live));
       else if (button2.id === "session-close-submit") void closeSession();
@@ -523,6 +546,15 @@
     const declares = (key) => declared.some((d) => d === key || d.startsWith(key) && d[key.length] === ".");
     return Object.keys(payload || {}).filter((key) => key !== id && !declares(key)).sort();
   }
+  function fieldsOf(manifest, payload) {
+    const touches = Array.isArray(manifest && manifest.touches) ? manifest.touches.filter((t) => typeof t === "string") : [];
+    return touches.length ? touches.map((t) => t.split(".").pop()) : Object.keys(payload || {});
+  }
+  function reviewNeeded(aggregate, fields, caller) {
+    const declared = aggregate && aggregate.fields || {};
+    const roles = caller && Array.isArray(caller.roles) ? caller.roles : [];
+    return fields.filter((f) => Object.hasOwn(declared, f) && declared[f] && declared[f].criticality === "critical").map((f) => [f, declared[f].review || "role:approver"]).filter(([, role]) => !roles.includes(role)).map(([f, role]) => `${f} (${role})`);
+  }
   var undeclaredWarning = (keys, dataCapability) => `payload key(s) ${keys.join(", ")} not declared by ${dataCapability}`;
   function mockServer() {
     if (window.__mockServer) return window.__mockServer;
@@ -597,6 +629,21 @@
       }
       return index && index.manifests || {};
     };
+    s.aggregates = async () => {
+      const index = await s.product("aggregates.json");
+      if (index && !s.aggregatesSaid) {
+        s.aggregatesSaid = true;
+        for (const problem of index.problems || []) console.error(`mock server: ${problem}`);
+      }
+      return index && index.aggregates || {};
+    };
+    s.aggregate = async (name) => {
+      if (!name) return void 0;
+      const fixture = await s.load(`aggregates/${name}`);
+      if (fixture !== void 0) return fixture;
+      const known = (await s.aggregates())[name];
+      return known ? known.manifest : void 0;
+    };
     s.undeclared = [];
     s.planned = async (id) => {
       const graph = await s.product("plan/graph.json");
@@ -622,7 +669,7 @@
     const invariants = async (aggregate, payload) => {
       const out = { reject: [], review: [] };
       if (!aggregate) return out;
-      const manifest = await s.load(`aggregates/${aggregate}`);
+      const manifest = await s.aggregate(aggregate);
       for (const inv of manifest && manifest.invariants || []) {
         if (!ruleHolds(inv.rule, payload)) (inv.onViolation === "review" ? out.review : out.reject).push(inv.id);
       }
@@ -699,8 +746,10 @@
         const seen = [...s.queue.values()].find((e) => e.idempotencyKey === body.idempotencyKey && e.dataCapability === dataCapability);
         if (seen) return answer(seen, true);
       }
-      const aggregate = target.aggregate || null;
-      const declared = (aggregate && await s.load(`aggregates/${aggregate}`) || { fields: {} }).fields || {};
+      const known = (await s.manifests())[dataCapability];
+      const aggregate = known && known.manifest && known.manifest.target && known.manifest.target.aggregate || target.aggregate || null;
+      const document2 = await s.aggregate(aggregate) || { fields: {} };
+      const declared = document2.fields || {};
       const derived = Object.keys(payload).filter((f) => declared[f] && declared[f].kind === "derived");
       if (derived.length) return json({ error: `${dataCapability} writes the derived field(s) ${derived.join(", ")}: ${aggregate} recomputes them` }, 403);
       const commandId2 = uuid();
@@ -708,7 +757,6 @@
       const entry = { commandId: commandId2, dataCapability, version: Number(version) || 1, aggregate, partition, targetId, by, payload, basedOn: body.basedOn, idempotencyKey: body.idempotencyKey, handler, position: s.next(), state: "queued", warnings: [] };
       s.queue.set(commandId2, entry);
       s.commands.set(commandId2, entry);
-      const known = (await s.manifests())[dataCapability];
       const keys = known ? undeclaredKeys(known.manifest, payload) : [];
       const warnUndeclared = () => {
         if (!keys.length) return;
@@ -738,14 +786,17 @@
         s.tell("InvariantAtRisk", by, commandId2, { violations: verdict.reject.concat(verdict.review) });
       }
       warnUndeclared();
-      const needsReview = verdict.review.length > 0 || Object.keys(payload).some((f) => declared[f] && declared[f].criticality === "critical");
+      const needed = reviewNeeded(document2, fieldsOf(known && known.manifest, payload), body.caller);
+      const needsReview = verdict.review.length > 0 || needed.length > 0;
       const merging = new Set(Object.keys(declared).filter((f) => declared[f].merge));
       const ahead = declaredAhead(entry, merging);
       if (needsReview) {
         entry.state = "awaiting_review";
         entry.reviewId = `r_${s.next()}`;
         entry.warnings.push(`review ${entry.reviewId} required`);
-        s.tell("ReviewRequired", "role:approver", commandId2, { actions: ["approve", "reject"] });
+        const first = fieldsOf(known && known.manifest, payload)[0];
+        const approver = first && declared[first] && declared[first].review || "role:approver";
+        s.tell("ReviewRequired", approver, commandId2, { actions: ["approve", "reject"], reason: needed.length ? `critical: ${needed.join(", ")}` : "an invariant wants a review" });
       } else if (ahead && (body.mode || "confirm_on_stale") === "confirm_on_stale") {
         entry.state = "awaiting_confirmation";
         entry.aheadOf = ahead.command;

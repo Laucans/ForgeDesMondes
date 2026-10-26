@@ -2,7 +2,10 @@
 // number, title and start, its scenes, what the players see — and, from it,
 // the player view put back on the campaign cover, its floating window closed,
 // and the session closed with a recap of what was kept. It reads
-// `session.getLiveSession` and `live.getDiffusion`, and triggers
+// `session.getLiveSession`, `session.listScenes` and `live.getDiffusion`, and
+// publishes to the screen's context the live session, its campaign, the
+// current scene and the battlemap of the live scene (nothing when there is no
+// session: no id is made up), and triggers
 // `live.showCover`, `live.closeWindow` and `session.closeSession`, by
 // identifier, through the shell it is handed: no network call of its own.
 // Once the session is closed it reads `session.getSessionJournal` and
@@ -10,17 +13,35 @@
 // never reopened from the bar.
 
 import {
+  BATTLEMAP_CONTEXT,
+  CAMPAIGN_CONTEXT,
   CLOSE_SESSION,
   CLOSE_WINDOW,
   GET_DIFFUSION,
   GET_LIVE_SESSION,
   GET_PREVIOUS_SESSION_SUMMARY,
   GET_SESSION_JOURNAL,
+  LIST_SCENES,
   SCENE_CONTEXT,
   SESSION_AGGREGATE,
+  SESSION_CONTEXT,
   SHOW_COVER,
 } from './ids.ts';
-import { commandBody, commandId, durationSince, isFinal, parseDiffusion, parseLive, parseRecap, reasons, settled, type Settled } from './model.ts';
+import {
+  battlemapOf,
+  commandBody,
+  commandId,
+  durationSince,
+  isFinal,
+  parseDiffusion,
+  parseLive,
+  parseRecap,
+  parseScenes,
+  reasons,
+  settled,
+  withScenes,
+  type Settled,
+} from './model.ts';
 import { badges, broadcastActions, confirmDialog, heading, meta, recapDialog, scenes, showingHtml, skeleton } from './render.ts';
 import { STYLE } from './style.ts';
 import type { Diffusion, Live, Shell } from './types.ts';
@@ -75,10 +96,29 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     part('session-bar-broadcast-actions').innerHTML = broadcastActions(diffusion);
   };
 
+  /** The scene the session is at, and the battlemap of the live scene, for the Micro-UIs that follow them. */
+  const publishScene = (session: Live): void => {
+    shell.context.set(SCENE_CONTEXT, session.currentScene);
+    shell.context.set(BATTLEMAP_CONTEXT, battlemapOf(session) ?? undefined);
+  };
+
   const readLive = async (): Promise<void> => {
-    live = parseLive((await shell.capability(GET_LIVE_SESSION, undefined, requested)).data);
+    const answered = parseLive((await shell.capability(GET_LIVE_SESSION, undefined, requested)).data);
+    live = answered;
     paintLive();
-    if (live !== null) shell.context.set(SCENE_CONTEXT, live.currentScene);
+    // No session under way: the screen's context is left as it is, no id is made up.
+    if (answered === null) return;
+    // The session and its campaign are the answer's own, set before the scenes are read: the panel needs no more.
+    shell.context.set(SESSION_CONTEXT, answered.id);
+    if (answered.campaign !== '') shell.context.set(CAMPAIGN_CONTEXT, answered.campaign);
+    // A scenes read that fails leaves the bar without scenes, not without its session.
+    const scenes = await shell.capability(LIST_SCENES, undefined, { session: answered.id }).then(
+      (answer) => parseScenes(answer.data),
+      () => [],
+    );
+    live = withScenes(answered, scenes);
+    paintLive();
+    publishScene(live);
   };
   const readDiffusion = async (): Promise<void> => {
     diffusion = parseDiffusion((await shell.capability(GET_DIFFUSION, undefined)).data);
@@ -175,7 +215,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     } else if (button.dataset.scene !== undefined && live !== null) {
       live = { ...live, currentScene: Number(button.dataset.scene) };
       paintLive();
-      shell.context.set(SCENE_CONTEXT, live.currentScene);
+      publishScene(live);
     } else if (button.dataset.writes === SHOW_COVER || button.dataset.writes === CLOSE_WINDOW) void broadcast(button.dataset.writes);
     // « Clore la séance » on the bar only asks; the dialog's own button is what sends the command.
     else if (button.id === 'session-bar-close' && live !== null) show(confirmDialog(live));

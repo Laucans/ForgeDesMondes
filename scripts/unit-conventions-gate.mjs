@@ -1,10 +1,12 @@
-// The gates `data-capability-conventions` and `capability-conventions` of
-// .github/workflows/gates.yml: the conventions a unit drifts from when it
-// copies a neighbour, judged statically on the units a pull request adds or
-// changes — never on the units it leaves alone, which predate the gate.
+// The gates `data-capability-conventions`, `capability-conventions` and
+// `screen-surfaces` of .github/workflows/gates.yml: the conventions a unit
+// drifts from when it copies a neighbour, judged statically on the units a
+// pull request adds or changes — never on the units it leaves alone, which
+// predate the gate.
 //
 //   node scripts/unit-conventions-gate.mjs data-capabilities <base sha>
 //   node scripts/unit-conventions-gate.mjs capabilities <base sha>
+//   node scripts/unit-conventions-gate.mjs screens <base sha> [--warn] [--all]
 //
 // A unit is added when the change adds its manifest, changed when it
 // touches any file of its folder (a Capability: or its persisted query).
@@ -52,6 +54,39 @@
 //                          folder (a Capability: or its query file) — the
 //                          skeleton's holes, every one filled before merge
 //
+// Screens (apps/screens/<screen>.json), caller model A — the shell sets the
+// caller of every command from its screen's `surface` (contract E), a
+// surface of `surfaces.json` (contract S). Nothing to judge while the
+// product declares no surfaces.json. An error only on a file the change
+// touches and can fix; a warning otherwise:
+//   surface-declared (added or changed screen) the screen declares `surface`
+//   surface-known (changed screen, surfaces.json changed) its `surface` and
+//                          `pilot.surface` are surfaces of surfaces.json
+//   player-review-path (a warning, always) every action of every Micro-UI
+//                          the screen lays out writes only critical fields
+//                          whose review role (contract I `review`, by
+//                          default role:approver) its surface or its pilot's
+//                          holds — else the command parks with no screen to
+//                          decide it; judged when the screen, a Micro-UI it
+//                          lays out, one of their DataCapabilities or
+//                          aggregates, or surfaces.json changed. An action
+//                          not built yet is said, not judged. A warning: a
+//                          read-only placement of a Micro-UI renders none of
+//                          its actions, which the manifests cannot say — the
+//                          journeys prove it at run time
+//   permissions-held (changed screen; a warning when only its units
+//                          changed) the permissions of every DataCapability
+//                          its Micro-UIs act on are its surface's (or its
+//                          pilot's)
+//   reviews-held (surfaces.json changed; a warning on a changed
+//                          aggregate.json) every review role an aggregate's
+//                          critical fields ask is held by some surface
+//   page-surface (mock/pages.json changed) a page's `surface`, when set, is
+//                          a surface of surfaces.json and its screen's
+// --warn says every finding as a warning (a milestone's pull request: its
+// tasks were judged on their own); --all judges every screen, aggregate and
+// page as changed, whatever the base (an owner's audit).
+//
 // Reads the files as text, runs none of them. Every finding is reported
 // (`::error file=…::<rule>: …`), the verdict comes last. Installed by
 // `harness init-repo`; the repository owns it from here.
@@ -65,8 +100,8 @@ const KINDS = {
   'data-capabilities': 'data-capability.json',
   capabilities: 'capability.json',
 };
-if (!KINDS[kind]) {
-  process.stdout.write(`usage: node scripts/unit-conventions-gate.mjs data-capabilities|capabilities <base sha>\n`);
+if (!KINDS[kind] && kind !== 'screens') {
+  process.stdout.write(`usage: node scripts/unit-conventions-gate.mjs data-capabilities|capabilities <base sha> | screens <base sha> [--warn] [--all]\n`);
   process.exit(2);
 }
 
@@ -85,14 +120,6 @@ const reachable = (sha) => {
     return false;
   }
 };
-if (!base || !reachable(base)) {
-  process.stdout.write('no base to compare with: nothing to judge\n');
-  process.exit(0);
-}
-const diff = (filter) => git('diff', '--name-only', `--diff-filter=${filter}`, `${base}...HEAD`)
-  .split('\n')
-  .filter(Boolean);
-
 const read = (path) => (fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : null);
 const json = (path) => {
   try {
@@ -101,6 +128,15 @@ const json = (path) => {
     return null;
   }
 };
+if (kind === 'screens') process.exit(screens(process.argv.slice(3)));
+if (!base || !reachable(base)) {
+  process.stdout.write('no base to compare with: nothing to judge\n');
+  process.exit(0);
+}
+const diff = (filter) => git('diff', '--name-only', `--diff-filter=${filter}`, `${base}...HEAD`)
+  .split('\n')
+  .filter(Boolean);
+
 
 /** The `.rs` files under `dir`, recursively, as paths from the root. */
 function rustFiles(dir) {
@@ -389,3 +425,178 @@ function capability(dir, isAdded) {
   }
 }
 
+
+/** The JSON files under `dir` named `name`, recursively, build output aside, as paths from the root. */
+function manifestsNamed(dir, name) {
+  return filesUnder(dir).filter((path) => posix.basename(path) === name);
+}
+
+/** The Micro-UIs a screen's layout names: an id, `{ "microUi": … }`, or keyed `{ "<Name>": {…} }`. */
+function laidOut(layout) {
+  const names = [];
+  for (const entry of Array.isArray(layout) ? layout : []) {
+    if (typeof entry === 'string') names.push(entry);
+    else if (entry && typeof entry === 'object') {
+      if (typeof entry.microUi === 'string') names.push(entry.microUi);
+      else names.push(...Object.keys(entry));
+    }
+  }
+  return [...new Set(names)];
+}
+
+/** The gate `screen-surfaces`: who acts on each screen, and whether its commands find their review roles there. */
+function screens(args) {
+  const warnOnly = args.includes('--warn');
+  const all = args.includes('--all');
+  const [since] = args.filter((a) => !a.startsWith('--'));
+  if (!fs.existsSync('surfaces.json')) {
+    process.stdout.write('no surfaces.json: nothing to judge\n');
+    return 0;
+  }
+  let findings = 0;
+  const say = (level, file, rule, message) => {
+    if (level === 'error' && !warnOnly) findings += 1;
+    process.stdout.write(`::${level === 'error' && !warnOnly ? 'error' : 'warning'} file=${file}::${rule}: ${message}\n`);
+  };
+  const declared = json('surfaces.json');
+  if (!declared || !declared.surfaces || typeof declared.surfaces !== 'object' || Array.isArray(declared.surfaces)) {
+    say('error', 'surfaces.json', 'surface-known', 'is not a surfaces declaration (contract S): `{ "default", "surfaces": { "<name>": { "by", "roles" } } }`');
+    return findings ? 1 : 0;
+  }
+  if (!all && (!since || !reachable(since))) {
+    process.stdout.write('no base to compare with: nothing to judge\n');
+    return 0;
+  }
+  const changedFiles = all ? null : new Set(git('diff', '--name-only', '--diff-filter=AMR', `${since}...HEAD`).split('\n').filter(Boolean));
+  const addedFiles = all ? null : new Set(git('diff', '--name-only', '--diff-filter=A', `${since}...HEAD`).split('\n').filter(Boolean));
+  const changed = (path) => all || changedFiles.has(path);
+  const added = (path) => all || addedFiles.has(path);
+  const surfaces = declared.surfaces;
+  const known = (name) => typeof name === 'string' && Object.hasOwn(surfaces, name);
+  const held = (name, what) => (known(name) && Array.isArray(surfaces[name][what]) ? surfaces[name][what].filter((x) => typeof x === 'string') : []);
+
+  const byField = (paths, field) => {
+    const out = new Map();
+    for (const path of paths) {
+      const manifest = json(path);
+      const id = manifest && manifest[field];
+      if (typeof id === 'string' && !out.has(id)) out.set(id, { path, manifest });
+    }
+    return out;
+  };
+  const microUis = byField(manifestsNamed('apps', 'micro-ui.json'), 'microUi');
+  const dataCapabilities = byField(manifestsNamed('crates', 'data-capability.json').filter((p) => /^crates\/[^/]+\/data-capabilities\//.test(p)), 'dataCapability');
+  const aggregates = byField(manifestsNamed('crates', 'aggregate.json').filter((p) => /^crates\/[^/]+\/aggregates\//.test(p)), 'aggregate');
+  const screenFiles = fs.existsSync('apps/screens') ? fs.readdirSync('apps/screens').filter((n) => n.endsWith('.json')).map((n) => `apps/screens/${n}`).sort() : [];
+  const unversioned = (id) => String(id).split('@')[0];
+
+  /** The critical fields an action writes, each with the review role it asks: `[]` when nothing is critical, `null` when it is not built. */
+  const asks = (action) => {
+    const dc = dataCapabilities.get(unversioned(action));
+    if (!dc) return null;
+    const target = dc.manifest.target && dc.manifest.target.aggregate;
+    const aggregate = aggregates.get(target);
+    const touches = Array.isArray(dc.manifest.touches) ? dc.manifest.touches.filter((t) => typeof t === 'string') : [];
+    const fields = touches.length ? touches.map((t) => t.split('.').pop()) : Object.keys(dc.manifest.payload || {});
+    const declaredFields = (aggregate && aggregate.manifest.fields) || {};
+    return {
+      dc,
+      aggregate,
+      critical: fields.filter((f) => Object.hasOwn(declaredFields, f) && declaredFields[f] && declaredFields[f].criticality === 'critical').map((f) => ({ field: f, role: declaredFields[f].review || 'role:approver' })),
+    };
+  };
+
+  let judged = 0;
+  for (const path of screenFiles) {
+    const screen = json(path);
+    if (!screen) continue;
+    const name = screen.screen || posix.basename(path, '.json');
+    const microUiNames = laidOut(screen.layout);
+    const actions = microUiNames.flatMap((m) => {
+      const found = microUis.get(m);
+      return found ? (Array.isArray(found.manifest.actions) ? found.manifest.actions : []).map((a) => ({ microUi: m, action: a, file: found.path })) : [];
+    });
+    const unitFiles = [
+      ...microUiNames.map((m) => microUis.get(m)).filter(Boolean).map((m) => m.path),
+      ...actions.flatMap(({ action }) => {
+        const a = asks(action);
+        return a ? [a.dc.path, ...(a.aggregate ? [a.aggregate.path] : [])] : [];
+      }),
+    ];
+    const screenChanged = changed(path);
+    const unitsChanged = unitFiles.some((f) => changed(f));
+    const surfacesChanged = changed('surfaces.json');
+    if (!screenChanged && !unitsChanged && !surfacesChanged) continue;
+    judged += 1;
+    const surface = screen.surface;
+    const pilot = screen.pilot && typeof screen.pilot === 'object' ? screen.pilot.surface : undefined;
+    if ((added(path) || screenChanged) && typeof surface !== 'string') {
+      say('error', path, 'surface-declared', `screen ${name} declares no \`surface\`: the shell then sends no role for it (fail closed) — name the surface of surfaces.json whose user acts on it (${Object.keys(surfaces).join(', ')})`);
+    }
+    for (const [what, value] of [['surface', surface], ['pilot.surface', pilot]]) {
+      if (value !== undefined && !known(value) && (screenChanged || surfacesChanged)) {
+        say('error', screenChanged ? path : 'surfaces.json', 'surface-known', `screen ${name}'s ${what} ${JSON.stringify(value)} is no surface of surfaces.json (${Object.keys(surfaces).join(', ')})`);
+      }
+    }
+    if (typeof surface !== 'string') continue;
+    const roles = new Set([...held(surface, 'roles'), ...held(pilot, 'roles')]);
+    const permissions = new Set([...held(surface, 'permissions'), ...held(pilot, 'permissions')]);
+    const on = pilot ? `surface ${surface}, pilot ${pilot}` : `surface ${surface}`;
+    const missing = new Map();
+    for (const { microUi, action } of actions) {
+      const a = asks(action);
+      if (!a) {
+        process.stdout.write(`screen ${name}: ${microUi}'s action ${action} is not built yet: not judged\n`);
+        continue;
+      }
+      for (const { field, role } of a.critical) {
+        if (roles.has(role)) continue;
+        const key = `${microUi}|${role}`;
+        if (!missing.has(key)) missing.set(key, { microUi, role, actions: new Set(), fields: new Set() });
+        missing.get(key).actions.add(unversioned(action));
+        missing.get(key).fields.add(`${a.aggregate ? a.aggregate.manifest.aggregate : '?'}.${field}`);
+      }
+      const asked = Array.isArray(a.dc.manifest.permissions) ? a.dc.manifest.permissions.filter((p) => typeof p === 'string') : [];
+      const lacking = asked.filter((p) => !permissions.has(p));
+      if (lacking.length) {
+        say(screenChanged || surfacesChanged ? 'error' : 'warning', screenChanged ? path : surfacesChanged ? 'surfaces.json' : a.dc.path, 'permissions-held', `screen ${name} (${on}) lays out ${microUi}, whose action ${unversioned(action)} asks the permission(s) ${lacking.join(', ')} its surface does not hold: the server refuses it`);
+      }
+    }
+    for (const { microUi, role, actions: names, fields } of missing.values()) {
+      say('warning', path, 'player-review-path', `screen ${name} (${on}) lays out ${microUi}, whose action(s) ${[...names].join(', ')} write the critical field(s) ${[...fields].join(', ')} asking ${role}, which its surface does not hold: each such command parks in awaiting_review with no screen to decide it — give the role to the surface whose gesture approves (surfaces.json), pilot the screen from one that holds it, or keep those actions off this screen`);
+    }
+  }
+
+  // Every review role an aggregate asks is held by some surface.
+  const anyHolds = (role) => Object.keys(surfaces).some((n) => held(n, 'roles').includes(role));
+  for (const { path, manifest } of aggregates.values()) {
+    const aggregateChanged = changed(path);
+    if (!aggregateChanged && !changed('surfaces.json')) continue;
+    const fields = manifest.fields && typeof manifest.fields === 'object' ? manifest.fields : {};
+    for (const [field, spec] of Object.entries(fields)) {
+      if (!spec || spec.criticality !== 'critical') continue;
+      const role = spec.review || 'role:approver';
+      if (anyHolds(role)) continue;
+      say(changed('surfaces.json') ? 'error' : 'warning', changed('surfaces.json') ? 'surfaces.json' : path, 'reviews-held', `${manifest.aggregate}.${field} asks ${role} for its review, which no surface of surfaces.json holds: nobody can approve it — add the role to the surface whose gesture approves, or keep the default role (role:approver)`);
+    }
+  }
+
+  // A page's surface, when it says one, is a surface and its screen's.
+  if (changed('mock/pages.json')) {
+    const pages = json('mock/pages.json');
+    for (const page of (pages && Array.isArray(pages.pages) ? pages.pages : [])) {
+      if (!page || page.surface === undefined) continue;
+      if (!known(page.surface)) {
+        say('error', 'mock/pages.json', 'page-surface', `${page.path}'s surface ${JSON.stringify(page.surface)} is no surface of surfaces.json (${Object.keys(surfaces).join(', ')})`);
+        continue;
+      }
+      const screenFile = screenFiles.find((f) => (json(f) || {}).screen === page.screen);
+      const screenSurface = screenFile ? (json(screenFile) || {}).surface : undefined;
+      if (typeof screenSurface === 'string' && screenSurface !== page.surface) {
+        say('error', 'mock/pages.json', 'page-surface', `${page.path} says surface ${page.surface} and its screen ${page.screen} (${screenFile}) says ${screenSurface}: the page follows its screen`);
+      }
+    }
+  }
+  process.stdout.write(`${judged} screen(s) judged: ${findings === 0 ? 'every surface holds' : `${findings} finding(s)`}\n`);
+  return findings === 0 ? 0 : 1;
+}

@@ -79,7 +79,7 @@
       "query": "ListCampaigns",
       "capability": "campaign.listCampaigns",
       "file": "crates/campaign/queries/list-campaigns.graphql",
-      "sha256": "93cd999bf497ef73760cc5a85b31578329d2f347b51679bc8f52d90550b32381",
+      "sha256": "63f6de18f0ec036def0a935cf9cdf275975eac71bb137491117978a8ca2c161d",
       "fields": [
         "campaign.id",
         "campaign.name",
@@ -87,7 +87,11 @@
         "campaign.art",
         "campaign.glyph",
         "campaign.pitch",
-        "campaign.createdAt"
+        "campaign.createdAt",
+        "session.campaignId",
+        "session.status",
+        "session.startedAt",
+        "session.plannedOn"
       ]
     },
     {
@@ -494,7 +498,7 @@
       "query": "GetBattlemapInstance",
       "capability": "table.getBattlemapInstance",
       "file": "crates/table/queries/get-battlemap-instance.graphql",
-      "sha256": "ef8a05fa68df8483fcc3bd283fd0d005ad09bddc9d3fd692f3b6cfa8f9ece04d",
+      "sha256": "55733f3664fa3893c42c8b2ba75299a81d8b8648c98c9e7ee46c7fb8bee80db2",
       "fields": [
         "battlemapInstance.id",
         "battlemapInstance.battlemapMediaId",
@@ -518,6 +522,7 @@
         "combat.round",
         "combat.currentEntryId",
         "combat.endedAt",
+        "combat.startedAt",
         "initiativeEntry.id",
         "initiativeEntry.tokenId",
         "initiativeEntry.initiative",

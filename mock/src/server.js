@@ -33,11 +33,22 @@
 //   `__product/data-capabilities.json` beside the page's folder — what the
 //   factory view serves, read-only; with nothing serving it, nothing is
 //   checked;
-// - the aggregate's own invariants judge too, when the page ships
-//   `fixtures/aggregates/<Aggregate>.json` (an aggregate.json, contract I)
-//   and the command names its `target.aggregate`: every `rule` of the shape
+// - the aggregate judges too: its document (contract I) is the page's
+//   fixture `fixtures/aggregates/<Aggregate>.json` when there is one (an
+//   override), else the product's own `aggregate.json`, indexed by its
+//   `aggregate` field in `__product/aggregates.json` beside the page's
+//   folder (what the factory view serves, read-only; with nothing serving
+//   it, only the page's fixtures judge). The aggregate is the
+//   DataCapability manifest's `target.aggregate` (the body's only when no
+//   manifest is served). Every invariant `rule` of the shape
 //   `<field> <op> <value>` is checked on the payload, `reject` rejects,
-//   `review` answers `awaiting_review`;
+//   `review` answers `awaiting_review`; and a critical field's review is
+//   judged as the engine's `guard::review_needed` does — the fields a
+//   command writes are its manifest's `touches` (their last segment), else
+//   its payload's keys, and one that is `critical` waits for a review only
+//   when `caller.roles` lacks its `review` role (by default
+//   `role:approver`): a gesture of a surface that holds the role applies
+//   (caller model A, contract S);
 // - one queue per partition, as the engine's: a command whose `basedOn`
 //   names a value another pending command declares ahead on the same field
 //   is `awaiting_confirmation` with a `ValueDeclaredAhead` message; its
@@ -151,6 +162,32 @@ export function undeclaredKeys(manifest, payload) {
   return Object.keys(payload || {}).filter((key) => key !== id && !declares(key)).sort();
 }
 
+/**
+ * The fields a command writes, as the engine reads them (`Entry::fields`):
+ * the last segment of each of its manifest's `touches`, else its payload's
+ * keys.
+ */
+export function fieldsOf(manifest, payload) {
+  const touches = Array.isArray(manifest && manifest.touches) ? manifest.touches.filter((t) => typeof t === 'string') : [];
+  return touches.length ? touches.map((t) => t.split('.').pop()) : Object.keys(payload || {});
+}
+
+/**
+ * The review roles a command's critical fields ask that its caller lacks,
+ * as `<field> (<role>)` — the engine's `guard::review_needed`: a field the
+ * aggregate declares `critical` asks its `review` role, `role:approver`
+ * when it names none; a caller holding it applies.
+ */
+export function reviewNeeded(aggregate, fields, caller) {
+  const declared = (aggregate && aggregate.fields) || {};
+  const roles = caller && Array.isArray(caller.roles) ? caller.roles : [];
+  return fields
+    .filter((f) => Object.hasOwn(declared, f) && declared[f] && declared[f].criticality === 'critical')
+    .map((f) => [f, declared[f].review || 'role:approver'])
+    .filter(([, role]) => !roles.includes(role))
+    .map(([f, role]) => `${f} (${role})`);
+}
+
 /** The engine's warning for `keys` sent to `dataCapability`, word for word (`crates/dataguard`, `submit_one`). */
 export const undeclaredWarning = (keys, dataCapability) => `payload key(s) ${keys.join(', ')} not declared by ${dataCapability}`;
 
@@ -226,7 +263,9 @@ export function mockServer() {
    * A file of the product outside `mock/`, parsed, loaded once: from
    * `__product/` beside the page's folder — what the factory view serves —
    * else from the repository's root two folders up, when a plain server
-   * serves the repository; `undefined` when neither has it.
+   * serves the repository (a file the repository holds, as
+   * `plan/graph.json`: the indexes exist only where the view serves them);
+   * `undefined` when neither has it.
    */
   s.productFiles = new Map();
   s.product = (path) => {
@@ -244,6 +283,23 @@ export function mockServer() {
       for (const problem of index.problems || []) console.error(`mock server: ${problem}`);
     }
     return (index && index.manifests) || {};
+  };
+  /** The product's aggregates by their `aggregate` field: `{ <name>: { path, manifest } }`, empty when nothing serves the index; its problems said once. */
+  s.aggregates = async () => {
+    const index = await s.product('aggregates.json');
+    if (index && !s.aggregatesSaid) {
+      s.aggregatesSaid = true;
+      for (const problem of index.problems || []) console.error(`mock server: ${problem}`);
+    }
+    return (index && index.aggregates) || {};
+  };
+  /** An aggregate's document: the page's fixture `fixtures/aggregates/<name>.json` (an override), else the product's; `undefined` when neither. */
+  s.aggregate = async (name) => {
+    if (!name) return undefined;
+    const fixture = await s.load(`aggregates/${name}`);
+    if (fixture !== undefined) return fixture;
+    const known = (await s.aggregates())[name];
+    return known ? known.manifest : undefined;
   };
   /** The engine's undeclared-key warnings so far: `{ commandId, dataCapability, keys, manifest, warning }`, oldest first. */
   s.undeclared = [];
@@ -276,7 +332,7 @@ export function mockServer() {
   const invariants = async (aggregate, payload) => {
     const out = { reject: [], review: [] };
     if (!aggregate) return out;
-    const manifest = await s.load(`aggregates/${aggregate}`);
+    const manifest = await s.aggregate(aggregate);
     for (const inv of (manifest && manifest.invariants) || []) {
       if (!ruleHolds(inv.rule, payload)) (inv.onViolation === 'review' ? out.review : out.reject).push(inv.id);
     }
@@ -358,8 +414,11 @@ export function mockServer() {
       const seen = [...s.queue.values()].find((e) => e.idempotencyKey === body.idempotencyKey && e.dataCapability === dataCapability);
       if (seen) return answer(seen, true);
     }
-    const aggregate = target.aggregate || null;
-    const declared = ((aggregate && (await s.load(`aggregates/${aggregate}`))) || { fields: {} }).fields || {};
+    // The manifest says which aggregate it writes and which fields: the body only when none is served.
+    const known = (await s.manifests())[dataCapability];
+    const aggregate = (known && known.manifest && known.manifest.target && known.manifest.target.aggregate) || target.aggregate || null;
+    const document = (await s.aggregate(aggregate)) || { fields: {} };
+    const declared = document.fields || {};
     // A derived field is recomputed by the aggregate: no command writes it.
     const derived = Object.keys(payload).filter((f) => declared[f] && declared[f].kind === 'derived');
     if (derived.length) return json({ error: `${dataCapability} writes the derived field(s) ${derived.join(', ')}: ${aggregate} recomputes them` }, 403);
@@ -369,7 +428,6 @@ export function mockServer() {
     s.queue.set(commandId, entry);
     s.commands.set(commandId, entry);
     // What the author sent against its manifest, as the engine judges it: a warning, never a refusal.
-    const known = (await s.manifests())[dataCapability];
     const keys = known ? undeclaredKeys(known.manifest, payload) : [];
     const warnUndeclared = () => {
       if (!keys.length) return;
@@ -400,14 +458,18 @@ export function mockServer() {
       s.tell('InvariantAtRisk', by, commandId, { violations: verdict.reject.concat(verdict.review) });
     }
     warnUndeclared();
-    const needsReview = verdict.review.length > 0 || Object.keys(payload).some((f) => declared[f] && declared[f].criticality === 'critical');
+    const needed = reviewNeeded(document, fieldsOf(known && known.manifest, payload), body.caller);
+    const needsReview = verdict.review.length > 0 || needed.length > 0;
     const merging = new Set(Object.keys(declared).filter((f) => declared[f].merge));
     const ahead = declaredAhead(entry, merging);
     if (needsReview) {
       entry.state = 'awaiting_review';
       entry.reviewId = `r_${s.next()}`;
       entry.warnings.push(`review ${entry.reviewId} required`);
-      s.tell('ReviewRequired', 'role:approver', commandId, { actions: ['approve', 'reject'] });
+      // The approver of the first field written, as the engine's `open_review` tells it.
+      const first = fieldsOf(known && known.manifest, payload)[0];
+      const approver = (first && declared[first] && declared[first].review) || 'role:approver';
+      s.tell('ReviewRequired', approver, commandId, { actions: ['approve', 'reject'], reason: needed.length ? `critical: ${needed.join(', ')}` : 'an invariant wants a review' });
     } else if (ahead && (body.mode || 'confirm_on_stale') === 'confirm_on_stale') {
       entry.state = 'awaiting_confirmation';
       entry.aheadOf = ahead.command;
