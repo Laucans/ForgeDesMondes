@@ -618,7 +618,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/suggestion-pill",
-      "builtFrom": "0b5e4cc906561198"
+      "builtFrom": "29fe2feb2030a23f"
     },
     {
       "name": "PlayerStage",

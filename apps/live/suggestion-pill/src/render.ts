@@ -27,12 +27,12 @@ export function skeleton(): string {
     '<aside class="mf-pill" id="suggestions" aria-labelledby="suggestions-title">' +
     '<div class="mf-pill__card" id="suggestions-card">' +
     '<div class="mf-pill__head"><h2 id="suggestions-title">Suggestions</h2>' +
-    '<button type="button" class="icon-btn" id="suggestions-history-toggle" aria-expanded="false" aria-controls="suggestions-history" title="Historique des suggestions">⟲</button></div>' +
+    '<button type="button" class="icon-btn" id="suggestions-history-toggle" aria-expanded="false" aria-controls="suggestions-history" aria-label="Historique des 5 dernières entités" title="Historique des 5 dernières entités">⟲</button></div>' +
     '<p class="mf-pill__heard small" id="suggestions-heard" aria-live="polite"></p>' +
     '<p class="mf-pill__status small" id="suggestions-status" role="status" hidden></p>' +
     `<ol class="mf-pill__stack" id="suggestions-stack" data-reads="${LIST_SUGGESTIONS}"></ol>` +
     '<section class="mf-pill__history" id="suggestions-history" aria-labelledby="suggestions-history-title" hidden>' +
-    '<h3 id="suggestions-history-title">Historique</h3>' +
+    '<h3 id="suggestions-history-title">Historique des 5 dernières entités</h3>' +
     `<ol class="mf-pill__stack" id="suggestions-history-list" data-reads="${LIST_SUGGESTIONS}"></ol></section>` +
     '</div>' +
     `<div class="mf-pill__mic" id="suggestions-mic" data-writes="${SET_MICROPHONE}">` +
