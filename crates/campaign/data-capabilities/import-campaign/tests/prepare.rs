@@ -1,6 +1,6 @@
 //! `campaign.importCampaign`'s pure core, no engine: [`request`] reads and
 //! checks the archive, [`copy`] and [`prepare`] make the copy — held to the
-//! fixtures of `CampaignArchive@1` — and a refusal says why in words.
+//! fixtures of `CampaignArchive@2` — and a refusal says why in words.
 
 use std::collections::BTreeSet;
 
@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use import_campaign::{Refusal, Request, Row, copy, prepare, request, timestamp};
 use platform_test_kit::{uuid, writes_only_touches};
 
-const ID: &str = "CampaignArchive@1";
+const ID: &str = "CampaignArchive@2";
 const AT: &str = "2026-10-25T12:00:00.000Z";
 
 /// A row, from a JSON object.
@@ -570,4 +570,28 @@ fn a_diff_entry_is_rewritten_only_on_a_reference_field_and_only_in_the_members_i
             { "old": "m1", "new": "m1" },
         ])
     );
+}
+
+// AC1: an archive whose campaign was created on 2026-08-20 copies to a
+// campaign created at the import, which is also when it was imported — in
+// the copy and in the row the engine holds.
+#[test]
+fn import_creates_copy_the_copys_campaign_is_created_at_the_import() {
+    let archive = edited(full(), |archive| {
+        archive["campaign"]["created_at"] = json!("2026-08-20T09:00:00.000Z");
+    });
+    let request = read(archive.clone());
+    let prepared = prepare(&request, AT, drawn()).expect("prepared");
+    assert_eq!(prepared.payload["createdAt"], json!(AT));
+    assert_eq!(prepared.payload["importedAt"], json!(AT));
+
+    let new_ids: Map<String, Value> = request
+        .ids
+        .iter()
+        .map(|old| (old.clone(), json!(uuid(0xd0, 1))))
+        .collect();
+    let copied = copy(&archive, AT, &new_ids);
+    assert_eq!(copied["campaign"]["created_at"], json!(AT));
+    assert_eq!(copied["campaign"]["imported_at"], json!(AT));
+    assert_eq!(copied["imported_at"], json!(AT));
 }

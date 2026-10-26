@@ -1,0 +1,47 @@
+{
+  "concept": "CampaignArchive",
+  "version": 2,
+  "kind": "derived",
+  "definition": "What a campaign archive holds, and how an import makes a separate copy of it. This version replaces CampaignArchive@1 in one rule only: the copy's campaign is created when it is imported (rule 5). An archive is one JSON document: `format` (always \"campaign-archive\"), `version` (1), `origin_campaign_id` (the id of the campaign it was made from), `exported_at`, and the sections below. Every row is an object under its columns' names, as the campaign keeps it now; a date is an RFC 3339 text, a number a JSON number. Ids are written in lowercase and compared as written. The archive is taken as well-formed: checking it is not the work of this Concept.\n\nSECTIONS. `campaign`: one row, id, name, kind, pitch, art, glyph, cover_media_id, created_at, last_exported_at, imported_at, origin_campaign_id, sound_master_volume. `players`: rows of id, campaign_id, name, notes, created_at. `elements`: rows of id, campaign_id, type, name, description, notes, created_at, updated_at, and three more members: `character` (the element's sheet, or null for an element with none: entity_id, player_id, initial_prompt, background, behavior, strength, dexterity, constitution, intelligence, wisdom, charisma, armor_class, hp_max, spells, actions, portrait_media_id, token_media_id, token_crop, token_color, dndbeyond_id, dndbeyond_synced_at), `aliases` (the element's aliases, as texts) and `versions` (rows of id, entity_id, version_number, source, snapshot, diff, restored_from_version_id, created_at). `media`: rows of id, campaign_id, kind, title, file_path, width_px, height_px, place_id, uploaded_at, and `battlemap_grid` (null unless the medium is a battlemap: media_id, hex_size_px, offset_x, offset_y, orientation, color, opacity, feet_per_hex). `sounds`: rows of id, campaign_id, name, file_path, tags, volume, created_at. `sessions`: rows of id, campaign_id, position, title, planned_on, status, started_at, closed_at, microphone_on, summary, summary_model, summary_edited_at, and three more members: `session_present_character` (rows of session_id, character_id, added_at), `scenes` (rows of id, session_id, position, title, notes, each with `scene_entity`, rows of scene_id, entity_id, position, and `scene_media`, rows of scene_id, media_id) and `journal_lines` (rows of id, session_id, scene_id, spoken_at, text). Rows only: a medium and a sound are named by their file_path, the files are not in the archive.\n\nA SECTION THE ARCHIVE LACKS reads as an empty list (`players`, `elements`, `media`, `sounds`, `sessions`, and inside a row `aliases`, `versions`, `session_present_character`, `scenes`, `scene_entity`, `scene_media`, `journal_lines`), and a missing `character` or `battlemap_grid` reads as null, so an archive made before media, sounds and sessions joined it still imports. Only `campaign` is required.\n\nTHE COPY. The input is the archive, `imported_at` (the time of the import, RFC 3339) and `new_ids`, an object giving, for every id the archive holds (the id of the campaign and of each player, element, version, medium, sound, session, scene and journal line), the id its copy takes. The caller draws them: each is new, no two are alike and none is an id of the archive. The copy is `{origin_campaign_id, imported_at, campaign, players, elements, media, sounds, sessions}`, every section present, in the order of the archive, with the same rows and the same members, and:\n\n1. Every row that has an id of its own (campaign, player, element, version, medium, sound, session, scene, journal line) takes its id from `new_ids`. A row that is named by the id of another (the sheet by its element, the grid by its medium) takes that row's new id. An alias has no id in the archive and is copied as it is.\n\n2. Every reference to a row of the archive is rewritten to that row's new id: campaign_id of a player, element, medium, sound or session (the copy's campaign); session_id of a scene, a present character or a journal line; scene_id of a scene_entity, a scene_media or a journal line; cover_media_id; player_id, portrait_media_id and token_media_id of a sheet; place_id of a medium; restored_from_version_id of a version; character_id of a present character; entity_id of a scene_entity or a version.\n\n3. A reference to something the archive does not hold becomes null. A link row (present character, scene_entity, scene_media) whose other end the archive does not hold names nothing and is left out of the copy; a null reference stays null. A sheet whose portrait_media_id is null in the copy has token_crop null too (a crop is a crop of the portrait): the portrait that goes, its crop goes with it.\n\n4. The versions are copied as they are, never rewritten except for the ids they name: in a `snapshot`, the members `playerId`, `portraitMediaId` and `tokenMediaId` follow rule 2 and 3; in an entry of a `diff`, when its `field` is one of those three, `old` and `new` follow them too. Every other member, text and number is left alone, even a text that looks like an id. An entry of a `diff` whose `old` and `new` are the same once followed (both null, as when two ids outside the archive become null) is left out: a diff lists the fields that differ (EntityVersion@1). Number, source, dates and the order of the remaining entries do not change.\n\n5. The copy keeps the archive's `origin_campaign_id` (the top-level one, never the `origin_campaign_id` of the campaign row, which may be the origin of an earlier copy, and never rewritten, even when the original campaign still exists: the copy's campaign id is new all the same). The copy's campaign has `created_at` and `imported_at` both set to the time of the import, and `last_exported_at` null: it is a new campaign in time as well as in identity, created when it is imported, and it has never been exported. The `created_at` of the archive's campaign is not kept: a copy lists as newer than its original and never ties with it. Every other column, date and number is left as it was.\n\nAn import always makes a new campaign with new ids, the original never changes, and importing the same archive twice makes two copies.",
+  "output": {
+    "origin_campaign_id": {
+      "type": "string",
+      "rule": "the archive's origin_campaign_id, unchanged; the only id of the original the copy keeps"
+    },
+    "imported_at": {
+      "type": "string",
+      "rule": "the time of the import, as given; also the created_at of the copy's campaign"
+    },
+    "campaign": {
+      "type": "object",
+      "rule": "the archive's campaign row with a new id from new_ids, cover_media_id followed, origin_campaign_id as above, created_at and imported_at both the time of the import, last_exported_at null"
+    },
+    "players": {
+      "type": "array",
+      "rule": "one row per player of the archive, same order, new id, campaign_id the copy campaign"
+    },
+    "elements": {
+      "type": "array",
+      "rule": "one row per element, same order, new id and campaign_id, with character (entity_id, player_id and media references followed, token_crop null when the portrait is), aliases as they are, and versions (new ids, entity_id, restored_from_version_id, ids held in snapshot and diff followed, a diff entry left out when its old and new come out the same)"
+    },
+    "media": {
+      "type": "array",
+      "rule": "one row per medium, same order, new id and campaign_id, place_id followed, battlemap_grid with the medium's new id, or null"
+    },
+    "sounds": {
+      "type": "array",
+      "rule": "one row per sound, same order, new id and campaign_id"
+    },
+    "sessions": {
+      "type": "array",
+      "rule": "one row per session, same order, new id and campaign_id, with its present characters, scenes (scene_entity, scene_media) and journal_lines followed; a link row whose other end is outside the archive is left out, a journal line whose scene is outside gets scene_id null"
+    }
+  },
+  "inputs": [
+    "campaignArchive.archive",
+    "campaignArchive.imported_at",
+    "campaignArchive.new_ids"
+  ],
+  "conformance": "./fixtures.json",
+  "deprecates": 1
+}
