@@ -64,7 +64,7 @@ export const list = (items: readonly Item[], prefix: string): string => `<ul cla
 /** The search's results, one row each. */
 export const results = (items: readonly Item[]): string => items.map((item) => row(item, 'found')).join('');
 
-/** The session's scenes, one `details` each in the order given; the one the session is at (the first, to begin with) is open. */
+/** The session's scenes, one `details` each in the order given, every one open so that any element is reachable at once; the one the session is at (the first, to begin with) is marked. */
 export function scenes(all: readonly Scene[], groupsOf: (scene: Scene) => Group[], current: number): string {
   if (all.length === 0) return '<p class="mf-ep__empty">Aucune scène dans la séance.</p>';
   return all
@@ -72,7 +72,7 @@ export function scenes(all: readonly Scene[], groupsOf: (scene: Scene) => Group[
       const groups = groupsOf(scene)
         .map((g) => `<div class="mf-ep__group"><h3>${esc(g.label)}</h3>${list(g.items, scene.id)}</div>`)
         .join('');
-      return `<details id="elements-scene-${esc(scene.id)}" data-scene-index="${i}"${i === current ? ' open class="is-current"' : ''}><summary>Scène ${i + 1} · ${esc(scene.title)}</summary>${groups}</details>`;
+      return `<details id="elements-scene-${esc(scene.id)}" data-scene-index="${i}" open${i === current ? ' class="is-current"' : ''}><summary>Scène ${i + 1} · ${esc(scene.title)}</summary>${groups}</details>`;
     })
     .join('');
 }

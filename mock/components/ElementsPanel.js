@@ -396,7 +396,7 @@
     if (all.length === 0) return '<p class="mf-ep__empty">Aucune sc\xE8ne dans la s\xE9ance.</p>';
     return all.map((scene, i) => {
       const groups2 = groupsOf(scene).map((g) => `<div class="mf-ep__group"><h3>${esc(g.label)}</h3>${list(g.items, scene.id)}</div>`).join("");
-      return `<details id="elements-scene-${esc(scene.id)}" data-scene-index="${i}"${i === current ? ' open class="is-current"' : ""}><summary>Sc\xE8ne ${i + 1} \xB7 ${esc(scene.title)}</summary>${groups2}</details>`;
+      return `<details id="elements-scene-${esc(scene.id)}" data-scene-index="${i}" open${i === current ? ' class="is-current"' : ""}><summary>Sc\xE8ne ${i + 1} \xB7 ${esc(scene.title)}</summary>${groups2}</details>`;
     }).join("");
   }
   var groups = (all) => all.map((g) => `<details id="elements-group-${esc(normalize(g.label))}"><summary>${esc(g.label)} <small>${g.items.length}</small></summary><div class="mf-ep__group">${list(g.items, "all")}</div></details>`).join("");
