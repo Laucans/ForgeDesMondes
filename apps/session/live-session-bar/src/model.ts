@@ -15,12 +15,15 @@ const texts = (value: unknown): string[] => list(value).filter((t): t is string 
 function parseScene(value: unknown): Scene | null {
   if (!isDict(value)) return null;
   const id = text(value.id);
-  return id === '' ? null : { id, order: typeof value.order === 'number' ? value.order : 0, title: text(value.title) };
+  return id === '' ? null : { id, order: typeof value.order === 'number' ? value.order : 0, title: text(value.title), battlemap: text(value.battlemap) || null };
 }
 
+/** The scenes `session.listScenes` answers, in the order it answers them. */
+export const parseScenes = (data: unknown): Scene[] => list(data).flatMap((s) => parseScene(s) ?? []);
+
 /**
- * The running session. The header may sit at the root of the answer or under
- * `session`; its scenes, when the answer names them, beside or inside it.
+ * The running session. The header may sit at the root of the answer or under `session`. Its scenes are another
+ * read's (`session.listScenes`): none here. The current scene is the one the answer names, the first otherwise.
  * Null when there is no running session.
  */
 export function parseLive(data: unknown): Live | null {
@@ -28,18 +31,29 @@ export function parseLive(data: unknown): Live | null {
   const header = isDict(data.session) ? data.session : data;
   const id = text(header.id);
   if (id === '') return null;
-  const scenes = list(header.scenes ?? data.scenes).flatMap((s) => parseScene(s) ?? []);
   const current = header.currentScene ?? data.currentScene;
   const mic = isDict(data.microphone) ? data.microphone.on : undefined;
   return {
     id,
+    campaign: text(header.campaign),
     order: typeof header.order === 'number' ? header.order : 0,
     title: text(header.title),
     startedAt: text(header.startedAt),
     micOn: typeof mic === 'boolean' ? mic : null,
-    scenes,
-    currentScene: typeof current === 'number' && current >= 0 && current < scenes.length ? current : 0,
+    scenes: [],
+    currentScene: typeof current === 'number' && current >= 0 ? current : 0,
   };
+}
+
+/** The scene the session is at: the one asked for when it exists, the first otherwise. */
+export const withScenes = (live: Live, scenes: Scene[]): Live => ({ ...live, scenes, currentScene: live.currentScene < scenes.length ? live.currentScene : 0 });
+
+/**
+ * The battlemap instance the Battlemap tab opens: the current scene's, else the first the session's scenes hold
+ * (the map stays one click away whichever scene the DM is reading). Null when no scene has one — never invented.
+ */
+export function battlemapOf(live: Live): string | null {
+  return live.scenes[live.currentScene]?.battlemap ?? live.scenes.find((s) => s.battlemap !== null)?.battlemap ?? null;
 }
 
 const KINDS = new Set(['cover', 'illustration', 'battlemap']);

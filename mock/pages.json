@@ -497,12 +497,14 @@
       "fragment": "components/LiveSessionBar.html",
       "fixtures": [
         "fixtures/session.getLiveSession.json",
+        "fixtures/session.listScenes.json",
         "fixtures/live.getDiffusion.json",
         "fixtures/session.getSessionJournal.json",
         "fixtures/session.getPreviousSessionSummary.json"
       ],
       "needs": [
         "session.getLiveSession",
+        "session.listScenes",
         "live.getDiffusion",
         "session.getSessionJournal",
         "session.getPreviousSessionSummary"
@@ -516,7 +518,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "7e599e02415ed597"
+      "builtFrom": "c0aaf6f4a5677030"
     },
     {
       "name": "ElementsPanel",
