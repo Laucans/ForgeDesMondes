@@ -19,13 +19,19 @@ test('an answer with no session is not an exception, and a current scene out of 
   assert.equal(withScenes(live, [{ id: 'a', order: 1, title: 'A', battlemap: null }]).currentScene, 0);
 });
 
+test('the current scene is a whole number, the first otherwise', () => {
+  assert.equal(parseLive({ id: 's1', currentScene: 1.5 })?.currentScene, 0);
+  assert.equal(parseLive({ id: 's1', currentScene: -1 })?.currentScene, 0);
+  assert.equal(parseLive({ id: 's1', currentScene: 2 })?.currentScene, 2);
+});
+
 test('the scenes keep their battlemap, null when they have none, and the Battlemap tab opens the live scene’s else the first', () => {
   const scenes = parseScenes([{ id: 'a', order: 1, title: 'A', battlemap: null }, { id: 'b', order: 2, title: 'B', battlemap: 'bmi-b' }, { id: 'c', order: 3, title: 'C' }, 'junk']);
   assert.deepEqual(scenes.map((s) => s.battlemap), [null, 'bmi-b', null]);
   const live = withScenes(parseLive({ id: 's1', currentScene: 1 }) as NonNullable<ReturnType<typeof parseLive>>, scenes);
   assert.equal(battlemapOf(live), 'bmi-b');
   assert.equal(battlemapOf({ ...live, currentScene: 0 }), 'bmi-b');
-  assert.equal(battlemapOf({ ...live, scenes: [] }), null);
+  assert.equal(battlemapOf({ ...live, scenes: [] }), undefined);
   assert.deepEqual(parseScenes(undefined), []);
 });
 
