@@ -108,4 +108,6 @@ test('the live session’s campaign is the id its answer names, empty when there
   assert.equal(parseLiveCampaign(null), '');
   assert.equal(parseLiveCampaign({ session: { id: 's4' } }), '');
   assert.equal(parseLiveCampaign({ campaign: 'c-flat' }), '');
+  assert.equal(parseLiveCampaign({ session: { id: 's4', campaign: 'c-live', status: 'closed' } }), '');
+  assert.equal(parseLiveCampaign({ session: { id: 's4', campaign: 'c-live', status: 'live' } }), 'c-live');
 });

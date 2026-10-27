@@ -40,9 +40,11 @@ export interface Timing {
   /** How many times it asks before saying it has not settled. */
   polls: number;
   watchMs: number;
+  /** How long "no live session" is trusted before the session is asked again. */
+  noneMs: number;
 }
 
-const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 500 };
+const WAITING: Timing = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 500, noneMs: 2000 };
 
 /** What the shell keeps of a mounted Micro-UI: new props follow the screen's context. */
 export interface Mounted {
@@ -85,6 +87,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   let campaign: Campaign | null = null;
   /** The id of the campaign the library is asked for: the screen's, else the live session's. */
   let libraryCampaign = '';
+  /** When the live session was last found absent, "none" is trusted until then. */
+  let noneUntil = 0;
   let media: Media = parseMedia(undefined);
   let campaignRead = false;
   let mediaRead = false;
@@ -112,8 +116,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   /** The variables that name the campaign, when the screen gave it: the server's live session decides otherwise. */
   const scope = (): { campaign?: string } => (props.campaign === '' ? {} : { campaign: props.campaign });
-  /** The campaign a command names: the screen's, else the live session's, as `campaign.getCampaign` answered it. */
-  const campaignId = (): string => props.campaign || campaign?.id || '';
+  /** The campaign a command names: the screen's, else the live session's. */
+  const campaignId = (): string => props.campaign || libraryCampaign;
 
   // ---------- painting ----------
   function say(text: string): void {
@@ -194,39 +198,48 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   }
 
   // ---------- reading ----------
-  /** The campaign's overview: the screen's campaign, else the live session's. Nothing when no session is running, never a read with no id. */
-  async function readCampaign(): Promise<{ id: string; overview?: { asOf: number; data: unknown } }> {
-    let id = props.campaign;
+  /** The id of the campaign to show: the screen's, else the live session's. A failed read keeps the last id known and says so; "none" is trusted for `timing.noneMs`. */
+  async function resolveCampaign(): Promise<{ id: string; failed: boolean }> {
+    if (props.campaign !== '') return { id: props.campaign, failed: false };
+    if (libraryCampaign === '' && Date.now() < noneUntil) return { id: '', failed: false };
     try {
-      if (id === '') id = parseLiveCampaign((await shell.capability(GET_LIVE_SESSION, undefined, {})).data);
-      return id === '' ? { id } : { id, overview: await shell.capability(GET_CAMPAIGN, undefined, { id }) };
+      const id = parseLiveCampaign((await shell.capability(GET_LIVE_SESSION, undefined, {})).data);
+      noneUntil = id === '' ? Date.now() + timing.noneMs : 0;
+      return { id, failed: false };
     } catch {
-      return { id };
+      return { id: libraryCampaign, failed: true };
     }
   }
 
-  /** Reads the diffusion again; the campaign and the library when the stage lacks them or the diffusion names an image it does not know. An older answer never replaces a newer one. */
+  /** Reads the diffusion and the campaign's id together, then the campaign and the library together; the library again when the diffusion names an image it does not know. An older answer never replaces a newer one. */
   async function refresh(): Promise<void> {
     const mine = generation;
     const no = (readNo += 1);
     try {
-      const read = await shell.capability(GET_DIFFUSION, undefined, { view: props.pilot ? 'dm' : 'player', ...scope() });
+      const [read, live] = await Promise.all([shell.capability(GET_DIFFUSION, undefined, { view: props.pilot ? 'dm' : 'player', ...scope() }), resolveCampaign()]);
       if (mine !== generation || no < readNo) return;
       const next = parseDiffusion(read.data);
-      // The library is the campaign's: the campaign found for the cover is found first, and with none the library is not asked.
-      const named = campaignRead ? undefined : await readCampaign();
-      if (mine !== generation || no < readNo) return;
-      if (named) {
-        libraryCampaign = named.id;
-        if (named.overview) {
-          campaign = parseCampaign(named.overview.data);
-          campaignRead = true;
-        }
+      // A live session of another campaign (or none) leaves nothing of the previous one.
+      if (live.id !== libraryCampaign) {
+        libraryCampaign = live.id;
+        campaign = null;
+        campaignRead = false;
+        media = parseMedia(undefined);
+        mediaRead = false;
+        missing = new Set();
       }
       const unknown = (id: string): boolean => id !== '' && illustrationOf(media, id) === undefined && !missing.has(id);
       const wantsMedia = libraryCampaign !== '' && (!mediaRead || unknown(next.window?.media ?? '') || (next.base.kind === 'illustration' && unknown(next.base.id)));
-      const listed = wantsMedia ? await shell.capability(LIST_MEDIA, undefined, { campaign: libraryCampaign }).catch(() => undefined) : undefined;
+      // The library is the campaign's: with no id it is not asked.
+      const [overview, listed] = await Promise.all([
+        libraryCampaign !== '' && !campaignRead ? shell.capability(GET_CAMPAIGN, undefined, { id: libraryCampaign }).catch(() => undefined) : undefined,
+        wantsMedia ? shell.capability(LIST_MEDIA, undefined, { campaign: libraryCampaign }).catch(() => undefined) : undefined,
+      ]);
       if (mine !== generation || no < readNo) return;
+      if (overview) {
+        campaign = parseCampaign(overview.data);
+        campaignRead = true;
+      }
       if (listed) {
         media = parseMedia(listed.data);
         mediaRead = true;
@@ -235,7 +248,10 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       diffusion = next;
       readAt = read.asOf;
       loaded = true;
-      if (readFailed) {
+      if (live.failed && props.pilot) {
+        readFailed = true;
+        say('Impossible de lire la session en cours.');
+      } else if (readFailed) {
         readFailed = false;
         say('');
       }
@@ -260,6 +276,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     diffusion = parseDiffusion(undefined);
     campaign = null;
     libraryCampaign = '';
+    noneUntil = 0;
     media = parseMedia(undefined);
     campaignRead = false;
     mediaRead = false;
@@ -334,7 +351,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     event.preventDefault();
     // A command names its campaign: without it nothing is sent, and the next read tries again.
     if (campaignId() === '') {
-      campaignRead = false;
+      noneUntil = 0;
       say('La campagne n’a pas pu être lue : la fenêtre ne peut pas être modifiée.');
       void refresh();
       return;

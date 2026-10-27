@@ -59,10 +59,10 @@ export function parseCampaign(data: unknown): Campaign | null {
   };
 }
 
-/** session.getLiveSession's answer reduced to the id of the live session's campaign; empty when no session is running. */
+/** session.getLiveSession's answer reduced to the id of the live session's campaign; empty when no session is running or the session is closed. */
 export function parseLiveCampaign(data: unknown): string {
   const session = isRecord(data) && isRecord(data.session) ? data.session : null;
-  return session === null ? '' : text(session.campaign);
+  return session === null || text(session.status) === 'closed' ? '' : text(session.campaign);
 }
 
 /** The ratio of an image: its pixels when the library gives them, else the ratio it states; a square if it says nothing. */

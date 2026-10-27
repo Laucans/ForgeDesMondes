@@ -36,6 +36,12 @@ interface Options {
   firstTold?: number;
   /** Makes the diffusion read throw while it answers true. */
   failRead?: () => boolean;
+  /** Makes the session read throw while it answers true. */
+  failSession?: () => boolean;
+  /** Makes campaign.getCampaign answer nothing while it answers true. */
+  nullCampaign?: () => boolean;
+  /** What session.getLiveSession answers, asked again at each read. */
+  sessionNow?: () => unknown;
 }
 
 /** A shell over a one-row diffusion: reads answer it, a command applies to it as the DataGuard would. */
@@ -52,9 +58,11 @@ function fakeShell(options: Options = {}) {
       reads.push({ id, variables });
       if (id === 'live.getDiffusion' && options.failRead?.()) throw new Error('the server is not there');
       if (id === 'live.getDiffusion') return { asOf: options.readAt ?? 1, data: structuredClone(row) };
+      if (id === 'session.getLiveSession' && options.failSession?.()) throw new Error('the server is not there');
+      if (id === 'session.getLiveSession' && options.sessionNow) return { asOf: 1, data: options.sessionNow() };
       if (id === 'session.getLiveSession') return { asOf: 1, data: 'session' in options ? options.session : { session: { id: 's4', campaign: CAMPAIGN.id }, microphone: { on: true } } };
       // The real read requires the campaign's id and has no answer without it.
-      if (id === 'campaign.getCampaign') return { asOf: 1, data: variables?.id === undefined ? null : (options.campaign ?? { ...CAMPAIGN, id: variables.id }) };
+      if (id === 'campaign.getCampaign') return { asOf: 1, data: variables?.id === undefined || options.nullCampaign?.() ? null : (options.campaign ?? { ...CAMPAIGN, id: variables.id }) };
       // The real read lists nothing for no campaign.
       return { asOf: 1, data: variables?.campaign === undefined ? { cover: '', illustrations: [] } : (options.media ?? MEDIA) };
     },
@@ -79,20 +87,20 @@ function fakeShell(options: Options = {}) {
   return { shell, sent, reads, row, told, moveOn: () => listeners.forEach((l) => l(2)) };
 }
 
-const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 3, watchMs: 1 };
+const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 3, watchMs: 1, noneMs: 0 };
 
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
-async function stage(props: Record<string, unknown>, options?: Options, url = 'http://localhost/') {
+async function stage(props: Record<string, unknown>, options?: Options, url = 'http://localhost/', timed: Timing = timing) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="PlayerStage"></div></body></html>', { url });
   Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { get: () => STAGE.width });
   Object.defineProperty(dom.window.HTMLElement.prototype, 'clientHeight', { get: () => STAGE.height });
   const host = dom.window.document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
   const composed: HTMLElement[] = [];
-  const mounted = mount(host, props, fake.shell, timing, (box) => composed.push(box));
+  const mounted = mount(host, props, fake.shell, timed, (box) => composed.push(box));
   await settle();
   const $ = (selector: string): HTMLElement => {
     const found = host.querySelector<HTMLElement>(selector);
@@ -271,12 +279,11 @@ test('a right click on the bar starts no drag', async () => {
   assert.equal(s.drawn().left, '10%');
 });
 
-test('without its campaign the window is not modified, and the DM is told', async () => {
-  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, campaign: {} });
+test('without any campaign there is no library, so no window is drawn and nothing is sent', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, session: null });
+  assert.equal(s.$('#player-window').hidden, true);
   await s.drag(s.$('#player-window-bar'), [200, 100], [300, 180]);
   assert.deepEqual(s.sent, []);
-  assert.match(s.$('#player-status').textContent ?? '', /campagne/);
-  assert.equal(s.drawn().left, '10%');
 });
 
 test('a change that came between the read and the first version told is not missed', async () => {
@@ -314,7 +321,7 @@ test('a restart while a command is under way leaves the new stage’s count alon
 });
 
 test('a campaign named by the screen is the one every read and every command names', async () => {
-  const s = await stage({ pilot: true, campaign: 'c-9' }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, campaign: {} });
+  const s = await stage({ pilot: true, campaign: 'c-9' }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, session: null });
   const variables = (id: string) => s.reads.find((r) => r.id === id)?.variables;
   assert.deepEqual(variables('live.getDiffusion'), { view: 'dm', campaign: 'c-9' });
   assert.deepEqual(variables('campaign.getCampaign'), { id: 'c-9' });
@@ -443,4 +450,99 @@ test('a window sent over the shown cover takes its title off the stage', async (
   assert.equal(s.$('#player-window').hidden, false);
   assert.equal(s.host.querySelector('h1'), null);
   assert.ok(s.$('#player-cover [role="img"]'));
+});
+
+// R11, R33: the live id outlives a getCampaign answer that names none, so the window can be dragged
+test('a null campaign answer keeps the live session’s id for the window commands', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, session: { session: { id: 's4', campaign: 'c-live' } }, nullCampaign: () => true });
+  await s.drag(s.$('#player-window-bar'), [200, 200], [300, 260]);
+  assert.equal(s.sent[0]?.payload.campaign, 'c-live');
+});
+
+// R12, R32: a session of another campaign replaces the cover, the library and the commands without a remount
+test('a live session that changes campaign is followed on the next diffusion change', async () => {
+  let live = 'c-a';
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, sessionNow: () => ({ session: { id: 's', campaign: live, status: 'live' } }) });
+  live = 'c-b';
+  s.moveOn();
+  await settle();
+  const last = (id: string) => s.reads.filter((r) => r.id === id).at(-1)?.variables;
+  assert.deepEqual(last('campaign.getCampaign'), { id: 'c-b' });
+  assert.deepEqual(last('media.listMedia'), { campaign: 'c-b' });
+  await s.drag(s.$('#player-window-bar'), [200, 200], [300, 260]);
+  assert.equal(s.sent[0]?.payload.campaign, 'c-b');
+});
+
+// R13: a closed session supplies no campaign
+test('a closed session leaves the stage with no campaign', async () => {
+  const s = await stage({}, { session: { session: { id: 's4', campaign: 'c-live', status: 'closed' } } });
+  assert.equal(s.reads.filter((r) => r.id === 'campaign.getCampaign').length, 0);
+  assert.equal(s.reads.filter((r) => r.id === 'media.listMedia').length, 0);
+  assert.equal(s.host.querySelector('h1'), null);
+});
+
+// R12: the session closing takes its cover off the stage
+test('a session that closes takes its campaign off the stage', async () => {
+  let status = 'live';
+  const s = await stage({}, { sessionNow: () => ({ session: { id: 's4', campaign: 'c-live', status } }) });
+  assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
+  status = 'closed';
+  s.moveOn();
+  await settle();
+  assert.equal(s.host.querySelector('h1'), null);
+});
+
+// R14: the DM is told when the session cannot be read, and the next good read takes it down
+test('the DM is told when the live session cannot be read', async () => {
+  let down = true;
+  const s = await stage({ pilot: true }, { failSession: () => down });
+  assert.match(s.$('#player-status').textContent ?? '', /Impossible de lire la session/);
+  down = false;
+  s.moveOn();
+  await settle();
+  assert.equal(s.$('#player-status').hidden, true);
+  assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
+});
+
+test('a failed session read tells the projected screen nothing', async () => {
+  const s = await stage({}, { failSession: () => true });
+  assert.equal(s.$('#player-status').hidden, true);
+});
+
+// R15: "no session" is trusted briefly, so a diffusion change does not ask again
+test('with no live session the session is not asked again within the cache time', async () => {
+  const s = await stage({}, { session: null }, 'http://localhost/', { ...timing, noneMs: 60_000 });
+  s.moveOn();
+  await settle();
+  assert.equal(s.reads.filter((r) => r.id === 'live.getDiffusion').length, 2);
+  assert.equal(s.reads.filter((r) => r.id === 'session.getLiveSession').length, 1);
+});
+
+test('with no live session and no cache time the session is asked at each read', async () => {
+  const s = await stage({}, { session: null });
+  s.moveOn();
+  await settle();
+  assert.equal(s.reads.filter((r) => r.id === 'session.getLiveSession').length, 2);
+});
+
+// R15, R34: the diffusion and the session are asked together, the campaign and the library together
+test('the reads run in parallel', async () => {
+  let open = 0;
+  let widest = 0;
+  const s = fakeShell();
+  const base = s.shell.capability.bind(s.shell);
+  s.shell.capability = async (id, sha, variables) => {
+    open += 1;
+    widest = Math.max(widest, open);
+    await new Promise((resolve) => setImmediate(resolve));
+    try {
+      return await base(id, sha, variables);
+    } finally {
+      open -= 1;
+    }
+  };
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div></div></body></html>', { url: 'http://localhost/' });
+  mount(dom.window.document.querySelector('div') as HTMLElement, {}, s.shell, timing);
+  await settle();
+  assert.equal(widest, 2);
 });
