@@ -21,7 +21,7 @@
     "milestone/5-gate-mock-design-and-mock-kit-are-read-only-outside-design-system": "098aea995781d18320f6a8cb2212bcb1bf90240e",
     "milestone/6-gate-screens-and-micro-frontends-style-only-through-the-tokens": "b2c3f84e5eae5345fa19cec69fad25c8e92b2017",
     "milestone/637-dm-gestures-apply-the-shell-acts-as-each-screen-s-surface-the-archive-downloads-screens-follow-the-campaign": "62c21a037fe195da0a68739a383b6be64968507f",
-    "milestone/702-llm-port-claude-code-adapter-claude-p-claude-haiku-5-5-effort-medium-replaces-the-anthropic-api-adapter": "aee5a679d23fbe029291a2a789e28a6c710f2e9d"
+    "milestone/702-llm-port-claude-code-adapter-claude-p-claude-haiku-5-5-effort-medium-replaces-the-anthropic-api-adapter": "f064580a2e090dce3c19bdd1ce0cee586a037e23"
   },
   "snapshots": [
     {
