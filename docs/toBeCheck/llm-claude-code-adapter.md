@@ -29,5 +29,9 @@ this adapter into it yet.
       prints an answer, logged in under the subscription, no API key set.
 - [ ] A long prompt (a whole session's journal) on stdin comes back answered
       within the 180 s the adapter allows.
+- [ ] With `ANTHROPIC_API_KEY` set in the server's environment, `claude -p`
+      would authenticate with it and bill per token: only `LLM_API_KEY` is
+      removed from the program's environment. Check the DM's environment has
+      neither, or decide that the adapter removes it too.
 - [ ] Logged out, the failure the DM would read is « le programme a échoué
       (code …) : … » with what `claude` says.
