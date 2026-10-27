@@ -563,7 +563,7 @@
     "ElementsPanel": {
       "kind": "micro-ui",
       "producer": 29,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "Entity": {
@@ -737,7 +737,7 @@
     "TableSheet": {
       "kind": "micro-ui",
       "producer": 29,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "ToCreateList": {
