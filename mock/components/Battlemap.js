@@ -489,6 +489,14 @@
   }
   var SCALE = `1 hex = ${FEET_PER_HEX} pi`;
   var roundFrame = (frame) => ({ zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+  var fitScale = (view, map) => Math.min(view.width / map.width, view.height / map.height);
+  function placeStage(frame, view, map) {
+    const scale = fitScale(view, map) * frame.zoom;
+    return { scale, x: view.width / 2 - (map.width / 2 + frame.panX) * scale, y: view.height / 2 - (map.height / 2 + frame.panY) * scale };
+  }
+  function frameOf(placement, view, map) {
+    return { zoom: placement.scale / fitScale(view, map), panX: (view.width / 2 - placement.x) / placement.scale - map.width / 2, panY: (view.height / 2 - placement.y) / placement.scale - map.height / 2 };
+  }
   function parseShownFrame(data, instance) {
     if (!isRecord(data) || !isRecord(data.base) || data.base.kind !== "battlemap" || data.base.id !== instance || !isRecord(data.view)) return null;
     const { zoom, panX, panY } = data.view;
@@ -645,9 +653,10 @@
 .bm-map { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .bm .kit-hexmap { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: var(--space-2); }
 .bm .kit-hexmap .hm-bar { margin-bottom: var(--space-2); }
-.bm .kit-hexmap .hm-view { flex: 1; height: auto; min-height: calc(var(--space-5) * 13); }
-.bm--fill .kit-hexmap { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.bm--fill .kit-hexmap .hm-view { min-height: 0; border: 0; border-radius: 0; }
+/* The view keeps the map's ratio (set from the map), so a frame shows the same part of it whatever the view's size. */
+.bm .kit-hexmap .hm-view { flex: none; height: auto; min-height: 0; }
+.bm--fill .kit-hexmap { container-type: size; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.bm--fill .kit-hexmap .hm-view { width: min(100cqw, calc(100cqh * var(--bm-ratio, 1))); border: 0; border-radius: 0; }
 .bm--fill .kit-hexmap .hm-bar { position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 4; margin: 0; }
 .bm-side { flex: none; width: calc(var(--space-5) * 7); display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); overflow-y: auto; }
 .bm-side[hidden] { display: none; }
@@ -708,7 +717,6 @@
     let characters = {};
     let selected = null;
     let frame = { zoom: 1, panX: 0, panY: 0 };
-    let fitted = false;
     let drag = null;
     let pan = null;
     let stale = false;
@@ -729,59 +737,67 @@
       box.className = `bm-status${kind === "none" ? "" : ` is-${kind}`}`;
       box.textContent = text2;
     }
+    function viewSize() {
+      const view = part("battlemap-view");
+      return view && map && map.width > 0 && map.height > 0 && view.clientWidth && view.clientHeight ? { width: view.clientWidth, height: view.clientHeight } : null;
+    }
+    function placement() {
+      const size = viewSize();
+      return size && map ? placeStage(frame, size, map) : null;
+    }
     function applyFrame() {
       const stage = part("battlemap-stage");
-      if (stage) stage.style.transform = `translate(${frame.panX}px, ${frame.panY}px) scale(${frame.zoom})`;
+      const at = placement();
+      if (stage && at) stage.style.transform = `translate(${Number(at.x.toFixed(3))}px, ${Number(at.y.toFixed(3))}px) scale(${Number(at.scale.toFixed(6))})`;
     }
     function fit() {
-      const view = part("battlemap-view");
-      if (!view || !map || !view.clientWidth || !view.clientHeight) return false;
-      const zoom = Math.min(view.clientWidth / map.width, view.clientHeight / map.height);
-      frame = { zoom, panX: (view.clientWidth - map.width * zoom) / 2, panY: (view.clientHeight - map.height * zoom) / 2 };
-      fitted = true;
-      applyFrame();
-      return true;
-    }
-    function fitWhenSized() {
-      fitted = false;
       frame = { zoom: 1, panX: 0, panY: 0 };
       applyFrame();
+    }
+    function shapeView() {
+      const view = part("battlemap-view");
+      if (!view || !map) return;
+      view.style.aspectRatio = `${map.width} / ${map.height}`;
+      view.style.setProperty("--bm-ratio", String(map.width / map.height));
+    }
+    function fitWhenSized() {
       observer?.disconnect();
       observer = null;
-      if (!fit() && typeof ResizeObserver !== "undefined") {
-        const view = part("battlemap-view");
-        if (view) {
-          observer = new ResizeObserver(() => {
-            if (!fitted) fit();
-          });
-          observer.observe(view);
-        }
+      shapeView();
+      fit();
+      const view = part("battlemap-view");
+      const Observer = host2.ownerDocument.defaultView?.ResizeObserver;
+      if (view && Observer) {
+        observer = new Observer(applyFrame);
+        observer.observe(view);
       }
     }
     function follow(framed) {
       if (!map || props2.view !== "player" || props2.pilot) return;
       if (framed) {
         frame = framed;
-        fitted = true;
         followed = true;
         applyFrame();
       } else if (followed) {
         followed = false;
-        fitWhenSized();
+        fit();
       }
     }
     function zoomAt(factor, cx, cy) {
-      const zoom = Math.max(0.3, Math.min(4, frame.zoom * factor));
-      const k = zoom / frame.zoom;
-      frame = { zoom, panX: cx - (cx - frame.panX) * k, panY: cy - (cy - frame.panY) * k };
-      fitted = true;
+      const size = viewSize();
+      const at = placement();
+      if (!size || !at || !map) return;
+      const scale = at.scale * (Math.max(0.3, Math.min(4, frame.zoom * factor)) / frame.zoom);
+      const k = scale / at.scale;
+      frame = frameOf({ scale, x: cx - (cx - at.x) * k, y: cy - (cy - at.y) * k }, size, map);
       applyFrame();
     }
     function world(e) {
       const box = part("battlemap-view")?.getBoundingClientRect();
       const lx = e.clientX - (box?.left ?? 0);
       const ly = e.clientY - (box?.top ?? 0);
-      return { lx, ly, x: (lx - frame.panX) / frame.zoom, y: (ly - frame.panY) / frame.zoom };
+      const at = placement() ?? { scale: 1, x: 0, y: 0 };
+      return { lx, ly, x: (lx - at.x) / at.scale, y: (ly - at.y) / at.scale };
     }
     function paintToolbar() {
       const box = part("battlemap-toolbar");
@@ -1147,7 +1163,7 @@
         drag = { token: t, el, from: { q: t.q, r: t.r }, x: e.clientX, y: e.clientY, moved: false, to: null };
         el.setPointerCapture?.(e.pointerId);
       } else if (target.closest(".hm-view") && !target.closest("[data-no-pan]")) {
-        pan = { x: e.clientX, y: e.clientY, panX: frame.panX, panY: frame.panY, moved: false };
+        pan = { x: e.clientX, y: e.clientY, panX: frame.panX, panY: frame.panY, scale: placement()?.scale ?? 1, moved: false };
         part("battlemap-view")?.setPointerCapture?.(e.pointerId);
       }
     });
@@ -1174,8 +1190,7 @@
         const dy = e.clientY - pan.y;
         if (!pan.moved && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) pan.moved = true;
         if (pan.moved) {
-          frame = { ...frame, panX: pan.panX + dx, panY: pan.panY + dy };
-          fitted = true;
+          frame = { ...frame, panX: pan.panX - dx / pan.scale, panY: pan.panY - dy / pan.scale };
           applyFrame();
         }
       }

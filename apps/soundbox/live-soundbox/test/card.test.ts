@@ -32,6 +32,8 @@ interface Options {
   playing?: string[];
   /** Commands wait for it before the server answers. */
   gate?: Promise<void>;
+  /** A read waits for what it returns before the server answers; `n` is the count of reads asked so far, this one included. */
+  hold?: (n: number) => Promise<void> | undefined;
 }
 
 /**
@@ -66,6 +68,7 @@ function fakeShell(options: Options = {}) {
       assert.equal(id, 'soundbox.listSounds');
       assert.equal(sha256, undefined, 'a Micro-UI names a Capability alone');
       reads.push(variables);
+      await options.hold?.(reads.length);
       if (unreadable) throw new Error('down');
       return {
         asOf: version,
@@ -537,4 +540,118 @@ test('the grid that waited for a drag is drawn when the slider is released, befo
   slider.dispatchEvent(new p.dom.window.Event('change', { bubbles: true }));
   await settle();
   assert.equal((p.$(`[data-volume="${CROWD}"]`) as HTMLInputElement).value, '5');
+});
+
+const CHOPE = 'snd-chope';
+
+/** A promise and the way to settle it. */
+function latch(): { opened: Promise<void>; open: () => void } {
+  let open: () => void = () => undefined;
+  const opened = new Promise<void>((resolve) => (open = resolve));
+  return { opened, open };
+}
+
+// AC1: the crowd at 40, the mug at 60 and the master at 50, played at once: heard at 0.2 and 0.3 as soon as both play
+test('sounds played while their volumes are still being set start at the gain the library gives once those are read back', async () => {
+  const server = latch();
+  const p = await panel({ gate: server.opened });
+  await p.slide(`[data-volume="${CROWD}"]`, 40);
+  await p.slide(`[data-volume="${CHOPE}"]`, 60);
+  await p.slide('#soundbox-master-volume', 50);
+  await p.play(CROWD);
+  await p.play(CHOPE);
+  assert.equal(p.voices.length, 0, 'nothing starts at the gain of the last read');
+  assert.deepEqual(p.playingIds(), []);
+  server.open();
+  await settle();
+  assert.deepEqual(p.voices.map((v) => [v.file, v.gain]), [['foule-taverne.ogg', 0.2], ['chope-brisee.ogg', 0.3]], 'each starts once, at the right gain');
+  assert.deepEqual(p.playingIds().sort(), [CROWD, CHOPE].sort());
+  assert.equal(p.$('#soundbox-playing-count').textContent, '2 sons en cours · le son sort uniquement de cette vue');
+});
+
+test('a sound played when no volume is being set starts at once', async () => {
+  const p = await panel({ gate: new Promise<void>(() => undefined) });
+  await p.play(CROWD);
+  assert.equal(p.heard().length, 1);
+});
+
+test('a sound waits for the read that follows a volume even when a later read took over', async () => {
+  const second = latch();
+  const third = latch();
+  const p = await panel({ hold: (n) => (n === 2 ? second.opened : n === 3 ? third.opened : undefined) });
+  await p.slide(`[data-volume="${CROWD}"]`, 40);
+  p.elsewhere(() => undefined);
+  await settle();
+  assert.equal(p.reads.length, 3, 'the volume\'s read, then the one the data moving asked');
+  second.open();
+  await settle();
+  await p.play(CROWD);
+  assert.equal(p.voices.length, 0, 'the library is not read back yet');
+  third.open();
+  await settle();
+  assert.deepEqual(p.voices.map((v) => v.gain), [0.32]);
+});
+
+// AC2: two sounds playing, « Tout arrêter » leaves no sound playing and none heard
+test('« Tout arrêter » after sounds played at their set volumes leaves nothing playing', async () => {
+  const p = await panel();
+  await p.slide(`[data-volume="${CROWD}"]`, 40);
+  await p.slide('#soundbox-master-volume', 50);
+  await p.play(CROWD);
+  await p.play(CHOPE);
+  assert.deepEqual(p.heard().map((v) => v.gain), [0.2, 0.35]);
+  await p.click('#soundbox-stop-all');
+  assert.deepEqual(p.heard(), []);
+  assert.deepEqual(p.playingIds(), []);
+  assert.equal(p.playing.size, 0);
+  assert.equal(p.$('#soundbox-playing-count').textContent, 'Le son sort uniquement de cette vue');
+});
+
+// AC2: « Tout arrêter » pressed while the plays wait for a volume: no sound ever starts
+test('« Tout arrêter » cancels the plays still waiting for a volume', async () => {
+  const server = latch();
+  const p = await panel({ gate: server.opened });
+  await p.slide('#soundbox-master-volume', 50);
+  await p.play(CROWD);
+  await p.play(CHOPE);
+  await p.click('#soundbox-stop-all');
+  server.open();
+  await settle();
+  assert.equal(p.voices.length, 0, 'no sound started');
+  assert.deepEqual(p.playingIds(), []);
+  assert.equal(p.playing.size, 0, 'the server stopped what it was asked to play');
+});
+
+test('a play the server refuses while a volume is being set is never heard', async () => {
+  const server = latch();
+  const p = await panel({ gate: server.opened, verdict: (sent) => (sent.dataCapability === 'soundbox.playSound@1' ? { status: 'rejected', violations: ['dm-side-only'] } : { status: 'applied' }) });
+  await p.slide('#soundbox-master-volume', 50);
+  await p.play(DOOR);
+  server.open();
+  await settle();
+  assert.equal(p.voices.length, 0);
+  assert.match(p.$('#soundbox-message').textContent ?? '', /seule la DM view joue un son/);
+});
+
+test('a panel that left the page starts no sound that was waiting for a volume', async () => {
+  const server = latch();
+  const p = await panel({ gate: server.opened });
+  await p.slide('#soundbox-master-volume', 50);
+  await p.play(CROWD);
+  p.host.remove();
+  p.elsewhere(() => undefined);
+  server.open();
+  await settle();
+  assert.equal(p.voices.length, 0);
+});
+
+test('another campaign cancels the plays still waiting for a volume', async () => {
+  const server = latch();
+  const p = await panel({ gate: server.opened });
+  await p.slide('#soundbox-master-volume', 50);
+  await p.play(CROWD);
+  p.setCampaign('autre');
+  server.open();
+  await settle();
+  assert.equal(p.voices.length, 0);
 });
