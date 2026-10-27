@@ -251,12 +251,12 @@
       startedAt: text(header.startedAt),
       micOn: typeof mic === "boolean" ? mic : null,
       scenes: [],
-      currentScene: typeof current === "number" && current >= 0 ? current : 0
+      currentScene: Number.isInteger(current) && current >= 0 ? current : 0
     };
   }
   var withScenes = (live, scenes2) => ({ ...live, scenes: scenes2, currentScene: live.currentScene < scenes2.length ? live.currentScene : 0 });
   function battlemapOf(live) {
-    return live.scenes[live.currentScene]?.battlemap ?? live.scenes.find((s) => s.battlemap !== null)?.battlemap ?? null;
+    return live.scenes[live.currentScene]?.battlemap ?? live.scenes.find((s) => s.battlemap !== null)?.battlemap ?? void 0;
   }
   var KINDS = /* @__PURE__ */ new Set(["cover", "illustration", "battlemap"]);
   function parseDiffusion(data) {
@@ -433,7 +433,7 @@
     };
     const publishScene = (session) => {
       shell2.context.set(SCENE_CONTEXT, session.currentScene);
-      shell2.context.set(BATTLEMAP_CONTEXT, battlemapOf(session) ?? void 0);
+      shell2.context.set(BATTLEMAP_CONTEXT, battlemapOf(session));
     };
     const readLive = async () => {
       const answered = parseLive((await shell2.capability(GET_LIVE_SESSION, void 0, requested)).data);
@@ -441,13 +441,18 @@
       paintLive();
       if (answered === null) return;
       shell2.context.set(SESSION_CONTEXT, answered.id);
-      if (answered.campaign !== "") shell2.context.set(CAMPAIGN_CONTEXT, answered.campaign);
-      const scenes2 = await shell2.capability(LIST_SCENES, void 0, { session: answered.id }).then(
+      shell2.context.set(CAMPAIGN_CONTEXT, answered.campaign === "" ? void 0 : answered.campaign);
+      let scenesLost = false;
+      const read = await shell2.capability(LIST_SCENES, void 0, { session: answered.id }).then(
         (answer) => parseScenes(answer.data),
-        () => []
+        () => {
+          scenesLost = true;
+          return [];
+        }
       );
-      live = withScenes(answered, scenes2);
+      live = withScenes(live ?? answered, read);
       paintLive();
+      if (scenesLost) part("session-bar-scenes").textContent = "Impossible de lire les sc\xE8nes";
       publishScene(live);
     };
     const readDiffusion = async () => {
