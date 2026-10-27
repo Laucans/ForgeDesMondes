@@ -337,7 +337,7 @@
         "PlayerStage"
       ],
       "criterion": {
-        "given": "un token glissé de 6 hex",
+        "given": "une battlemap envoyée aux joueurs et un token glissé de 6 hex",
         "then": "le compteur affiche « 6 hex · 30 pi », et une fois déposé le token apparaît au même endroit sur la player view en moins d'une seconde.",
         "when": "le DM le déplace"
       },
