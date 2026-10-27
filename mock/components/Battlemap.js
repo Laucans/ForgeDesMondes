@@ -660,8 +660,9 @@
 .bm--fill .kit-hexmap .hm-bar { position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 4; margin: 0; }
 .bm-side { flex: none; width: calc(var(--space-5) * 7); display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); overflow-y: auto; }
 .bm-side[hidden] { display: none; }
-.bm--prep .bm-body { position: relative; }
-.bm--prep #token-inspector { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; box-shadow: var(--shadow-high); }
+/* The token's sheet lies over the map instead of beside it: opening it must not resize the view, or the frame is refitted and every token moves. */
+.bm-body { position: relative; }
+.bm #token-inspector { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; box-shadow: var(--shadow-high); }
 .bm-dead { color: var(--color-danger); font-weight: var(--font-weight-heading); }
 .bm-status { padding: var(--space-2) var(--space-3); border-radius: var(--radius-medium); background: var(--color-surface); border: var(--border-width) solid var(--color-border); }
 .bm-status[hidden] { display: none; }
@@ -692,7 +693,7 @@
 .bm-modal .kit-dialog, .bm-modal .kit-dialog__veil { height: 100%; }
 .bm-modal .kit-dialog__window { max-height: 88vh; }
 .bm-drop { position: absolute; z-index: 5; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-primary); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); cursor: default; }
-@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm--prep #token-inspector { position: static; } }
+@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm #token-inspector { width: min(100%, calc(var(--space-5) * 7)); } }
 `;
 
   // apps/table/battlemap/src/index.ts
