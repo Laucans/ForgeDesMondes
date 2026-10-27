@@ -905,11 +905,13 @@ dependencies = [
 name = "get-battlemap-instance"
 version = "0.1.0"
 dependencies = [
+ "add-participant",
  "aggregate-battlemap-instance",
  "end-combat",
  "harness-dataguard",
  "platform-conformance",
  "platform-test-kit",
+ "remove-participant",
  "reset-battlemap",
  "serde_json",
  "start-combat",

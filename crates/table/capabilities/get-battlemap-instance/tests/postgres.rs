@@ -57,6 +57,8 @@ fn token(n: u64) -> String {
 const START_COMBAT: &str = "table.startCombat@1";
 const END_COMBAT: &str = "table.endCombat@1";
 const RESET: &str = "table.resetBattlemap@1";
+const REMOVE_PARTICIPANT: &str = "table.removeParticipant@1";
+const ADD_PARTICIPANT: &str = "table.addParticipant@1";
 
 /// A token of `character` on the instance, as `table.placeTokens` drops it; an
 /// NPC's tracks 11 HP.
@@ -127,6 +129,8 @@ async fn table(scratch: &Scratch) -> Served {
             start_combat::plugin(),
             end_combat::plugin(),
             reset_battlemap::plugin(),
+            remove_participant::plugin(),
+            add_participant::plugin(),
         ],
     )
     .planting(&platform_test_kit::file(
@@ -134,6 +138,12 @@ async fn table(scratch: &Scratch) -> Served {
     ))
     .planting(&platform_test_kit::file(
         "crates/table/data-capabilities/reset-battlemap/data-capability.json",
+    ))
+    .planting(&platform_test_kit::file(
+        "crates/table/data-capabilities/remove-participant/data-capability.json",
+    ))
+    .planting(&platform_test_kit::file(
+        "crates/table/data-capabilities/add-participant/data-capability.json",
     ))
     .planting(&planter(
         "test.openInstance",
@@ -293,6 +303,62 @@ async fn a_later_combat_replaces_the_initiative_per_character() {
     // Ended too, the latest combat stays the one read.
     submit_all(&served, END_COMBAT, json!({})).await;
     assert_eq!(read_in(&scratch, "dm").await["pjInitiative"], entered(7));
+}
+
+// A PC taken out of the latest combat has no entry there any more (a tombstone):
+// its figure is the one of the combat before, the last still stored. The others keep
+// the latest combat's.
+#[tokio::test(flavor = "current_thread")]
+async fn a_pc_removed_from_the_latest_combat_falls_back_to_the_combat_before() {
+    let scratch = seeded("removed").await;
+    let served = table(&scratch).await;
+    start(&served, lineup(18)).await;
+    submit_all(&served, END_COMBAT, json!({})).await;
+    served.clock.set(platform_test_kit::NOW + 3600);
+    start(&served, lineup(7)).await;
+    assert_eq!(read_in(&scratch, "dm").await["pjInitiative"], entered(7));
+    // Elowen (7) is not the one whose turn it is: Sirielle (14) opens the order.
+    submit_all(
+        &served,
+        REMOVE_PARTICIPANT,
+        json!({ "participant": token(1) }),
+    )
+    .await;
+    for view in ["dm", "player"] {
+        let got = read_in(&scratch, view).await;
+        assert_eq!(got["pjInitiative"], entered(18), "{view}");
+    }
+}
+
+// A PC added to the running combat is given the figure the DM entered, which
+// replaces the one it had.
+#[tokio::test(flavor = "current_thread")]
+async fn a_pc_added_to_the_running_combat_gives_its_entered_initiative() {
+    let scratch = seeded("added").await;
+    let served = table(&scratch).await;
+    start(&served, lineup(18)).await;
+    submit_all(
+        &served,
+        REMOVE_PARTICIPANT,
+        json!({ "participant": token(4) }),
+    )
+    .await;
+    submit_all(
+        &served,
+        ADD_PARTICIPANT,
+        json!({ "token": token(4), "initiative": 20 }),
+    )
+    .await;
+    for view in ["dm", "player"] {
+        let got = read_in(&scratch, view).await;
+        assert_eq!(
+            got["pjInitiative"],
+            json!({
+                elowen(): 18, brannoc(): 9, sirielle(): 14, kael(): 20,
+            }),
+            "{view}"
+        );
+    }
 }
 
 // AC5: reading again, as after a reopen, answers the same initiatives,
