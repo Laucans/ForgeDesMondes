@@ -9,6 +9,7 @@ use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::sync::OnceLock;
 
 use ports_llm::contract::{Recognised, Scenario, run};
@@ -68,6 +69,9 @@ struct Stubs {
 /// written while a program is started elsewhere in the process can make that
 /// start fail with "text file busy". Sets the variables the environment test
 /// looks for in the program's, before any test thread starts a program.
+/// The directory is the process's own: a runner that gives each test a process
+/// (nextest) would otherwise have each delete and rewrite the scripts another
+/// is starting.
 fn stubs() -> &'static Stubs {
     static STUBS: OnceLock<Stubs> = OnceLock::new();
     STUBS.get_or_init(|| {
@@ -77,7 +81,8 @@ fn stubs() -> &'static Stubs {
             env::set_var("LLM_API_KEY", KEY);
             env::set_var(SENTINEL, "1");
         }
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("llm-claude-code-stubs");
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("llm-claude-code-stubs-{}", process::id()));
         let _ = fs::remove_dir_all(&root);
         let dir = |name: &str, script: Option<(&str, u32)>| {
             let dir = root.join(name);
