@@ -160,9 +160,14 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 12; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
-async function battlemap(props: Raw, options?: Parameters<typeof fakeShell>[0]) {
+async function battlemap(props: Raw, options?: Parameters<typeof fakeShell>[0], size?: { width: number; height: number }) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="Battlemap"></div></body></html>');
   const { document } = dom.window;
+  // jsdom lays nothing out: the map's view is the size the test gives it, when it gives one.
+  if (size) {
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { configurable: true, get(this: HTMLElement) { return this.id === 'battlemap-view' ? size.width : 0; } });
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'clientHeight', { configurable: true, get(this: HTMLElement) { return this.id === 'battlemap-view' ? size.height : 0; } });
+  }
   const host = document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
   mount(host, { instance: 'bmi-gue-s4', ...props }, fake.shell, timing);
@@ -339,6 +344,18 @@ test('the sheet’s « Avancer » and « Reculer » move the chosen participant 
   await open('t-elowen');
   await click('#combat-earlier');
   assert.equal(fake.sent.length, 2, 'the first cannot go before the first');
+});
+
+// AC2: a combat saved with Bandit 2's sheet open is reopened with the tokens at the same places relative to the view
+test('a combat reopened with a sheet open lays the map out as it was, the sheet over it', async () => {
+  const where = (document: Document) => ['t-elowen', 't-bandit-2'].map((id) => { const el = document.querySelector<HTMLElement>(`#token-${id}`); return `${el?.style.left}/${el?.style.top}`; });
+  const closed = await battlemap({ view: 'dm' }, { combat: underWay() }, { width: 705, height: 520 });
+  const reopened = await battlemap({ view: 'dm' }, { combat: underWay() }, { width: 705, height: 520 });
+  await reopened.open('t-bandit-2');
+  assert.equal(reopened.$('#inspector-title').textContent, 'Bandit 2');
+  assert.deepEqual(where(reopened.document), where(closed.document), 'the sheet changes no place');
+  assert.equal(reopened.$('#battlemap-stage').style.transform, closed.$('#battlemap-stage').style.transform);
+  assert.match(STYLE, /\.bm #token-inspector \{ position: absolute;/);
 });
 
 test('a click on a participant opens the sheet of that very instance', async () => {
