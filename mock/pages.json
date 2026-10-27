@@ -527,7 +527,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "66bd56b58dea46cd"
+      "builtFrom": "bdfe7a02c6379e16"
     },
     {
       "name": "ElementsPanel",
