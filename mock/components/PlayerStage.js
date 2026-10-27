@@ -265,7 +265,7 @@
   }
   function parseLiveCampaign(data) {
     const session = isRecord(data) && isRecord(data.session) ? data.session : null;
-    return session === null ? "" : text(session.campaign);
+    return session === null || text(session.status) === "closed" ? "" : text(session.campaign);
   }
   function ratioOf(entry) {
     const [width, height] = [num(entry.width), num(entry.height)];
@@ -386,7 +386,7 @@
 `;
 
   // apps/live/player-stage/src/index.ts
-  var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 500 };
+  var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 500, noneMs: 2e3 };
   var round = (value) => Number(value.toFixed(4));
   function ensureStyle(doc) {
     if (doc.querySelector('style[data-micro-ui="PlayerStage"]')) return;
@@ -401,6 +401,7 @@
     let diffusion = parseDiffusion(void 0);
     let campaign = null;
     let libraryCampaign = "";
+    let noneUntil = 0;
     let media = parseMedia(void 0);
     let campaignRead = false;
     let mediaRead = false;
@@ -421,7 +422,7 @@
       return { width: stage?.clientWidth || 1, height: stage?.clientHeight || 1 };
     };
     const scope = () => props2.campaign === "" ? {} : { campaign: props2.campaign };
-    const campaignId = () => props2.campaign || campaign?.id || "";
+    const campaignId = () => props2.campaign || libraryCampaign;
     function say(text2) {
       const box = part("player-status");
       if (!box) return;
@@ -489,35 +490,43 @@
       paintBase();
       paintWindow();
     }
-    async function readCampaign() {
-      let id = props2.campaign;
+    async function resolveCampaign() {
+      if (props2.campaign !== "") return { id: props2.campaign, failed: false };
+      if (libraryCampaign === "" && Date.now() < noneUntil) return { id: "", failed: false };
       try {
-        if (id === "") id = parseLiveCampaign((await shell2.capability(GET_LIVE_SESSION, void 0, {})).data);
-        return id === "" ? { id } : { id, overview: await shell2.capability(GET_CAMPAIGN, void 0, { id }) };
+        const id = parseLiveCampaign((await shell2.capability(GET_LIVE_SESSION, void 0, {})).data);
+        noneUntil = id === "" ? Date.now() + timing.noneMs : 0;
+        return { id, failed: false };
       } catch {
-        return { id };
+        return { id: libraryCampaign, failed: true };
       }
     }
     async function refresh() {
       const mine = generation;
       const no = readNo += 1;
       try {
-        const read = await shell2.capability(GET_DIFFUSION, void 0, { view: props2.pilot ? "dm" : "player", ...scope() });
+        const [read, live] = await Promise.all([shell2.capability(GET_DIFFUSION, void 0, { view: props2.pilot ? "dm" : "player", ...scope() }), resolveCampaign()]);
         if (mine !== generation || no < readNo) return;
         const next = parseDiffusion(read.data);
-        const named = campaignRead ? void 0 : await readCampaign();
-        if (mine !== generation || no < readNo) return;
-        if (named) {
-          libraryCampaign = named.id;
-          if (named.overview) {
-            campaign = parseCampaign(named.overview.data);
-            campaignRead = true;
-          }
+        if (live.id !== libraryCampaign) {
+          libraryCampaign = live.id;
+          campaign = null;
+          campaignRead = false;
+          media = parseMedia(void 0);
+          mediaRead = false;
+          missing = /* @__PURE__ */ new Set();
         }
         const unknown = (id) => id !== "" && illustrationOf(media, id) === void 0 && !missing.has(id);
         const wantsMedia = libraryCampaign !== "" && (!mediaRead || unknown(next.window?.media ?? "") || next.base.kind === "illustration" && unknown(next.base.id));
-        const listed = wantsMedia ? await shell2.capability(LIST_MEDIA, void 0, { campaign: libraryCampaign }).catch(() => void 0) : void 0;
+        const [overview, listed] = await Promise.all([
+          libraryCampaign !== "" && !campaignRead ? shell2.capability(GET_CAMPAIGN, void 0, { id: libraryCampaign }).catch(() => void 0) : void 0,
+          wantsMedia ? shell2.capability(LIST_MEDIA, void 0, { campaign: libraryCampaign }).catch(() => void 0) : void 0
+        ]);
         if (mine !== generation || no < readNo) return;
+        if (overview) {
+          campaign = parseCampaign(overview.data);
+          campaignRead = true;
+        }
         if (listed) {
           media = parseMedia(listed.data);
           mediaRead = true;
@@ -526,7 +535,10 @@
         diffusion = next;
         readAt = read.asOf;
         loaded = true;
-        if (readFailed) {
+        if (live.failed && props2.pilot) {
+          readFailed = true;
+          say("Impossible de lire la session en cours.");
+        } else if (readFailed) {
           readFailed = false;
           say("");
         }
@@ -550,6 +562,7 @@
       diffusion = parseDiffusion(void 0);
       campaign = null;
       libraryCampaign = "";
+      noneUntil = 0;
       media = parseMedia(void 0);
       campaignRead = false;
       mediaRead = false;
@@ -609,7 +622,7 @@
       if (mode === null || win === null || image === void 0) return;
       event.preventDefault();
       if (campaignId() === "") {
-        campaignRead = false;
+        noneUntil = 0;
         say("La campagne n\u2019a pas pu \xEAtre lue : la fen\xEAtre ne peut pas \xEAtre modifi\xE9e.");
         void refresh();
         return;
