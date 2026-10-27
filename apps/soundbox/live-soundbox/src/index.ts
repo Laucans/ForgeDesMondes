@@ -262,9 +262,10 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   /** Volume commands asked of the server whose read of the library has not answered yet. */
   const volumes = new Set<Promise<unknown>>();
   function changingVolume(change: Promise<unknown>): void {
-    const tracked: Promise<unknown> = change.then(() => {
+    const forget = (): void => {
       volumes.delete(tracked);
-    });
+    };
+    const tracked: Promise<unknown> = change.then(forget, forget);
     volumes.add(tracked);
   }
   async function volumesSettled(): Promise<void> {
@@ -284,9 +285,9 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
       starting.delete(id);
       now = listen(id);
     };
+    asked.set(id, (asked.get(id) ?? 0) + 1);
     // The sound starts under the DM's hand, at the gain the library gives: when a volume is still being set, once that volume has been read back.
     const started = volumes.size === 0 ? Promise.resolve(begin()) : volumesSettled().then(begin);
-    asked.set(id, (asked.get(id) ?? 0) + 1);
     const request = act('playback', 'Le son n’a pas pu être lancé', PLAY_SOUND, {}, id).then((outcome) => {
       // A play the server has not settled yet is still the DM's: it is heard until the library says otherwise.
       if (outcome !== 'refused') return;

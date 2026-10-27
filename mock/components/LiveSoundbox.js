@@ -585,9 +585,10 @@
     }
     const volumes = /* @__PURE__ */ new Set();
     function changingVolume(change) {
-      const tracked = change.then(() => {
+      const forget = () => {
         volumes.delete(tracked);
-      });
+      };
+      const tracked = change.then(forget, forget);
       volumes.add(tracked);
     }
     async function volumesSettled() {
@@ -604,8 +605,8 @@
         starting.delete(id);
         now = listen(id);
       };
-      const started = volumes.size === 0 ? Promise.resolve(begin()) : volumesSettled().then(begin);
       asked.set(id, (asked.get(id) ?? 0) + 1);
+      const started = volumes.size === 0 ? Promise.resolve(begin()) : volumesSettled().then(begin);
       const request = act("playback", "Le son n\u2019a pas pu \xEAtre lanc\xE9", PLAY_SOUND, {}, id).then((outcome) => {
         if (outcome !== "refused") return;
         if (starting.get(id) === ticket) starting.delete(id);
