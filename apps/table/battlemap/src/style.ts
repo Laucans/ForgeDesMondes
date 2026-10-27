@@ -76,5 +76,5 @@ export const STYLE = `
 .bm-modal .kit-dialog, .bm-modal .kit-dialog__veil { height: 100%; }
 .bm-modal .kit-dialog__window { max-height: 88vh; }
 .bm-drop { position: absolute; z-index: 5; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-primary); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); cursor: default; }
-@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm #token-inspector { position: static; } }
+@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm #token-inspector { width: min(100%, calc(var(--space-5) * 7)); } }
 `;

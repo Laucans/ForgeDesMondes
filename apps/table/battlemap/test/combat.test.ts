@@ -349,13 +349,14 @@ test('the sheet’s « Avancer » and « Reculer » move the chosen participant 
 // AC2: a combat saved with Bandit 2's sheet open is reopened with the tokens at the same places relative to the view
 test('a combat reopened with a sheet open lays the map out as it was, the sheet over it', async () => {
   const where = (document: Document) => ['t-elowen', 't-bandit-2'].map((id) => { const el = document.querySelector<HTMLElement>(`#token-${id}`); return `${el?.style.left}/${el?.style.top}`; });
-  const closed = await battlemap({ view: 'dm' }, { combat: underWay() }, { width: 705, height: 520 });
-  const reopened = await battlemap({ view: 'dm' }, { combat: underWay() }, { width: 705, height: 520 });
-  await reopened.open('t-bandit-2');
-  assert.equal(reopened.$('#inspector-title').textContent, 'Bandit 2');
-  assert.deepEqual(where(reopened.document), where(closed.document), 'the sheet changes no place');
-  assert.equal(reopened.$('#battlemap-stage').style.transform, closed.$('#battlemap-stage').style.transform);
+  const { $, open, document } = await battlemap({ view: 'dm' }, { combat: underWay() }, { width: 705, height: 520 });
+  const before = { places: where(document), stage: $('#battlemap-stage').style.transform };
+  assert.notEqual(before.stage, '', 'the map is laid out');
+  await open('t-bandit-2');
+  assert.equal($('#inspector-title').textContent, 'Bandit 2');
+  assert.deepEqual({ places: where(document), stage: $('#battlemap-stage').style.transform }, before, 'the sheet changes no place');
   assert.match(STYLE, /\.bm #token-inspector \{ position: absolute;/);
+  assert.doesNotMatch(STYLE, /#token-inspector \{ position: static/, 'not even on a narrow screen');
 });
 
 test('a click on a participant opens the sheet of that very instance', async () => {
