@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   addPayload,
   addProblem,
+  campaignOf,
   commandBody,
   duration,
   editProblem,
@@ -123,4 +124,16 @@ test('a rejected command is told in words, an unknown violation as it is', () =>
 test('the result of a command is read from the server’s answer, however little it holds', () => {
   assert.deepEqual(settled({ result: { status: 'rejected', violations: ['x'] } }), { status: 'rejected', violations: ['x'] });
   assert.deepEqual(settled(null), { status: '', violations: [] });
+});
+
+test('the campaign of the running session is read from its header, under `session`', () => {
+  assert.equal(campaignOf({ session: { id: 's4', campaign: 'cendres-valombre' }, microphone: { on: true } }), 'cendres-valombre');
+  assert.equal(campaignOf({ session: { id: 's4' }, campaign: 'ignored' }), '', 'a campaign beside the session is not the session’s');
+});
+
+test('no session, or an answer with no campaign, is no campaign', () => {
+  assert.equal(campaignOf(null), '');
+  assert.equal(campaignOf(undefined), '');
+  assert.equal(campaignOf({ session: { campaign: 3 } }), '');
+  assert.equal(campaignOf([]), '');
 });

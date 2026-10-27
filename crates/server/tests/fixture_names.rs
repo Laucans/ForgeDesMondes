@@ -311,7 +311,8 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
         summary(&described),
         "in order: {sessions}"
     );
-    assert_eq!(sessions[3]["status"], "prep", "{sessions}");
+    // The session under way is the one `session.getLiveSession.json` names.
+    assert_eq!(sessions[3]["status"], "live", "{sessions}");
     assert_eq!(sessions[0]["status"], "closed", "{sessions}");
 
     let listed = read(&renamed, "campaign.listEntitiesToCreate", campaign.clone()).await;
@@ -514,6 +515,7 @@ async fn the_fixtures_are_read_back_by_the_names_the_mock_up_gives_them() {
         .expect("the scratch database dropped");
 }
 
+// AC3: a scene the store gave another instance loads neither the fixture's instance nor its tokens, combat or seats
 #[tokio::test]
 async fn an_instance_the_dm_made_on_a_scene_is_left_alone_by_the_load() {
     let name = format!("fixture_dm_instance_{}", std::process::id());
@@ -539,6 +541,19 @@ async fn an_instance_the_dm_made_on_a_scene_is_left_alone_by_the_load() {
     data::insert_missing(&mut client, &first.tables)
         .await
         .expect("the fixtures are inserted");
+    let seated: i64 = client
+        .query_one(
+            "SELECT (SELECT count(*) FROM combat) + (SELECT count(*) FROM initiative_entry)",
+            &[],
+        )
+        .await
+        .expect("a count")
+        .get(0);
+    assert_eq!(
+        seated,
+        1 + 4,
+        "the first load left its combat and its four seats"
+    );
     // The DM replaced it: the fixture's instance is gone, theirs is on the scene.
     let dm = "d0d0d0d0-0000-4000-8000-000000000001";
     client
@@ -566,7 +581,8 @@ async fn an_instance_the_dm_made_on_a_scene_is_left_alone_by_the_load() {
         .query_one(
             &format!(
                 "SELECT (SELECT count(*) FROM battlemap_instance WHERE scene_id = '{scene}'), \
-                 (SELECT count(*) FROM token)"
+                 (SELECT count(*) FROM token), (SELECT count(*) FROM combat), \
+                 (SELECT count(*) FROM initiative_entry)"
             ),
             &[],
         )
@@ -574,6 +590,8 @@ async fn an_instance_the_dm_made_on_a_scene_is_left_alone_by_the_load() {
         .expect("a count");
     assert_eq!(row.get::<_, i64>(0), 1, "one instance on the scene");
     assert_eq!(row.get::<_, i64>(1), 0, "no token of the fixture's");
+    assert_eq!(row.get::<_, i64>(2), 0, "no combat of the fixture's");
+    assert_eq!(row.get::<_, i64>(3), 0, "no seat of the fixture's");
     drop(client);
     admin
         .batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))

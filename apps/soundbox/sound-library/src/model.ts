@@ -31,6 +31,11 @@ export function parseSounds(data: unknown): Sound[] {
   return sounds;
 }
 
+/** The campaign of the running session, from `session.getLiveSession` (`{ session: { campaign } }`); empty when there is none. */
+export function campaignOf(data: unknown): string {
+  return isRecord(data) && isRecord(data.session) ? text(data.session.campaign) : '';
+}
+
 /** Case and accents out: « Épées » is found by « epees ». */
 export const norm = (value: string): string => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 

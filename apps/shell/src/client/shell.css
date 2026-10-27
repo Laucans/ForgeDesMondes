@@ -44,3 +44,54 @@ body {
   color: var(--color-danger);
   font-size: var(--font-size-small);
 }
+
+/* A framed screen (server/frames.ts): header, left column, centre tabs. The Micro-UIs
+   over the page (the pill) fix themselves at the corner and take no room here. */
+.shell-frame {
+  display: grid;
+  grid-template-columns: minmax(calc(var(--space-5) * 11), 1.6fr) minmax(0, 4fr);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  align-items: start;
+}
+
+.shell-frame__left {
+  position: sticky;
+  top: var(--space-3);
+  max-height: calc(100vh - var(--space-5));
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-large);
+}
+
+/* The room at the foot leaves the overlay something to float over without hiding the end of the content. */
+.shell-frame__centre {
+  min-width: 0;
+  padding-bottom: calc(var(--space-5) * 7);
+}
+
+/* The pill grows up the right edge as suggestions arrive: the tabs stop short of its
+   width (8 × --space-5, at --space-3 from the edge), so they stay clickable under it. */
+.shell-frame__centre > .kit-tabs > [role="tablist"] {
+  margin-right: calc(var(--space-5) * 8 - var(--space-2));
+}
+
+@media (max-width: 960px) {
+  .shell-frame {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell-frame__left {
+    position: static;
+    max-height: none;
+  }
+
+  /* The pill spans the width here: no room beside it to keep. */
+  .shell-frame__centre > .kit-tabs > [role="tablist"] {
+    margin-right: 0;
+  }
+}

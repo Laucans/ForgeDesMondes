@@ -1,5 +1,6 @@
 <nav class="mf-ep" id="elements-panel" aria-label="Éléments de la campagne">
-  <div id="elements-search"></div>
+  <div id="elements-search"><div class="kit-input"><label>Rechercher<input type="search" id="elements-search-input" placeholder="Nom ou alias, même approximatif" autocomplete="off"></label></div></div>
+  <p class="mf-ep__status" id="elements-status" role="status" hidden></p>
   <section id="elements-results" aria-labelledby="elements-results-title" hidden>
     <h2 id="elements-results-title">Résultats</h2>
     <ul class="mf-ep__list" id="elements-results-list"></ul>
@@ -34,125 +35,11 @@
   .mf-ep__grip { color: var(--color-text-muted); }
 </style>
 <script>
+// The Micro-UI's real code (apps/live/elements-panel), bundled by mock/build.sh: it fills the panel on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  let ents, media, scenes, session, index = [];
-
-  function lev(a, b) {
-    const d = Array.from({ length: b.length + 1 }, (_, i) => i);
-    for (let i = 1; i <= a.length; i++) {
-      let prev = d[0];
-      d[0] = i;
-      for (let j = 1; j <= b.length; j++) { const tmp = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = tmp; }
-    }
-    return d[b.length];
-  }
-  // Approximate match on the name and the aliases: substring, or a word within one or two letters.
-  function score(e, q) {
-    const qn = Mock.norm(q);
-    if (!qn) return 0;
-    const names = [e.name].concat(e.aliases || []).map(Mock.norm);
-    if (names.some(n => n.includes(qn))) return 2;
-    const words = names.join(' ').split(/[^a-z0-9]+/).filter(w => w.length > 2);
-    const qw = qn.split(/[^a-z0-9]+/).filter(w => w.length > 2);
-    return qw.length && qw.every(w => words.some(x => lev(w, x) <= (w.length > 5 ? 2 : 1))) ? 1 : 0;
-  }
-
-  function item(e, prefix) {
-    const id = prefix + '-' + e.type + '-' + e.id;
-    const drag = e.type === 'character';
-    let actions = '';
-    if (e.type === 'battlemap') actions = `<button type="button" class="chip" data-open-map="${esc(e.instance || '')}">Ouvrir</button><button type="button" class="chip" data-writes="live.showOnPlayerView" data-send-map="${esc(e.instance || '')}">Envoyer</button>`;
-    if (e.type === 'illustration') actions = `<button type="button" class="chip" data-writes="live.showOnPlayerView" data-send-scene="${esc(e.id)}" title="Envoyer en plein écran">Scène</button><button type="button" class="chip" data-writes="live.showWindowOnPlayerView" data-send-window="${esc(e.id)}" title="Envoyer dans une fenêtre flottante">Fenêtre</button>`;
-    return `<li class="mf-ep__item" id="${esc(id)}"${drag ? ` draggable="true" data-char="${esc(e.id)}"` : ''}>${drag ? '<span class="mf-ep__grip" aria-hidden="true">⠿</span>' : ''}` +
-      `<button type="button" class="mf-ep__open" data-open="${esc(e.type)}:${esc(e.id)}">${esc(e.name)}${e.sub ? `<small>${esc(e.sub)}</small>` : ''}</button>${actions}</li>`;
-  }
-  const list = (arr, prefix) => '<ul class="mf-ep__list">' + arr.map(e => item(e, prefix)).join('') + '</ul>';
-  const byId = id => index.find(x => x.id === id);
-
-  function render() {
-    $('#elements-session-title').textContent = 'Séance ' + session.order + ' — ' + session.title;
-    $('#elements-scenes').innerHTML = scenes.map((sc, i) => {
-      const groups = [['Lieux', sc.places], ['PNJ', sc.characters], ['Événements', sc.events], ['Médias', sc.media]]
-        .map(([t, ids]) => [t, ids.map(byId).filter(Boolean)]).filter(g => g[1].length);
-      return `<details id="elements-scene-${esc(sc.id)}" data-scene-index="${i}"${i === 0 ? ' open class="is-current"' : ''}><summary>Scène ${i + 1} · ${esc(sc.title)}</summary>` +
-        groups.map(([t, arr]) => `<div class="mf-ep__group"><h3>${t}</h3>${list(arr, sc.id)}</div>`).join('') + '</details>';
-    }).join('');
-    const groups = [
-      ['PJ', index.filter(e => e.type === 'character' && e.kind === 'pj')],
-      ['PNJ', index.filter(e => e.type === 'character' && e.kind === 'pnj')],
-      ['Lieux', index.filter(e => e.type === 'place')],
-      ['Événements', index.filter(e => e.type === 'event')],
-      ['Battlemaps', index.filter(e => e.type === 'battlemap')],
-      ['Illustrations', index.filter(e => e.type === 'illustration')]
-    ];
-    $('#elements-groups').innerHTML = groups.map(([t, arr]) => `<details id="elements-group-${esc(Mock.norm(t))}"><summary>${t} <small>${arr.length}</small></summary><div class="mf-ep__group">${list(arr, 'all')}</div></details>`).join('');
-  }
-  function search(q) {
-    const res = index.map(e => ({ e, s: score(e, q) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.e);
-    $('#elements-results').hidden = !q.trim();
-    $('#elements-session').hidden = !!q.trim();
-    $('#elements-campaign').hidden = !!q.trim();
-    $('#elements-results-title').textContent = res.length ? res.length + ' résultat' + (res.length > 1 ? 's' : '') + ' pour « ' + q + ' »' : 'Rien pour « ' + q + ' »';
-    $('#elements-results-list').innerHTML = res.map(e => item(e, 'found')).join('');
-  }
-  function send(base, win) {
-    const d = Mock.store.get('diffusion', { base: { kind: 'cover' }, window: null, view: null });
-    if (base) { d.base = base; d.view = null; }
-    if (win) d.window = win;
-    Mock.store.set('diffusion', d);
-  }
-
-  root.addEventListener('input', e => { if (e.target.id === 'elements-search-input') search(e.target.value); });
-  root.addEventListener('dragstart', e => {
-    const li = e.target.closest('[data-char]');
-    if (!li) return;
-    e.dataTransfer.setData('text/fdm-character', li.dataset.char);
-    e.dataTransfer.setData('text/plain', byId(li.dataset.char).name);
-    e.dataTransfer.effectAllowed = 'copy';
-    Mock.emit('open-map', {});
-  });
-  root.addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.dataset.open) {
-      const [type, id] = b.dataset.open.split(':');
-      if (type === 'battlemap') Mock.emit('open-map', { id: byId(id).instance });
-      else Mock.emit('open', { type, id });
-    }
-    if (b.dataset.openMap != null) Mock.emit('open-map', { id: b.dataset.openMap });
-    if (b.dataset.sendMap != null) {
-      send({ kind: 'battlemap', id: b.dataset.sendMap });
-      Mock.command('live.showOnPlayerView', { kind: 'battlemap' }, { label: 'Envoyer la battlemap aux joueurs' });
-    }
-    if (b.dataset.sendScene) {
-      send({ kind: 'illustration', id: b.dataset.sendScene });
-      Mock.command('live.showOnPlayerView', { kind: 'illustration', mode: 'scene' }, { label: 'Envoyer « ' + byId(b.dataset.sendScene).name + ' » en mode scène' });
-    }
-    if (b.dataset.sendWindow) {
-      send(null, { id: b.dataset.sendWindow, x: 0.6, y: 0.12, w: 0.3 });
-      Mock.command('live.showWindowOnPlayerView', { kind: 'illustration', mode: 'window' }, { label: 'Envoyer « ' + byId(b.dataset.sendWindow).name + ' » en mode fenêtre' });
-    }
-  });
-  Mock.on('scene', ({ index: i }) => {
-    root.querySelectorAll('#elements-scenes details').forEach(d => { const on = +d.dataset.sceneIndex === i; d.open = on; d.classList.toggle('is-current', on); });
-  });
-
-  Mock.fixture(['fixtures/entities.json', 'fixtures/media.json', 'fixtures/SceneBoard.json', 'fixtures/Battlemap.json']).then(([e, m, s, b]) => {
-    ents = e; media = m; scenes = s.scenes; session = s.session;
-    const instOf = mapId => (b.instances.find(i => i.battlemap === mapId) || {}).id;
-    index = [].concat(
-      e.characters.map(c => ({ type: 'character', id: c.id, kind: c.kind, name: c.name, aliases: c.aliases, sub: c.kind === 'pj' ? 'PJ' : '' })),
-      e.places.map(p => ({ type: 'place', id: p.id, name: p.name, aliases: p.aliases })),
-      e.events.map(v => ({ type: 'event', id: v.id, name: v.name, aliases: v.aliases })),
-      m.battlemaps.map(x => ({ type: 'battlemap', id: x.id, name: x.title, aliases: [], instance: instOf(x.id) })),
-      m.illustrations.map(x => ({ type: 'illustration', id: x.id, name: x.title, aliases: [] }))
-    );
-    $('#elements-search').innerHTML = Mock.kitHTML('Input', { id: 'elements-search-input', label: 'Rechercher', placeholder: 'Nom ou alias, même approximatif', type: 'search' });
-    Mock.mount($('#elements-search'));
-    render();
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/ElementsPanel.js';
+  root.appendChild(bundle);
 })();
 </script>

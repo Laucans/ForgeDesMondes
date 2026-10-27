@@ -5,7 +5,6 @@
   "surface": "player",
   "pilot": { "surface": "dm", "query": "pilote" },
   "layout": [
-    { "PlayerStage": {} },
-    { "Battlemap": { "instance": "$ctx.battlemap", "view": "player" } }
+    { "PlayerStage": {} }
   ]
 }

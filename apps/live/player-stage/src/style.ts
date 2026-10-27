@@ -1,10 +1,12 @@
 // The stage's own look, for the shell, which loads the design system's two
 // stylesheets and no page's: the mock-up's `.pv` rules (mock/components/
 // PlayerStage.html) and the mock-up's `.art` placeholder, scoped to the
-// stage, every value a token.
+// stage, every value a token. The stage fills the screen it is projected on (the
+// mock-up's page gives it the whole viewport), so a window sent over it sits
+// whole on the stage and its corner can be reached.
 
 export const STYLE = `
-.pv { box-sizing: border-box; position: relative; width: 100%; height: 100%; min-height: calc(var(--space-5) * 12); overflow: hidden; background: var(--color-surface); color: var(--color-text); font-family: var(--font-family); font-size: var(--font-size-base); }
+.pv { box-sizing: border-box; position: relative; width: 100%; height: 100%; min-height: max(calc(var(--space-5) * 12), calc(100vh - var(--space-4) * 2)); overflow: hidden; background: var(--color-surface); color: var(--color-text); font-family: var(--font-family); font-size: var(--font-size-base); }
 .pv *, .pv *::before, .pv *::after { box-sizing: inherit; }
 .pv h1, .pv p { margin: 0; }
 .pv .art { position: relative; display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; background: var(--color-surface-2); color: var(--color-text); font-family: var(--font-family-heading); text-transform: uppercase; }

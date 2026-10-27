@@ -45,6 +45,8 @@ export interface Timing {
   /** How many times it asks before saying it has not settled. */
   polls: number;
   watchMs: number;
+  /** How long an element stays on top before the next one heard takes its place. */
+  beatMs: number;
 }
 
 /** The microphone as the kit's MicButton draws it. */

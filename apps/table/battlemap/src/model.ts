@@ -4,7 +4,7 @@
 
 import { AGGREGATE, APPROVER, DATA_CAPABILITY_VERSION } from './ids.ts';
 import { FEET_PER_HEX } from './hexgrid.ts';
-import type { Character, Combat, Grid, Instance, MapInfo, Participant, Props, Shape, Token, View } from './types.ts';
+import type { Character, Combat, Frame, Grid, Instance, MapInfo, Participant, Props, Shape, Size, Token, View } from './types.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
@@ -27,10 +27,11 @@ export const CONDITIONS: Readonly<Record<string, string>> = {
 
 export const MAX_COUNT = 12;
 
-export function parseProps(raw: Record<string, unknown>): Props {
+/** The props, the pilot tab being asked for by `pilot` or by `?pilote=1` in the address (as the player stage reads it). */
+export function parseProps(raw: Record<string, unknown>, search = ''): Props {
   // Absent, the DM's view; a value that is none of the three, the safest: the players'.
   const view: View = raw.view === undefined || raw.view === 'dm' ? 'dm' : raw.view === 'prep' ? 'prep' : 'player';
-  return { instance: text(raw.instance), view, pilot: raw.pilot === true, fill: raw.fill === true, campaign: text(raw.campaign) };
+  return { instance: text(raw.instance), view, pilot: raw.pilot === true || new URLSearchParams(search).get('pilote') === '1', fill: raw.fill === true, campaign: text(raw.campaign) };
 }
 
 function token(value: Record<string, unknown>): Token {
@@ -58,8 +59,9 @@ function token(value: Record<string, unknown>): Token {
   };
 }
 
+/** A line of the order: the Capability answers `initiative`, the mock-up's store keeps `init`. */
 function participant(value: Record<string, unknown>): Participant {
-  return { id: text(value.id), init: num(value.init, 0), dex: num(value.dex, 0) };
+  return { id: text(value.id), init: num(value.initiative, num(value.init, 0)), dex: num(value.dex, 0) };
 }
 
 /** The combat of an instance, or null when none is under way. */
@@ -258,3 +260,35 @@ export function commandId(answer: unknown): string {
 
 /** « 1 hex = 5 pi », from HexGrid@1. */
 export const SCALE = `1 hex = ${FEET_PER_HEX} pi`;
+
+/** The frame as live.showOnPlayerView takes it: the zoom to 3 decimals, the pans whole map pixels. */
+export const roundFrame = (frame: Frame): Frame => ({ zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+
+/** Where the map's stage stands in a view: its scale, and the view's pixel of the stage's origin. */
+export interface Placement {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+/** The scale at which the whole map fits the view. */
+export const fitScale = (view: Size, map: Size): number => Math.min(view.width / map.width, view.height / map.height);
+
+/** The placement of the stage in `view` for a frame: the map point the frame names at the view's centre, at the fit's scale times the zoom. */
+export function placeStage(frame: Frame, view: Size, map: Size): Placement {
+  const scale = fitScale(view, map) * frame.zoom;
+  return { scale, x: view.width / 2 - (map.width / 2 + frame.panX) * scale, y: view.height / 2 - (map.height / 2 + frame.panY) * scale };
+}
+
+/** The frame a placement stands for in `view`: the inverse of `placeStage`. */
+export function frameOf(placement: Placement, view: Size, map: Size): Frame {
+  return { zoom: placement.scale / fitScale(view, map), panX: (view.width / 2 - placement.x) / placement.scale - map.width / 2, panY: (view.height / 2 - placement.y) / placement.scale - map.height / 2 };
+}
+
+/** The frame live.getDiffusion shows the players for `instance`: null when its base is another map or it carries no view. */
+export function parseShownFrame(data: unknown, instance: string): Frame | null {
+  if (!isRecord(data) || !isRecord(data.base) || data.base.kind !== 'battlemap' || data.base.id !== instance || !isRecord(data.view)) return null;
+  const { zoom, panX, panY } = data.view;
+  const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+  return finite(zoom) && zoom > 0 && finite(panX) && finite(panY) ? { zoom, panX, panY } : null;
+}

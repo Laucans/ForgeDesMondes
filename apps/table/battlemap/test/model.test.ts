@@ -17,8 +17,12 @@ import {
   parseInstance,
   parseMap,
   parseProps,
+  frameOf,
+  parseShownFrame,
+  placeStage,
   reasons,
   reordered,
+  roundFrame,
   settled,
   shown,
   tableCommand,
@@ -133,6 +137,9 @@ describe('what the Capabilities answer', () => {
     assert.deepEqual(parseProps({}), { instance: '', view: 'dm', pilot: false, fill: false, campaign: '' });
     assert.deepEqual(parseProps({ instance: 'i', view: 'player', pilot: true, fill: true, campaign: 'c' }), { instance: 'i', view: 'player', pilot: true, fill: true, campaign: 'c' });
     assert.equal(parseProps({ view: 'prep' }).view, 'prep');
+    assert.equal(parseProps({ view: 'player' }, '?pilote=1').pilot, true, 'the address pilots the tab as the prop does');
+    assert.equal(parseProps({ view: 'player' }, '?x=2&pilote=1').pilot, true);
+    for (const search of ['', '?pilote=0', '?pilote=true', '?pilote=', '?pilot=1']) assert.equal(parseProps({ view: 'player' }, search).pilot, false, search);
     assert.equal(parseProps({ view: 'other' }).view, 'player', 'a view nobody knows is the players’, never the DM’s');
   });
 });
@@ -262,6 +269,14 @@ describe('the order of a combat', () => {
     assert.equal(parseInstance({ id: 'i', state: { tokens: [], combat: { round: 1, current: 'a', order: [{ id: 'a', init: 3 }] } } })?.combat?.current, 'a');
   });
 
+  // AC1: the carousel reads the initiatives table.getBattlemapInstance answers, in the same order
+  test('a participant’s initiative is the `initiative` the Capability answers, `init` the mock-up’s', () => {
+    const wire = { round: 1, current: 'e', order: [{ id: 'e', name: 'Elowen', initiative: 18 }, { id: 's', name: 'Sirielle', initiative: 14 }, { id: 'b', name: 'Bandit 2', initiative: 7, hidden: true }] };
+    assert.deepEqual(parseCombat(wire)?.order.map((o) => [o.id, o.init]), [['e', 18], ['s', 14], ['b', 7]]);
+    assert.equal(parseCombat({ round: 1, order: [{ id: 'a', initiative: 5, init: 9 }] })?.order[0]?.init, 5, 'the Capability’s field wins');
+    assert.equal(parseCombat({ round: 1, order: [{ id: 'a', initiative: 'x' }] })?.order[0]?.init, 0);
+  });
+
   test('the DEX modifier of a sheet is floor((score - 10) / 2)', () => {
     const read = parseCharacters([{ id: 'a', stats: { DEX: 12 } }, { id: 'b', stats: { DEX: 8 } }, { id: 'c', stats: { DEX: 9 } }, { id: 'd' }]);
     assert.deepEqual(['a', 'b', 'c', 'd'].map((id) => read[id]?.dexMod), [1, -1, -1, 0]);
@@ -303,5 +318,60 @@ describe('a participant leaving the order', () => {
 
   test('a view that cannot name the turn says none, and the first is not made up', () => {
     assert.equal(parseCombat({ round: 1, current: '', order: [{ id: 'a', init: 3 }] })?.current, '');
+  });
+});
+
+describe('the frame of the players’ view', () => {
+  const on = (view: unknown, base: Record<string, unknown> = { kind: 'battlemap', id: 'bmi' }) => ({ base, window: null, view });
+
+  // AC1: a frame goes out with a zoom of three decimals and whole pans
+  test('a frame is rounded as live.showOnPlayerView takes it', () => {
+    assert.deepEqual(roundFrame({ zoom: 1.11349, panX: 195.6, panY: -16.4 }), { zoom: 1.113, panX: 196, panY: -16 });
+    assert.deepEqual(roundFrame({ zoom: 2, panX: 0, panY: 0 }), { zoom: 2, panX: 0, panY: 0 });
+  });
+
+  const map = { width: 960, height: 640 };
+
+  // AC1, AC2: a frame is in map space: the same frame is the same part of the map in a view of any size
+  test('a frame is placed in each view by its own fit, and is the same map point at the view’s centre', () => {
+    // Fitted: the map centred, at the fit's scale.
+    assert.deepEqual(placeStage({ zoom: 1, panX: 0, panY: 0 }, { width: 705, height: 470 }, map), { scale: 0.734375, x: 0, y: 0 });
+    const wide = placeStage({ zoom: 1, panX: 0, panY: 0 }, { width: 1232, height: 656 }, map);
+    assert.equal(wide.scale, 1.025);
+    assert.equal(wide.x, (1232 - 960 * 1.025) / 2);
+    for (const view of [{ width: 705, height: 470 }, { width: 1232, height: 656 }, { width: 300, height: 900 }]) {
+      const at = placeStage({ zoom: 2.5, panX: 120, panY: -80 }, view, map);
+      assert.ok(Math.abs((600 * at.scale + at.x) - view.width / 2) < 1e-9 && Math.abs((240 * at.scale + at.y) - view.height / 2) < 1e-9, 'the map point (600, 240) is at the centre');
+      assert.equal(at.scale, Math.min(view.width / 960, view.height / 640) * 2.5, 'relative to the view’s own fit');
+    }
+  });
+
+  // AC1: a view of the map's ratio shows a frame at the same relative place whatever its size
+  test('two views of the map’s ratio put every map point at the same fraction of the view', () => {
+    const frame = { zoom: 1.7, panX: -140, panY: 66 };
+    const [a, b] = [{ width: 705, height: 470 }, { width: 984, height: 656 }];
+    const [pa, pb] = [placeStage(frame, a, map), placeStage(frame, b, map)];
+    for (const [x, y] of [[0, 0], [168, 278], [960, 640]] as Array<[number, number]>) {
+      assert.ok(Math.abs((x * pa.scale + pa.x) / a.width - (x * pb.scale + pb.x) / b.width) < 1e-9);
+      assert.ok(Math.abs((y * pa.scale + pa.y) / a.height - (y * pb.scale + pb.y) / b.height) < 1e-9);
+    }
+  });
+
+  // AC1: what a gesture makes of a placement is the frame that names it
+  test('a placement gives back the frame it was made from', () => {
+    const view = { width: 1232, height: 656 };
+    const frame = { zoom: 3.2, panX: 33.5, panY: -210 };
+    const back = frameOf(placeStage(frame, view, map), view, map);
+    assert.ok(Math.abs(back.zoom - frame.zoom) < 1e-9 && Math.abs(back.panX - frame.panX) < 1e-9 && Math.abs(back.panY - frame.panY) < 1e-9);
+  });
+
+  // AC2, AC3: the diffusion's view counts for the instance it names, and only when it is whole
+  test('the diffusion’s view is read for its own instance alone', () => {
+    assert.deepEqual(parseShownFrame(on({ zoom: 1.113, panX: 196, panY: 16 }), 'bmi'), { zoom: 1.113, panX: 196, panY: 16 });
+    assert.equal(parseShownFrame(on(null), 'bmi'), null);
+    assert.equal(parseShownFrame(on({ zoom: 1.113, panX: 196, panY: 16 }), 'other'), null);
+    assert.equal(parseShownFrame(on({ zoom: 1.113, panX: 196, panY: 16 }, { kind: 'cover', id: 'bmi' }), 'bmi'), null);
+    for (const view of [{ zoom: 0, panX: 1, panY: 1 }, { zoom: 1, panX: '1', panY: 1 }, { zoom: 1, panY: 1 }, { zoom: Number.NaN, panX: 1, panY: 1 }]) assert.equal(parseShownFrame(on(view), 'bmi'), null, JSON.stringify(view));
+    assert.equal(parseShownFrame('nothing', 'bmi'), null);
   });
 });

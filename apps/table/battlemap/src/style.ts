@@ -29,21 +29,23 @@ export const STYLE = `
 .bm .kit-button .danger { background: var(--color-danger); color: var(--color-primary-contrast); }
 .bm .kit-input.is-wide { max-width: none; }
 .bm .kit-toggle.kit-toggle--bare { padding: 0; background: transparent; border: 0; box-shadow: none; }
-.bm-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.bm-toolbar { order: -2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .bm-toolbar:empty { display: none; }
 .bm-title { display: grid; gap: var(--space-1); }
 .bm-body { display: flex; gap: var(--space-3); min-height: 0; flex: 1; }
 .bm-map { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .bm .kit-hexmap { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: var(--space-2); }
 .bm .kit-hexmap .hm-bar { margin-bottom: var(--space-2); }
-.bm .kit-hexmap .hm-view { flex: 1; height: auto; min-height: calc(var(--space-5) * 13); }
-.bm--fill .kit-hexmap { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.bm--fill .kit-hexmap .hm-view { min-height: 0; border: 0; border-radius: 0; }
+/* The view keeps the map's ratio (set from the map), so a frame shows the same part of it whatever the view's size. */
+.bm .kit-hexmap .hm-view { flex: none; height: auto; min-height: 0; }
+.bm--fill .kit-hexmap { container-type: size; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.bm--fill .kit-hexmap .hm-view { width: min(100cqw, calc(100cqh * var(--bm-ratio, 1))); border: 0; border-radius: 0; }
 .bm--fill .kit-hexmap .hm-bar { position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 4; margin: 0; }
 .bm-side { flex: none; width: calc(var(--space-5) * 7); display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); overflow-y: auto; }
 .bm-side[hidden] { display: none; }
-.bm--prep .bm-body { position: relative; }
-.bm--prep #token-inspector { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; box-shadow: var(--shadow-high); }
+/* The token's sheet lies over the map instead of beside it: opening it must not resize the view, or the frame is refitted and every token moves. */
+.bm-body { position: relative; }
+.bm #token-inspector { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; box-shadow: var(--shadow-high); }
 .bm-dead { color: var(--color-danger); font-weight: var(--font-weight-heading); }
 .bm-status { padding: var(--space-2) var(--space-3); border-radius: var(--radius-medium); background: var(--color-surface); border: var(--border-width) solid var(--color-border); }
 .bm-status[hidden] { display: none; }
@@ -56,7 +58,7 @@ export const STYLE = `
 .bm--readonly .bm-tokens .kit-token__item { pointer-events: none; cursor: default; }
 .bm .bm-selected .kit-token__disc { outline: calc(var(--border-width) * 3) solid var(--color-primary); outline-offset: calc(var(--border-width) * 3); }
 .bm .kit-token.kit-token--row { flex-wrap: nowrap; padding: 0; background: transparent; gap: var(--space-3); }
-.bm-carousel { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); }
+.bm-carousel { order: -1; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); }
 .bm-carousel[hidden] { display: none; }
 .bm-carousel__round { display: grid; justify-items: center; }
 .bm-carousel__round b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-accent); line-height: 1; }
@@ -74,5 +76,5 @@ export const STYLE = `
 .bm-modal .kit-dialog, .bm-modal .kit-dialog__veil { height: 100%; }
 .bm-modal .kit-dialog__window { max-height: 88vh; }
 .bm-drop { position: absolute; z-index: 5; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-primary); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); cursor: default; }
-@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm--prep #token-inspector { position: static; } }
+@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm #token-inspector { width: min(100%, calc(var(--space-5) * 7)); } }
 `;

@@ -1,16 +1,17 @@
 // PlayerStage (system live): what the players see — the campaign cover, an
 // illustration, or the battlemap frame — and the floating illustration window
 // over it. Both player views read the same diffusion (`single-diffusion-source`):
-// the projected screen draws it, the DM's piloted tab draws it too and lets
-// the DM drag the window by its bar (`live.moveWindow`) and resize it by its
-// corner (`live.resizeWindow`), the image's ratio always kept
-// (`window-proportional`). It reads `live.getDiffusion`, `campaign.getCampaign`
+// the projected screen draws it and lets its corner resize the window
+// (`live.resizeWindow`), the DM's piloted tab draws it too and adds the bar that
+// drags it (`live.moveWindow`), the image's ratio always kept
+// (`window-proportional`). It reads `live.getDiffusion`, `session.getLiveSession`
+// (the campaign of the live session, when the screen names none), `campaign.getCampaign`
 // and `media.listMedia` and triggers the two window commands, by identifier,
 // through the shell it is handed: no network call of its own. It draws no HP
 // figure, no note and no hidden token (`players-see-band-only`): the tokens over
 // a battlemap are the Battlemap's, in view 'player', composed by the screen.
 
-import { BATTLEMAP_CONTEXT, GET_CAMPAIGN, GET_DIFFUSION, LIST_MEDIA, MOVE_WINDOW, RESIZE_WINDOW } from './ids.ts';
+import { BATTLEMAP_CONTEXT, GET_CAMPAIGN, GET_DIFFUSION, GET_LIVE_SESSION, LIST_MEDIA, MOVE_WINDOW, RESIZE_WINDOW } from './ids.ts';
 import {
   commandBody,
   commandId,
@@ -20,6 +21,7 @@ import {
   moved,
   parseCampaign,
   parseDiffusion,
+  parseLiveCampaign,
   parseMedia,
   parseProps,
   reasons,
@@ -29,7 +31,7 @@ import {
 } from './model.ts';
 import { art, cover, mapSlot, scene, skeleton } from './render.ts';
 import { STYLE } from './style.ts';
-import type { Box, Campaign, Diffusion, Media, Props, Shell, Stage } from './types.ts';
+import type { Box, Campaign, Diffusion, Illustration, Media, Props, Shell, Stage } from './types.ts';
 
 /** How a command is followed until it settles, and how often the diffusion is asked: the projected screen follows within a second. */
 export interface Timing {
@@ -81,6 +83,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   let props: Props = parseProps(raw, host.ownerDocument.defaultView?.location.search ?? '');
   let diffusion: Diffusion = parseDiffusion(undefined);
   let campaign: Campaign | null = null;
+  /** The id of the campaign the library is asked for: the screen's, else the live session's. */
+  let libraryCampaign = '';
   let media: Media = parseMedia(undefined);
   let campaignRead = false;
   let mediaRead = false;
@@ -108,7 +112,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   /** The variables that name the campaign, when the screen gave it: the server's live session decides otherwise. */
   const scope = (): { campaign?: string } => (props.campaign === '' ? {} : { campaign: props.campaign });
-  /** The campaign a command names: the screen's, else the one `campaign.getCampaign` answered. */
+  /** The campaign a command names: the screen's, else the live session's, as `campaign.getCampaign` answered it. */
   const campaignId = (): string => props.campaign || campaign?.id || '';
 
   // ---------- painting ----------
@@ -141,7 +145,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       }
     } else {
       const image = base.kind === 'illustration' ? illustrationOf(media, base.id) : undefined;
-      const html = image ? scene(image) : cover(campaign, media);
+      const html = image ? scene(image) : cover(campaign, media, windowImage() === undefined);
       if (html !== baseKey) {
         baseKey = html;
         box.innerHTML = html;
@@ -156,11 +160,16 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     return diffusion.window === null ? null : { ...diffusion.window, ...local };
   }
 
+  /** The illustration of the window the stage draws: none when no window is sent or the library does not list its image. */
+  function windowImage(): Illustration | undefined {
+    return diffusion.window === null ? undefined : illustrationOf(media, diffusion.window.media);
+  }
+
   function paintWindow(): void {
     const figure = part('player-window');
     if (!figure) return;
     const win = current();
-    const image = win === null ? undefined : illustrationOf(media, win.media);
+    const image = windowImage();
     if (win === null || image === undefined) {
       figure.hidden = true;
       return;
@@ -185,6 +194,17 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   }
 
   // ---------- reading ----------
+  /** The campaign's overview: the screen's campaign, else the live session's. Nothing when no session is running, never a read with no id. */
+  async function readCampaign(): Promise<{ id: string; overview?: { asOf: number; data: unknown } }> {
+    let id = props.campaign;
+    try {
+      if (id === '') id = parseLiveCampaign((await shell.capability(GET_LIVE_SESSION, undefined, {})).data);
+      return id === '' ? { id } : { id, overview: await shell.capability(GET_CAMPAIGN, undefined, { id }) };
+    } catch {
+      return { id };
+    }
+  }
+
   /** Reads the diffusion again; the campaign and the library when the stage lacks them or the diffusion names an image it does not know. An older answer never replaces a newer one. */
   async function refresh(): Promise<void> {
     const mine = generation;
@@ -193,17 +213,20 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       const read = await shell.capability(GET_DIFFUSION, undefined, { view: props.pilot ? 'dm' : 'player', ...scope() });
       if (mine !== generation || no < readNo) return;
       const next = parseDiffusion(read.data);
-      const unknown = (id: string): boolean => id !== '' && illustrationOf(media, id) === undefined && !missing.has(id);
-      const wantsMedia = !mediaRead || unknown(next.window?.media ?? '') || (next.base.kind === 'illustration' && unknown(next.base.id));
-      const [named, listed] = await Promise.all([
-        campaignRead ? undefined : shell.capability(GET_CAMPAIGN, undefined, props.campaign === '' ? {} : { id: props.campaign }).catch(() => undefined),
-        wantsMedia ? shell.capability(LIST_MEDIA, undefined, scope()).catch(() => undefined) : undefined,
-      ]);
+      // The library is the campaign's: the campaign found for the cover is found first, and with none the library is not asked.
+      const named = campaignRead ? undefined : await readCampaign();
       if (mine !== generation || no < readNo) return;
       if (named) {
-        campaign = parseCampaign(named.data);
-        campaignRead = true;
+        libraryCampaign = named.id;
+        if (named.overview) {
+          campaign = parseCampaign(named.overview.data);
+          campaignRead = true;
+        }
       }
+      const unknown = (id: string): boolean => id !== '' && illustrationOf(media, id) === undefined && !missing.has(id);
+      const wantsMedia = libraryCampaign !== '' && (!mediaRead || unknown(next.window?.media ?? '') || (next.base.kind === 'illustration' && unknown(next.base.id)));
+      const listed = wantsMedia ? await shell.capability(LIST_MEDIA, undefined, { campaign: libraryCampaign }).catch(() => undefined) : undefined;
+      if (mine !== generation || no < readNo) return;
       if (listed) {
         media = parseMedia(listed.data);
         mediaRead = true;
@@ -236,6 +259,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     stopWatching();
     diffusion = parseDiffusion(undefined);
     campaign = null;
+    libraryCampaign = '';
     media = parseMedia(undefined);
     campaignRead = false;
     mediaRead = false;
@@ -300,9 +324,10 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
 
   // ---------- the DM's gestures ----------
   host.addEventListener('pointerdown', (event) => {
-    if (!props.pilot || gesture || event.button !== 0) return;
+    if (gesture || event.button !== 0) return;
     const target = event.target as Element | null;
-    const mode = target?.closest('#player-window-resize') ? 'resize' : target?.closest('#player-window-bar') ? 'move' : null;
+    // The corner resizes on the projected stage too; only the DM's tab moves the window by its bar.
+    const mode = target?.closest('#player-window-resize') ? 'resize' : props.pilot && target?.closest('#player-window-bar') ? 'move' : null;
     const win = current();
     const image = win === null ? undefined : illustrationOf(media, win.media);
     if (mode === null || win === null || image === undefined) return;

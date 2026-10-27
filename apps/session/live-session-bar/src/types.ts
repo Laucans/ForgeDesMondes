@@ -11,7 +11,7 @@ export interface Shell {
   commandResult(commandId: string): Promise<unknown>;
   /** Told each time the data moved; answers how to stop. */
   onDataVersion(listener: (dataVersion: number) => void): () => void;
-  /** The screen's context: the current scene is published there for the others. */
+  /** The screen's context: the session, its campaign, the current scene and its battlemap are published there for the others. */
   context: { set(name: string, value: unknown): void };
 }
 
@@ -19,17 +19,21 @@ export interface Scene {
   id: string;
   order: number;
   title: string;
+  /** The id of the scene's battlemap instance; null when it has none. */
+  battlemap: string | null;
 }
 
 export interface Live {
   id: string;
+  /** The id of the session's campaign; empty when the answer names none. */
+  campaign: string;
   order: number;
   title: string;
   /** `HH:MM`, the time the session started. */
   startedAt: string;
   /** Whether the microphone listens; null when the answer does not say. */
   micOn: boolean | null;
-  /** Empty when the answer names none. */
+  /** Empty until `session.listScenes` has answered. */
   scenes: Scene[];
   currentScene: number;
 }

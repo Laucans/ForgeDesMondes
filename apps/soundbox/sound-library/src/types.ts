@@ -9,6 +9,11 @@ export interface Shell {
   commandResult(commandId: string): Promise<unknown>;
   /** Told each time the data moved; answers how to stop. Optional: a shell that cannot tell leaves the list to its own refreshes. */
   onDataVersion?(listener: (dataVersion: number) => void): () => void;
+  /** The screen's context: the campaign is read from it, and published to it once found. */
+  context: {
+    get(name: string): unknown;
+    set(name: string, value: unknown): void;
+  };
 }
 
 export interface Sound {

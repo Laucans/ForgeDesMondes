@@ -6,8 +6,10 @@ import { mount, type Timing } from '../src/index.ts';
 import type { Shell } from '../src/types.ts';
 
 const fixture = <T>(name: string): T => JSON.parse(readFileSync(new URL(`../../../../mock/fixtures/${name}.json`, import.meta.url), 'utf8')) as T;
-const bar = fixture<{ scenes: unknown[]; currentScene: number }>('LiveSessionBar');
-const live = { ...fixture<Record<string, unknown>>('session.getLiveSession'), scenes: bar.scenes, currentScene: bar.currentScene };
+const bar = fixture<{ currentScene: number }>('LiveSessionBar');
+// The real answer carries the session alone; its scenes are `session.listScenes`'s.
+const live: Record<string, unknown> = { ...fixture<Record<string, unknown>>('session.getLiveSession'), currentScene: bar.currentScene };
+const scenesAnswer = fixture<{ id: string; battlemap: string | null }[]>('session.listScenes');
 const journal = fixture<unknown>('session.getSessionJournal');
 const summary = fixture<Record<string, unknown>>('session.getPreviousSessionSummary');
 const onIllustration = { base: { kind: 'illustration', title: 'Le sceau' }, window: { title: 'Lettre' }, view: null };
@@ -16,7 +18,7 @@ const onIllustration = { base: { kind: 'illustration', title: 'Le sceau' }, wind
 const timing: Timing = { sleep: async () => undefined, everyMs: 0, polls: 5, now: () => new Date(2026, 9, 17, 23, 29) };
 
 /** A shell over the fixtures that records what the bar asked and sent. */
-function fakeShell(options: { diffusion?: unknown; status?: string; violations?: string[]; failRecap?: boolean } = {}) {
+function fakeShell(options: { diffusion?: unknown; status?: string; violations?: string[]; failRecap?: boolean; noSession?: boolean; session?: Record<string, unknown>; scenes?: unknown; failScenes?: boolean } = {}) {
   const reads: { id: string; variables: Record<string, unknown> | undefined }[] = [];
   const sent: Record<string, unknown>[] = [];
   const contexts: [string, unknown][] = [];
@@ -25,7 +27,10 @@ function fakeShell(options: { diffusion?: unknown; status?: string; violations?:
     async capability(id, _sha256, variables) {
       reads.push({ id, variables });
       if (options.failRecap && (id === 'session.getSessionJournal' || id === 'session.getPreviousSessionSummary')) throw new Error('down');
-      const data = id === 'session.getLiveSession' ? live : id === 'live.getDiffusion' ? diffusion : id === 'session.getSessionJournal' ? journal : summary;
+      if (options.failScenes && id === 'session.listScenes') throw new Error('down');
+      if (id === 'session.listScenes') return { asOf: 1, data: options.scenes ?? scenesAnswer };
+      if (id === 'session.getLiveSession' && options.noSession) return { asOf: 1, data: null };
+      const data = id === 'session.getLiveSession' ? (options.session ?? live) : id === 'live.getDiffusion' ? diffusion : id === 'session.getSessionJournal' ? journal : summary;
       return { asOf: 1, data };
     },
     async command(body) {
@@ -78,8 +83,68 @@ test('the current scene is published to the screen, and follows a click', async 
   const { shell, contexts } = fakeShell();
   const { host, click } = await render(shell);
   await click('session-bar-scene-3');
-  assert.deepEqual(contexts, [['scene', 0], ['scene', 2]]);
+  assert.deepEqual(contexts.filter(([name]) => name === 'scene'), [['scene', 0], ['scene', 2]]);
   assert.equal(host.querySelector('#session-bar-scene-3')?.classList.contains('is-on'), true);
+});
+
+// AC1: the live session s4 sets the screen context session to s4 and campaign to its campaign
+test('the live session and its campaign are published to the screen, as the answer gives them', async () => {
+  const { shell, contexts, reads } = fakeShell();
+  await render(shell);
+  assert.deepEqual(contexts.filter(([name]) => name === 'session' || name === 'campaign'), [['session', 's4'], ['campaign', 'cendres-valombre']]);
+  // The scenes are read for that very session.
+  assert.deepEqual(reads.find((r) => r.id === 'session.listScenes')?.variables, { session: 's4' });
+});
+
+// AC1: a session whose answer names no campaign sets none
+test('no campaign id is made up when the answer names none', async () => {
+  const { shell, contexts } = fakeShell({ session: { ...live, campaign: undefined } });
+  await render(shell);
+  assert.deepEqual(contexts.filter(([name]) => name === 'session' || name === 'campaign'), [['session', 's4']]);
+});
+
+// AC1: the session is set from its own answer, whatever becomes of the scenes read
+test('a failing scenes read keeps the session and its context', async () => {
+  const { shell, contexts } = fakeShell({ failScenes: true });
+  const { host } = await render(shell);
+  assert.deepEqual(contexts.map(([name]) => name), ['session', 'campaign', 'scene', 'battlemap']);
+  assert.equal(contexts.at(-1)?.[1], undefined);
+  assert.equal(host.querySelector('#session-bar-title')?.textContent, 'Séance 4 — L’embuscade du Gué');
+  assert.equal(host.querySelectorAll('#session-bar-scenes button').length, 0);
+});
+
+// AC2: the live scene's battlemap instance bmi-gue-s4 is published for the Battlemap tab to mount
+test('the battlemap of the live scene is published, from the scene’s own answer', async () => {
+  const { shell, contexts } = fakeShell();
+  const { click } = await render(shell);
+  // The first scene holds none: the session's map is still one click away.
+  assert.deepEqual(contexts.filter(([name]) => name === 'battlemap'), [['battlemap', 'bmi-gue-s4']]);
+  await click('session-bar-scene-3');
+  await click('session-bar-scene-2');
+  assert.ok(contexts.filter(([name]) => name === 'battlemap').every(([, value]) => value === 'bmi-gue-s4'));
+  const other = fakeShell({ scenes: scenesAnswer.map((s, i) => ({ ...s, battlemap: i === 1 ? 'bmi-other' : null })) });
+  const second = await render(other.shell);
+  const lastMap = (): unknown => other.contexts.filter(([name]) => name === 'battlemap').at(-1)?.[1];
+  await second.click('session-bar-scene-2');
+  assert.equal(lastMap(), 'bmi-other');
+  await second.click('session-bar-scene-1');
+  assert.equal(lastMap(), 'bmi-other');
+});
+
+// AC2: no scene holds a battlemap, so none is published (no instance id is made up)
+test('no battlemap instance is invented when no scene has one', async () => {
+  const { shell, contexts } = fakeShell({ scenes: scenesAnswer.map((s) => ({ ...s, battlemap: null })) });
+  await render(shell);
+  assert.deepEqual(contexts.filter(([name]) => name === 'battlemap'), [['battlemap', undefined]]);
+});
+
+// AC4: no live session sets no context and says so
+test('with no live session the bar says so and sets nothing', async () => {
+  const { shell, contexts, reads } = fakeShell({ noSession: true });
+  const { host } = await render(shell);
+  assert.deepEqual(contexts, []);
+  assert.equal(host.querySelector('#session-bar-title')?.textContent, 'Aucune séance en cours');
+  assert.equal(reads.some((r) => r.id === 'session.listScenes'), false);
 });
 
 test('on the cover, no button undoes the diffusion; elsewhere the cover and window buttons are offered', async () => {
@@ -191,5 +256,5 @@ test('every actuator names the DataCapability it writes and every part a Capabil
   const writes = new Set([...host.querySelectorAll('[data-writes]')].map((e) => e.getAttribute('data-writes')));
   const reads = new Set([...host.querySelectorAll('[data-reads]')].map((e) => e.getAttribute('data-reads')));
   assert.deepEqual([...writes].sort(), ['live.closeWindow', 'live.showCover', 'session.closeSession']);
-  assert.ok(reads.has('session.getLiveSession') && reads.has('live.getDiffusion'));
+  assert.ok(reads.has('session.getLiveSession') && reads.has('live.getDiffusion') && reads.has('session.listScenes'));
 });

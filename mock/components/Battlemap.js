@@ -213,6 +213,7 @@
   var GET_BATTLEMAP_INSTANCE = "table.getBattlemapInstance";
   var GET_BATTLEMAP = "media.getBattlemap";
   var LIST_CHARACTERS = "campaign.listCharacters";
+  var GET_DIFFUSION = "live.getDiffusion";
   var MOVE_TOKEN = "table.moveToken";
   var PLACE_TOKENS = "table.placeTokens";
   var REMOVE_TOKEN = "table.removeToken";
@@ -323,9 +324,9 @@
     "Concentration": "\u25CE"
   };
   var MAX_COUNT = 12;
-  function parseProps(raw) {
+  function parseProps(raw, search = "") {
     const view = raw.view === void 0 || raw.view === "dm" ? "dm" : raw.view === "prep" ? "prep" : "player";
-    return { instance: text(raw.instance), view, pilot: raw.pilot === true, fill: raw.fill === true, campaign: text(raw.campaign) };
+    return { instance: text(raw.instance), view, pilot: raw.pilot === true || new URLSearchParams(search).get("pilote") === "1", fill: raw.fill === true, campaign: text(raw.campaign) };
   }
   function token(value) {
     const name = text(value.name);
@@ -352,7 +353,7 @@
     };
   }
   function participant(value) {
-    return { id: text(value.id), init: num(value.init, 0), dex: num(value.dex, 0) };
+    return { id: text(value.id), init: num(value.initiative, num(value.init, 0)), dex: num(value.dex, 0) };
   }
   function parseCombat(value) {
     if (!isRecord(value) || !Array.isArray(value.order)) return null;
@@ -487,6 +488,21 @@
     return isRecord(answer) ? text(answer.commandId) || (isRecord(answer.result) ? text(answer.result.commandId) : "") : "";
   }
   var SCALE = `1 hex = ${FEET_PER_HEX} pi`;
+  var roundFrame = (frame) => ({ zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+  var fitScale = (view, map) => Math.min(view.width / map.width, view.height / map.height);
+  function placeStage(frame, view, map) {
+    const scale = fitScale(view, map) * frame.zoom;
+    return { scale, x: view.width / 2 - (map.width / 2 + frame.panX) * scale, y: view.height / 2 - (map.height / 2 + frame.panY) * scale };
+  }
+  function frameOf(placement, view, map) {
+    return { zoom: placement.scale / fitScale(view, map), panX: (view.width / 2 - placement.x) / placement.scale - map.width / 2, panY: (view.height / 2 - placement.y) / placement.scale - map.height / 2 };
+  }
+  function parseShownFrame(data, instance) {
+    if (!isRecord(data) || !isRecord(data.base) || data.base.kind !== "battlemap" || data.base.id !== instance || !isRecord(data.view)) return null;
+    const { zoom, panX, panY } = data.view;
+    const finite = (value) => typeof value === "number" && Number.isFinite(value);
+    return finite(zoom) && zoom > 0 && finite(panX) && finite(panY) ? { zoom, panX, panY } : null;
+  }
 
   // apps/table/battlemap/src/render.ts
   var esc = (value) => value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -494,7 +510,7 @@
   var tone = (color) => /^[a-z][a-z-]*$/.test(color) ? color : "secondary";
   function skeleton(props2) {
     const modes = `${props2.fill ? " bm--fill" : ""}${props2.view === "player" && !props2.pilot ? " bm--readonly" : ""}${props2.view === "prep" ? " bm--prep" : ""}`;
-    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props2.view === "prep" ? "" : " hidden"}></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
+    return `<div class="bm${modes}" id="battlemap" data-reads="${GET_BATTLEMAP_INSTANCE}"><div class="bm-toolbar" id="battlemap-toolbar"></div><div class="bm-body" id="battlemap-body"><aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="${LIST_CHARACTERS}"${props2.view === "prep" ? "" : " hidden"}></aside><div class="bm-map" id="battlemap-map" data-reads="${GET_BATTLEMAP} ${GET_DIFFUSION}"></div><aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" hidden></aside></div><div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d\u2019initiative" hidden></div><p class="bm-status" id="battlemap-status" role="status" aria-live="polite" hidden></p><div id="battlemap-dialog"></div></div>`;
   }
   function button(p) {
     return `<button type="button" class="${p.variant}" id="${p.id}"${attr("data-writes", p.writes ?? "")}${p.disabled ? " disabled" : ""}>${esc(p.label)}</button>`;
@@ -513,7 +529,7 @@
   function hexMap(map, canMove) {
     const box = `viewBox="0 0 ${map.width} ${map.height}" width="${map.width}" height="${map.height}"`;
     const land = map.terrain.length === 0 ? `<rect class="hm-land" x="0" y="0" width="${map.width}" height="${map.height}"></rect>` : "";
-    return '<div class="kit-hexmap">' + (canMove ? '<div class="hm-bar"><span class="hm-zoom"><button type="button" data-act="out" aria-label="D\xE9zoomer">\u2212</button><button type="button" data-act="reset">Ajuster</button><button type="button" data-act="in" aria-label="Zoomer">+</button></span></div>' : "") + `<div class="hm-view" tabindex="0" id="battlemap-view" aria-label="${esc(`Battlemap ${map.title}`)}"><div class="hm-stage" id="battlemap-stage" style="width:${map.width}px;height:${map.height}px"><svg class="hm-layer hm-map" ${box} aria-hidden="true">${land}${map.terrain.map((s) => shape(s.tag, s.attrs)).join("")}</svg><svg class="hm-layer hm-grid" ${box} aria-hidden="true"><path class="hm-grid-path" id="battlemap-grid" d=""></path></svg><svg class="hm-layer hm-over" id="battlemap-over" ${box}></svg><div class="kit-token bm-tokens" id="battlemap-tokens"${attr("data-writes", canMove ? MOVE_TOKEN : "")}></div></div><div class="hm-tip" id="battlemap-tip" hidden></div></div></div>`;
+    return '<div class="kit-hexmap">' + (canMove ? '<div class="hm-bar"><span class="hm-zoom"><button type="button" data-act="out" aria-label="R\xE9duire le zoom">\u2212</button><button type="button" data-act="reset">Ajuster</button><button type="button" data-act="in" aria-label="Zoomer">+</button></span></div>' : "") + `<div class="hm-view" tabindex="0" id="battlemap-view" aria-label="${esc(`Battlemap ${map.title}`)}"><div class="hm-stage" id="battlemap-stage" style="width:${map.width}px;height:${map.height}px"><svg class="hm-layer hm-map" ${box} aria-hidden="true">${land}${map.terrain.map((s) => shape(s.tag, s.attrs)).join("")}</svg><svg class="hm-layer hm-grid" ${box} aria-hidden="true"><path class="hm-grid-path" id="battlemap-grid" d=""></path></svg><svg class="hm-layer hm-over" id="battlemap-over" ${box}></svg><div class="kit-token bm-tokens" id="battlemap-tokens"${attr("data-writes", canMove ? MOVE_TOKEN : "")}></div></div><div class="hm-tip" id="battlemap-tip" hidden></div></div></div>`;
   }
   function tokenItem(t, grid2, p) {
     const c = center(grid2, t);
@@ -630,21 +646,23 @@
 .bm .kit-button .danger { background: var(--color-danger); color: var(--color-primary-contrast); }
 .bm .kit-input.is-wide { max-width: none; }
 .bm .kit-toggle.kit-toggle--bare { padding: 0; background: transparent; border: 0; box-shadow: none; }
-.bm-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.bm-toolbar { order: -2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .bm-toolbar:empty { display: none; }
 .bm-title { display: grid; gap: var(--space-1); }
 .bm-body { display: flex; gap: var(--space-3); min-height: 0; flex: 1; }
 .bm-map { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .bm .kit-hexmap { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: var(--space-2); }
 .bm .kit-hexmap .hm-bar { margin-bottom: var(--space-2); }
-.bm .kit-hexmap .hm-view { flex: 1; height: auto; min-height: calc(var(--space-5) * 13); }
-.bm--fill .kit-hexmap { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.bm--fill .kit-hexmap .hm-view { min-height: 0; border: 0; border-radius: 0; }
+/* The view keeps the map's ratio (set from the map), so a frame shows the same part of it whatever the view's size. */
+.bm .kit-hexmap .hm-view { flex: none; height: auto; min-height: 0; }
+.bm--fill .kit-hexmap { container-type: size; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.bm--fill .kit-hexmap .hm-view { width: min(100cqw, calc(100cqh * var(--bm-ratio, 1))); border: 0; border-radius: 0; }
 .bm--fill .kit-hexmap .hm-bar { position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 4; margin: 0; }
 .bm-side { flex: none; width: calc(var(--space-5) * 7); display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); overflow-y: auto; }
 .bm-side[hidden] { display: none; }
-.bm--prep .bm-body { position: relative; }
-.bm--prep #token-inspector { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; box-shadow: var(--shadow-high); }
+/* The token's sheet lies over the map instead of beside it: opening it must not resize the view, or the frame is refitted and every token moves. */
+.bm-body { position: relative; }
+.bm #token-inspector { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; box-shadow: var(--shadow-high); }
 .bm-dead { color: var(--color-danger); font-weight: var(--font-weight-heading); }
 .bm-status { padding: var(--space-2) var(--space-3); border-radius: var(--radius-medium); background: var(--color-surface); border: var(--border-width) solid var(--color-border); }
 .bm-status[hidden] { display: none; }
@@ -657,7 +675,7 @@
 .bm--readonly .bm-tokens .kit-token__item { pointer-events: none; cursor: default; }
 .bm .bm-selected .kit-token__disc { outline: calc(var(--border-width) * 3) solid var(--color-primary); outline-offset: calc(var(--border-width) * 3); }
 .bm .kit-token.kit-token--row { flex-wrap: nowrap; padding: 0; background: transparent; gap: var(--space-3); }
-.bm-carousel { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); }
+.bm-carousel { order: -1; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-secondary); border-radius: var(--radius-large); box-shadow: var(--shadow-high); }
 .bm-carousel[hidden] { display: none; }
 .bm-carousel__round { display: grid; justify-items: center; }
 .bm-carousel__round b { font-family: var(--font-family-heading); font-size: var(--font-size-heading); color: var(--color-accent); line-height: 1; }
@@ -675,7 +693,7 @@
 .bm-modal .kit-dialog, .bm-modal .kit-dialog__veil { height: 100%; }
 .bm-modal .kit-dialog__window { max-height: 88vh; }
 .bm-drop { position: absolute; z-index: 5; display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: var(--border-width) solid var(--color-primary); border-radius: var(--radius-medium); box-shadow: var(--shadow-high); cursor: default; }
-@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm--prep #token-inspector { position: static; } }
+@media (max-width: 960px) { .bm-body { flex-direction: column; } .bm-side { width: auto; } .bm #token-inspector { width: min(100%, calc(var(--space-5) * 7)); } }
 `;
 
   // apps/table/battlemap/src/index.ts
@@ -693,13 +711,13 @@
   }
   function mount(host2, raw, shell2, timing = WAITING) {
     ensureStyle(host2.ownerDocument);
-    let props2 = parseProps(raw);
+    const addressSearch = () => host2.ownerDocument.defaultView?.location.search ?? "";
+    let props2 = parseProps(raw, addressSearch());
     let instance = null;
     let map = null;
     let characters = {};
     let selected = null;
     let frame = { zoom: 1, panX: 0, panY: 0 };
-    let fitted = false;
     let drag = null;
     let pan = null;
     let stale = false;
@@ -707,9 +725,12 @@
     let readNo = 0;
     let stopWatching = () => void 0;
     let observer = null;
+    let followed = false;
+    let frameTimer;
     const part = (id) => host2.querySelector(`#${id}`);
     const canMove = () => props2.view !== "player" || props2.pilot;
     const dm = () => props2.view !== "player";
+    const piloting = () => props2.view === "player" && props2.pilot;
     function say(kind, text2 = "") {
       const box = part("battlemap-status");
       if (!box) return;
@@ -717,31 +738,67 @@
       box.className = `bm-status${kind === "none" ? "" : ` is-${kind}`}`;
       box.textContent = text2;
     }
+    function viewSize() {
+      const view = part("battlemap-view");
+      return view && map && map.width > 0 && map.height > 0 && view.clientWidth && view.clientHeight ? { width: view.clientWidth, height: view.clientHeight } : null;
+    }
+    function placement() {
+      const size = viewSize();
+      return size && map ? placeStage(frame, size, map) : null;
+    }
     function applyFrame() {
       const stage = part("battlemap-stage");
-      if (stage) stage.style.transform = `translate(${frame.panX}px,${frame.panY}px) scale(${frame.zoom})`;
+      const at = placement();
+      if (stage && at) stage.style.transform = `translate(${Number(at.x.toFixed(3))}px, ${Number(at.y.toFixed(3))}px) scale(${Number(at.scale.toFixed(6))})`;
     }
     function fit() {
-      const view = part("battlemap-view");
-      if (!view || !map || !view.clientWidth || !view.clientHeight) return false;
-      const zoom = Math.min(view.clientWidth / map.width, view.clientHeight / map.height);
-      frame = { zoom, panX: (view.clientWidth - map.width * zoom) / 2, panY: (view.clientHeight - map.height * zoom) / 2 };
-      fitted = true;
+      frame = { zoom: 1, panX: 0, panY: 0 };
       applyFrame();
-      return true;
+    }
+    function shapeView() {
+      const view = part("battlemap-view");
+      if (!view || !map) return;
+      view.style.aspectRatio = `${map.width} / ${map.height}`;
+      view.style.setProperty("--bm-ratio", String(map.width / map.height));
+    }
+    function fitWhenSized() {
+      observer?.disconnect();
+      observer = null;
+      shapeView();
+      fit();
+      const view = part("battlemap-view");
+      const Observer = host2.ownerDocument.defaultView?.ResizeObserver;
+      if (view && Observer) {
+        observer = new Observer(applyFrame);
+        observer.observe(view);
+      }
+    }
+    function follow(framed) {
+      if (!map || props2.view !== "player" || props2.pilot) return;
+      if (framed) {
+        frame = framed;
+        followed = true;
+        applyFrame();
+      } else if (followed) {
+        followed = false;
+        fit();
+      }
     }
     function zoomAt(factor, cx, cy) {
-      const zoom = Math.max(0.3, Math.min(4, frame.zoom * factor));
-      const k = zoom / frame.zoom;
-      frame = { zoom, panX: cx - (cx - frame.panX) * k, panY: cy - (cy - frame.panY) * k };
-      fitted = true;
+      const size = viewSize();
+      const at = placement();
+      if (!size || !at || !map) return;
+      const scale = at.scale * (Math.max(0.3, Math.min(4, frame.zoom * factor)) / frame.zoom);
+      const k = scale / at.scale;
+      frame = frameOf({ scale, x: cx - (cx - at.x) * k, y: cy - (cy - at.y) * k }, size, map);
       applyFrame();
     }
     function world(e) {
       const box = part("battlemap-view")?.getBoundingClientRect();
       const lx = e.clientX - (box?.left ?? 0);
       const ly = e.clientY - (box?.top ?? 0);
-      return { lx, ly, x: (lx - frame.panX) / frame.zoom, y: (ly - frame.panY) / frame.zoom };
+      const at = placement() ?? { scale: 1, x: 0, y: 0 };
+      return { lx, ly, x: (lx - at.x) / at.scale, y: (ly - at.y) / at.scale };
     }
     function paintToolbar() {
       const box = part("battlemap-toolbar");
@@ -814,20 +871,8 @@
       }
       box.innerHTML = hexMap(map, canMove());
       paintGrid();
-      fitted = false;
-      frame = { zoom: 1, panX: 0, panY: 0 };
-      applyFrame();
-      observer?.disconnect();
-      observer = null;
-      if (!fit() && typeof ResizeObserver !== "undefined") {
-        const view = part("battlemap-view");
-        if (view) {
-          observer = new ResizeObserver(() => {
-            if (!fitted) fit();
-          });
-          observer.observe(view);
-        }
-      }
+      followed = false;
+      fitWhenSized();
     }
     function paintAll() {
       paintToolbar();
@@ -847,11 +892,19 @@
         return {};
       }
     }
+    async function readFrame() {
+      if (dm() || props2.pilot) return void 0;
+      try {
+        return parseShownFrame((await shell2.capability(GET_DIFFUSION, void 0, { view: "player" })).data, props2.instance);
+      } catch {
+        return void 0;
+      }
+    }
     async function refresh() {
       const mine = generation;
       const no = readNo += 1;
       try {
-        const read = await shell2.capability(GET_BATTLEMAP_INSTANCE, void 0, { instance: props2.instance, view: dm() ? "dm" : "player" });
+        const [read, framed] = await Promise.all([shell2.capability(GET_BATTLEMAP_INSTANCE, void 0, { instance: props2.instance, view: dm() ? "dm" : "player" }), readFrame()]);
         if (mine !== generation || no < readNo) return true;
         const next = parseInstance(read.data);
         if (next === null) {
@@ -869,6 +922,7 @@
           paintMap();
         }
         if (selected !== null && !next.tokens.some((t) => t.id === selected)) selected = null;
+        if (framed !== void 0) follow(framed);
         paintAll();
         return true;
       } catch {
@@ -880,6 +934,8 @@
       generation += 1;
       const mine = generation;
       stopWatching();
+      clearTimeout(frameTimer);
+      followed = false;
       instance = null;
       map = null;
       selected = null;
@@ -1061,18 +1117,27 @@
       });
       pop.querySelector("#battlemap-drop-count")?.focus();
     }
-    const showOnPlayerView = async () => {
+    const showOnPlayerView = async (quiet = false) => {
       if (!instance) return;
       try {
-        const body = commandBody(SHOW_ON_PLAYER_VIEW, "Diffusion", instance.session === "" ? void 0 : instance.session, { kind: "battlemap", instance: instance.id, zoom: Number(frame.zoom.toFixed(3)), panX: Math.round(frame.panX), panY: Math.round(frame.panY) });
+        const body = commandBody(SHOW_ON_PLAYER_VIEW, "Diffusion", instance.session === "" ? void 0 : instance.session, { kind: "battlemap", instance: instance.id, ...roundFrame(frame) });
         const state = await send(body);
         if (state.status === "rejected") say("error", `L\u2019envoi aux joueurs est refus\xE9 : ${reasons(state.violations)}.`);
         else if (state.status !== "applied") say("error", `L\u2019envoi aux joueurs n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`);
-        else say("ok", "Carte envoy\xE9e aux joueurs.");
+        else if (!quiet) say("ok", "Carte envoy\xE9e aux joueurs.");
       } catch {
         say("error", "L\u2019envoi aux joueurs a \xE9chou\xE9.");
       }
     };
+    function frameGestureEnded() {
+      if (!piloting()) return;
+      clearTimeout(frameTimer);
+      frameTimer = setTimeout(() => {
+        frame = roundFrame(frame);
+        applyFrame();
+        void showOnPlayerView(true);
+      }, timing.frameMs ?? 250);
+    }
     const tokenOf = (el) => {
       const id = el?.closest(".kit-token__item")?.dataset.token;
       return instance?.tokens.find((t) => t.id === id);
@@ -1099,7 +1164,7 @@
         drag = { token: t, el, from: { q: t.q, r: t.r }, x: e.clientX, y: e.clientY, moved: false, to: null };
         el.setPointerCapture?.(e.pointerId);
       } else if (target.closest(".hm-view") && !target.closest("[data-no-pan]")) {
-        pan = { x: e.clientX, y: e.clientY, panX: frame.panX, panY: frame.panY, moved: false };
+        pan = { x: e.clientX, y: e.clientY, panX: frame.panX, panY: frame.panY, scale: placement()?.scale ?? 1, moved: false };
         part("battlemap-view")?.setPointerCapture?.(e.pointerId);
       }
     });
@@ -1126,13 +1191,13 @@
         const dy = e.clientY - pan.y;
         if (!pan.moved && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) pan.moved = true;
         if (pan.moved) {
-          frame = { ...frame, panX: pan.panX + dx, panY: pan.panY + dy };
-          fitted = true;
+          frame = { ...frame, panX: pan.panX - dx / pan.scale, panY: pan.panY - dy / pan.scale };
           applyFrame();
         }
       }
     });
     const release = () => {
+      if (pan?.moved) frameGestureEnded();
       pan = null;
       if (!drag) return;
       const d = drag;
@@ -1156,6 +1221,7 @@
       e.preventDefault();
       const box = part("battlemap-view")?.getBoundingClientRect();
       zoomAt(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - (box?.left ?? 0), e.clientY - (box?.top ?? 0));
+      frameGestureEnded();
     });
     host2.addEventListener("dragstart", (event) => {
       const e = event;
@@ -1222,10 +1288,11 @@
       const zoomBox = part("battlemap-view");
       const [cx, cy] = [(zoomBox?.clientWidth ?? 0) / 2, (zoomBox?.clientHeight ?? 0) / 2];
       const gesture = button2.dataset.act;
-      if (gesture === "in") zoomAt(1.25, cx, cy);
-      else if (gesture === "out") zoomAt(1 / 1.25, cx, cy);
-      else if (gesture === "reset") fit();
-      else if (gesture === "dialog-close") closeDialog();
+      if (gesture === "in" || gesture === "out" || gesture === "reset") {
+        if (gesture === "reset") fit();
+        else zoomAt(gesture === "in" ? 1.25 : 1 / 1.25, cx, cy);
+        frameGestureEnded();
+      } else if (gesture === "dialog-close") closeDialog();
       else if (gesture === "close") {
         selected = null;
         paintAll();
@@ -1298,7 +1365,7 @@
     void start();
     return {
       update(next) {
-        const parsed = parseProps(next);
+        const parsed = parseProps(next, addressSearch());
         const same2 = parsed.instance === props2.instance && parsed.view === props2.view && parsed.pilot === props2.pilot && parsed.fill === props2.fill && parsed.campaign === props2.campaign;
         props2 = parsed;
         if (!same2) void start();

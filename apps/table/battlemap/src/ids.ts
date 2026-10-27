@@ -5,6 +5,7 @@ export const GET_BATTLEMAP_INSTANCE = 'table.getBattlemapInstance';
 // Capabilities of other systems (media, campaign): read through the shell by identifier, and listed in `needs` all the same.
 export const GET_BATTLEMAP = 'media.getBattlemap';
 export const LIST_CHARACTERS = 'campaign.listCharacters';
+export const GET_DIFFUSION = 'live.getDiffusion';
 
 export const MOVE_TOKEN = 'table.moveToken';
 export const PLACE_TOKENS = 'table.placeTokens';

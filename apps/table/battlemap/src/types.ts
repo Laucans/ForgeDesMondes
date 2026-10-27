@@ -110,9 +110,19 @@ export interface Character {
   dexMod: number;
 }
 
-/** The pan and zoom of the map, as the DM frames it. */
+/**
+ * The pan and zoom of the map, as the DM frames it, in the map's own space so every view shows the same part of it:
+ * the zoom is relative to the view's fit (1 = fitted), the pan is the map point at the view's centre, in map pixels,
+ * from the map's centre (0, 0 = centred).
+ */
 export interface Frame {
   zoom: number;
   panX: number;
   panY: number;
+}
+
+/** A width and a height, in pixels. */
+export interface Size {
+  width: number;
+  height: number;
 }

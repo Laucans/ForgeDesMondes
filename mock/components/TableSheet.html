@@ -20,80 +20,11 @@
   @media (max-width: 1100px) { .mf-sheet__body { grid-template-columns: minmax(0, 1fr); } }
 </style>
 <script>
+// The Micro-UI's real code (apps/live/table-sheet), bundled by mock/build.sh: it fills this sheet on the mock server, in place of the drawing above.
 (() => {
   const root = document.currentScript.closest('[data-component]');
-  const props = Mock.props(root);
-  const $ = s => root.querySelector(s);
-  const esc = Mock.esc;
-  const K = Mock.kitHTML;
-  let ents, media, current = null;
-
-  const illus = id => media.illustrations.find(i => i.id === id);
-  function sendButtons(illId) {
-    if (!illId || !illus(illId)) return [];
-    return [{ label: 'Envoyer l’illustration — scène', action: 'send-scene:' + illId, variant: 'secondary', 'data-writes': 'live.showOnPlayerView' }, { label: 'Envoyer — fenêtre', action: 'send-window:' + illId, variant: 'ghost', 'data-writes': 'live.showWindowOnPlayerView' }];
-  }
-  function show(type, id) {
-    let e, html = '', side = '', artSpec, badges = [], buttons = [];
-    if (type === 'character') {
-      e = ents.characters.find(c => c.id === id);
-      artSpec = { art: e.art || 'night', glyph: e.initials };
-      badges = [{ label: e.kind === 'pj' ? 'PJ' : 'PNJ', tone: 'primary' }].concat(e.kind === 'pj' ? [{ label: 'Joué par ' + ents.players.find(p => p.id === e.player).name, tone: 'success' }] : []);
-      html = `<p>${esc(e.description)}</p>` +
-        (e.behavior ? `<div class="mf-sheet__block mf-sheet__play" id="sheet-behavior"><h3>Pour l’interpréter</h3><p>${esc(e.behavior)}</p></div>` : '') +
-        (e.background ? `<details id="sheet-background"><summary>Background</summary><p>${esc(e.background)}</p></details>` : '') +
-        (e.notes ? `<div class="mf-sheet__block mf-sheet__notes" id="sheet-notes"><h3>Notes du MJ</h3><p>${esc(e.notes)}</p></div>` : '');
-      side = K('StatBlock', { id: 'sheet-statblock', name: e.name, type: e.type, vitals: [{ label: 'CA', value: e.ca }, { label: 'PV', value: e.pvMax }, { label: 'Vitesse', value: e.speed }], abilities: e.stats, features: e.features });
-      buttons = [{ label: 'Placer sur la carte', action: 'to-map', variant: 'secondary' }].concat(sendButtons(e.illustration));
-    } else if (type === 'place') {
-      e = ents.places.find(p => p.id === id);
-      artSpec = illus(e.illustration) ? { art: illus(e.illustration).art, glyph: illus(e.illustration).glyph } : { art: e.art, glyph: e.name.charAt(0) };
-      badges = [{ label: 'Lieu', tone: 'accent' }];
-      html = `<p>${esc(e.description)}</p>`;
-      const here = (e.characters || []).map(cid => ents.characters.find(c => c.id === cid)).filter(Boolean);
-      side = here.length ? `<div class="mf-sheet__block" id="sheet-place-characters"><h3>On y croise</h3><div class="row">${here.map(c => `<button type="button" class="chip chip--pnj" data-open="character:${esc(c.id)}">${esc(c.name)}</button>`).join('')}</div></div>` : '';
-      buttons = sendButtons(e.illustration);
-    } else if (type === 'event') {
-      e = ents.events.find(v => v.id === id);
-      artSpec = { art: 'blood', glyph: '!' };
-      badges = [{ label: 'Événement', tone: 'danger' }];
-      html = `<p>${esc(e.description)}</p>`;
-    } else if (type === 'illustration') {
-      const i = illus(id);
-      e = { id, name: i.title, aliases: [] };
-      artSpec = { art: i.art, glyph: i.glyph };
-      badges = [{ label: 'Illustration', tone: 'accent' }];
-      html = `<p class="muted">${esc(i.file)} · ${esc(i.size)}</p>`;
-      buttons = sendButtons(id);
-    }
-    if (!e) return;
-    current = { type, id, char: type === 'character' ? id : null };
-    $('#sheet-head').innerHTML = `<div class="mf-sheet__art">${Mock.art(artSpec)}</div><div class="mf-sheet__title">${K('Badge', { items: badges })}<h2 id="sheet-title">${esc(e.name)}</h2>` +
-      (e.aliases && e.aliases.length ? `<p class="muted">Alias : ${esc(e.aliases.join(', '))}</p>` : '') +
-      K('Button', { small: true, items: [{ id: 'sheet-edit', label: 'Modifier', href: 'fiche-entite.html?id=' + id, variant: 'ghost' }].concat(buttons) }) + '</div>';
-    $('#sheet-body').innerHTML = `<div class="mf-sheet__text" id="sheet-text">${html}</div><div id="sheet-side">${side}</div>`;
-    Mock.mount(root);
-  }
-
-  root.addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.dataset.open) { const [t, id] = b.dataset.open.split(':'); show(t, id); }
-    const a = b.dataset.action || '';
-    if (a === 'to-map') Mock.emit('open-map', { place: current.char });
-    if (a.startsWith('send-')) {
-      const [mode, ill] = a.slice(5).split(':');
-      const d = Mock.store.get('diffusion', { base: { kind: 'cover' }, window: null, view: null });
-      if (mode === 'scene') { d.base = { kind: 'illustration', id: ill }; d.view = null; } else d.window = { id: ill, x: 0.6, y: 0.12, w: 0.3 };
-      Mock.store.set('diffusion', d);
-      Mock.command(mode === 'scene' ? 'live.showOnPlayerView' : 'live.showWindowOnPlayerView', { id: ill, mode }, { label: 'Envoyer « ' + illus(ill).title + ' » en mode ' + (mode === 'scene' ? 'scène' : 'fenêtre') });
-    }
-  });
-  Mock.on('open', d => show(d.type, d.id));
-
-  Mock.fixture(['fixtures/entities.json', 'fixtures/media.json']).then(([e, m]) => {
-    ents = e; media = m;
-    show(props.type || 'place', props.id || 'taverne-sanglier');
-  });
+  const bundle = document.createElement('script');
+  bundle.src = Mock.base + 'components/TableSheet.js';
+  root.appendChild(bundle);
 })();
 </script>

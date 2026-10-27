@@ -1,20 +1,32 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { commandBody, durationSince, parseDiffusion, parseLive, parseRecap, reasons, settled, showing } from '../src/model.ts';
+import { battlemapOf, commandBody, durationSince, parseDiffusion, parseLive, parseRecap, parseScenes, reasons, settled, showing, withScenes } from '../src/model.ts';
 
-test('the session is read flat or under `session`, with its microphone and scenes when the answer has them', () => {
-  const flat = parseLive({ id: 's4', order: 4, title: 'L’embuscade', startedAt: '20:02', scenes: [{ id: 'sc1', order: 1, title: 'Taverne' }], currentScene: 0 });
-  assert.deepEqual(flat, { id: 's4', order: 4, title: 'L’embuscade', startedAt: '20:02', micOn: null, scenes: [{ id: 'sc1', order: 1, title: 'Taverne' }], currentScene: 0 });
+test('the session is read flat or under `session`, with its campaign and microphone; its scenes are another read’s', () => {
+  const flat = parseLive({ id: 's4', campaign: 'cendres-valombre', order: 4, title: 'L’embuscade', startedAt: '20:02', currentScene: 2 });
+  assert.deepEqual(flat, { id: 's4', campaign: 'cendres-valombre', order: 4, title: 'L’embuscade', startedAt: '20:02', micOn: null, scenes: [], currentScene: 2 });
   const nested = parseLive({ session: { id: 's4', order: 4, title: 'L’embuscade', startedAt: '20:02', present: [] }, microphone: { on: true } });
   assert.equal(nested?.id, 's4');
+  assert.equal(nested?.campaign, '');
   assert.equal(nested?.micOn, true);
-  assert.deepEqual(nested?.scenes, []);
 });
 
-test('an answer with no session, or a current scene out of range, is not an exception', () => {
+test('an answer with no session is not an exception, and a current scene out of range falls back to the first', () => {
   assert.equal(parseLive(undefined), null);
   assert.equal(parseLive({ session: {} }), null);
-  assert.equal(parseLive({ id: 's1', scenes: [{ id: 'a', order: 1, title: 'A' }], currentScene: 7 })?.currentScene, 0);
+  const live = parseLive({ id: 's1', currentScene: 7 });
+  assert.ok(live);
+  assert.equal(withScenes(live, [{ id: 'a', order: 1, title: 'A', battlemap: null }]).currentScene, 0);
+});
+
+test('the scenes keep their battlemap, null when they have none, and the Battlemap tab opens the live scene’s else the first', () => {
+  const scenes = parseScenes([{ id: 'a', order: 1, title: 'A', battlemap: null }, { id: 'b', order: 2, title: 'B', battlemap: 'bmi-b' }, { id: 'c', order: 3, title: 'C' }, 'junk']);
+  assert.deepEqual(scenes.map((s) => s.battlemap), [null, 'bmi-b', null]);
+  const live = withScenes(parseLive({ id: 's1', currentScene: 1 }) as NonNullable<ReturnType<typeof parseLive>>, scenes);
+  assert.equal(battlemapOf(live), 'bmi-b');
+  assert.equal(battlemapOf({ ...live, currentScene: 0 }), 'bmi-b');
+  assert.equal(battlemapOf({ ...live, scenes: [] }), null);
+  assert.deepEqual(parseScenes(undefined), []);
 });
 
 test('the players see the campaign cover unless the answer says otherwise', () => {

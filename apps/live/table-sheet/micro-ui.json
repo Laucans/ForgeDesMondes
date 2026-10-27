@@ -1,0 +1,18 @@
+{
+  "microUi": "TableSheet",
+  "system": "live",
+  "description": "La fiche d’un élément en lecture, optimisée pour la table : portrait ou illustration, badges, titre, texte, « Pour l’interpréter », background, notes du MJ, bloc de statistiques d’un personnage, « On y croise » d’un lieu ; un lien Modifier ouvre l’éditeur, et l’illustration part aux joueurs en scène ou en fenêtre",
+  "needs": [
+    "campaign.getEntity",
+    "media.listMedia"
+  ],
+  "actions": [
+    "live.showOnPlayerView",
+    "live.showWindowOnPlayerView"
+  ],
+  "props": {
+    "type": "\"character\" | \"place\" | \"event\" | \"illustration\"",
+    "id": "string — élément ouvert au départ",
+    "campaign": "string — id de la campagne ; absent, l’envoi en fenêtre ne peut pas nommer la campagne"
+  }
+}

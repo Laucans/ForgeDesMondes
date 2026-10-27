@@ -24,6 +24,8 @@ interface Options {
   diffusion?: unknown;
   media?: unknown;
   campaign?: unknown;
+  /** What session.getLiveSession answers: the live session of the campaign, by default. */
+  session?: unknown;
   /** What the server answers each command, in order; the last answer repeats. */
   status?: string | string[];
   /** Keeps every command waiting until it is released. */
@@ -50,8 +52,11 @@ function fakeShell(options: Options = {}) {
       reads.push({ id, variables });
       if (id === 'live.getDiffusion' && options.failRead?.()) throw new Error('the server is not there');
       if (id === 'live.getDiffusion') return { asOf: options.readAt ?? 1, data: structuredClone(row) };
-      if (id === 'campaign.getCampaign') return { asOf: 1, data: options.campaign ?? CAMPAIGN };
-      return { asOf: 1, data: options.media ?? MEDIA };
+      if (id === 'session.getLiveSession') return { asOf: 1, data: 'session' in options ? options.session : { session: { id: 's4', campaign: CAMPAIGN.id }, microphone: { on: true } } };
+      // The real read requires the campaign's id and has no answer without it.
+      if (id === 'campaign.getCampaign') return { asOf: 1, data: variables?.id === undefined ? null : (options.campaign ?? { ...CAMPAIGN, id: variables.id }) };
+      // The real read lists nothing for no campaign.
+      return { asOf: 1, data: variables?.campaign === undefined ? { cover: '', illustrations: [] } : (options.media ?? MEDIA) };
     },
     async command(body) {
       const command = body as Sent;
@@ -118,13 +123,13 @@ test('a diffusion on the cover shows the campaign’s cover and title', async ()
   assert.match(s.$('#player-cover').textContent ?? '', /Séance 4 — L’embuscade du Gué/);
   assert.ok(s.$('#player-cover [role="img"]'));
   assert.equal(s.$('#player-window').hidden, true);
-  assert.deepEqual(s.reads.map((r) => r.id).sort(), ['campaign.getCampaign', 'live.getDiffusion', 'media.listMedia']);
+  assert.deepEqual(s.reads.map((r) => r.id).sort(), ['campaign.getCampaign', 'live.getDiffusion', 'media.listMedia', 'session.getLiveSession']);
 });
 
 test('its parts name what they read and what they trigger', async () => {
   const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
   const named = (attribute: string): string[] => [...s.host.querySelectorAll(`[${attribute}]`)].map((e) => e.getAttribute(attribute) ?? '');
-  assert.deepEqual([...new Set(named('data-reads'))].sort(), ['campaign.getCampaign', 'live.getDiffusion', 'media.listMedia']);
+  assert.deepEqual([...new Set(named('data-reads'))].sort(), ['campaign.getCampaign', 'live.getDiffusion', 'media.listMedia', 'session.getLiveSession']);
   assert.deepEqual(named('data-writes').sort(), ['live.moveWindow', 'live.resizeWindow']);
 });
 
@@ -181,11 +186,11 @@ test('a click on the bar without a drag sends nothing', async () => {
   assert.deepEqual(s.sent, []);
 });
 
-test('the projected screen has no bar and no corner, and draws the window where the DM’s tab does', async () => {
+test('the projected screen has a corner but no bar, and draws the window where the DM’s tab does', async () => {
   const diffusion = { base: { kind: 'cover' }, window: WINDOW, view: null };
   const projected = await stage({}, { diffusion });
   assert.equal(projected.host.querySelector('#player-window-bar'), null);
-  assert.equal(projected.host.querySelector('#player-window-resize'), null);
+  assert.ok(projected.$('#player-window-resize'));
   assert.equal(projected.host.querySelector('#player-pilot-badge'), null);
   await projected.drag(projected.$('#player-window'), [200, 100], [400, 300]);
   assert.deepEqual(projected.sent, []);
@@ -193,6 +198,26 @@ test('the projected screen has no bar and no corner, and draws the window where 
   assert.deepEqual(projected.drawn(), pilot.drawn());
   assert.deepEqual(pilot.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'dm' });
   assert.deepEqual(projected.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
+});
+
+// AC1: the corner of the projected window, dragged, widens it and keeps the illustration's ratio
+test('the projected screen’s corner resizes the window through live.resizeWindow, ratio kept', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: SMALL, view: null } });
+  const before = parseFloat(s.drawn().width);
+  // 200 × 300 px window, its corner dragged by +120, +40.
+  await s.drag(s.$('#player-window-resize'), [300, 400], [420, 440]);
+  assert.equal(s.sent.length, 1);
+  assert.equal(s.sent[0]?.dataCapability, 'live.resizeWindow@1');
+  assert.equal(s.sent[0]?.payload.campaign, CAMPAIGN.id);
+  assert.ok(parseFloat(s.drawn().width) > before, 'the window is wider');
+  assert.ok(Math.abs(s.drawn().ratio - 2 / 3) < 0.1, 'the image’s ratio is kept');
+  assert.deepEqual(s.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
+});
+
+test('the projected screen’s bar-less window cannot be moved, only resized', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  await s.drag(s.$('#player-window-art'), [200, 100], [300, 180]);
+  assert.deepEqual(s.sent, []);
 });
 
 test('?pilote=1 pilots the tab without the prop', async () => {
@@ -299,11 +324,54 @@ test('a campaign named by the screen is the one every read and every command nam
   assert.equal(s.sent[0]?.payload.campaign, 'c-9');
 });
 
+// AC1: no campaign prop, nothing sent — the live campaign's title is the h1 and its cover is drawn
 test('a screen that names no campaign leaves the server\u2019s live session to decide', async () => {
-  const s = await stage({});
+  const s = await stage({}, { session: { session: { id: 's4', campaign: 'c-live' }, microphone: { on: true } } });
   assert.deepEqual(s.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player' });
-  assert.deepEqual(s.reads.find((r) => r.id === 'campaign.getCampaign')?.variables, {});
-  assert.deepEqual(s.reads.find((r) => r.id === 'media.listMedia')?.variables, {});
+  assert.deepEqual(s.reads.find((r) => r.id === 'session.getLiveSession')?.variables, {});
+  assert.deepEqual(s.reads.find((r) => r.id === 'campaign.getCampaign')?.variables, { id: 'c-live' });
+  assert.deepEqual(s.reads.find((r) => r.id === 'media.listMedia')?.variables, { campaign: 'c-live' });
+  assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
+  assert.ok(s.$('#player-cover [role="img"]'));
+});
+
+// AC1: no live session, no campaign to show — campaign.getCampaign is never asked without its id
+test('with no live session the stage asks no campaign and draws no title', async () => {
+  const s = await stage({}, { session: null });
+  assert.equal(s.reads.filter((r) => r.id === 'campaign.getCampaign').length, 0);
+  assert.equal(s.host.querySelector('h1'), null);
+});
+
+// AC1: the live session's campaign lists the library, so the window the DM opened shows its illustration
+test('a window on a stage with no campaign prop shows the illustration of the live campaign’s library', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  assert.deepEqual(s.reads.find((r) => r.id === 'media.listMedia')?.variables, { campaign: CAMPAIGN.id });
+  assert.equal(s.$('#player-window').hidden, false);
+  assert.ok(s.$('#player-window [aria-label="Gaspard"]'));
+});
+
+// AC2: the window of a stage with no campaign prop is resized from the pilot tab and keeps the image's ratio
+test('the corner resizes a window found through the live campaign’s library, ratio kept', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  // 300 × 450 px window at (100, 80), its corner dragged to a 600 px square.
+  await s.drag(s.$('#player-window-resize'), [400, 530], [700, 630]);
+  assert.equal(s.sent[0]?.dataCapability, 'live.resizeWindow@1');
+  assert.ok(Math.abs(s.drawn().ratio - 2 / 3) < 1e-9);
+  assert.ok(parseFloat(s.drawn().width) > 30, 'the window grew');
+});
+
+// AC3: with no live session and no campaign prop, no media read is made
+test('with no live session the library is never asked without a campaign', async () => {
+  const s = await stage({}, { session: null });
+  assert.equal(s.reads.filter((r) => r.id === 'media.listMedia').length, 0);
+});
+
+// AC2: the window commands name the live campaign when the screen gives no campaign prop
+test('a window moved on a stage with no campaign prop names the live session’s campaign', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, session: { session: { id: 's4', campaign: 'c-live' } } });
+  await s.drag(s.$('#player-window-bar'), [200, 200], [300, 260]);
+  assert.equal(s.sent[0]?.payload.campaign, 'c-live');
+  assert.equal(s.$('#player-status').hidden, true);
 });
 
 test('the DM is told when the diffusion cannot be read, and the next good read takes it down', async () => {
@@ -334,4 +402,45 @@ test('a new campaign from the screen starts the stage over on it', async () => {
   assert.deepEqual(last('live.getDiffusion'), { view: 'player', campaign: 'c-2' });
   assert.deepEqual(last('campaign.getCampaign'), { id: 'c-2' });
   assert.deepEqual(last('media.listMedia'), { campaign: 'c-2' });
+});
+
+// AC1: a window shown takes the cover's title off the stage; the figure keeps its illustration, and the title comes back with the window gone
+test('a floating window takes the cover’s title off the stage, and the title returns when it closes', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  assert.equal(s.$('#player-window').hidden, false);
+  assert.ok(s.$('#player-window [aria-label="Gaspard"]'));
+  assert.equal(s.host.querySelector('h1'), null);
+  assert.equal(s.host.querySelector('#player-cover-title'), null);
+  assert.doesNotMatch(s.$('#player-cover').textContent ?? '', /Séance 4/);
+  s.row.window = null;
+  s.moveOn();
+  await settle();
+  assert.equal(s.$('#player-cover-title').textContent, CAMPAIGN.name);
+});
+
+// AC1: a window whose image the library does not list is not drawn, so it takes nothing off the stage
+test('a window the library does not list leaves the cover’s title', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: { ...WINDOW, media: 'ill-gone' }, view: null } });
+  assert.equal(s.$('#player-window').hidden, true);
+  assert.equal(s.$('#player-cover-title').textContent, CAMPAIGN.name);
+});
+
+// AC2: no window, the player view opens on the cover's level-1 heading and image
+test('with no window the cover’s level-1 heading and image are drawn', async () => {
+  const s = await stage({});
+  assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
+  assert.ok(s.$('#player-cover [role="img"]'));
+  assert.equal(s.$('#player-window').hidden, true);
+});
+
+// AC1: the cover is on the stage, then the DM sends the window — the title goes off the stage without a restart
+test('a window sent over the shown cover takes its title off the stage', async () => {
+  const s = await stage({});
+  assert.equal(s.$('#player-cover h1').textContent, CAMPAIGN.name);
+  s.row.window = { ...WINDOW };
+  s.moveOn();
+  await settle();
+  assert.equal(s.$('#player-window').hidden, false);
+  assert.equal(s.host.querySelector('h1'), null);
+  assert.ok(s.$('#player-cover [role="img"]'));
 });

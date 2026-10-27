@@ -498,7 +498,7 @@
       "query": "GetBattlemapInstance",
       "capability": "table.getBattlemapInstance",
       "file": "crates/table/queries/get-battlemap-instance.graphql",
-      "sha256": "ef8a05fa68df8483fcc3bd283fd0d005ad09bddc9d3fd692f3b6cfa8f9ece04d",
+      "sha256": "55733f3664fa3893c42c8b2ba75299a81d8b8648c98c9e7ee46c7fb8bee80db2",
       "fields": [
         "battlemapInstance.id",
         "battlemapInstance.battlemapMediaId",
@@ -522,6 +522,7 @@
         "combat.round",
         "combat.currentEntryId",
         "combat.endedAt",
+        "combat.startedAt",
         "initiativeEntry.id",
         "initiativeEntry.tokenId",
         "initiativeEntry.initiative",

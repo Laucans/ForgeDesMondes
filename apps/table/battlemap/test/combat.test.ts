@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { mount, type Timing } from '../src/index.ts';
+import { STYLE } from '../src/style.ts';
 import type { Shell } from '../src/types.ts';
 import { assertDeclared } from './manifests.ts';
 
@@ -51,7 +52,7 @@ const underWay = (): Combat => ({
 });
 
 /** A shell over a small table that applies the combat commands the way the DataGuard's invariants say, and answers each view as it should. */
-function fakeShell(options: { combat?: Combat | null; tokens?: (all: Raw[]) => Raw[] } = {}) {
+function fakeShell(options: { combat?: Combat | null; tokens?: (all: Raw[]) => Raw[]; wire?: boolean } = {}) {
   const table = initial();
   if (options.combat !== undefined) table.state.combat = options.combat;
   if (options.tokens) table.state.tokens = options.tokens(table.state.tokens);
@@ -82,6 +83,8 @@ function fakeShell(options: { combat?: Combat | null; tokens?: (all: Raw[]) => R
         const seen = new Set(own.state.tokens.map((t) => t.id));
         if (own.state.combat) own.state.combat.order = own.state.combat.order.filter((o) => seen.has(o.id));
       }
+      // The Capability's own shape: each participant of the order carries `initiative`, not `init`.
+      if (options.wire && own.state.combat) own.state.combat.order = own.state.combat.order.map(({ id, init }) => ({ id, initiative: init })) as unknown as Order[];
       return { asOf: 1, data: own };
     },
     async command(body) {
@@ -157,9 +160,14 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 12; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
-async function battlemap(props: Raw, options?: Parameters<typeof fakeShell>[0]) {
+async function battlemap(props: Raw, options?: Parameters<typeof fakeShell>[0], size?: { width: number; height: number }) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="Battlemap"></div></body></html>');
   const { document } = dom.window;
+  // jsdom lays nothing out: the map's view is the size the test gives it, when it gives one.
+  if (size) {
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { configurable: true, get(this: HTMLElement) { return this.id === 'battlemap-view' ? size.width : 0; } });
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'clientHeight', { configurable: true, get(this: HTMLElement) { return this.id === 'battlemap-view' ? size.height : 0; } });
+  }
   const host = document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
   mount(host, { instance: 'bmi-gue-s4', ...props }, fake.shell, timing);
@@ -338,6 +346,19 @@ test('the sheet’s « Avancer » and « Reculer » move the chosen participant 
   assert.equal(fake.sent.length, 2, 'the first cannot go before the first');
 });
 
+// AC2: a combat saved with Bandit 2's sheet open is reopened with the tokens at the same places relative to the view
+test('a combat reopened with a sheet open lays the map out as it was, the sheet over it', async () => {
+  const where = (document: Document) => ['t-elowen', 't-bandit-2'].map((id) => { const el = document.querySelector<HTMLElement>(`#token-${id}`); return `${el?.style.left}/${el?.style.top}`; });
+  const { $, open, document } = await battlemap({ view: 'dm' }, { combat: underWay() }, { width: 705, height: 520 });
+  const before = { places: where(document), stage: $('#battlemap-stage').style.transform };
+  assert.notEqual(before.stage, '', 'the map is laid out');
+  await open('t-bandit-2');
+  assert.equal($('#inspector-title').textContent, 'Bandit 2');
+  assert.deepEqual({ places: where(document), stage: $('#battlemap-stage').style.transform }, before, 'the sheet changes no place');
+  assert.match(STYLE, /\.bm #token-inspector \{ position: absolute;/);
+  assert.doesNotMatch(STYLE, /#token-inspector \{ position: static/, 'not even on a narrow screen');
+});
+
 test('a click on a participant opens the sheet of that very instance', async () => {
   const { $, open, document } = await battlemap({ view: 'dm' }, { combat: underWay() });
   await open('t-bandit-2');
@@ -454,6 +475,30 @@ test('the player view’s carousel is read-only and shows no HP figure, only the
   assert.equal($('#initiative-carousel').getAttribute('aria-label'), 'Ordre d’initiative');
   assert.doesNotMatch($('#initiative-carousel').textContent ?? '', /\d+\/\d+ PV/);
   assert.match($('#carousel-t-bandit-1').textContent ?? '', /Indemne/);
+});
+
+// AC1: a combat under way reads the same names and initiatives in the same order after a reopen
+test('the carousel reads each participant’s initiative as the Capability answers it, before and after a reopen', async () => {
+  const combat: Combat = { round: 1, current: 't-elowen', order: [{ id: 't-elowen', init: 18, dex: 0 }, { id: 't-sirielle', init: 14, dex: 0 }, { id: 't-bandit-2', init: 7, dex: 0 }] };
+  const items = (document: Document): string[] =>
+    Array.from(document.querySelectorAll('#carousel-track .kit-token__item')).map((el) => `${(el as HTMLElement).dataset.token}:${el.querySelector('.bm-init')?.textContent}`);
+  const before = await battlemap({ view: 'dm' }, { combat, wire: true });
+  const reopened = await battlemap({ view: 'dm' }, { combat, wire: true });
+  assert.deepEqual(items(before.document), ['t-elowen:18', 't-sirielle:14', 't-bandit-2:7']);
+  assert.deepEqual(items(reopened.document), items(before.document));
+});
+
+// AC1: the first .kit-token__item named Elowen is the map's token, the carousel being shown above it
+test('during a combat the first token named Elowen is the map’s, and the carousel comes after the body in the page', async () => {
+  const { $, document } = await battlemap({ view: 'dm' }, { combat: underWay() });
+  const named = Array.from(document.querySelectorAll<HTMLElement>('.kit-token__item')).filter((el) => el.textContent?.includes('Elowen'));
+  assert.equal(named.length, 2);
+  assert.equal(named[0]?.id, 'token-t-elowen');
+  assert.ok(named[0]?.closest('#battlemap-map'));
+  assert.ok(named[1]?.closest('#initiative-carousel'));
+  assert.ok($('#battlemap-body').compareDocumentPosition($('#initiative-carousel')) & 4, 'the carousel follows the body');
+  assert.match(STYLE, /\.bm-toolbar \{ order: -2;/);
+  assert.match(STYLE, /\.bm-carousel \{ order: -1;/);
 });
 
 test('a refused combat command says why', async () => {

@@ -1,8 +1,8 @@
 {
   "microUi": "LiveSessionBar",
   "system": "session",
-  "description": "La séance en direct : son numéro, son titre, son heure de début et sa scène courante, ce que voient les joueurs (retour à la couverture, fermeture de la fenêtre) et la clôture avec son bilan (lignes de journal, durée, modèle et résumé)",
-  "needs": ["session.getLiveSession", "live.getDiffusion", "session.getSessionJournal", "session.getPreviousSessionSummary"],
+  "description": "La séance en direct : son numéro, son titre, son heure de début et ses scènes (la courante marquée), publiés au contexte de l’écran — la séance, sa campagne, la scène et la battlemap de la scène en direct —, ce que voient les joueurs (retour à la couverture, fermeture de la fenêtre) et la clôture avec son bilan (lignes de journal, durée, modèle et résumé)",
+  "needs": ["session.getLiveSession", "session.listScenes", "live.getDiffusion", "session.getSessionJournal", "session.getPreviousSessionSummary"],
   "actions": ["live.showCover", "live.closeWindow", "session.closeSession"],
   "props": {
     "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"

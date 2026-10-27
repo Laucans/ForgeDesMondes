@@ -3,7 +3,7 @@
   <div class="bm-carousel" id="initiative-carousel" aria-label="Ordre d’initiative" data-writes="table.nextTurn table.reorderInitiative table.addParticipant table.removeParticipant table.endCombat" hidden></div>
   <div class="bm-body" id="battlemap-body">
     <aside class="bm-side" id="battlemap-roster" aria-labelledby="battlemap-roster-title" data-reads="campaign.listCharacters" hidden></aside>
-    <div class="bm-map" id="battlemap-map" data-reads="media.getBattlemap" data-writes="table.moveToken"></div>
+    <div class="bm-map" id="battlemap-map" data-reads="media.getBattlemap live.getDiffusion" data-writes="table.moveToken"></div>
     <aside class="bm-side" id="token-inspector" aria-labelledby="inspector-title" aria-live="polite" data-writes="table.changeHitPoints" hidden></aside>
   </div>
   <div id="battlemap-dialog" data-writes="table.startCombat table.resetBattlemap"></div>

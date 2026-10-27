@@ -521,14 +521,19 @@
       running = playing;
       firstRead = false;
     };
-    async function load() {
+    let newest = Promise.resolve(true);
+    function load() {
       loads += 1;
-      const mine = loads;
+      newest = read(loads);
+      return newest;
+    }
+    async function read(mine) {
       try {
-        const read = await shell2.capability(LIST_SOUNDS, void 0, campaign());
-        if (mine !== loads || over) return true;
-        library = parseLibrary(read.data);
-        seen = read.asOf;
+        const answer = await shell2.capability(LIST_SOUNDS, void 0, campaign());
+        if (over) return true;
+        if (mine !== loads) return newest;
+        library = parseLibrary(answer.data);
+        seen = answer.asOf;
         reconcile();
         paintTags();
         paintGrid();
@@ -578,20 +583,44 @@
       await load();
       return outcome;
     }
+    const volumes = /* @__PURE__ */ new Set();
+    function changingVolume(change) {
+      const forget = () => {
+        volumes.delete(tracked);
+      };
+      const tracked = change.then(forget, forget);
+      volumes.add(tracked);
+    }
+    async function volumesSettled() {
+      while (volumes.size > 0) await Promise.allSettled([...volumes]);
+    }
+    const starting = /* @__PURE__ */ new Map();
     function play(id) {
-      const now = listen(id);
-      if (!now) return;
+      if (!library.sounds.some((candidate) => candidate.id === id)) return;
+      const ticket = {};
+      starting.set(id, ticket);
+      let now;
+      const begin = () => {
+        if (over || starting.get(id) !== ticket) return;
+        starting.delete(id);
+        now = listen(id);
+      };
       asked.set(id, (asked.get(id) ?? 0) + 1);
-      void act("playback", "Le son n\u2019a pas pu \xEAtre lanc\xE9", PLAY_SOUND, {}, id).then((outcome) => {
-        if (outcome === "refused" && heard.get(id) === now) {
+      const started = volumes.size === 0 ? Promise.resolve(begin()) : volumesSettled().then(begin);
+      const request = act("playback", "Le son n\u2019a pas pu \xEAtre lanc\xE9", PLAY_SOUND, {}, id).then((outcome) => {
+        if (outcome !== "refused") return;
+        if (starting.get(id) === ticket) starting.delete(id);
+        if (now && heard.get(id) === now) {
           hush(id);
           paintBox(id);
         }
-      }).finally(() => {
+      });
+      void Promise.all([started, request]).finally(() => {
         asked.set(id, (asked.get(id) ?? 1) - 1);
       });
     }
     function stopAll() {
+      starting.clear();
       for (const id of [...heard.keys()]) hush(id);
       paintGrid();
       void act("playback", "Impossible de tout arr\xEAter", STOP_ALL, campaign());
@@ -622,8 +651,8 @@
       dragging = false;
       const volume = Number(slider.value);
       const id = slider.dataset.volume;
-      if (id !== void 0) void act(`volume:${id}`, "Le volume du son n\u2019a pas pu \xEAtre chang\xE9", SET_SOUND_VOLUME, { volume }, id);
-      else if (slider.name === "master") void act("master", "Le volume global n\u2019a pas pu \xEAtre chang\xE9", SET_MASTER_VOLUME, { ...campaign(), volume });
+      if (id !== void 0) changingVolume(act(`volume:${id}`, "Le volume du son n\u2019a pas pu \xEAtre chang\xE9", SET_SOUND_VOLUME, { volume }, id));
+      else if (slider.name === "master") changingVolume(act("master", "Le volume global n\u2019a pas pu \xEAtre chang\xE9", SET_MASTER_VOLUME, { ...campaign(), volume }));
       if (repaintLater) paintGrid();
     });
     host2.addEventListener("click", (event) => {
@@ -651,6 +680,7 @@
       shell2.context.on((name) => {
         if (!host2.isConnected) return end();
         if (name !== CAMPAIGN_CONTEXT) return;
+        starting.clear();
         for (const id of [...heard.keys()]) hush(id);
         chosen.clear();
         running = /* @__PURE__ */ new Set();
@@ -660,6 +690,7 @@
     );
     function end() {
       over = true;
+      starting.clear();
       for (const stop of stopWatching) stop();
       for (const id of [...heard.keys()]) hush(id);
     }

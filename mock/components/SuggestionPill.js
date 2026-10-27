@@ -240,6 +240,15 @@
     const history = times.every((t) => !Number.isNaN(t)) ? all.map((s, i) => ({ s, t: times[i] ?? 0 })).sort((a, b) => b.t - a.t).map(({ s }) => s) : all;
     return { stack: history.slice(0, PILE), history };
   }
+  var keyOf = (s) => `${s.id}@${s.detectedAt}`;
+  var arrivals = (history, seen) => history.filter((s) => !seen.has(keyOf(s))).reverse();
+  var isAnswer = (data) => isRecord(data) || Array.isArray(data);
+  function without(all, held) {
+    if (held.length === 0) return all;
+    const keys = new Set(held.map(keyOf));
+    const history = all.history.filter((s) => !keys.has(keyOf(s)));
+    return { stack: history.slice(0, PILE), history };
+  }
   function timeOf(detectedAt) {
     const at = Date.parse(detectedAt);
     return Number.isNaN(at) ? "" : new Date(at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
@@ -284,7 +293,7 @@
   var MIC_LABEL = "Micro de s\xE9ance";
   var ICON = { lieu: "L", place: "L", pnj: "P", npc: "P", pj: "J", "\xE9v\xE9nement": "\xC9", evenement: "\xC9", event: "\xC9" };
   function skeleton() {
-    return `<aside class="mf-pill" id="suggestions" aria-labelledby="suggestions-title"><div class="mf-pill__card" id="suggestions-card"><div class="mf-pill__head"><h2 id="suggestions-title">Suggestions</h2><button type="button" class="icon-btn" id="suggestions-history-toggle" aria-expanded="false" aria-controls="suggestions-history" title="Historique des suggestions">\u27F2</button></div><p class="mf-pill__heard small" id="suggestions-heard" aria-live="polite"></p><p class="mf-pill__status small" id="suggestions-status" role="status" hidden></p><ol class="mf-pill__stack" id="suggestions-stack" data-reads="${LIST_SUGGESTIONS}"></ol><section class="mf-pill__history" id="suggestions-history" aria-labelledby="suggestions-history-title" hidden><h3 id="suggestions-history-title">Historique</h3><ol class="mf-pill__stack" id="suggestions-history-list" data-reads="${LIST_SUGGESTIONS}"></ol></section></div><div class="mf-pill__mic" id="suggestions-mic" data-writes="${SET_MICROPHONE}"><div class="kit-micbutton kit-micbutton--compact" id="suggestions-mic-box" data-state="idle"><button type="button" class="kit-micbutton__btn" id="suggestions-mic-button" aria-pressed="false" aria-label="${MIC_LABEL}"><span class="kit-micbutton__ring"></span>${MIC}${PAUSE}</button><div class="kit-micbutton__text"><span class="kit-micbutton__label">${MIC_LABEL}</span><span class="kit-micbutton__status" aria-live="polite"><span class="kit-micbutton__state"></span></span></div></div></div></aside>`;
+    return `<aside class="mf-pill" id="suggestions" aria-labelledby="suggestions-title"><div class="mf-pill__card" id="suggestions-card"><div class="mf-pill__head"><h2 id="suggestions-title">Suggestions</h2><button type="button" class="icon-btn" id="suggestions-history-toggle" aria-expanded="false" aria-controls="suggestions-history" aria-label="Historique des 5 derni\xE8res entit\xE9s" title="Historique des 5 derni\xE8res entit\xE9s">\u27F2</button></div><p class="mf-pill__heard small" id="suggestions-heard" aria-live="polite"></p><p class="mf-pill__status small" id="suggestions-status" role="status" hidden></p><ol class="mf-pill__stack" id="suggestions-stack" data-reads="${LIST_SUGGESTIONS}"></ol><section class="mf-pill__history" id="suggestions-history" aria-labelledby="suggestions-history-title" hidden><h3 id="suggestions-history-title">Historique des 5 derni\xE8res entit\xE9s</h3><ol class="mf-pill__stack" id="suggestions-history-list" data-reads="${LIST_SUGGESTIONS}"></ol></section></div><div class="mf-pill__mic" id="suggestions-mic" data-writes="${SET_MICROPHONE}"><div class="kit-micbutton kit-micbutton--compact" id="suggestions-mic-box" data-state="idle"><button type="button" class="kit-micbutton__btn" id="suggestions-mic-button" aria-pressed="false" aria-label="${MIC_LABEL}"><span class="kit-micbutton__ring"></span>${MIC}${PAUSE}</button><div class="kit-micbutton__text"><span class="kit-micbutton__label">${MIC_LABEL}</span><span class="kit-micbutton__status" aria-live="polite"><span class="kit-micbutton__state"></span></span></div></div></div></aside>`;
   }
   function row(s, index, prefix, armed) {
     const sound = s.kind === "sound";
@@ -330,7 +339,7 @@
 `;
 
   // apps/live/suggestion-pill/src/index.ts
-  var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 1e3 };
+  var WAITING = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), everyMs: 300, polls: 60, watchMs: 1e3, beatMs: 600 };
   var EMPTY_STACK = "Activez le micro : les entit\xE9s et les sons nomm\xE9s appara\xEEtront ici.";
   var EMPTY_HISTORY = "Aucune suggestion pour l\u2019instant.";
   function ensureStyle(doc) {
@@ -346,6 +355,16 @@
     host2.innerHTML = skeleton();
     let props2 = parseProps(raw);
     let suggestions = parseSuggestions(void 0);
+    let seen = /* @__PURE__ */ new Set();
+    let seeded = false;
+    let pending = [];
+    let revealing = false;
+    const forgetArrivals = () => {
+      seen = /* @__PURE__ */ new Set();
+      seeded = false;
+      pending = [];
+      revealing = false;
+    };
     let mic = "idle";
     let busy = false;
     let armed = null;
@@ -366,16 +385,22 @@
       box.hidden = text2 === "";
       speaker = text2 === "" ? "" : from;
     }
+    const shown2 = () => without(suggestions, pending);
     function paintHeard() {
-      const newest = suggestions.stack[0];
+      const newest = shown2().stack[0];
       part("suggestions-heard").textContent = mic === "recording" ? newest ? `\xAB ${newest.via} \xBB` : "J\u2019\xE9coute\u2026" : mic === "paused" ? "Micro en pause \u2014 rien n\u2019est \xE9cout\xE9." : "";
     }
     function paintLists() {
       const active = doc.activeElement;
-      const focused = active !== null && host2.contains(active) ? active.id : "";
-      part("suggestions-stack").innerHTML = rows(suggestions.stack, "suggestion", EMPTY_STACK, armed);
-      part("suggestions-history-list").innerHTML = rows(suggestions.history, "suggestion-history", EMPTY_HISTORY, armed);
-      if (focused !== "") host2.querySelector(`#${focused}`)?.focus();
+      const on = active !== null && host2.contains(active) ? active.closest("button[data-kind]") : null;
+      const focused = on === null ? null : { list: on.closest("ol")?.id ?? "", kind: on.getAttribute("data-kind") ?? "", id: on.getAttribute("data-id") ?? "" };
+      const view = shown2();
+      part("suggestions-stack").innerHTML = rows(view.stack, "suggestion", EMPTY_STACK, armed);
+      part("suggestions-history-list").innerHTML = rows(view.history, "suggestion-history", EMPTY_HISTORY, armed);
+      if (focused !== null) {
+        const buttons = [...host2.querySelectorAll(`#${focused.list} button[data-kind]`)];
+        buttons.find((r) => r.dataset.kind === focused.kind && r.dataset.id === focused.id)?.focus();
+      }
       paintHeard();
     }
     function paintMic() {
@@ -389,6 +414,20 @@
       button.disabled = busy;
       paintHeard();
     }
+    async function reveal() {
+      if (revealing) return;
+      revealing = true;
+      const mine = generation;
+      try {
+        while (pending.length > 0 && mine === generation && host2.isConnected) {
+          pending = pending.slice(1);
+          paintLists();
+          await timing.sleep(timing.beatMs);
+        }
+      } finally {
+        if (mine === generation) revealing = false;
+      }
+    }
     async function refresh() {
       const mine = generation;
       const no = readNo += 1;
@@ -396,9 +435,15 @@
         const read = await shell2.capability(LIST_SUGGESTIONS, void 0, scope());
         if (mine !== generation || no < readNo) return;
         suggestions = parseSuggestions(read.data);
+        const listed = new Set(suggestions.history.map(keyOf));
+        pending = pending.filter((s) => listed.has(keyOf(s)));
+        if (seeded) pending = [...pending, ...arrivals(suggestions.history, seen)];
+        seeded = seeded || isAnswer(read.data);
+        for (const key of listed) seen.add(key);
         say("", "read");
         if (armed !== null && !suggestions.history.some((s) => s.kind === "sound" && s.id === armed)) armed = null;
         paintLists();
+        void reveal();
       } catch {
         if (mine !== generation || no < readNo) return;
         say("Impossible de lire les suggestions.", "read");
@@ -497,6 +542,7 @@
         if (props2.campaign === before.campaign) return;
         generation += 1;
         suggestions = parseSuggestions(void 0);
+        forgetArrivals();
         armed = null;
         stopWatching();
         mic = "idle";

@@ -79,6 +79,7 @@
     },
     {
       "path": "pages/dm-view.html",
+      "screen": "dm-view",
       "title": "DM view",
       "objective": "Le DM fait rouler la séance : il ouvre les éléments suggérés par le micro, déplace les tokens, mène le combat, joue les sons et envoie cartes et illustrations aux joueurs",
       "surface": "dm",
@@ -390,12 +391,14 @@
       "fixtures": [
         "fixtures/table.getBattlemapInstance.json",
         "fixtures/media.getBattlemap.json",
-        "fixtures/campaign.listCharacters.json"
+        "fixtures/campaign.listCharacters.json",
+        "fixtures/live.getDiffusion.json"
       ],
       "needs": [
         "table.getBattlemapInstance",
         "media.getBattlemap",
-        "campaign.listCharacters"
+        "campaign.listCharacters",
+        "live.getDiffusion"
       ],
       "actions": [
         "table.moveToken",
@@ -422,7 +425,7 @@
         "campaign": "string — id de la campagne, pour la liste des personnages à déposer"
       },
       "source": "apps/table/battlemap",
-      "builtFrom": "e913c1182cacba57"
+      "builtFrom": "077176f5f97ce289"
     },
     {
       "name": "MediaLibrary",
@@ -478,10 +481,12 @@
       "description": "La bibliothèque des effets sonores : téléversement, nom, tags et volume propre",
       "fragment": "components/SoundLibrary.html",
       "fixtures": [
-        "fixtures/soundbox.listSounds.json"
+        "fixtures/soundbox.listSounds.json",
+        "fixtures/session.getLiveSession.json"
       ],
       "needs": [
-        "soundbox.listSounds"
+        "soundbox.listSounds",
+        "session.getLiveSession"
       ],
       "actions": [
         "soundbox.addSound",
@@ -492,7 +497,7 @@
         "campaign": "string — id de la campagne dont on gère les sons (facultatif : la campagne courante)"
       },
       "source": "apps/soundbox/sound-library",
-      "builtFrom": "8399292bc29bed30"
+      "builtFrom": "7cdf3e430a8bbebd"
     },
     {
       "name": "LiveSessionBar",
@@ -501,12 +506,14 @@
       "fragment": "components/LiveSessionBar.html",
       "fixtures": [
         "fixtures/session.getLiveSession.json",
+        "fixtures/session.listScenes.json",
         "fixtures/live.getDiffusion.json",
         "fixtures/session.getSessionJournal.json",
         "fixtures/session.getPreviousSessionSummary.json"
       ],
       "needs": [
         "session.getLiveSession",
+        "session.listScenes",
         "live.getDiffusion",
         "session.getSessionJournal",
         "session.getPreviousSessionSummary"
@@ -520,7 +527,7 @@
         "session": "string — optionnel : id de la séance à lire ; sans lui, la séance en cours"
       },
       "source": "apps/session/live-session-bar",
-      "builtFrom": "53038bd1107451c4"
+      "builtFrom": "66bd56b58dea46cd"
     },
     {
       "name": "ElementsPanel",
@@ -545,7 +552,9 @@
         "live.showOnPlayerView",
         "live.showWindowOnPlayerView"
       ],
-      "props": {}
+      "props": {},
+      "source": "apps/live/elements-panel",
+      "builtFrom": "8fba232eaadc004c"
     },
     {
       "name": "TableSheet",
@@ -566,8 +575,11 @@
       ],
       "props": {
         "type": "\"character\" | \"place\" | \"event\" | \"illustration\"",
-        "id": "string — élément ouvert au départ"
-      }
+        "id": "string — élément ouvert au départ",
+        "campaign": "string — id de la campagne ; absent, l’envoi en fenêtre ne peut pas nommer la campagne"
+      },
+      "source": "apps/live/table-sheet",
+      "builtFrom": "1a89492f4735aad4"
     },
     {
       "name": "LiveSoundbox",
@@ -588,7 +600,7 @@
       ],
       "props": {},
       "source": "apps/soundbox/live-soundbox",
-      "builtFrom": "7409134c568a9c4b"
+      "builtFrom": "7c92a8a1f8ab93f7"
     },
     {
       "name": "SuggestionPill",
@@ -609,7 +621,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/suggestion-pill",
-      "builtFrom": "b6e648cadc501e1a"
+      "builtFrom": "46034da62fc32601"
     },
     {
       "name": "PlayerStage",
@@ -618,11 +630,13 @@
       "fragment": "components/PlayerStage.html",
       "fixtures": [
         "fixtures/live.getDiffusion.json",
+        "fixtures/session.getLiveSession.json",
         "fixtures/campaign.getCampaign.json",
         "fixtures/media.listMedia.json"
       ],
       "needs": [
         "live.getDiffusion",
+        "session.getLiveSession",
         "campaign.getCampaign",
         "media.listMedia"
       ],
@@ -635,7 +649,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "a2f9bd752d683e01"
+      "builtFrom": "f95ecd6996b0e237"
     }
   ]
 }
