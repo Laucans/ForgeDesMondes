@@ -108,8 +108,8 @@
 //! that runs past midnight does not map: its lines would sort before the evening's.
 //!
 //! The campaign's sounds (`sounds.json`) are one row of `sound` each, named
-//! by their slug (`snd-porte`): the name, the tags (already in the form
-//! `tags-normalized` asks, else the file is skipped), the file, and the
+//! by their slug (`snd-porte`): the name, the tags (normalised as
+//! `tags-normalized` asks, by the add-sound unit's own function), the file, and the
 //! volume as a fraction of 1 (the file says percents), stamped in the order of
 //! the file so that the soundbox lists them as it does. The campaign's
 //! `masterVolume` is its `sound_master_volume`, and every other campaign takes
@@ -657,6 +657,17 @@ fn withdraw(plan: &mut Fixtures, file: &str, why: &str) {
 /// their own count from, a microsecond apart.
 const FIRST: &str = "2026-08-20T10:00:00";
 
+/// How many stamps follow `at` before the microseconds run out.
+const STAMPS: usize = 1_000_000;
+
+/// Whether `count` rows can each have a stamp of their own after [`FIRST`].
+fn stampable(count: usize) -> Result<(), String> {
+    if count > STAMPS {
+        return Err(format!("{count} rows are more than {STAMPS} stamps"));
+    }
+    Ok(())
+}
+
 /// The `index`th stamp after `at` (a time with no zone, as the fixtures
 /// write it): fixed and in fixture order, so that a list keeps the fixture's.
 fn stamp(at: &str, index: usize) -> String {
@@ -696,6 +707,12 @@ struct Read {
 struct Running {
     /// The session, by slug.
     session: String,
+    /// The campaign it belongs to, by slug.
+    campaign: String,
+    /// Its title.
+    title: String,
+    /// Its rank among the campaign's sessions.
+    position: i32,
     /// The day it was played.
     day: String,
     /// The time of that day it started, `HH:MM`.
@@ -1036,6 +1053,7 @@ impl Read {
         for sound in array(&value["sounds"], "sounds")? {
             sounds.push(sound_of(sound)?);
         }
+        stampable(sounds.len())?;
         let mut slugs = BTreeSet::new();
         if let Some(twice) = sounds.iter().find(|s| !slugs.insert(&s.slug)) {
             return Err(format!("the slug {:?} names two rows", twice.slug));
@@ -1169,6 +1187,12 @@ impl Read {
 
     fn running(&mut self, value: &Value) -> Result<(), String> {
         let session = required(value, "id")?.to_string();
+        let campaign = required(value, "campaign")?.to_string();
+        let title = required(value, "title")?.to_string();
+        let position = value["order"]
+            .as_i64()
+            .and_then(|n| i32::try_from(n).ok())
+            .ok_or_else(|| format!("{session} has no order"))?;
         let day = required(value, "date")?.to_string();
         let started = required(value, "startedAt")?.to_string();
         if !is_day(&day) {
@@ -1179,6 +1203,9 @@ impl Read {
         }
         self.running = Some(Running {
             session,
+            campaign,
+            title,
+            position,
             day,
             started,
         });
@@ -1314,7 +1341,13 @@ impl Read {
     /// Whether `slug` names a row of the sessions, the scenes or the to-create
     /// list as well as one `named` does.
     fn claimed(&self, slug: &str) -> bool {
-        self.named(slug)
+        self.named(slug) || self.claimed_but_sounds(slug)
+    }
+
+    /// [`Read::claimed`], the sounds left out: the sounds are checked against
+    /// these, as they are read first.
+    fn claimed_but_sounds(&self, slug: &str) -> bool {
+        self.named_but_sounds(slug)
             || self
                 .sessions
                 .iter()
@@ -1334,8 +1367,9 @@ impl Read {
 
     /// Whether the session under way fits the list of sessions: one the list
     /// gives, still in preparation (a session goes from `prep` to `live`, and
-    /// never back: `status-lifecycle`), on the day the list plans it, and with
-    /// no other session already live.
+    /// never back: `status-lifecycle`), of the list's campaign, with its title
+    /// and rank, on the day the list plans it (a session with no day is not
+    /// on any), and with no other session already live.
     fn running_fits(&self) -> Result<(), String> {
         let Some(running) = &self.running else {
             return Ok(());
@@ -1358,11 +1392,19 @@ impl Read {
                 running.session, session.status
             ));
         }
-        if session
-            .planned_on
-            .as_str()
-            .is_some_and(|day| day != running.day)
-        {
+        if sessions.campaign != running.campaign {
+            return Err(format!(
+                "the session {:?} is of the campaign {:?}, not of {:?}",
+                running.session, sessions.campaign, running.campaign
+            ));
+        }
+        if session.title != running.title || session.position != running.position {
+            return Err(format!(
+                "the session {:?} is not titled {:?}, number {}, in the list",
+                running.session, running.title, running.position
+            ));
+        }
+        if session.planned_on.as_str() != Some(running.day.as_str()) {
             return Err(format!(
                 "the session {:?} is of {}, not of {}",
                 running.session, session.planned_on, running.day
@@ -1652,8 +1694,10 @@ impl Read {
     }
 
     /// Whether the sounds read fit what the other files say: their campaign
-    /// is one of them, and no slug of theirs names another row. Checked once
-    /// every file is read.
+    /// is one of them, and no slug of theirs names another row, a session, a
+    /// scene or a to-create entry included: the clash leaves the soundbox
+    /// out, not the sessions and what hangs on them. Checked once every file
+    /// is read.
     fn soundbox_fits(&self) -> Result<(), String> {
         let Some(soundbox) = &self.soundbox else {
             return Ok(());
@@ -1667,7 +1711,7 @@ impl Read {
         match soundbox
             .sounds
             .iter()
-            .find(|sound| self.named_but_sounds(&sound.slug))
+            .find(|sound| self.claimed_but_sounds(&sound.slug))
         {
             Some(sound) => Err(format!("the slug {:?} names two rows", sound.slug)),
             None => Ok(()),
@@ -2421,23 +2465,18 @@ fn fraction(value: &Value, what: &str) -> Result<f64, String> {
         .ok_or_else(|| format!("{what} is not a whole percent from 0 to 100"))
 }
 
-/// One sound of `sounds.json`, mapped. Its tags must be in the form
+/// One sound of `sounds.json`, mapped. Its tags are normalised as
 /// `tags-normalized` asks: trimmed, lowercase, none empty, none twice.
 fn sound_of(value: &Value) -> Result<Sound, String> {
     let slug = required(value, "id")?.to_string();
-    let mut tags: Vec<String> = Vec::new();
+    let mut given = Vec::new();
     for tag in array(&value["tags"], "tags")? {
-        let tag = tag
-            .as_str()
-            .ok_or_else(|| format!("a tag of {slug} is not a text"))?;
-        if tag.is_empty() || tag != tag.trim() || tag != tag.to_lowercase() {
-            return Err(format!("the tag {tag:?} of {slug} is not normalised"));
-        }
-        if tags.iter().any(|known| known == tag) {
-            return Err(format!("the tag {tag:?} of {slug} is given twice"));
-        }
-        tags.push(tag.to_string());
+        given.push(
+            tag.as_str()
+                .ok_or_else(|| format!("a tag of {slug} is not a text"))?,
+        );
     }
+    let tags = add_sound::normalized(given);
     Ok(Sound {
         name: required(value, "name")?.to_string(),
         file: required(value, "file")?.to_string(),
@@ -3209,26 +3248,6 @@ mod tests {
             ),
             (
                 json!({ "campaign": "cendres-valombre", "masterVolume": 80,
-                    "sounds": [sound(json!(["Porte"]), json!(50))] }),
-                "not normalised",
-            ),
-            (
-                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
-                    "sounds": [sound(json!([" porte"]), json!(50))] }),
-                "not normalised",
-            ),
-            (
-                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
-                    "sounds": [sound(json!([""]), json!(50))] }),
-                "not normalised",
-            ),
-            (
-                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
-                    "sounds": [sound(json!(["a", "a"]), json!(50))] }),
-                "given twice",
-            ),
-            (
-                json!({ "campaign": "cendres-valombre", "masterVolume": 80,
                     "sounds": [sound(json!(["a"]), json!(100.5))] }),
                 "volume is not a whole percent",
             ),
@@ -3296,7 +3315,35 @@ mod tests {
     }
 
     #[test]
-    fn a_sound_named_as_a_session_leaves_the_sessions_skipped() {
+    fn the_tags_of_a_sound_are_normalised_not_refused() {
+        let plan = soundbox_of(&json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+            "sounds": [{ "id": "t", "name": "T", "tags": ["Taverne", " Bois ", "", "taverne"],
+                "volume": 50, "file": "t.ogg" }] }));
+        assert_eq!(
+            plan.loaded,
+            ["entities.json", "sounds.json"],
+            "{:?}",
+            plan.skipped
+        );
+        assert_eq!(rows(&plan, "sound")[0]["tags"], json!(["taverne", "bois"]));
+        let plan = soundbox_of(&json!({ "campaign": "cendres-valombre", "masterVolume": 80,
+            "sounds": [{ "id": "t", "name": "T", "tags": [1], "volume": 50, "file": "t.ogg" }] }));
+        assert!(
+            plan.skipped[0].1.contains("is not a text"),
+            "{:?}",
+            plan.skipped
+        );
+    }
+
+    #[test]
+    fn a_soundbox_past_the_stamps_there_are_is_refused() {
+        assert!(stampable(STAMPS).is_ok());
+        assert!(stampable(STAMPS + 1).is_err());
+        assert_eq!(stamp(FIRST, STAMPS - 1), "2026-08-20T10:00:00.999999Z");
+    }
+
+    #[test]
+    fn a_sound_named_as_a_session_leaves_the_soundbox_skipped() {
         let read = |name: &str| {
             std::fs::read_to_string(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -3317,12 +3364,15 @@ mod tests {
         );
         let plan = fixtures(&dir).expect("the folder is listed");
         std::fs::remove_dir_all(&dir).ok();
-        // The sounds are read first and fit; the sessions then find the slug taken.
-        assert_eq!(plan.loaded, ["entities.json", "sounds.json"]);
+        // The clash is the soundbox's: the sessions are kept.
+        let mut loaded = plan.loaded.clone();
+        loaded.sort();
+        assert_eq!(loaded, ["SessionList.json", "entities.json"]);
         assert_eq!(plan.skipped.len(), 1, "{:?}", plan.skipped);
-        assert_eq!(plan.skipped[0].0, "SessionList.json");
+        assert_eq!(plan.skipped[0].0, "sounds.json");
         assert!(plan.skipped[0].1.contains("names two rows"));
-        assert!(rows(&plan, "session").is_empty());
+        assert!(rows(&plan, "sound").is_empty());
+        assert!(!rows(&plan, "session").is_empty());
     }
 
     /// The plan of `entities.json` and `soundbox` (as `sounds.json`), alone.
@@ -4289,6 +4339,11 @@ mod tests {
     }
 
     fn replaced(over: &[(&str, Value)]) -> Fixtures {
+        replaced_but(&[], over)
+    }
+
+    /// [`replaced`], the files named in `without` taken out first.
+    fn replaced_but(without: &[&str], over: &[(&str, Value)]) -> Fixtures {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
         let mut files: Vec<(String, String)> = std::fs::read_dir(&dir)
             .expect("the fixtures folder")
@@ -4296,7 +4351,8 @@ mod tests {
                 let path = entry.ok()?.path();
                 let name = path.file_name()?.to_str()?.to_string();
                 let json = path.extension().is_some_and(|e| e == "json");
-                json.then(|| (name, std::fs::read_to_string(&path).expect("a fixture")))
+                (json && !without.contains(&name.as_str()))
+                    .then(|| (name, std::fs::read_to_string(&path).expect("a fixture")))
             })
             .collect();
         for (name, value) in over {
@@ -4988,18 +5044,6 @@ mod tests {
             plan.skipped
         );
         assert!(!plan.skipped.iter().any(|(f, _)| f == LIVE_FILE));
-        let stated = |plan: &Fixtures| {
-            rows(plan, "session")
-                .iter()
-                .map(|s| {
-                    (
-                        s["id"].clone(),
-                        s["status"].clone(),
-                        s["started_at"].clone(),
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
         let with = stated(&plan);
         assert_eq!(
             with.iter()
@@ -5008,7 +5052,7 @@ mod tests {
             1
         );
         // Without the file, s4 is the list's own (in preparation, never started).
-        let without = mock_files_without(LIVE_FILE);
+        let without = stated(&replaced_but(&[LIVE_FILE], &[]));
         let s4 = id("session", "s4");
         let state_of = |all: &[(Value, Value, Value)]| {
             all.iter()
@@ -5033,26 +5077,9 @@ mod tests {
         );
     }
 
-    /// The `(id, status, started_at)` of every session planned with `file` taken out.
-    fn mock_files_without(file: &str) -> Vec<(Value, Value, Value)> {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures");
-        let files: Vec<(String, String)> = std::fs::read_dir(&dir)
-            .expect("the fixtures folder")
-            .filter_map(|entry| {
-                let path = entry.ok()?.path();
-                let name = path.file_name()?.to_str()?.to_string();
-                (name != file && path.extension().is_some_and(|e| e == "json"))
-                    .then(|| (name, std::fs::read_to_string(&path).expect("a fixture")))
-            })
-            .collect();
-        let files: Vec<(&str, &str)> = files
-            .iter()
-            .map(|(n, t)| (n.as_str(), t.as_str()))
-            .collect();
-        let folder = folder("without-live", &files);
-        let plan = fixtures(&folder).expect("the folder is listed");
-        std::fs::remove_dir_all(&folder).ok();
-        rows(&plan, "session")
+    /// The `(id, status, started_at)` of every session planned.
+    fn stated(plan: &Fixtures) -> Vec<(Value, Value, Value)> {
+        rows(plan, "session")
             .iter()
             .map(|s| {
                 (
@@ -5086,6 +5113,21 @@ mod tests {
                 "another day than the list's",
                 live(&|l| l["date"] = json!("2026-10-18")),
                 "not of 2026-10-18",
+            ),
+            (
+                "another campaign than the list's",
+                live(&|l| l["campaign"] = json!("autre")),
+                "not of \"autre\"",
+            ),
+            (
+                "another title than the list's",
+                live(&|l| l["title"] = json!("Autre")),
+                "is not titled",
+            ),
+            (
+                "another order than the list's",
+                live(&|l| l["order"] = json!(9)),
+                "is not titled",
             ),
             (
                 "a day that is not a day",
@@ -5132,6 +5174,22 @@ mod tests {
             plan.skipped
                 .iter()
                 .any(|(f, why)| f == LIVE_FILE && why.contains("no fixture describes the session")),
+            "{:?}",
+            plan.skipped
+        );
+        // A session the list leaves undated is on no day: it does not go live.
+        let mut list = mock_file(SESSIONS);
+        list["sessions"][3]["date"] = Value::Null;
+        let plan = replaced(&[(SESSIONS, list)]);
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(f, why)| f == LIVE_FILE && why.contains("not of 2026-10-17")),
+            "{:?}",
+            plan.skipped
+        );
+        assert!(
+            stated(&plan).iter().all(|(_, status, _)| status != "live"),
             "{:?}",
             plan.skipped
         );
