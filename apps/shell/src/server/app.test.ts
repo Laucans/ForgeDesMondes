@@ -368,14 +368,14 @@ describe('the shell', () => {
       }
     });
 
-    // AC3: the dm-view page, which no frozen screen names, declares surface dm after its objective
+    // AC3: the dm-view page, which names its frozen screen, declares surface dm after its objective
     test('the dm-view page declares the DM\'s surface, on a line after its objective (contract N)', () => {
       const text = readFileSync(join(repository, 'mock/pages.json'), 'utf8');
       const validate = validator('n-mock-pages.schema.json');
       const pages = JSON.parse(text) as { pages: Array<{ path: string; screen?: string; surface?: string }> };
       assert.ok(validate(pages), JSON.stringify(validate.errors));
       const page = pages.pages.find((p) => p.path === 'pages/dm-view.html');
-      assert.equal(page?.screen, undefined);
+      assert.equal(page?.screen, 'dm-view');
       assert.equal(page?.surface, 'dm');
       const lines = text.split('\n');
       const objective = lines.findIndex((l) => l.includes('"objective": "Le DM fait rouler la séance'));

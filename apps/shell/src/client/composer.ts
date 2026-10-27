@@ -8,6 +8,7 @@
 import type { Props } from './context.js';
 import { createDictation, type Dictation } from './dictation.js';
 import { createShell, type Shell } from './shell.js';
+import { wireTabs } from './tabs.js';
 
 /** What a Micro-UI's module exports; the object `mount` answers follows its props when it has `update`. */
 export interface MicroUiModule {
@@ -87,4 +88,8 @@ export async function composeScreen(root: ParentNode, shell: Shell, loader: Load
   await compose();
 }
 
-if (typeof document !== 'undefined') void composeScreen(document, createShell());
+if (typeof document !== 'undefined') {
+  const shell = createShell();
+  wireTabs(document, shell.context);
+  void composeScreen(document, shell);
+}
