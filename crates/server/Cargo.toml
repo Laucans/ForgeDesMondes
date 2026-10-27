@@ -11,6 +11,8 @@ name = "server"
 path = "src/main.rs"
 
 [dependencies]
+# The unit that adds a sound: its tag normalisation, which the fixtures reuse.
+add-sound = { path = "../soundbox/data-capabilities/add-sound" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 data = { path = "../data" }
 dataguard-server = { path = "../dataguard/server" }
