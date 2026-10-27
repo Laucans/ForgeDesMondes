@@ -465,14 +465,32 @@
       ]
     },
     {
-      "number": 711,
-      "title": "Shell frame: the design system's site menu above every DM screen",
+      "number": 719,
+      "title": "BattlemapInstance: migration 0014 adds the database's unique constraints, and the flaky combat test stops failing",
       "systems": [
-        "shell"
+        "table"
       ],
       "produces": [],
-      "consumes": [],
-      "depends_on": []
+      "consumes": [
+        "BattlemapInstance"
+      ],
+      "depends_on": [
+        18
+      ]
+    },
+    {
+      "number": 720,
+      "title": "BattlemapInstance: the token row tells a PC from an NPC, PC tokens track no HP, and next-turn reads initiative_order_view.skipped",
+      "systems": [
+        "table"
+      ],
+      "produces": [],
+      "consumes": [
+        "BattlemapInstance"
+      ],
+      "depends_on": [
+        18
+      ]
     }
   ],
   "ids": {
