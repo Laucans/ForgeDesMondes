@@ -7,6 +7,11 @@
 // `live.showOnPlayerView`, by identifier, through the shell it is handed: no
 // network call of its own. A token's (q, r) is the only position there is
 // (`single-position-source`): a drop sends it, and the map is read again.
+//
+// The frame the DM gives the map — a zoom and a pan — is in the map's own space (a zoom
+// relative to the view's fit, a pan in map pixels from the map's centre to the point at the
+// view's centre), and each view lays it out in its own pixels: the same frame shows the same
+// part of the map in the DM view, the pilot tab and the projected view, whatever their sizes.
 
 import {
   ADD_PARTICIPANT,
@@ -35,6 +40,7 @@ import {
   commandId,
   countOf,
   existingToken,
+  frameOf,
   hitPointsAfter,
   initiativeOf,
   inserted,
@@ -44,6 +50,7 @@ import {
   parseMap,
   parseProps,
   parseShownFrame,
+  placeStage,
   reasons,
   reordered,
   roundFrame,
@@ -54,11 +61,12 @@ import {
   withCondition,
   without,
   numbering,
+  type Placement,
   type Settled,
 } from './model.ts';
 import { carousel, dropForm, hexMap, inspector, pathMarkup, resetDialog, roster, skeleton, startDialog, toolbar, tokenItem, type Starter } from './render.ts';
 import { STYLE } from './style.ts';
-import type { Character, Frame, Hex, Instance, MapInfo, Props, Shell, Token } from './types.ts';
+import type { Character, Frame, Hex, Instance, MapInfo, Props, Shell, Size, Token } from './types.ts';
 
 /** How a command is followed until it settles: the server applies it on its own clock. */
 export interface Timing {
@@ -107,8 +115,10 @@ interface Drag {
 interface Pan {
   x: number;
   y: number;
+  /** The frame's pan when the gesture began, in map pixels, and the scale it moves at (view pixels a map pixel). */
   panX: number;
   panY: number;
+  scale: number;
   moved: boolean;
 }
 
@@ -123,7 +133,6 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   let characters: Record<string, Character> = {};
   let selected: string | null = null;
   let frame: Frame = { zoom: 1, panX: 0, panY: 0 };
-  let fitted = false;
   let drag: Drag | null = null;
   let pan: Pan | null = null;
   let stale = false;
@@ -149,36 +158,49 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     box.textContent = text;
   }
 
+  /** The view's size in pixels; null until it is laid out. */
+  function viewSize(): Size | null {
+    const view = part('battlemap-view');
+    return view && map && map.width > 0 && map.height > 0 && view.clientWidth && view.clientHeight ? { width: view.clientWidth, height: view.clientHeight } : null;
+  }
+
+  /** Where the stage stands in this view for the frame: each view lays the same frame out in its own pixels. */
+  function placement(): Placement | null {
+    const size = viewSize();
+    return size && map ? placeStage(frame, size, map) : null;
+  }
+
   function applyFrame(): void {
     const stage = part('battlemap-stage');
-    if (stage) stage.style.transform = `translate(${frame.panX}px, ${frame.panY}px) scale(${frame.zoom})`;
+    const at = placement();
+    if (stage && at) stage.style.transform = `translate(${Number(at.x.toFixed(3))}px, ${Number(at.y.toFixed(3))}px) scale(${Number(at.scale.toFixed(6))})`;
   }
 
-  function fit(): boolean {
-    const view = part('battlemap-view');
-    if (!view || !map || !view.clientWidth || !view.clientHeight) return false;
-    const zoom = Math.min(view.clientWidth / map.width, view.clientHeight / map.height);
-    frame = { zoom, panX: (view.clientWidth - map.width * zoom) / 2, panY: (view.clientHeight - map.height * zoom) / 2 };
-    fitted = true;
-    applyFrame();
-    return true;
-  }
-
-  /** The map is fitted now, or as soon as its view has a size. */
-  function fitWhenSized(): void {
-    fitted = false;
+  /** The map is fitted: centred, at the zoom of its view's fit. */
+  function fit(): void {
     frame = { zoom: 1, panX: 0, panY: 0 };
     applyFrame();
+  }
+
+  /** The view keeps the map's ratio, so the same frame shows the same part of the map at the same relative place whatever its size. */
+  function shapeView(): void {
+    const view = part('battlemap-view');
+    if (!view || !map) return;
+    view.style.aspectRatio = `${map.width} / ${map.height}`;
+    view.style.setProperty('--bm-ratio', String(map.width / map.height));
+  }
+
+  /** The map is fitted, and laid out again whenever its view changes size. */
+  function fitWhenSized(): void {
     observer?.disconnect();
     observer = null;
-    if (!fit() && typeof ResizeObserver !== 'undefined') {
-      const view = part('battlemap-view');
-      if (view) {
-        observer = new ResizeObserver(() => {
-          if (!fitted) fit();
-        });
-        observer.observe(view);
-      }
+    shapeView();
+    fit();
+    const view = part('battlemap-view');
+    const Observer = host.ownerDocument.defaultView?.ResizeObserver;
+    if (view && Observer) {
+      observer = new Observer(applyFrame);
+      observer.observe(view);
     }
   }
 
@@ -187,20 +209,22 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     if (!map || props.view !== 'player' || props.pilot) return;
     if (framed) {
       frame = framed;
-      fitted = true;
       followed = true;
       applyFrame();
     } else if (followed) {
       followed = false;
-      fitWhenSized();
+      fit();
     }
   }
 
+  /** The zoom changes by `factor` around the view's point (cx, cy): the map point under it stays under it. */
   function zoomAt(factor: number, cx: number, cy: number): void {
-    const zoom = Math.max(0.3, Math.min(4, frame.zoom * factor));
-    const k = zoom / frame.zoom;
-    frame = { zoom, panX: cx - (cx - frame.panX) * k, panY: cy - (cy - frame.panY) * k };
-    fitted = true;
+    const size = viewSize();
+    const at = placement();
+    if (!size || !at || !map) return;
+    const scale = at.scale * (Math.max(0.3, Math.min(4, frame.zoom * factor)) / frame.zoom);
+    const k = scale / at.scale;
+    frame = frameOf({ scale, x: cx - (cx - at.x) * k, y: cy - (cy - at.y) * k }, size, map);
     applyFrame();
   }
 
@@ -209,7 +233,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     const box = part('battlemap-view')?.getBoundingClientRect();
     const lx = e.clientX - (box?.left ?? 0);
     const ly = e.clientY - (box?.top ?? 0);
-    return { lx, ly, x: (lx - frame.panX) / frame.zoom, y: (ly - frame.panY) / frame.zoom };
+    const at = placement() ?? { scale: 1, x: 0, y: 0 };
+    return { lx, ly, x: (lx - at.x) / at.scale, y: (ly - at.y) / at.scale };
   }
 
   function paintToolbar(): void {
@@ -651,7 +676,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       drag = { token: t, el, from: { q: t.q, r: t.r }, x: e.clientX, y: e.clientY, moved: false, to: null };
       el.setPointerCapture?.(e.pointerId);
     } else if (target.closest('.hm-view') && !target.closest('[data-no-pan]')) {
-      pan = { x: e.clientX, y: e.clientY, panX: frame.panX, panY: frame.panY, moved: false };
+      pan = { x: e.clientX, y: e.clientY, panX: frame.panX, panY: frame.panY, scale: placement()?.scale ?? 1, moved: false };
       part('battlemap-view')?.setPointerCapture?.(e.pointerId);
     }
   });
@@ -679,8 +704,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       const dy = e.clientY - pan.y;
       if (!pan.moved && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) pan.moved = true;
       if (pan.moved) {
-        frame = { ...frame, panX: pan.panX + dx, panY: pan.panY + dy };
-        fitted = true;
+        // The map follows the pointer: the pan moves the other way, in map pixels.
+        frame = { ...frame, panX: pan.panX - dx / pan.scale, panY: pan.panY - dy / pan.scale };
         applyFrame();
       }
     }
