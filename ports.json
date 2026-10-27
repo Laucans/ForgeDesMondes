@@ -19,20 +19,17 @@
       "usedBy": []
     },
     {
-      "adapter": "crates/ports/llm/anthropic-claude-api-default-claude-sonnet-5-5-for-generation-claude-haiku-4-5-20251001-for-summaries-switchable-to-the-dm-s-home-opencode-server-endpoint-or-to-the-opencode-claude-code-binaries",
-      "cost": "Pay per token on the cloud API (generation model plus a cheaper summary model); free on the home opencode server or with a binary under the DM's existing subscription",
+      "adapter": "crates/ports/llm/claude-code-claude-p-model-claude-haiku-5-5-effort-medium-under-the-dm-s-subscription",
+      "cost": "the DM's existing Claude subscription",
       "fake": "crates/ports/llm",
       "id": "llm",
-      "provider": "Anthropic Claude API (default; claude-sonnet-5-5 for generation, claude-haiku-4-5-20251001 for summaries), switchable to the DM's home opencode server endpoint or to the opencode / Claude Code binaries",
+      "provider": "Claude Code (claude -p, claude-haiku-5-5, effort medium) under the DM's subscription",
       "purpose": "Text generation from text only: extract entities from imported notes, turn an oral brief into scenes and detect existing or missing NPCs, places and events, propose backgrounds, behaviour and credible NPC statblocks, generate the end-of-session summary, and test the connection. It is reached either by an API URL whose type is auto-detected (cloud API or the home opencode server endpoint) or by a local binary (opencode or Claude Code).",
-      "secrets": [
-        "LLM_API_KEY"
-      ],
+      "secrets": [],
       "stateful": false,
       "tech": {
-        "kind": "rest",
-        "name": "Anthropic Messages API + OpenAI-compatible chat completions (opencode server); CLI adapters for opencode and claude",
-        "version": "anthropic-version 2023-06-01"
+        "kind": "other",
+        "name": "claude CLI (claude -p --model claude-haiku-5-5 --effort medium)"
       },
       "usedBy": [
         "ai.testConnection",
