@@ -100,7 +100,7 @@ test('the live session and its campaign are published to the screen, as the answ
 test('no campaign id is made up when the answer names none', async () => {
   const { shell, contexts } = fakeShell({ session: { ...live, campaign: undefined } });
   await render(shell);
-  assert.deepEqual(contexts.filter(([name]) => name === 'session' || name === 'campaign'), [['session', 's4']]);
+  assert.deepEqual(contexts.filter(([name]) => name === 'session' || name === 'campaign'), [['session', 's4'], ['campaign', undefined]]);
 });
 
 // AC1: the session is set from its own answer, whatever becomes of the scenes read
@@ -111,6 +111,7 @@ test('a failing scenes read keeps the session and its context', async () => {
   assert.equal(contexts.at(-1)?.[1], undefined);
   assert.equal(host.querySelector('#session-bar-title')?.textContent, 'Séance 4 — L’embuscade du Gué');
   assert.equal(host.querySelectorAll('#session-bar-scenes button').length, 0);
+  assert.equal(host.querySelector('#session-bar-scenes')?.textContent, 'Impossible de lire les scènes');
 });
 
 // AC2: the live scene's battlemap instance bmi-gue-s4 is published for the Battlemap tab to mount
