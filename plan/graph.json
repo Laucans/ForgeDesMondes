@@ -2,16 +2,6 @@
   "version": 1,
   "milestones": [
     {
-      "number": 16,
-      "title": "Product skeleton: one server binary, the shell, the Data layer",
-      "systems": [
-        "platform"
-      ],
-      "produces": [],
-      "consumes": [],
-      "depends_on": []
-    },
-    {
       "number": 17,
       "title": "AI provider settings: API or binary, connection test",
       "systems": [
@@ -473,13 +463,29 @@
         22,
         24
       ]
+    },
+    {
+      "number": 702,
+      "title": "llm port: Claude Code adapter (claude -p, claude-haiku-5-5, effort medium) replaces the Anthropic API adapter",
+      "systems": [
+        "ai"
+      ],
+      "produces": [],
+      "consumes": [
+        "ai.getSettings",
+        "ai.saveSettings",
+        "ai.testConnection"
+      ],
+      "depends_on": [
+        17
+      ]
     }
   ],
   "ids": {
     "AbilityModifier@1": {
       "kind": "concept",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "AiSettings": {
@@ -491,7 +497,7 @@
     "AliasMatch@1": {
       "kind": "concept",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "Battlemap": {
@@ -515,13 +521,13 @@
     "CampaignArchive@1": {
       "kind": "concept",
       "producer": 30,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "CampaignArchive@2": {
       "kind": "concept",
       "producer": 637,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "CampaignElements": {
@@ -545,7 +551,7 @@
     "DetectionVocabulary@1": {
       "kind": "concept",
       "producer": 27,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "Diffusion": {
@@ -557,7 +563,7 @@
     "EffectiveVolume@1": {
       "kind": "concept",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "ElementsPanel": {
@@ -581,7 +587,7 @@
     "EntityVersion@1": {
       "kind": "concept",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "GridSettings": {
@@ -593,19 +599,19 @@
     "HealthBand@1": {
       "kind": "concept",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "HexGrid@1": {
       "kind": "concept",
       "producer": 19,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "Initiative@1": {
       "kind": "concept",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "LiveSessionBar": {
@@ -683,7 +689,7 @@
     "SessionLifecycle@1": {
       "kind": "concept",
       "producer": 20,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "SessionList": {
@@ -695,7 +701,7 @@
     "Sound": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "SoundLibrary": {
@@ -707,25 +713,25 @@
     "SoundPlayback": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "SoundTag@1": {
       "kind": "concept",
       "producer": 21,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "StatBlock@1": {
       "kind": "concept",
       "producer": 22,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "Suggestion": {
       "kind": "aggregate",
       "producer": 18,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "SuggestionPill": {
@@ -749,7 +755,7 @@
     "TokenAppearance@1": {
       "kind": "concept",
       "producer": 22,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "VersionHistory": {
@@ -1205,19 +1211,19 @@
     "table.setTokenCondition": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.setTokenVisibility": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     },
     "table.startCombat": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "planned",
+      "state": "built",
       "version": 1
     }
   }
