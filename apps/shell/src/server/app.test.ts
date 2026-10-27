@@ -179,6 +179,22 @@ describe('the shell', () => {
     });
   });
 
+  describe('draws the site menu above a DM screen', () => {
+    before(async () => {
+      await writeFile(join(root, 'apps/screens/soundbox.json'), JSON.stringify({ ...frozen('soundbox', [{ SoundLibrary: {} }]), surface: 'dm' }));
+      await writeFile(join(root, 'apps/screens/player-view.json'), JSON.stringify({ ...frozen('player-view', [{ PlayerStage: {} }]), surface: 'player' }));
+    });
+
+    // AC8: GET /screens/<dm screen> carries the menu with its own link current; player-view carries none
+    test('a DM screen carries the menu with the right current link, player-view none', async () => {
+      const dm = await (await fetch(`${base}/screens/soundbox`)).text();
+      assert.match(dm, /<body>\n<header class="shell-site-header"><header class="kit-menu"><a class="brand" href="\/screens\/campagnes">ForgeDesMondes<\/a>/);
+      assert.deepEqual([...dm.matchAll(/<a href="([^"]*)" aria-current="page">([^<]*)</g)].map((m) => [m[1], m[2]]), [['/screens/soundbox', 'Soundbox']]);
+      const player = await (await fetch(`${base}/screens/player-view`)).text();
+      assert.doesNotMatch(player, /kit-menu|shell-site-header/);
+    });
+  });
+
   describe('writes the caller and the default campaign into the head of a screen', () => {
     const SHA = 'ab'.repeat(32);
     const metaOf = (page: string, name: string): string | undefined => {

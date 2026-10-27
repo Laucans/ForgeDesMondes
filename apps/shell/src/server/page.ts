@@ -36,6 +36,33 @@ export function renderHome(screens: string[]): string {
 const host = ({ microUi, props }: Placement): string =>
   `<div data-component="${escape(microUi)}" data-props="${escape(JSON.stringify(props))}"></div>`;
 
+/** The sections of the site menu, in the order they are shown: the label and the screen each leads to. */
+const SECTIONS: ReadonlyArray<{ label: string; screen: string }> = [
+  { label: 'Campagnes', screen: 'campagnes' },
+  { label: 'Médias', screen: 'medias' },
+  { label: 'Soundbox', screen: 'soundbox' },
+  { label: 'Paramètres IA', screen: 'parametres-ia' },
+];
+
+/** The screens that belong to a section other than their own name: the campaign's screens sit under Campagnes. */
+const CURRENT: Readonly<Record<string, string>> = {
+  campagne: 'campagnes',
+  'fiche-entite': 'campagnes',
+  'preparation-seance': 'campagnes',
+  'dm-view': 'campagnes',
+};
+
+const BRAND = { label: 'ForgeDesMondes', screen: 'campagnes' };
+
+/** The kit's Menu (mock/kit/Menu.html) above a DM screen, the current section marked; nothing on the players' screen. */
+function siteMenu(screen: Screen): string {
+  if (screen.surface !== 'dm') return '';
+  const current = CURRENT[screen.screen] ?? screen.screen;
+  const href = (target: string): string => `/screens/${escape(encodeURIComponent(target))}`;
+  const links = SECTIONS.map(({ label, screen: target }) => `<a href="${href(target)}"${target === current ? ' aria-current="page"' : ''}>${escape(label)}</a>`).join('');
+  return `<header class="shell-site-header"><header class="kit-menu"><a class="brand" href="${href(BRAND.screen)}">${escape(BRAND.label)}</a><nav aria-label="${escape('Sections')}">${links}</nav></header></header>\n`;
+}
+
 /** A screen with a frame: each Micro-UI where the frame puts it; the ones it does not name close the page, in the screen's order. */
 function framed(screen: Screen, frame: Frame): string {
   const placed = new Map(screen.layout.map((placement) => [placement.microUi, placement]));
@@ -73,8 +100,10 @@ function framed(screen: Screen, frame: Frame): string {
 
 export function renderScreen(screen: Screen): string {
   const frame = FRAMES[screen.screen];
-  const body = frame
-    ? framed(screen, frame)
-    : `<main class="shell-screen" data-screen="${escape(screen.screen)}" data-version="${screen.version}">\n${screen.layout.map((placement) => `  ${host(placement)}`).join('\n')}\n</main>\n`;
+  const body =
+    siteMenu(screen) +
+    (frame
+      ? framed(screen, frame)
+      : `<main class="shell-screen" data-screen="${escape(screen.screen)}" data-version="${screen.version}">\n${screen.layout.map((placement) => `  ${host(placement)}`).join('\n')}\n</main>\n`);
   return document(screen.screen, body, '<script type="module" src="/assets/composer.js"></script>\n');
 }
