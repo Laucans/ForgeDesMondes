@@ -36,9 +36,10 @@ export const STYLE = `
 .bm-map { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .bm .kit-hexmap { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: var(--space-2); }
 .bm .kit-hexmap .hm-bar { margin-bottom: var(--space-2); }
-.bm .kit-hexmap .hm-view { flex: 1; height: auto; min-height: calc(var(--space-5) * 13); }
-.bm--fill .kit-hexmap { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.bm--fill .kit-hexmap .hm-view { min-height: 0; border: 0; border-radius: 0; }
+/* The view keeps the map's ratio (set from the map), so a frame shows the same part of it whatever the view's size. */
+.bm .kit-hexmap .hm-view { flex: none; height: auto; min-height: 0; }
+.bm--fill .kit-hexmap { container-type: size; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.bm--fill .kit-hexmap .hm-view { width: min(100cqw, calc(100cqh * var(--bm-ratio, 1))); border: 0; border-radius: 0; }
 .bm--fill .kit-hexmap .hm-bar { position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 4; margin: 0; }
 .bm-side { flex: none; width: calc(var(--space-5) * 7); display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); background: var(--color-surface-2); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-medium); overflow-y: auto; }
 .bm-side[hidden] { display: none; }
