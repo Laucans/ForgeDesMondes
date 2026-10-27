@@ -99,7 +99,7 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
   /** The scene the session is at, and the battlemap of the live scene, for the Micro-UIs that follow them. */
   const publishScene = (session: Live): void => {
     shell.context.set(SCENE_CONTEXT, session.currentScene);
-    shell.context.set(BATTLEMAP_CONTEXT, battlemapOf(session) ?? undefined);
+    shell.context.set(BATTLEMAP_CONTEXT, battlemapOf(session));
   };
 
   const readLive = async (): Promise<void> => {
@@ -110,14 +110,20 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     if (answered === null) return;
     // The session and its campaign are the answer's own, set before the scenes are read: the panel needs no more.
     shell.context.set(SESSION_CONTEXT, answered.id);
-    if (answered.campaign !== '') shell.context.set(CAMPAIGN_CONTEXT, answered.campaign);
+    shell.context.set(CAMPAIGN_CONTEXT, answered.campaign === '' ? undefined : answered.campaign);
     // A scenes read that fails leaves the bar without scenes, not without its session.
-    const scenes = await shell.capability(LIST_SCENES, undefined, { session: answered.id }).then(
+    let scenesLost = false;
+    const read = await shell.capability(LIST_SCENES, undefined, { session: answered.id }).then(
       (answer) => parseScenes(answer.data),
-      () => [],
+      () => {
+        scenesLost = true;
+        return [];
+      },
     );
-    live = withScenes(answered, scenes);
+    // `live` may have moved while the scenes were read: it is the base, the answer only brings the scenes.
+    live = withScenes(live ?? answered, read);
     paintLive();
+    if (scenesLost) part('session-bar-scenes').textContent = 'Impossible de lire les scènes';
     publishScene(live);
   };
   const readDiffusion = async (): Promise<void> => {
