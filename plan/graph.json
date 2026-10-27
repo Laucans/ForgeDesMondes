@@ -465,20 +465,14 @@
       ]
     },
     {
-      "number": 702,
-      "title": "llm port: Claude Code adapter (claude -p, claude-haiku-5-5, effort medium) replaces the Anthropic API adapter",
+      "number": 711,
+      "title": "Shell frame: the design system's site menu above every DM screen",
       "systems": [
-        "ai"
+        "shell"
       ],
       "produces": [],
-      "consumes": [
-        "ai.getSettings",
-        "ai.saveSettings",
-        "ai.testConnection"
-      ],
-      "depends_on": [
-        17
-      ]
+      "consumes": [],
+      "depends_on": []
     }
   ],
   "ids": {
