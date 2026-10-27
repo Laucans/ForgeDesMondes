@@ -23,7 +23,8 @@
     "milestone/637-dm-gestures-apply-the-shell-acts-as-each-screen-s-surface-the-archive-downloads-screens-follow-the-campaign": "62c21a037fe195da0a68739a383b6be64968507f",
     "milestone/702-llm-port-claude-code-adapter-claude-p-claude-haiku-5-5-effort-medium-replaces-the-anthropic-api-adapter": "f064580a2e090dce3c19bdd1ce0cee586a037e23",
     "milestone/711-shell-frame-the-design-system-s-site-menu-above-every-dm-screen": "f201b5f256514cf3510d6d5c866441b2e233768f",
-    "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "bfaeefa19e0061e218e9ba4f2e50a75c64e6c244"
+    "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "bfaeefa19e0061e218e9ba4f2e50a75c64e6c244",
+    "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "bfaeefa19e0061e218e9ba4f2e50a75c64e6c244"
   },
   "snapshots": [
     {
@@ -383,6 +384,14 @@
       "sha": "bfaeefa19e0061e218e9ba4f2e50a75c64e6c244",
       "at": "2026-10-27T23:04:01Z",
       "dir": "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing/20261027T230401Z-bfaeefa",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped",
+      "sha": "bfaeefa19e0061e218e9ba4f2e50a75c64e6c244",
+      "at": "2026-10-27T23:05:36Z",
+      "dir": "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped/20261027T230536Z-bfaeefa",
       "schema": true,
       "model": true
     }
