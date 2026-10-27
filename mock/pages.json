@@ -599,7 +599,7 @@
       ],
       "props": {},
       "source": "apps/soundbox/live-soundbox",
-      "builtFrom": "7409134c568a9c4b"
+      "builtFrom": "24d9fb43d0bbb861"
     },
     {
       "name": "SuggestionPill",
