@@ -68,3 +68,67 @@ test('a screen with no frame stays a column', () => {
 test('the same screen gives the same page, byte for byte', () => {
   assert.equal(renderScreen(dmView), renderScreen(dmView));
 });
+
+const DM_SCREENS = ['campagnes', 'campagne', 'fiche-entite', 'preparation-seance', 'medias', 'soundbox', 'parametres-ia', 'dm-view'];
+const asDm = (name: string): Screen => ({ screen: name, generatedFrom: 'a goal', version: 1, surface: 'dm', layout: [{ microUi: 'Anything', props: {} }] });
+const menuOf = (html: string): string => /<header class="shell-site-header">.*?<\/header><\/header>/s.exec(html)?.[0] ?? '';
+const linksOf = (html: string): Array<{ label: string; href: string; current: boolean }> =>
+  [...menuOf(html).matchAll(/<a href="([^"]*)"( aria-current="page")?>([^<]*)<\/a>/g)].map((m) => ({ label: m[3] ?? '', href: m[1] ?? '', current: m[2] !== undefined }));
+
+// AC1: a DM screen opens with the site header holding the kit's menu, before its own content and, on the DM view, before the frame's header
+test('every DM screen opens with the kit menu before its own content', () => {
+  for (const name of DM_SCREENS) {
+    const html = renderScreen(name === 'dm-view' ? { ...dmView, surface: 'dm' } : asDm(name));
+    const menu = at(html, '<header class="shell-site-header"><header class="kit-menu">');
+    assert.ok(at(html, '<body>') < menu, name);
+    assert.ok(menu < at(html, 'data-component='), name);
+    if (name === 'dm-view') assert.ok(menu < at(html, 'class="shell-frame__header"'));
+  }
+});
+
+// AC2, AC3: the brand leads to the campaign list; the nav "Sections" holds the four links in order
+test('the menu has its brand and the four sections, in order', () => {
+  const html = renderScreen(asDm('campagnes'));
+  assert.match(menuOf(html), /<a class="brand" href="\/screens\/campagnes">ForgeDesMondes<\/a>/);
+  assert.match(menuOf(html), /<nav aria-label="Sections">/);
+  assert.deepEqual(
+    linksOf(html).map(({ label, href }) => [label, href]),
+    [
+      ['Campagnes', '/screens/campagnes'],
+      ['Médias', '/screens/medias'],
+      ['Soundbox', '/screens/soundbox'],
+      ['Paramètres IA', '/screens/parametres-ia'],
+    ],
+  );
+});
+
+// AC4, AC5: the campaign's screens mark Campagnes; Médias, Soundbox and Paramètres IA mark their own; never two at once
+test('the current section is marked, alone', () => {
+  const expected: Record<string, string> = {
+    campagnes: 'Campagnes',
+    campagne: 'Campagnes',
+    'fiche-entite': 'Campagnes',
+    'preparation-seance': 'Campagnes',
+    'dm-view': 'Campagnes',
+    medias: 'Médias',
+    soundbox: 'Soundbox',
+    'parametres-ia': 'Paramètres IA',
+  };
+  for (const name of DM_SCREENS) {
+    const marked = linksOf(renderScreen(asDm(name))).filter((link) => link.current).map((link) => link.label);
+    assert.deepEqual(marked, [expected[name]], name);
+  }
+});
+
+// AC6: the players' screen carries no menu and no site header, nor does a screen with no surface
+test('player-view and a screen with no surface draw no menu', () => {
+  for (const surface of ['player', undefined]) {
+    const html = renderScreen({ screen: 'player-view', generatedFrom: 'a goal', version: 1, ...(surface ? { surface } : {}), layout: [{ microUi: 'PlayerStage', props: {} }] });
+    assert.doesNotMatch(html, /kit-menu|shell-site-header|aria-current/);
+  }
+});
+
+// AC7: the page is the same twice, byte for byte
+test('the menu is deterministic', () => {
+  assert.equal(renderScreen(asDm('medias')), renderScreen(asDm('medias')));
+});

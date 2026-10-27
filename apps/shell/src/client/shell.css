@@ -45,6 +45,77 @@ body {
   font-size: var(--font-size-small);
 }
 
+/* The kit's Menu above a DM screen (server/page.ts): it stays at the top while the page
+   scrolls, wraps on narrow screens and lets its links scroll sideways instead of breaking.
+   --shell-menu-height is the menu's own height at desktop width: its padding, the brand's
+   line (line-height 1) and the two borders of the kit. */
+:root {
+  --shell-menu-height: calc(var(--space-3) * 2 + var(--font-size-heading) + var(--border-width) * 2);
+}
+
+.shell-site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--color-surface);
+}
+
+.shell-site-header .kit-menu {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.shell-site-header .kit-menu nav {
+  min-width: 0;
+}
+
+.shell-site-header .kit-menu nav a {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 960px) {
+  .shell-site-header .kit-menu {
+    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .shell-site-header .kit-menu .brand {
+    font-size: var(--font-size-large);
+  }
+
+  .shell-site-header .kit-menu nav {
+    order: 3;
+    flex: 1 1 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: var(--space-1);
+  }
+
+  .shell-site-header .kit-menu nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .shell-site-header .kit-menu nav a {
+    min-height: calc(var(--space-5) + var(--space-2));
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+@media (max-width: 560px) {
+  .shell-site-header .kit-menu {
+    padding: var(--space-2);
+  }
+
+  .shell-site-header .kit-menu nav a {
+    padding: var(--space-1) var(--space-3);
+  }
+}
+
 /* A framed screen (server/frames.ts): header, left column, centre tabs. The Micro-UIs
    over the page (the pill) fix themselves at the corner and take no room here. */
 .shell-frame {
@@ -57,8 +128,8 @@ body {
 
 .shell-frame__left {
   position: sticky;
-  top: var(--space-3);
-  max-height: calc(100vh - var(--space-5));
+  top: calc(var(--shell-menu-height) + var(--space-3));
+  max-height: calc(100vh - var(--shell-menu-height) - var(--space-5));
   overflow-y: auto;
   overflow-x: hidden;
   min-width: 0;
