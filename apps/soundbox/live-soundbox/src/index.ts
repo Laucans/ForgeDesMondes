@@ -5,7 +5,8 @@
 // `soundbox.setMasterVolume`, by identifier, through the shell it is handed:
 // no network call of its own. Every sound is heard at the gain the Capability
 // gives (EffectiveVolume@1), read again after each command, never worked out
-// here.
+// here: a sound played while a volume is still being set starts once that
+// volume has been read back.
 
 import { browserPlayer, type Player, type Voice } from './audio.ts';
 import { CAMPAIGN_CONTEXT, LIST_SOUNDS, PLAY_SOUND, SET_MASTER_VOLUME, SET_SOUND_VOLUME, STOP_ALL } from './ids.ts';
@@ -181,15 +182,22 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     firstRead = false;
   };
 
-  async function load(): Promise<boolean> {
+  /** The read asked last: an older read answers when it has, so that whoever waits for a read waits for the library as it now stands. */
+  let newest: Promise<boolean> = Promise.resolve(true);
+  function load(): Promise<boolean> {
     loads += 1;
-    const mine = loads;
+    newest = read(loads);
+    return newest;
+  }
+
+  async function read(mine: number): Promise<boolean> {
     try {
-      const read = await shell.capability(LIST_SOUNDS, undefined, campaign());
+      const answer = await shell.capability(LIST_SOUNDS, undefined, campaign());
+      if (over) return true;
       // A later read has been asked since: it is the one that counts.
-      if (mine !== loads || over) return true;
-      library = parseLibrary(read.data);
-      seen = read.asOf;
+      if (mine !== loads) return newest;
+      library = parseLibrary(answer.data);
+      seen = answer.asOf;
       reconcile();
       paintTags();
       paintGrid();
@@ -251,25 +259,51 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     return outcome;
   }
 
+  /** Volume commands asked of the server whose read of the library has not answered yet. */
+  const volumes = new Set<Promise<unknown>>();
+  function changingVolume(change: Promise<unknown>): void {
+    const forget = (): void => {
+      volumes.delete(tracked);
+    };
+    const tracked: Promise<unknown> = change.then(forget, forget);
+    volumes.add(tracked);
+  }
+  async function volumesSettled(): Promise<void> {
+    while (volumes.size > 0) await Promise.allSettled([...volumes]);
+  }
+
+  /** Plays the DM asked and that are not heard yet, because a volume was still being set: the one ticket of a sound that may start. */
+  const starting = new Map<string, object>();
+
   function play(id: string): void {
-    // The sound starts under the DM's hand, at the last gain read; the library corrects it once it answers.
-    const now = listen(id);
-    if (!now) return;
+    if (!library.sounds.some((candidate) => candidate.id === id)) return;
+    const ticket = {};
+    starting.set(id, ticket);
+    let now: Heard | undefined;
+    const begin = (): void => {
+      if (over || starting.get(id) !== ticket) return;
+      starting.delete(id);
+      now = listen(id);
+    };
     asked.set(id, (asked.get(id) ?? 0) + 1);
-    void act('playback', 'Le son n’a pas pu être lancé', PLAY_SOUND, {}, id)
-      .then((outcome) => {
-        // A play the server has not settled yet is still the DM's: it is heard until the library says otherwise.
-        if (outcome === 'refused' && heard.get(id) === now) {
-          hush(id);
-          paintBox(id);
-        }
-      })
-      .finally(() => {
-        asked.set(id, (asked.get(id) ?? 1) - 1);
-      });
+    // The sound starts under the DM's hand, at the gain the library gives: when a volume is still being set, once that volume has been read back.
+    const started = volumes.size === 0 ? Promise.resolve(begin()) : volumesSettled().then(begin);
+    const request = act('playback', 'Le son n’a pas pu être lancé', PLAY_SOUND, {}, id).then((outcome) => {
+      // A play the server has not settled yet is still the DM's: it is heard until the library says otherwise.
+      if (outcome !== 'refused') return;
+      if (starting.get(id) === ticket) starting.delete(id);
+      if (now && heard.get(id) === now) {
+        hush(id);
+        paintBox(id);
+      }
+    });
+    void Promise.all([started, request]).finally(() => {
+      asked.set(id, (asked.get(id) ?? 1) - 1);
+    });
   }
 
   function stopAll(): void {
+    starting.clear();
     for (const id of [...heard.keys()]) hush(id);
     paintGrid();
     // Behind any play already asked, so that the server stops what the DM started.
@@ -304,8 +338,8 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
     dragging = false;
     const volume = Number(slider.value);
     const id = slider.dataset.volume;
-    if (id !== undefined) void act(`volume:${id}`, 'Le volume du son n’a pas pu être changé', SET_SOUND_VOLUME, { volume }, id);
-    else if (slider.name === 'master') void act('master', 'Le volume global n’a pas pu être changé', SET_MASTER_VOLUME, { ...campaign(), volume });
+    if (id !== undefined) changingVolume(act(`volume:${id}`, 'Le volume du son n’a pas pu être changé', SET_SOUND_VOLUME, { volume }, id));
+    else if (slider.name === 'master') changingVolume(act('master', 'Le volume global n’a pas pu être changé', SET_MASTER_VOLUME, { ...campaign(), volume }));
     // The grid that waited for the drag to end is drawn now, whatever the command answers.
     if (repaintLater) paintGrid();
   });
@@ -341,6 +375,7 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
       if (!host.isConnected) return end();
       if (name !== CAMPAIGN_CONTEXT) return;
       // Another campaign is another library: what plays here is not its sounds, and what already plays there was not started by this view.
+      starting.clear();
       for (const id of [...heard.keys()]) hush(id);
       chosen.clear();
       running = new Set();
@@ -351,6 +386,7 @@ export function mount(host: HTMLElement, _props: Record<string, unknown>, shell:
   /** The panel left the page: its sounds stop with it. */
   function end(): void {
     over = true;
+    starting.clear();
     for (const stop of stopWatching) stop();
     for (const id of [...heard.keys()]) hush(id);
   }
