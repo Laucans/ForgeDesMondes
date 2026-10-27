@@ -15,10 +15,12 @@ platform-conformance = { path = "../../../platform/conformance" }
 # migrated as the server migrates it, its `read` checks the SQL's guards.
 platform-test-kit = { path = "../../../platform/test-kit" }
 # What writes the initiatives the tests read back: the engine, its aggregate and
-# the three DataCapabilities that seat, end and tombstone a combat.
+# the DataCapabilities that seat, end, tombstone, remove and add to a combat.
 harness-dataguard = { workspace = true }
 aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
 start-combat = { path = "../../data-capabilities/start-combat" }
 end-combat = { path = "../../data-capabilities/end-combat" }
 reset-battlemap = { path = "../../data-capabilities/reset-battlemap" }
+remove-participant = { path = "../../data-capabilities/remove-participant" }
+add-participant = { path = "../../data-capabilities/add-participant" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
