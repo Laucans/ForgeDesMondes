@@ -439,7 +439,7 @@ test('the prep view keeps the roster column from the first paint, so the map is 
   assert.equal(host.querySelector<HTMLElement>('#battlemap-roster')?.hidden, false);
   assert.equal(host.querySelector('#battlemap-roster')?.children.length, 0);
   assert.ok(host.querySelector('.bm.bm--prep'));
-  assert.match(dom.window.document.head.textContent ?? '', /\.bm--prep #token-inspector \{ position: absolute;/);
+  assert.match(dom.window.document.head.textContent ?? '', /\.bm #token-inspector \{ position: absolute;/);
   await flush();
   assert.equal(host.querySelector<HTMLElement>('#battlemap-roster')?.hidden, false);
   assert.ok(host.querySelector('#battlemap-roster-list'));
@@ -714,4 +714,45 @@ test('the view keeps the ratio of the map, so no view of another shape shows ano
   const view = document.querySelector<HTMLElement>('#battlemap-view') as HTMLElement;
   assert.equal(view.style.aspectRatio.replace(/\s/g, ''), `${map.width}/${map.height}`);
   assert.equal(view.style.getPropertyValue('--bm-ratio'), String(map.width / map.height));
+});
+
+/** Where the CSS leaves an element: jsdom lays nothing out, but it does cascade the stylesheet the Micro-UI injects. */
+const positioned = (dom: JSDOM, selector: string) => dom.window.getComputedStyle(dom.window.document.querySelector(selector) as Element).position;
+
+/** Where the tokens and the stage stand: what moves when the map is refitted. */
+const snapshot = (document: Document, token: (id: string) => HTMLElement) =>
+  ['t-elowen', 't-kael', 't-bandit-2'].map((id) => `${left(token(id))}/${token(id).style.top}`).concat(document.querySelector<HTMLElement>('#battlemap-stage')?.style.transform ?? '');
+
+// AC1: opening a token's sheet on the DM view leaves Elowen where she was relative to the view
+test('the DM view lays the token’s sheet over the map, so opening it resizes nothing and no token moves', async () => {
+  const { dom, document, token, pointer, at } = await battlemap({ view: 'dm' }, undefined, 'http://localhost/', { width: 705, height: 520 });
+  assert.equal(positioned(dom, '#token-inspector'), 'absolute', 'the sheet is out of the flow: the map keeps the room it has');
+  assert.equal(positioned(dom, '#battlemap-body'), 'relative', 'the sheet is laid over the body, whose size it does not change');
+  const before = snapshot(document, token);
+  pointer('pointerdown', token('t-bandit-2'), at(10, 6));
+  pointer('pointerup', token('t-bandit-2'), at(10, 6));
+  assert.equal(document.querySelector('#token-inspector')?.hasAttribute('hidden'), false, 'the sheet is open');
+  assert.equal(document.querySelector('#inspector-title')?.textContent, 'Bandit 2');
+  assert.equal(positioned(dom, '#token-inspector'), 'absolute');
+  assert.deepEqual(snapshot(document, token), before);
+});
+
+test('the sheet is over the map whatever the screen’s mode', async () => {
+  for (const props of [{ view: 'dm' }, { view: 'dm', fill: true }, { view: 'player', pilot: true }, { view: 'prep' }]) {
+    const { dom } = await battlemap(props);
+    assert.equal(positioned(dom, '#token-inspector'), 'absolute', JSON.stringify(props));
+  }
+});
+
+// AC3: closing the sheet moves no token relative to the view
+test('closing the token’s sheet moves no token', async () => {
+  const { dom, document, token, pointer, at, click } = await battlemap({ view: 'dm' }, undefined, 'http://localhost/', { width: 705, height: 520 });
+  const before = snapshot(document, token);
+  pointer('pointerdown', token('t-bandit-2'), at(10, 6));
+  pointer('pointerup', token('t-bandit-2'), at(10, 6));
+  assert.equal(document.querySelector('#token-inspector')?.hasAttribute('hidden'), false, 'the sheet is open');
+  await click('[data-act="close"]');
+  assert.equal(document.querySelector('#token-inspector')?.hasAttribute('hidden'), true, 'the sheet is closed');
+  assert.deepEqual(snapshot(document, token), before);
+  assert.equal(positioned(dom, '#token-inspector'), 'absolute');
 });
