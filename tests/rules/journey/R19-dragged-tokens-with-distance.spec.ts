@@ -2,13 +2,16 @@ import { expect, type Page } from '@playwright/test';
 import { rule } from './kit';
 import { component, fx, open } from './helpers';
 
-// given: un token glissé de 6 hex
+// given: une battlemap envoyée aux joueurs et un token glissé de 6 hex
 // when: le DM le déplace
 // then: le compteur affiche « 6 hex · 30 pi », et une fois déposé le token apparaît au même endroit sur la player view en moins d'une seconde.
 rule('R19', ['screen:dm-view', 'screen:player-view', 'micro-ui:Battlemap', 'micro-ui:PlayerStage'], "Tokens glissés avec mesure de distance", async ({ page, context }) => {
   await open(page, 'dm-view');
   await page.getByRole('tab', { name: 'Battlemap' }).click();
   const map = component(page, 'Battlemap');
+
+  // The map is sent to the players, as R113 does, before the player view is read.
+  await map.getByRole('button', { name: 'Envoyer aux joueurs' }).click();
   const player = await context.newPage();
   await open(player, 'player-view');
   await page.bringToFront();
