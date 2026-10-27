@@ -55,8 +55,13 @@ pub const CAPABILITY: &str = "table.getBattlemapInstance";
 /// the sheet it stands for — and the combat running, with its initiative
 /// entries in the order of `initiative_order_view`, and the PCs ticked
 /// present at its session, in the order they were ticked, and, for each PC with
-/// a token on it, the initiative of its entry in the instance's latest combat —
-/// running or ended, the one that started last. The tables' generated
+/// a token on it, the initiative of its entry in the instance's latest combat
+/// that still holds one — running or ended, the one that started last —, as an
+/// object by character id (`pj_initiative`). A PC taken out of that combat
+/// (`table.removeParticipant` tombstones its entry) falls back to its entry of
+/// the combat before, the last figure still stored. Two combats of an instance
+/// never run together, so a tie on `started_at` needs a frozen clock; `k.id`
+/// then only makes the pick deterministic, not chronological. The tables' generated
 /// columns (`dead`, `health_band`, `label_initial`) are not read: they are
 /// derived here.
 pub const SQL: &str = r#"SELECT i.id::text AS id,
@@ -115,10 +120,7 @@ pub const SQL: &str = r#"SELECT i.id::text AS id,
         LIMIT 1
     ) AS combat,
     coalesce((
-        SELECT jsonb_agg(jsonb_build_object(
-            'character_id', last.character_id,
-            'initiative', last.initiative
-        ) ORDER BY last.character_id)
+        SELECT jsonb_object_agg(last.character_id, last.initiative)
         FROM (
             SELECT DISTINCT ON (t.character_id)
                 t.character_id::text AS character_id,
@@ -130,7 +132,7 @@ pub const SQL: &str = r#"SELECT i.id::text AS id,
             WHERE k.instance_id = i.id AND e.type = 'pj'
             ORDER BY t.character_id, k.started_at DESC, k.id DESC, en.rank
         ) last
-    ), '[]'::jsonb) AS pj_initiative
+    ), '{}'::jsonb) AS pj_initiative
 FROM battlemap_instance i
 WHERE i.id::text = lower($1)"#;
 
@@ -266,26 +268,6 @@ fn combat(row: &Value, dm: bool) -> Value {
     })
 }
 
-/// The initiative each PC was last given, by character id: the rows of
-/// `pj_initiative`, one per character, as an object — `{}` when no combat ever
-/// seated a PC. The same in both views.
-fn pj_initiative(row: &Value) -> Value {
-    let seats = row["pj_initiative"]
-        .as_array()
-        .map_or(&[][..], Vec::as_slice);
-    Value::Object(
-        seats
-            .iter()
-            .filter_map(|seat| {
-                Some((
-                    seat["character_id"].as_str()?.to_owned(),
-                    seat["initiative"].clone(),
-                ))
-            })
-            .collect(),
-    )
-}
-
 /// The instance in `rows` — an array of the objects [`SQL`] selects — as
 /// `view` (`dm`, anything else being the players') shows it; `null` when
 /// there is no row.
@@ -314,13 +296,19 @@ pub fn answer_rows(rows: &Value, view: &str) -> Value {
             roster.push(&token["char"]);
         }
     }
+    // An object by character id; anything else (column absent) is no initiative.
+    let pj_initiative = if row["pj_initiative"].is_object() {
+        row["pj_initiative"].clone()
+    } else {
+        json!({})
+    };
     json!({
         "id": row["id"],
         "battlemap": row["battlemap"],
         "session": row["session"],
         "scene": row["scene"],
         "roster": roster,
-        "pjInitiative": pj_initiative(row),
+        "pjInitiative": pj_initiative,
         "state": { "tokens": tokens, "combat": combat(row, dm) },
     })
 }
@@ -794,33 +782,17 @@ mod tests {
     #[test]
     fn the_pcs_last_initiatives_are_mapped_by_character_in_both_views() {
         let mut with_map = board();
-        with_map[0]["pj_initiative"] = json!([
-            { "character_id": "c-elowen", "initiative": 18 },
-            { "character_id": "c-brannoc", "initiative": 9 },
-        ]);
+        with_map[0]["pj_initiative"] = json!({ "c-elowen": 18, "c-brannoc": 9 });
         let expected = json!({ "c-elowen": 18, "c-brannoc": 9 });
         for view in ["dm", "player"] {
             assert_eq!(answer_rows(&with_map, view)["pjInitiative"], expected);
         }
         let mut none = board();
-        none[0]["pj_initiative"] = json!([]);
+        none[0]["pj_initiative"] = json!({});
         for rows in [none, board()] {
             for view in ["dm", "player"] {
                 assert_eq!(answer_rows(&rows, view)["pjInitiative"], json!({}));
             }
         }
-    }
-
-    #[test]
-    fn a_seat_without_a_character_is_left_out_of_the_initiatives() {
-        let mut odd = board();
-        odd[0]["pj_initiative"] = json!([
-            { "initiative": 5 },
-            { "character_id": "c-kael", "initiative": 12 },
-        ]);
-        assert_eq!(
-            answer_rows(&odd, "dm")["pjInitiative"],
-            json!({ "c-kael": 12 })
-        );
     }
 }
