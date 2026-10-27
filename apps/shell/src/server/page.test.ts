@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { renderScreen } from './page.js';
 import type { Screen } from './screens.js';
@@ -131,4 +132,11 @@ test('player-view and a screen with no surface draw no menu', () => {
 // AC7: the page is the same twice, byte for byte
 test('the menu is deterministic', () => {
   assert.equal(renderScreen(asDm('medias')), renderScreen(asDm('medias')));
+});
+
+// The alert EntityEditor sticks to the top of the page sticks beneath the menu, not under it
+test('the sticky unsaved-changes alert is offset by the menu height', async () => {
+  const css = await readFile(new URL('../../../src/client/shell.css', import.meta.url), 'utf8');
+  const rule = css.match(/\.shell-site-header ~ \* \.mf-entity__unsaved \{([^}]*)\}/)?.[1] ?? '';
+  assert.match(rule, /top:\s*calc\(var\(--shell-menu-height\) \+ var\(--space-2\)\)/);
 });

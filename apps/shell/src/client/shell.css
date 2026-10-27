@@ -60,6 +60,12 @@ body {
   background: var(--color-surface);
 }
 
+/* EntityEditor's "unsaved changes" alert sticks at the top of the page (its own style, top: --space-2):
+   under the menu it would be hidden, so below a menu it sticks beneath it. */
+.shell-site-header ~ * .mf-entity__unsaved {
+  top: calc(var(--shell-menu-height) + var(--space-2));
+}
+
 .shell-site-header .kit-menu {
   flex-wrap: wrap;
   row-gap: var(--space-2);
