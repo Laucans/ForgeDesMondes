@@ -425,10 +425,36 @@ async fn instance_isolated_the_battlemap_and_its_grid_read_the_same_after_a_crea
     scratch.drop().await;
 }
 
+// AC3: with the migrations the repository holds (0013 only, before 0014), a
+// scene whose instance the engine deleted is created again and has one.
 #[tokio::test]
 async fn what_the_engine_deleted_is_not_there_any_more() {
-    let scratch = Scratch::new("tombstoned").await;
-    let engine = scratch.serve().await;
+    deleted_instance_is_created_again("tombstoned", false).await;
+}
+
+// AC2: with the tables refusing a second instance of a scene — the unique
+// index standing in for migration 0014, which lands with its own task —, the
+// same flow holds.
+#[tokio::test]
+async fn what_the_engine_deleted_is_not_there_any_more_when_the_tables_hold_one_instance_per_scene()
+{
+    deleted_instance_is_created_again("tombstoned_unique", true).await;
+}
+
+async fn deleted_instance_is_created_again(label: &str, one_instance_per_scene: bool) {
+    let scratch = Scratch::new(label).await;
+    if one_instance_per_scene {
+        scratch
+            .client
+            .batch_execute(
+                "CREATE UNIQUE INDEX create_battlemap_instance_test_scene_unique
+                 ON battlemap_instance (scene_id)",
+            )
+            .await
+            .expect("a unique scene");
+    }
+    // Starting the engine the first time makes the engine's own tables.
+    scratch.serve().await;
     let tombstone = |partition: String| {
         let client = &scratch.client;
         async move {
@@ -442,10 +468,25 @@ async fn what_the_engine_deleted_is_not_there_any_more() {
         }
     };
 
-    // The scene's instance the tables hold, deleted: the scene has none.
+    // The scene's instance the tables hold, deleted: the scene has none. The
+    // server applies a deletion to the tables as it starts (the projection's
+    // warm), so the engine starts again after the tombstone.
     tombstone(format!("BattlemapInstance/{DEJA_INSTANCE}")).await;
+    let engine = scratch.serve().await;
     let result = create(&engine, asked(SEANCE, DEJA, GUE)).await;
+    // AC1: the engine restarted, the new instance is Applied and the scene has one.
     assert_eq!(result.status, State::Applied, "{result:?}");
+    assert_eq!(scratch.instances(DEJA).await.len(), 1);
+    let tabled: i64 = scratch
+        .client
+        .query_one(
+            "SELECT count(*) FROM battlemap_instance WHERE scene_id = $1::text::uuid",
+            &[&DEJA],
+        )
+        .await
+        .expect("the tables' instances")
+        .get(0);
+    assert_eq!(tabled, 1, "the tables hold the new instance alone");
     // A deleted battlemap, scene or session is no longer found.
     tombstone(format!("Media/{GUE}")).await;
     tombstone(format!("Session/{GUE_SCENE}")).await;
