@@ -465,31 +465,227 @@
       ]
     },
     {
-      "number": 719,
-      "title": "BattlemapInstance: migration 0014 adds the database's unique constraints, and the flaky combat test stops failing",
+      "number": 739,
+      "title": "UI audit and design direction, written in the repository",
       "systems": [
-        "table"
+        "shell"
+      ],
+      "produces": [],
+      "consumes": [],
+      "depends_on": []
+    },
+    {
+      "number": 740,
+      "title": "Design system v2: type scale, AA contrast, state and focus primitives in tokens and kit",
+      "systems": [
+        "design-system"
+      ],
+      "produces": [],
+      "consumes": [],
+      "depends_on": []
+    },
+    {
+      "number": 741,
+      "title": "Shell: command-state feedback, landmarks, keyboard and responsive frame",
+      "systems": [
+        "shell"
+      ],
+      "produces": [],
+      "consumes": [],
+      "depends_on": []
+    },
+    {
+      "number": 742,
+      "title": "Live: the DM view rebuilt for the table, and the player view read at a distance",
+      "systems": [
+        "live",
+        "session",
+        "table",
+        "soundbox"
       ],
       "produces": [],
       "consumes": [
-        "BattlemapInstance"
+        "Battlemap",
+        "ElementsPanel",
+        "LiveSessionBar",
+        "LiveSoundbox",
+        "PlayerStage",
+        "SuggestionPill",
+        "TableSheet",
+        "campaign.getCampaign",
+        "campaign.getEntity",
+        "campaign.listCharacters",
+        "campaign.listEvents",
+        "campaign.listPlaces",
+        "live.closeWindow",
+        "live.getDiffusion",
+        "live.listSuggestions",
+        "live.moveWindow",
+        "live.resizeWindow",
+        "live.setMicrophone",
+        "live.showCover",
+        "live.showOnPlayerView",
+        "live.showWindowOnPlayerView",
+        "media.getBattlemap",
+        "media.listMedia",
+        "session.closeSession",
+        "session.getLiveSession",
+        "session.listScenes",
+        "soundbox.listSounds",
+        "soundbox.playSound",
+        "soundbox.setMasterVolume",
+        "soundbox.setSoundVolume",
+        "soundbox.stopAll",
+        "table.addParticipant",
+        "table.changeHitPoints",
+        "table.endCombat",
+        "table.getBattlemapInstance",
+        "table.moveToken",
+        "table.nextTurn",
+        "table.placeTokens",
+        "table.removeParticipant",
+        "table.removeToken",
+        "table.renameToken",
+        "table.reorderInitiative",
+        "table.resetBattlemap",
+        "table.setTokenCondition",
+        "table.setTokenVisibility",
+        "table.startCombat"
       ],
       "depends_on": [
-        18
+        18,
+        19,
+        20,
+        21,
+        25,
+        26,
+        27,
+        28,
+        29
       ]
     },
     {
-      "number": 720,
-      "title": "BattlemapInstance: the token row tells a PC from an NPC, PC tokens track no HP, and next-turn reads initiative_order_view.skipped",
+      "number": 743,
+      "title": "Preparation screens brought to the direction: campaigns, entity sheet, session prep",
       "systems": [
-        "table"
+        "campaign",
+        "session",
+        "ai"
       ],
       "produces": [],
       "consumes": [
-        "BattlemapInstance"
+        "Battlemap",
+        "CampaignElements",
+        "CampaignList",
+        "CampaignOverview",
+        "EntityEditor",
+        "NoteImport",
+        "OralBrief",
+        "PreviousSummary",
+        "SceneBoard",
+        "SessionList",
+        "ToCreateList",
+        "VersionHistory",
+        "ai.analyzeBrief",
+        "ai.createFromBrief",
+        "ai.extractFromNotes",
+        "ai.proposeCharacter",
+        "campaign.createCampaign",
+        "campaign.createEntitiesFromNote",
+        "campaign.exportCampaign",
+        "campaign.getCampaign",
+        "campaign.getEntity",
+        "campaign.importCampaign",
+        "campaign.listCampaigns",
+        "campaign.listCharacters",
+        "campaign.listEntitiesToCreate",
+        "campaign.listEntityVersions",
+        "campaign.listEvents",
+        "campaign.listImportedNotes",
+        "campaign.listPlaces",
+        "campaign.listPlayers",
+        "campaign.restoreEntityVersion",
+        "campaign.saveEntity",
+        "dndbeyond.importCharacter",
+        "dndbeyond.resyncCharacter",
+        "media.listMedia",
+        "session.addPresentCharacter",
+        "session.addScene",
+        "session.createSession",
+        "session.getLastBrief",
+        "session.getPreviousSessionSummary",
+        "session.getSession",
+        "session.getSessionJournal",
+        "session.listScenes",
+        "session.listSessions",
+        "session.removePresentCharacter",
+        "session.reorderScenes",
+        "soundbox.listSounds",
+        "table.createBattlemapInstance",
+        "table.getBattlemapInstance"
       ],
       "depends_on": [
-        18
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        28,
+        30
+      ]
+    },
+    {
+      "number": 744,
+      "title": "Library screens brought to the direction: media and soundbox",
+      "systems": [
+        "media",
+        "soundbox"
+      ],
+      "produces": [],
+      "consumes": [
+        "GridSettings",
+        "LiveSoundbox",
+        "MediaLibrary",
+        "SoundLibrary",
+        "campaign.listPlaces",
+        "media.getBattlemap",
+        "media.listMedia",
+        "media.saveGridSettings",
+        "media.setMediaPlace",
+        "media.uploadMedia",
+        "session.addPlaceToSession",
+        "session.listScenes",
+        "soundbox.addSound",
+        "soundbox.listSounds",
+        "soundbox.removeSound",
+        "soundbox.updateSound"
+      ],
+      "depends_on": [
+        18,
+        19,
+        20,
+        21
+      ]
+    },
+    {
+      "number": 745,
+      "title": "Settings screen brought to the direction: AI settings with guidance and ranked actions",
+      "systems": [
+        "ai"
+      ],
+      "produces": [],
+      "consumes": [
+        "AiSettings",
+        "ai.getSettings",
+        "ai.saveSettings",
+        "ai.testConnection"
+      ],
+      "depends_on": [
+        17
       ]
     }
   ],
