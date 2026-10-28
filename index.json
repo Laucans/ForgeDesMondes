@@ -24,10 +24,10 @@
     "milestone/702-llm-port-claude-code-adapter-claude-p-claude-haiku-5-5-effort-medium-replaces-the-anthropic-api-adapter": "f064580a2e090dce3c19bdd1ce0cee586a037e23",
     "milestone/711-shell-frame-the-design-system-s-site-menu-above-every-dm-screen": "aac76d1e920712784a7efe8783955215537960be",
     "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "28181180e150e5f67b429d494c3ab0cec234ca82",
-    "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "6ecf646ca42f81eac94870107e5cae756932b0be",
-    "milestone/739-ui-audit-and-design-direction-written-in-the-repository": "0aa8a98bdb68b467befa3c39d1d1957c50f68162",
-    "milestone/740-design-system-v2-type-scale-aa-contrast-state-and-focus-primitives-in-tokens-and-kit": "0aa8a98bdb68b467befa3c39d1d1957c50f68162",
-    "milestone/745-settings-screen-brought-to-the-direction-ai-settings-with-guidance-and-ranked-actions": "0aa8a98bdb68b467befa3c39d1d1957c50f68162"
+    "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "b72f5d31c78648cbbc160aa59c8096be9f5814bd",
+    "milestone/739-ui-audit-and-design-direction-written-in-the-repository": "36766f790080d679d825b15e35c4fe9e3761f478",
+    "milestone/740-design-system-v2-type-scale-aa-contrast-state-and-focus-primitives-in-tokens-and-kit": "72098ecdb77ce36abd712a7d2cb5dfbe01004b2e",
+    "milestone/745-settings-screen-brought-to-the-direction-ai-settings-with-guidance-and-ranked-actions": "36fb7bf99ca1f9b06f63e198f837c571b3ae9531"
   },
   "snapshots": [
     {
@@ -435,6 +435,38 @@
       "sha": "5a90f6d1dfd86fbe8c98ccfbc8847d6fda519a22",
       "at": "2026-10-28T01:39:19Z",
       "dir": "main_agent/20261028T013919Z-5a90f6d",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/745-settings-screen-brought-to-the-direction-ai-settings-with-guidance-and-ranked-actions",
+      "sha": "36fb7bf99ca1f9b06f63e198f837c571b3ae9531",
+      "at": "2026-10-28T01:55:03Z",
+      "dir": "milestone/745-settings-screen-brought-to-the-direction-ai-settings-with-guidance-and-ranked-actions/20261028T015503Z-36fb7bf",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/740-design-system-v2-type-scale-aa-contrast-state-and-focus-primitives-in-tokens-and-kit",
+      "sha": "72098ecdb77ce36abd712a7d2cb5dfbe01004b2e",
+      "at": "2026-10-28T01:55:03Z",
+      "dir": "milestone/740-design-system-v2-type-scale-aa-contrast-state-and-focus-primitives-in-tokens-and-kit/20261028T015503Z-72098ec",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/739-ui-audit-and-design-direction-written-in-the-repository",
+      "sha": "36766f790080d679d825b15e35c4fe9e3761f478",
+      "at": "2026-10-28T01:55:03Z",
+      "dir": "milestone/739-ui-audit-and-design-direction-written-in-the-repository/20261028T015503Z-36766f7",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped",
+      "sha": "b72f5d31c78648cbbc160aa59c8096be9f5814bd",
+      "at": "2026-10-28T01:55:03Z",
+      "dir": "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped/20261028T015503Z-b72f5d3",
       "schema": true,
       "model": true
     }
