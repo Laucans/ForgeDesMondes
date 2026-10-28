@@ -2258,7 +2258,8 @@
           "type": "uuid",
           "technical": [
             "Clé étrangère ON DELETE CASCADE ON UPDATE CASCADE (relation BattlemapInstance.sceneId : onDelete cascade, onUpdate propagate).",
-            "Indexée (battlemap_instance_scene_id)."
+            "Indexée (battlemap_instance_scene_id).",
+            "Index UNIQUE battlemap_instance_scene_id_unique (scene_id) : invariant one-instance-per-scene, la scène n'a jamais deux instances, quel que soit l'entrelacement de deux écritures ; la seconde est refusée (SQLSTATE 23505) et sa commande rejetée (crates/data/migrations/0014_battlemap_instance_uniques.sql)."
           ]
         },
         {
@@ -2340,7 +2341,10 @@
           "name": "number",
           "nullable": true,
           "purpose": "Numéro de l'instance (1, 2, 3) quand plusieurs tokens incarnent le même personnage.",
-          "type": "smallint"
+          "type": "smallint",
+          "technical": [
+            "Index UNIQUE token_instance_character_number (instance_id, character_id, number) : invariants multi-drop-numbering et token-roster (côté PNJ), un numéro n'est pris qu'une fois par personnage dans une instance ; le token d'un PJ n'a pas de numéro (NULL, jamais égal à un autre), son unicité reste jugée par le DataGuard ; le doublon est refusé (SQLSTATE 23505) et sa commande rejetée (crates/data/migrations/0014_battlemap_instance_uniques.sql)."
+          ]
         },
         {
           "business": [
@@ -2516,7 +2520,10 @@
           "name": "ended_at",
           "nullable": true,
           "purpose": "Fin du combat.",
-          "type": "timestamptz"
+          "type": "timestamptz",
+          "technical": [
+            "Index UNIQUE partiel combat_one_active (instance_id) WHERE ended_at IS NULL : invariant one-active-combat, une instance n'a jamais deux combats sans fin ; un combat terminé est de l'historique, sans limite ; le second combat ouvert est refusé (SQLSTATE 23505) et sa commande rejetée (crates/data/migrations/0014_battlemap_instance_uniques.sql)."
+          ]
         }
       ],
       "name": "combat",
