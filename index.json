@@ -23,7 +23,7 @@
     "milestone/637-dm-gestures-apply-the-shell-acts-as-each-screen-s-surface-the-archive-downloads-screens-follow-the-campaign": "62c21a037fe195da0a68739a383b6be64968507f",
     "milestone/702-llm-port-claude-code-adapter-claude-p-claude-haiku-5-5-effort-medium-replaces-the-anthropic-api-adapter": "f064580a2e090dce3c19bdd1ce0cee586a037e23",
     "milestone/711-shell-frame-the-design-system-s-site-menu-above-every-dm-screen": "aac76d1e920712784a7efe8783955215537960be",
-    "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "ee340bcd145cc355247f677f9df55a6c3f33741f",
+    "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "81f5909e970e4be7abfe95c19bb2463ef5a6a326",
     "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "bad2746a4761feaa2f9eb1775bcb9fa9ba8e205e"
   },
   "snapshots": [
