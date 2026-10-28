@@ -52,6 +52,8 @@ const LATE: &str = "f1000000-0000-4000-8000-000000000001";
 const ELSEWHERE: &str = "b1000000-0000-4000-8000-000000000002";
 /// An instance only the tables hold.
 const FIXTURE: &str = "b1000000-0000-4000-8000-0000000000aa";
+/// Its scene: another than the engine's instance's, a scene having one instance.
+const FIXTURE_SCENE: &str = "5c000000-0000-4000-8000-0000000000aa";
 /// Tokens: their partitions sort before the instance's, so a run applies
 /// them first.
 const T_ELOWEN: &str = "0a000000-0000-4000-8000-000000000001";
@@ -702,8 +704,10 @@ async fn a_start_projects_again_what_the_tables_lost() {
     s.client
         .batch_execute(&format!(
             "DELETE FROM battlemap_instance;
+             INSERT INTO scene (id, session_id, position, title)
+                 VALUES ('{FIXTURE_SCENE}', '{SEANCE}', 2, 'La forêt');
              INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id)
-                 VALUES ('{FIXTURE}', '{GUE}', '{SEANCE}', '{SCENE}');
+                 VALUES ('{FIXTURE}', '{GUE}', '{SEANCE}', '{FIXTURE_SCENE}');
              INSERT INTO token (id, instance_id, character_id, name, q, r, visible, conditions)
                  VALUES ('{T_BANDIT_2}', '{FIXTURE}', '{BANDIT}', 'Bandit 2', 0, 0, true, '{{}}');
              INSERT INTO dataguard_rows (partition, fields) VALUES
