@@ -350,6 +350,10 @@ async fn multi_drop_numbering_a_drop_numbers_after_the_tokens_the_tables_hold() 
     scratch.drop().await;
 }
 
+// AC1: a token the engine tombstoned and the engine restarted, a drop that reuses
+// its number is Applied and the tombstoned partition stays tombstoned.
+// AC2, AC3: the tables hold no stale row of a tombstoned token, so the drop holds
+// whether or not they carry UNIQUE (instance_id, character_id, number).
 #[tokio::test]
 async fn multi_drop_numbering_a_token_removed_leaves_its_number_free_and_its_tombstone_kept() {
     let scratch = Scratch::new("removed").await;
@@ -373,6 +377,10 @@ async fn multi_drop_numbering_a_token_removed_leaves_its_number_free_and_its_tom
     place(&engine, INSTANCE, dropped(ELOWEN, 1)).await;
     tombstone(removed.clone()).await;
     tombstone(elowen.clone()).await;
+    // The next start — the projection's warm — removes the tombstoned tokens
+    // from the tables, which free their numbers there too.
+    drop(engine);
+    let engine = scratch.serve().await;
     place(&engine, INSTANCE, dropped(BANDIT, 1)).await;
     place(&engine, INSTANCE, dropped(ELOWEN, 1)).await;
 
