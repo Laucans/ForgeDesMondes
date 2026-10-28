@@ -11,8 +11,8 @@
 //! target (`target`, `targetId`), its `payload` and the values it was
 //! `basedOn` in, and the whole answer out; on `GET /commands/{id}`, the
 //! whole answer. A whole text is renamed, nested or not, as a value; as the
-//! key of an object only in the two maps keyed by character (`pjInitiative`,
-//! `startCombat`'s `initiative`), so that no other object can see two keys
+//! key of an object only in the maps keyed by a named thing (`pjInitiative`,
+//! `startCombat`'s `initiative` by character and `rolls` by token), so that no other object can see two keys
 //! collapse into one name. A part of a text never is. Nothing else is touched:
 //! no other route, no refusal, no other field, and a body nothing renames
 //! passes byte for byte.
@@ -39,8 +39,9 @@ const COMMANDS: &str = "/commands";
 /// its idempotency key.
 const COMMAND: &[&str] = &["target", "targetId", "payload", "basedOn"];
 
-/// The fields whose object is keyed by character: its keys are renamed too.
-const KEYED: &[&str] = &["pjInitiative", "initiative"];
+/// The fields whose object is keyed by a named thing (a character, an NPC
+/// token): its keys are renamed too.
+const KEYED: &[&str] = &["pjInitiative", "initiative", "rolls"];
 
 /// The largest body renamed: axum's own limit on a JSON body. A larger one
 /// passes as it is, for the route to refuse.
@@ -287,6 +288,12 @@ mod tests {
         assert_eq!(
             names.to_wire(&nested),
             json!([{ "pjInitiative": { "julie": 9, "kind": 1 } }])
+        );
+        // `startCombat`'s rolls are keyed by NPC token.
+        let rolls = json!({ "initiative": {}, "rolls": { "julie": 12 } });
+        assert_eq!(
+            names.to_stored(&rolls),
+            json!({ "initiative": {}, "rolls": { "uuid-julie": 12 } })
         );
         // Any other object keeps its keys: two of them could collapse into one name.
         let other =
