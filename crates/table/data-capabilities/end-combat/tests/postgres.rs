@@ -489,35 +489,56 @@ async fn an_instance_with_no_combat_open_ends_none_and_nothing_is_queued() {
     scratch.drop().await;
 }
 
+// AC1: of two combats with no end, the older one also in the tables, the end
+// closes the latest started first and the next end the older one.
+// AC2, AC3: the older combat is the tables' only open one, so the test holds
+// with the one-active-combat index of migration 0014 and without it.
 #[tokio::test(flavor = "current_thread")]
 async fn of_two_combats_with_no_end_the_latest_started_is_the_one_ended() {
     let scratch = Scratch::new("latest").await;
     let engine = scratch.serve().await;
     scratch.plant(&engine).await;
     // Two combats left open by a write that came before the start's rule,
-    // the older one first: the end closes the one started last.
+    // the older one first: the end closes the one started last. The tables
+    // refuse a second open combat on an instance (migration 0014's
+    // one-active-combat index), so the older combat is written through the
+    // engine, and the later one is a row only the engine holds, as such a
+    // row is once the tables refuse it.
     let older = "c0000000-0000-4000-8000-0000000000a1";
     let latest = "c0000000-0000-4000-8000-0000000000a2";
-    for (combat, started) in [
-        (older, "2026-10-22T10:05:00+00:00"),
-        (latest, "2026-10-22T10:30:00+00:00"),
-    ] {
-        submit(
-            &engine,
-            "test.writeCombat",
-            json!({
-                "combatId": combat,
-                "combatInstanceId": INSTANCE,
-                "round": 1,
-                "currentEntryId": null,
-                "startedAt": started,
-            }),
-            None,
+    submit(
+        &engine,
+        "test.writeCombat",
+        json!({
+            "combatId": older,
+            "combatInstanceId": INSTANCE,
+            "round": 1,
+            "currentEntryId": null,
+            "startedAt": "2026-10-22T10:05:00+00:00",
+        }),
+        None,
+    )
+    .await
+    .expect("a combat");
+    applied(&engine).await;
+    scratch
+        .client
+        .execute(
+            "INSERT INTO dataguard_rows (partition, fields) VALUES ($1, $2::text::jsonb)",
+            &[
+                &partition(latest),
+                &json!({
+                    "combatId": latest,
+                    "combatInstanceId": INSTANCE,
+                    "round": 1,
+                    "currentEntryId": null,
+                    "startedAt": "2026-10-22T10:30:00+00:00",
+                })
+                .to_string(),
+            ],
         )
         .await
-        .expect("a combat");
-    }
-    applied(&engine).await;
+        .expect("a combat only the engine holds");
 
     let ended = end(&engine, INSTANCE).await.expect("an end");
     assert_eq!(ended.partition, partition(latest));

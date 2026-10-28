@@ -24,6 +24,10 @@ const MIGRATIONS: [&str; 5] = [
     "0012_diffusion.sql",
 ];
 
+/// The migrations that build on them, which the Data layer applies after
+/// them: they are not "earlier" than them.
+const LATER: [&str; 1] = ["0014_battlemap_instance_uniques.sql"];
+
 /// The tables they create, in their order.
 const TABLES: [&str; 15] = [
     "session",
@@ -393,7 +397,10 @@ async fn the_five_migrations_fill_in_a_database_the_earlier_ones_built_and_repla
             .expect("a name")
             .to_string_lossy()
             .into_owned();
-        if file.ends_with(".sql") && !MIGRATIONS.contains(&file.as_str()) {
+        if file.ends_with(".sql")
+            && !MIGRATIONS.contains(&file.as_str())
+            && !LATER.contains(&file.as_str())
+        {
             std::fs::copy(&path, before.join(&file)).expect("copied");
         }
     }
@@ -402,11 +409,11 @@ async fn the_five_migrations_fill_in_a_database_the_earlier_ones_built_and_repla
     let earlier = earlier.expect("the earlier migrations");
     assert!(!earlier.is_empty());
     // The Data layer fills in the five, in file order, the gap at 0006
-    // included.
+    // included, and what builds on them after.
     let applied = data::migrate(&mut s.client, &migrations())
         .await
         .expect("the five migrations");
-    assert_eq!(applied, MIGRATIONS);
+    assert_eq!(applied, [MIGRATIONS.as_slice(), LATER.as_slice()].concat());
     s.seed().await;
     let first = s.snapshot().await;
     assert_eq!(
