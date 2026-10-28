@@ -100,6 +100,104 @@ async fn held(client: &Client) -> i64 {
         .get(0)
 }
 
+/// The text of a file of the repository, from `crates/data`.
+fn repository(path: &str) -> String {
+    std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(path),
+    )
+    .unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
+// AC2: 0014 follows 0010's conventions: a header saying why, replayable
+// statements, a comment naming the invariant above each index.
+#[test]
+fn it_follows_the_conventions_of_0010() {
+    let ten = repository("crates/data/migrations/0010_battlemap_instance.sql");
+    let text = migration();
+    for file in [&ten, &text] {
+        assert!(file.starts_with("-- "), "a header comment first");
+    }
+    let header: Vec<&str> = text.lines().take_while(|l| l.starts_with("--")).collect();
+    assert!(
+        header.iter().any(|l| l.contains("Replays as a no-op")),
+        "the header says it replays as a no-op, as 0010's does"
+    );
+    for (index, invariant) in [
+        (
+            "battlemap_instance_scene_id_unique",
+            "one-instance-per-scene",
+        ),
+        ("combat_one_active", "one-active-combat"),
+        ("token_instance_character_number", "multi-drop-numbering"),
+    ] {
+        let statement = format!("CREATE UNIQUE INDEX IF NOT EXISTS {index}\n");
+        let at = text
+            .find(&statement)
+            .unwrap_or_else(|| panic!("{index} IF NOT EXISTS"));
+        let comment: Vec<&str> = text[..at]
+            .lines()
+            .rev()
+            .skip_while(|l| l.is_empty())
+            .take_while(|l| l.starts_with("--"))
+            .collect();
+        assert!(
+            comment.iter().any(|l| l.contains(invariant)) || comment.join(" ").contains(invariant),
+            "{index}: the comment above it names {invariant}: {comment:?}"
+        );
+    }
+    assert_eq!(text.matches("CREATE UNIQUE INDEX").count(), 3);
+    assert!(!text.contains("DELETE"), "it never deletes a row");
+}
+
+// AC3: data/model.json lists each index on its table, naming the invariant
+// it enforces, and names the migration.
+#[test]
+fn the_data_model_lists_each_index_and_its_invariant() {
+    let model: serde_json::Value =
+        serde_json::from_str(&repository("data/model.json")).expect("a data model is JSON");
+    for (table, field, index, invariants) in [
+        (
+            "battlemap_instance",
+            "scene_id",
+            "battlemap_instance_scene_id_unique",
+            vec!["one-instance-per-scene"],
+        ),
+        (
+            "combat",
+            "ended_at",
+            "combat_one_active",
+            vec!["one-active-combat"],
+        ),
+        (
+            "token",
+            "number",
+            "token_instance_character_number",
+            vec!["multi-drop-numbering", "token-roster"],
+        ),
+    ] {
+        let table = model["tables"]
+            .as_array()
+            .expect("tables")
+            .iter()
+            .find(|t| t["name"] == table)
+            .unwrap_or_else(|| panic!("{table} is in the model"));
+        let field = table["fields"]
+            .as_array()
+            .expect("fields")
+            .iter()
+            .find(|f| f["name"] == field)
+            .unwrap_or_else(|| panic!("{field} is in the model"));
+        let technical = field["technical"].to_string();
+        assert!(technical.contains(index), "{index}: {technical}");
+        assert!(technical.contains(MIGRATION), "{index}: {technical}");
+        for invariant in invariants {
+            assert!(technical.contains(invariant), "{index}: {invariant}");
+        }
+    }
+}
+
 // AC1: replayed, 0014 succeeds and changes nothing.
 #[tokio::test]
 async fn replayed_it_changes_nothing() {
