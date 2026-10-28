@@ -611,33 +611,51 @@ async fn a_seat_sent_again_or_of_no_open_combat_is_refused() {
     scratch.drop().await;
 }
 
+// AC1, AC2: the test holds in both interleavings, idle or under load.
+// AC3: whether the second start is refused at prepare or waits for its author, once
+// the queue is applied the tables hold the one combat and the first's three entries.
 #[tokio::test(flavor = "current_thread")]
 async fn one_active_combat_two_starts_at_the_same_moment_the_second_waits_for_its_author() {
     let scratch = Scratch::new("at_once").await;
     let engine = scratch.serve(start_combat::plugin()).await;
     scratch.plant(&engine).await;
 
-    // Both are prepared before either is queued: the same combat, the same
-    // entries.
+    // Both are prepared at the same moment, yet the interleaving is not ours:
+    // the second prepares either before the first is queued — the same combat,
+    // the same entries — or after, and meets it.
     let (first, second) = tokio::join!(start(&engine, r105()), start(&engine, r105()));
-    let (first, second) = (first.expect("the first"), second.expect("the second"));
+    let first = first.expect("the first");
     let combat = partition(&combat_id(INSTANCE, 0));
-    assert_eq!((&first.partition, &second.partition), (&combat, &combat));
+    assert_eq!(first.partition, combat);
     assert_eq!(first.result.status, State::Queued);
     // Never rejected for concurrency: the second waits for its author to
-    // confirm or cancel.
-    assert_eq!(second.result.status, State::AwaitingConfirmation);
+    // confirm or cancel, or the first, queued already, refused it at once.
+    let second = match second {
+        Ok(second) => {
+            assert_eq!(second.partition, combat);
+            assert_eq!(second.result.status, State::AwaitingConfirmation);
+            Some(second)
+        }
+        Err(_) => {
+            let (kind, why) = refusal(second);
+            assert_eq!(kind, RefusalKind::Unprocessable);
+            assert!(why.starts_with("one-active-combat"), "{why}");
+            None
+        }
+    };
     applied(&engine).await;
-    // The first applied, the second still waits for its author, and none of
-    // its seats landed: the tables hold the first's combat and entries alone.
-    assert_eq!(
-        engine
-            .status(&second.command_id)
-            .await
-            .expect("the second")
-            .status,
-        State::AwaitingConfirmation
-    );
+    // The first applied, a queued second still waits for its author, and none
+    // of its seats landed: the tables hold the first's combat and entries alone.
+    if let Some(second) = second {
+        assert_eq!(
+            engine
+                .status(&second.command_id)
+                .await
+                .expect("the second")
+                .status,
+            State::AwaitingConfirmation
+        );
+    }
     let entries = scratch.entries(&combat_id(INSTANCE, 0)).await;
     assert_eq!(order(&entries), [T_ELOWEN, T_VESNA, T_BANDIT]);
     assert_eq!(

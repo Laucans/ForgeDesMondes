@@ -23,3 +23,5 @@ aggregate-diffusion = { path = "../live/aggregates/Diffusion" }
 # The Concepts' fixtures the Entity migration's SQL is held to (AliasMatch@1,
 # AbilityModifier@1).
 platform-conformance = { path = "../platform/conformance" }
+# The database of migration 0014's tests (`tests/battlemap_instance_uniques_migration.rs`).
+platform-scratch-db = { path = "../platform/scratch-db" }

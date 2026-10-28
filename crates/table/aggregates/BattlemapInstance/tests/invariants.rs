@@ -463,7 +463,7 @@ async fn instance_isolated_keeps_tokens_combat_and_initiative_on_their_own_insta
     );
 }
 
-// Judged on one row: at most one instance per scene is `UNIQUE (scene_id)` (#266).
+// Judged on one row: at most one instance per scene across rows is the unique index of migration 0014 (#266).
 #[tokio::test]
 async fn one_instance_per_scene_names_its_battlemap_session_and_scene_and_keeps_them() {
     let (engine, _) = engine().await;
@@ -495,7 +495,7 @@ async fn one_instance_per_scene_names_its_battlemap_session_and_scene_and_keeps_
     );
 }
 
-// Judged on one row: the roster across tokens is migration 0013's (#266).
+// Judged on one row: the roster across tokens — its NPC side, a number once per character, is migration 0014's unique index (#266).
 #[tokio::test]
 async fn token_roster_drops_a_token_for_one_character_on_one_instance() {
     let (engine, rows) = tavern().await;
@@ -523,7 +523,7 @@ async fn token_roster_drops_a_token_for_one_character_on_one_instance() {
     assert_eq!(held(&rows, JETON_ELOWEN, "characterId").await, ELOWEN);
 }
 
-// Judged on one row: a number unique per character is `UNIQUE (instance_id, character_id, number)` (#266).
+// Judged on one row: a number unique per character is `UNIQUE (instance_id, character_id, number)`, migration 0014's (#266).
 #[tokio::test]
 async fn multi_drop_numbering_counts_from_1_and_a_rename_keeps_the_number() {
     let (engine, rows) = tavern().await;
@@ -1145,7 +1145,7 @@ async fn next_turn_queued_twice_steps_twice_and_never_past_an_end_queued_ahead()
     assert_eq!(held(&rows, COMBAT, "currentEntryId").await, ENTREE_ELOWEN);
 }
 
-// Judged on one row: one combat running per instance is a partial unique index (#266).
+// Judged on one row: one combat running per instance is a partial unique index, migration 0014's (#266).
 #[tokio::test]
 async fn one_active_combat_starts_on_an_instance_and_stays_ended() {
     let (engine, _) = tavern().await;
