@@ -166,13 +166,14 @@ async fn a_combat_starts_on_the_instance_the_fixtures_loaded_from_the_pcs_initia
     assert_eq!(order.len(), tokens.len(), "every token is seated: {found}");
     assert_eq!(order.len(), 8, "{found}");
     // The PCs seat as they were entered: Elowen, Sirielle, Kael, Brannoc, among the NPCs.
+    let pc_seats = |seat: &&Value| {
+        tokens
+            .iter()
+            .any(|token| token["id"] == seat["id"] && token["kind"] == "pj")
+    };
     let ranked: Vec<&Value> = order
         .iter()
-        .filter(|seat| {
-            seat["id"]
-                .as_str()
-                .is_some_and(|id| !id.contains("bandit") && !id.contains("vesna"))
-        })
+        .filter(pc_seats)
         .map(|seat| &seat["id"])
         .collect();
     assert_eq!(
