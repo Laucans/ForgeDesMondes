@@ -23,7 +23,7 @@
     "milestone/637-dm-gestures-apply-the-shell-acts-as-each-screen-s-surface-the-archive-downloads-screens-follow-the-campaign": "62c21a037fe195da0a68739a383b6be64968507f",
     "milestone/702-llm-port-claude-code-adapter-claude-p-claude-haiku-5-5-effort-medium-replaces-the-anthropic-api-adapter": "f064580a2e090dce3c19bdd1ce0cee586a037e23",
     "milestone/711-shell-frame-the-design-system-s-site-menu-above-every-dm-screen": "aac76d1e920712784a7efe8783955215537960be",
-    "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "ff4f505e275e924a2c5c5fff678f3d265e5478f1",
+    "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "d4775f2e6f10ed63190dc5432a00b2a72dccb5a6",
     "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "bad2746a4761feaa2f9eb1775bcb9fa9ba8e205e",
     "milestone/739-ui-audit-and-design-direction-written-in-the-repository": "0aa8a98bdb68b467befa3c39d1d1957c50f68162",
     "milestone/745-settings-screen-brought-to-the-direction-ai-settings-with-guidance-and-ranked-actions": "0aa8a98bdb68b467befa3c39d1d1957c50f68162"
@@ -410,6 +410,14 @@
       "sha": "0aa8a98bdb68b467befa3c39d1d1957c50f68162",
       "at": "2026-10-28T01:11:34Z",
       "dir": "milestone/739-ui-audit-and-design-direction-written-in-the-repository/20261028T011134Z-0aa8a98",
+      "schema": true,
+      "model": true
+    },
+    {
+      "branch": "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing",
+      "sha": "d4775f2e6f10ed63190dc5432a00b2a72dccb5a6",
+      "at": "2026-10-28T01:21:04Z",
+      "dir": "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing/20261028T012104Z-d4775f2",
       "schema": true,
       "model": true
     }
