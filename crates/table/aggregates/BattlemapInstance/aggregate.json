@@ -13,6 +13,10 @@
       "criticality": "critical",
       "kind": "authoritative"
     },
+    "characterType": {
+      "criticality": "normal",
+      "kind": "authoritative"
+    },
     "combatId": {
       "criticality": "critical",
       "kind": "authoritative"

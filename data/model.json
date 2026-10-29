@@ -2393,7 +2393,10 @@
           "name": "hp_current",
           "nullable": true,
           "purpose": "PV courants de cette instance. Toujours vide pour un PJ.",
-          "type": "smallint"
+          "type": "smallint",
+          "technical": [
+            "CHECK token_pj_hp_not_tracked (token_hp_tracked(character_type, hp_current, hp_max)) : invariant pj-hp-not-tracked, vide pour un PJ ; pour un PNJ, hp_current et hp_max sont renseignés avec 0 ≤ hp_current ≤ hp_max ; une violation est refusée (SQLSTATE 23514) et sa commande rejetée (crates/data/migrations/0015_battlemap_token_character_type.sql)."
+          ]
         },
         {
           "business": [
@@ -2403,7 +2406,10 @@
           "name": "hp_max",
           "nullable": true,
           "purpose": "PV maximum, copiés de la fiche à la pose. Toujours vide pour un PJ.",
-          "type": "smallint"
+          "type": "smallint",
+          "technical": [
+            "CHECK token_pj_hp_not_tracked (token_hp_tracked(character_type, hp_current, hp_max)) : invariant pj-hp-not-tracked, vide pour un PJ ; pour un PNJ, hp_current et hp_max sont renseignés avec 0 ≤ hp_current ≤ hp_max ; une violation est refusée (SQLSTATE 23514) et sa commande rejetée (crates/data/migrations/0015_battlemap_token_character_type.sql)."
+          ]
         },
         {
           "business": [
@@ -2450,6 +2456,20 @@
           "type": "text",
           "technical": [
             "GENERATED ALWAYS AS (left(name, 1)) STORED : jamais écrite."
+          ]
+        },
+        {
+          "business": [
+            "R20",
+            "R21"
+          ],
+          "name": "character_type",
+          "nullable": false,
+          "purpose": "Type de l'élément du personnage, PJ ou PNJ, copié sur le token (entity.type). Dit si les PV sont suivis.",
+          "type": "text",
+          "technical": [
+            "NOT NULL, CHECK token_character_type IN ('pj', 'pnj'). Un token qui ne le nomme pas le reçoit du type de son personnage (déclencheur token_character_type_default, BEFORE INSERT OR UPDATE) ; celui qui le nomme nomme celui de son personnage, sinon il est refusé (CONSTRAINT token_character_type_matches, SQLSTATE 23514) ; les lignes existantes l'ont reçu de entity.type (crates/data/migrations/0015_battlemap_token_character_type.sql).",
+            "Index UNIQUE partiel token_instance_pj (instance_id, character_id) WHERE character_type = 'pj' : invariant token-roster, un PJ n'a qu'un token par instance ; le doublon est refusé (SQLSTATE 23505) et sa commande rejetée."
           ]
         }
       ],

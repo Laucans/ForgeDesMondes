@@ -634,6 +634,76 @@ async fn pj_hp_not_tracked_leaves_a_pc_without_hp_and_an_npc_within_its_maximum(
     }
 }
 
+// AC3, AC4: a token that names its character's type is judged by it: a PC's
+// tracks nothing, not even HP within bounds; an NPC's tracks both.
+#[tokio::test]
+async fn pj_hp_not_tracked_follows_the_character_type_a_token_names() {
+    let (engine, _) = tavern().await;
+    // A PC, with HP in bounds: only its type says they are too many.
+    for (current, max) in [(5, 5), (0, 0)] {
+        rejected_by(
+            &written(
+                &engine,
+                "test.updateToken",
+                json!({
+                    "tokenId": JETON_ELOWEN, "characterType": "pj",
+                    "hpCurrent": current, "hpMax": max,
+                }),
+            )
+            .await,
+            &["pj-hp-not-tracked"],
+        );
+    }
+    // An NPC, with none: only its type says they are missing.
+    rejected_by(
+        &written(
+            &engine,
+            "test.updateToken",
+            json!({
+                "tokenId": MORLOX_1, "characterType": "pnj", "hpCurrent": null, "hpMax": null,
+            }),
+        )
+        .await,
+        &["pj-hp-not-tracked"],
+    );
+    // An NPC out of its bounds, or a type that is neither.
+    for (kind, hp) in [("pnj", json!(8)), ("pnj", json!(-1)), ("mage", json!(3))] {
+        rejected_by(
+            &written(
+                &engine,
+                "test.updateToken",
+                json!({ "tokenId": MORLOX_1, "characterType": kind, "hpCurrent": hp }),
+            )
+            .await,
+            &["pj-hp-not-tracked"],
+        );
+    }
+    rejected_by(
+        &written(
+            &engine,
+            "test.updateToken",
+            json!({ "tokenId": MORLOX_1, "characterType": 5 }),
+        )
+        .await,
+        &["pj-hp-not-tracked"],
+    );
+    // Each within what its type allows.
+    for (token, kind, hp) in [
+        (JETON_ELOWEN, "pj", json!(null)),
+        (MORLOX_1, "pnj", json!(0)),
+        (MORLOX_1, "pnj", json!(7)),
+    ] {
+        applied(
+            &written(
+                &engine,
+                "test.updateToken",
+                json!({ "tokenId": token, "characterType": kind, "hpCurrent": hp }),
+            )
+            .await,
+        );
+    }
+}
+
 #[tokio::test]
 async fn hp_change_one_token_touches_the_targeted_token_alone() {
     let (engine, rows) = tavern().await;

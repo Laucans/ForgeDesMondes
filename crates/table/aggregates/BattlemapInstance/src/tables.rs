@@ -19,6 +19,11 @@
 //!   no column takes, a value they require, a character they do not hold —
 //!   reject its command then. One the tables still refuse when its parent
 //!   arrives rejects the parent's command whole.
+//! - A token carries its character's type, `pj` or `pnj`, which the tables
+//!   give it (a trigger) when the engine's row names none: the tables' checks
+//!   judge, whatever rows interleave, that a PC tracks no HP, an NPC both,
+//!   and that a PC has one token per instance
+//!   (`crates/data/migrations/0015_battlemap_token_character_type.sql`).
 //! - A combat's current entry is an entry's key: it is pointed at the entry
 //!   the engine names once the table holds that entry, and none until then.
 //! - A tombstone (a token removed, a participant taken out, a reset) takes
@@ -85,7 +90,7 @@ macro_rules! token_values {
             (v ->> 'q')::numeric::integer AS q, (v ->> 'r')::numeric::integer AS r,
             (v ->> 'visible')::boolean AS visible,
             (v ->> 'hpCurrent')::numeric::smallint AS hp_current,
-            (v ->> 'hpMax')::numeric::smallint AS hp_max,
+            (v ->> 'hpMax')::numeric::smallint AS hp_max, v ->> 'characterType' AS character_type,
             ARRAY(SELECT jsonb_array_elements_text(
                 coalesce(nullif(v -> 'conditions', 'null'), '[]'))) AS conditions"
         )
@@ -97,7 +102,7 @@ macro_rules! token_values {
 const UPSERT_TOKEN: &str = concat!(
     "INSERT INTO token
         (id, instance_id, character_id, number, name, q, r, visible, hp_current, hp_max,
-         conditions)
+         character_type, conditions)
     SELECT ",
     token_values!("i.id"),
     "
@@ -116,12 +121,14 @@ const UPSERT_TOKEN: &str = concat!(
         visible = EXCLUDED.visible,
         hp_current = EXCLUDED.hp_current,
         hp_max = EXCLUDED.hp_max,
+        character_type = EXCLUDED.character_type,
         conditions = EXCLUDED.conditions
     WHERE (token.instance_id, token.character_id, token.number, token.name, token.q, token.r,
-            token.visible, token.hp_current, token.hp_max, token.conditions)
+            token.visible, token.hp_current, token.hp_max, token.character_type,
+            token.conditions)
         IS DISTINCT FROM (EXCLUDED.instance_id, EXCLUDED.character_id, EXCLUDED.number,
             EXCLUDED.name, EXCLUDED.q, EXCLUDED.r, EXCLUDED.visible, EXCLUDED.hp_current,
-            EXCLUDED.hp_max, EXCLUDED.conditions)
+            EXCLUDED.hp_max, EXCLUDED.character_type, EXCLUDED.conditions)
     RETURNING xmax = 0"
 );
 
@@ -246,7 +253,10 @@ const JUDGE_TOKEN: &str = judge!(
     "NOT EXISTS (SELECT 1 FROM battlemap_instance i
                         WHERE i.id = (v ->> 'tokenInstanceId')::uuid)",
     "'id', 'instance_id', 'character_id', 'name', 'q', 'r', 'visible', 'conditions'",
-    "EXISTS (SELECT 1 FROM character c WHERE c.entity_id = p.character_id)"
+    "EXISTS (SELECT 1 FROM character c WHERE c.entity_id = p.character_id)
+        AND token_hp_tracked(
+            coalesce(p.character_type, (SELECT e.type FROM entity e WHERE e.id = p.character_id)),
+            p.hp_current, p.hp_max)"
 );
 
 /// A combat whose instance the tables do not hold: judged on its columns.
@@ -322,7 +332,7 @@ macro_rules! tabled {
         SELECT t.id, jsonb_build_object('tokenId', t.id, 'tokenInstanceId', t.instance_id,
                 'characterId', t.character_id, 'number', t.number, 'name', t.name, 'q', t.q,
                 'r', t.r, 'visible', t.visible, 'hpCurrent', t.hp_current, 'hpMax', t.hp_max,
-                'conditions', to_jsonb(t.conditions))
+                'characterType', t.character_type, 'conditions', to_jsonb(t.conditions))
             FROM token t
         UNION ALL
         SELECT c.id, jsonb_build_object('combatId', c.id, 'combatInstanceId', c.instance_id,
@@ -369,16 +379,19 @@ const UNPROJECTED: &str = concat!(
             WHEN lower(h.v ->> 'combatId') THEN 2
             WHEN lower(h.v ->> 'initiativeEntryId') THEN 3
         END AS kind) of
+    CROSS JOIN LATERAL (SELECT t.v - 'createdAt' - 'resetAt'
+            - CASE WHEN h.v ->> 'characterType' IS NULL
+                THEN ARRAY['characterType'] ELSE ARRAY[]::text[] END AS v) read
     WHERE CASE WHEN h.tombstoned THEN t.id IS NOT NULL
         ELSE of.kind IS NOT NULL AND (t.id IS NULL
-            OR jsonb_strip_nulls(t.v - 'createdAt' - 'resetAt') IS DISTINCT FROM jsonb_strip_nulls((
+            OR jsonb_strip_nulls(read.v) IS DISTINCT FROM jsonb_strip_nulls((
                 SELECT jsonb_object_agg(k.key, CASE
                     WHEN k.key NOT IN ('startedAt', 'endedAt')
                         THEN coalesce(h.v -> k.key, 'null')
                     WHEN pg_input_is_valid(h.v ->> k.key, 'timestamptz')
                         THEN to_jsonb((h.v ->> k.key)::timestamptz)
                     ELSE coalesce(h.v -> k.key, 'null') END)
-                FROM jsonb_object_keys(t.v - 'createdAt' - 'resetAt') k (key))))
+                FROM jsonb_object_keys(read.v) k (key))))
         END
     ORDER BY h.tombstoned DESC, of.kind, h.partition"
 );

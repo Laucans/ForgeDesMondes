@@ -238,7 +238,7 @@ async fn the_data_layer_applies_it_after_0013_and_again() {
     let applied = data::migrate(&mut client, &migrations())
         .await
         .expect("migrated");
-    assert_eq!(applied.last().map(String::as_str), Some(MIGRATION));
+    assert!(applied.iter().any(|file| file == MIGRATION), "{applied:?}");
     let again = data::migrate(&mut client, &migrations())
         .await
         .expect("migrated again");

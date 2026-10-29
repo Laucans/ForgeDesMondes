@@ -26,7 +26,15 @@ const MIGRATIONS: [&str; 5] = [
 
 /// The migrations that build on them, which the Data layer applies after
 /// them: they are not "earlier" than them.
-const LATER: [&str; 1] = ["0014_battlemap_instance_uniques.sql"];
+const LATER: [&str; 2] = [
+    "0014_battlemap_instance_uniques.sql",
+    "0015_battlemap_token_character_type.sql",
+];
+
+/// The columns a later migration adds to those tables, which the dossier's
+/// design (`mock/data/model.json`, never edited) does not have: the token's
+/// PC/NPC marker (0015).
+const ADDED_AFTER_THE_DESIGN: [(&str, &str); 1] = [("token", "character_type")];
 
 /// The tables they create, in their order.
 const TABLES: [&str; 15] = [
@@ -531,7 +539,13 @@ async fn the_tables_and_views_are_what_data_model_json_describes_and_the_design_
             .collect();
         assert_eq!(real, modelled(&described, table), "{table}");
         // Copied from the dossier's design: nothing renamed, nothing dropped.
-        assert_eq!(real, modelled(&designed, table), "{table}");
+        // A column a later migration adds is the model's alone.
+        let kept: Vec<_> = real
+            .iter()
+            .filter(|(column, ..)| !ADDED_AFTER_THE_DESIGN.contains(&(table, column.as_str())))
+            .cloned()
+            .collect();
+        assert_eq!(kept, modelled(&designed, table), "{table}");
     }
     // A view's columns are all nullable to PostgreSQL: the model says what
     // the view guarantees, its names and types are the database's.
@@ -861,7 +875,6 @@ async fn a_token_s_death_band_and_initial_are_generated_from_its_hp_and_name() {
         ("3", "false en sang M"),
         ("1", "false en sang M"),
         ("0", "true mort M"),
-        ("-2", "true mort M"),
     ] {
         s.accepted(&format!(
             "UPDATE token SET hp_max = 7, hp_current = {hp} WHERE id = '{MORLOX_1}'"
