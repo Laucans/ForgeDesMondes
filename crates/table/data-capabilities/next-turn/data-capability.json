@@ -9,7 +9,7 @@
   },
   "touches": ["BattlemapInstance.currentEntryId", "BattlemapInstance.round"],
   "payload": {
-    "instance": "uuid — the battlemap instance whose open combat moves on, when the command names no target; never written. Nothing else is sent: « Suivant » passes the turn to the next participant in rank order that initiative_order_view does not skip, a dead NPC being skipped there (dead-derived), a hidden one taking its turn at its rank (hidden-keeps-rank), and adds a round when it wraps past the last rank (next-turn, Initiative@1). The command lands on the combat's own row and writes its currentEntryId and its round's step, 0 or 1. An instance with no open combat, or whose participants are all dead, is refused"
+    "instance": "uuid — the battlemap instance whose open combat moves on, when the command names no target; never written. Nothing else is sent: « Suivant » passes the turn to the next living participant in rank order, a dead NPC skipped (dead-derived), a hidden one taking its turn at its rank (hidden-keeps-rank), and adds a round when it wraps past the last rank (next-turn, Initiative@1). The command lands on the combat's own row and writes its currentEntryId and its round's step, 0 or 1. An instance with no open combat, or whose participants are all dead, is refused"
   },
   "mode": "relative",
   "invariants": ["instance-isolated", "next-turn", "dead-derived", "hidden-keeps-rank"],
