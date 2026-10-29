@@ -265,6 +265,65 @@ async fn a_token_pointed_at_another_character_follows_its_type() {
     );
 }
 
+// AC1: the DM changes a character's type in the entity editor; its token keeps
+// its marker and stays writable. The projection re-sends the hydrated marker
+// on every move, as an upsert (its INSERT half fires the trigger on the
+// proposed row, the conflict then turns it into an update).
+#[tokio::test]
+async fn a_token_stays_writable_after_its_character_changes_type() {
+    let (_db, client) = at_0015("character_type_retyped").await;
+    // The entity editor's version bookkeeping is not what is under test.
+    client
+        .batch_execute(&format!(
+            "ALTER TABLE entity DISABLE TRIGGER every_change_versioned;
+             ALTER TABLE character DISABLE TRIGGER USER;
+             UPDATE entity SET type = 'pnj' WHERE id = '{ELOWEN}';
+             UPDATE entity SET type = 'pj' WHERE id = '{BANDIT}'"
+        ))
+        .await
+        .expect("the characters change type");
+    for (token, character, marker, hp) in [
+        (T_ELOWEN, ELOWEN, "pj", "NULL, NULL"),
+        (T_BANDIT, BANDIT, "pnj", "5, 5"),
+    ] {
+        client
+            .batch_execute(&format!(
+                "INSERT INTO token (id, instance_id, character_id, name, q, r, visible,
+                     character_type, hp_current, hp_max, conditions)
+                 VALUES ('{token}', '{INSTANCE}', '{character}', 'Jeton', 7, 7, false,
+                     '{marker}', {hp}, '{{}}')
+                 ON CONFLICT (id) DO UPDATE SET q = EXCLUDED.q, r = EXCLUDED.r,
+                     visible = EXCLUDED.visible, character_type = EXCLUDED.character_type"
+            ))
+            .await
+            .unwrap_or_else(|error| {
+                panic!("the token of {character} moves: {:?}", error.as_db_error())
+            });
+    }
+    client
+        .batch_execute(&format!(
+            "UPDATE token SET q = 1, character_type = character_type WHERE id = '{T_ELOWEN}';
+             DELETE FROM token WHERE id = '{T_BANDIT}'"
+        ))
+        .await
+        .expect("the token is moved and removed");
+    // A new token still cannot claim a type its character is not.
+    assert_eq!(
+        refused_by(
+            &client,
+            &format!(
+                "INSERT INTO token (id, instance_id, character_id, name, q, r, visible,
+                     character_type, hp_current, hp_max, conditions)
+                 VALUES (gen_random_uuid(), '{OTHER_INSTANCE}', '{ELOWEN}', 'Jeton', 0, 0, true,
+                     'pj', NULL, NULL, '{{}}')"
+            ),
+            &SqlState::CHECK_VIOLATION
+        )
+        .await,
+        "token_character_type_matches"
+    );
+}
+
 // AC2: replayed, 0015 changes nothing and raises no error.
 #[tokio::test]
 async fn it_replays_as_a_no_op() {

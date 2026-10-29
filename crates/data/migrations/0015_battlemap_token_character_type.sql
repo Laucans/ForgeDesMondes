@@ -29,17 +29,37 @@ ALTER TABLE token ADD COLUMN IF NOT EXISTS character_type text;
 
 -- The marker a token without one gets: its character's type. One that names
 -- a marker names its character's: a token cannot call a PC an NPC to track
--- its HP, or the other way round.
+-- its HP, or the other way round. A marker the token already holds, for the
+-- character it already has, is kept as it is, whatever its character's type
+-- became since (the DM edits it in the entity editor): the projection re-sends
+-- the hydrated marker on every move, and refusing it would freeze the token.
+-- An upsert's INSERT half fires this trigger on the proposed row before the
+-- conflict is known, so the held row is looked up by id for it.
 CREATE OR REPLACE FUNCTION token_character_type_default() RETURNS trigger
     LANGUAGE plpgsql AS $$
 DECLARE
     kind text;
+    held boolean;
+    held_character uuid;
+    held_type text;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        held := true;
+        held_character := OLD.character_id;
+        held_type := OLD.character_type;
+    ELSE
+        SELECT t.character_id, t.character_type INTO held_character, held_type
+            FROM token t WHERE t.id = NEW.id;
+        held := FOUND;
+    END IF;
     SELECT e.type INTO kind FROM entity e WHERE e.id = NEW.character_id;
-    -- A token pointed at another character, its marker left as it was,
-    -- follows its new character.
-    IF TG_OP = 'UPDATE' AND NEW.character_id IS DISTINCT FROM OLD.character_id
-            AND NEW.character_type IS NOT DISTINCT FROM OLD.character_type THEN
+    IF held AND NEW.character_type IS NOT DISTINCT FROM held_type THEN
+        IF NEW.character_id IS NOT DISTINCT FROM held_character THEN
+            -- Nothing changed of what the marker says.
+            RETURN NEW;
+        END IF;
+        -- A token pointed at another character, its marker left as it was,
+        -- follows its new character.
         NEW.character_type := NULL;
     END IF;
     IF NEW.character_type IS NULL THEN
