@@ -13,7 +13,8 @@ use ports_character_sheets::SharedCharacterSheets;
 use ports_llm::SharedLlm;
 use server::{
     Config, Error, Names, Ports, app, applier, character_sheets, fixtures, held_instances,
-    held_versions, inventory, listen, llm, plant, renaming, shared, speech, waking,
+    held_live_sessions, held_versions, inventory, listen, llm, plant, renaming, shared, speech,
+    waking,
 };
 use tokio::sync::Notify;
 
@@ -86,13 +87,18 @@ async fn run() -> Result<(), Error> {
                     let loaded = match data::read_write().await {
                         Ok(mut client) => match held_instances(&client).await {
                             Ok(held) => match held_versions(&client).await {
-                                Ok(versions) => {
-                                    // A scene the DM already gave an instance keeps only that one.
-                                    plan.leave_out_taken_scenes(&held);
-                                    // An element the app already versioned keeps its history.
-                                    plan.leave_out_taken_versions(&versions);
-                                    data::insert_missing(&mut client, &plan.tables).await
-                                }
+                                Ok(versions) => match held_live_sessions(&client).await {
+                                    Ok(live) => {
+                                        // A scene the DM already gave an instance keeps only that one.
+                                        plan.leave_out_taken_scenes(&held);
+                                        // An element the app already versioned keeps its history.
+                                        plan.leave_out_taken_versions(&versions);
+                                        // Only one session is live: the store's comes first.
+                                        plan.leave_out_second_live(&live);
+                                        data::insert_missing(&mut client, &plan.tables).await
+                                    }
+                                    Err(e) => Err(e),
+                                },
                                 Err(e) => Err(e),
                             },
                             Err(e) => Err(e),
