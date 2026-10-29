@@ -1383,8 +1383,8 @@
     "table.placeTokens": {
       "kind": "data-capability",
       "producer": 25,
-      "state": "built",
-      "version": 1
+      "state": "evolving",
+      "version": 2
     },
     "table.removeParticipant": {
       "kind": "data-capability",
