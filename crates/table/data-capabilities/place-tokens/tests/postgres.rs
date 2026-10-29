@@ -20,9 +20,10 @@ use harness_dataguard::manifest::DataCapability;
 use harness_dataguard::memory::{MemoryNotifier, MemoryStore};
 use harness_dataguard::plugins::{Plugins, RefusalKind};
 use harness_dataguard::postgres::{PgStore, ReadOnly, SystemClock};
-use harness_dataguard::tokio_postgres::{self, Client, NoTls};
+use harness_dataguard::tokio_postgres::Client;
 use harness_dataguard::{Error, Result};
 use place_tokens::token_id;
+use platform_test_kit::Scratch as Database;
 use serde_json::{Value, json};
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
@@ -44,31 +45,6 @@ const NOYEE: &str = "e2000000-0000-4000-8000-000000000001";
 /// A place of Valombre: no character.
 const GUE_LIEU: &str = "e1000000-0000-4000-8000-000000000009";
 const NOWHERE: &str = "e1000000-0000-4000-8000-0000000000ff";
-
-fn url() -> String {
-    std::env::var("DATABASE_URL").expect("DATABASE_URL names the harness's PostgreSQL")
-}
-
-async fn connect(url: &str) -> Client {
-    let (client, connection) = tokio_postgres::connect(url, NoTls)
-        .await
-        .expect("PostgreSQL");
-    tokio::spawn(connection);
-    client
-}
-
-/// `DATABASE_URL` naming the database `name` instead.
-fn naming(name: &str) -> String {
-    let url = url();
-    let (address, query) = url.split_once('?').unwrap_or((&url, ""));
-    let (server, _) = address.rsplit_once('/').expect("a URL naming its database");
-    let query = if query.is_empty() {
-        String::new()
-    } else {
-        format!("?{query}")
-    };
-    format!("{server}/{name}{query}")
-}
 
 /// The BattlemapInstance aggregate's document, read beside this unit.
 fn aggregate() -> Aggregate {
@@ -95,33 +71,18 @@ fn plugins() -> Plugins {
 /// wolf, the wolf with two tokens on the instance already, and a place — and
 /// Brume with its drowned woman; and an instance the engine alone wrote.
 struct Scratch {
-    name: String,
-    url: String,
-    client: Client,
+    db: Database,
 }
 
 impl Scratch {
     async fn new(name: &str) -> Scratch {
-        let name = format!("place_tokens_test_{name}_{}", std::process::id());
-        let admin = connect(&url()).await;
-        for sql in [
-            format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
-            format!("CREATE DATABASE {name}"),
-        ] {
-            admin.batch_execute(&sql).await.expect("a scratch database");
-        }
-        let url = naming(&name);
-        let mut client = connect(&url).await;
-        let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/migrations");
-        data::migrate(&mut client, &migrations)
-            .await
-            .expect("migrated");
+        // Migrated as the server migrates it, dropped when the test ends.
+        let db = Database::new(&format!("place_tokens_{name}")).await;
         // The engine's own tables, which its store makes when it opens.
-        PgStore::open(connect(&url).await)
+        PgStore::open(db.connect().await)
             .await
             .expect("the engine's tables");
-        client
-            .batch_execute(&format!(
+        db.seed(&format!(
                 "INSERT INTO campaign (id, name, kind) VALUES
                      ('{VALOMBRE}', 'Les Cendres de Valombre', 'campagne'),
                      ('{BRUME}', 'Les Brumes', 'campagne');
@@ -165,15 +126,19 @@ impl Scratch {
                          \"sceneId\": \"{AUTRE_SCENE}\",
                          \"createdAt\": \"2026-10-21T10:00:00Z\"}}');"
             ))
-            .await
-            .expect("Valombre and Brume");
-        Scratch { name, url, client }
+            .await;
+        Scratch { db }
+    }
+
+    /// The connection the database was seeded over.
+    fn client(&self) -> &Client {
+        self.db.client()
     }
 
     /// The engine as the server plants this unit and its target aggregate
     /// over this database, the tables lent to the Prepare.
     async fn serve(&self) -> Engine {
-        let store = PgStore::open(connect(&self.url).await)
+        let store = PgStore::open(self.db.connect().await)
             .await
             .expect("the store")
             .with_projections(&plugins())
@@ -184,7 +149,7 @@ impl Scratch {
             Arc::new(MemoryNotifier::default()),
             Arc::new(SystemClock),
         )
-        .with_rows(Arc::new(ReadOnly::new(connect(&self.url).await)))
+        .with_rows(Arc::new(ReadOnly::new(self.db.connect().await)))
         .with_aggregate(aggregate())
         .with_data_capability(manifest())
         .with_plugins(plugins());
@@ -195,7 +160,7 @@ impl Scratch {
     /// The tokens of `character` on `instance` the engine holds, each its
     /// row's fields, by number.
     async fn tokens(&self, instance: &str, character: &str) -> Vec<Value> {
-        self.client
+        self.client()
             .query(
                 "SELECT fields::text FROM dataguard_rows
                  WHERE partition LIKE 'BattlemapInstance/%' AND NOT tombstoned
@@ -208,24 +173,6 @@ impl Scratch {
             .iter()
             .map(|row| serde_json::from_str(row.get::<_, &str>(0)).expect("JSON"))
             .collect()
-    }
-
-    /// Drops the database — again, a moment later, while a backend a role
-    /// that is no superuser cannot end (an autovacuum worker) is still in it.
-    async fn drop(self) {
-        drop(self.client);
-        let admin = connect(&url()).await;
-        let sql = format!("DROP DATABASE {} WITH (FORCE)", self.name);
-        for _ in 0..20 {
-            if admin.batch_execute(&sql).await.is_ok() {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(250));
-        }
-        admin
-            .batch_execute(&sql)
-            .await
-            .expect("the scratch database dropped");
     }
 }
 
@@ -310,7 +257,6 @@ async fn multi_drop_numbering_a_monster_dropped_three_times_then_twice_is_number
         numbers(&scratch.tokens(ENGINE_INSTANCE, BANDIT).await),
         [json!(1)]
     );
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -334,7 +280,6 @@ async fn multi_drop_numbering_a_drop_numbers_after_the_ones_still_queued() {
         numbers(&scratch.tokens(INSTANCE, BANDIT).await),
         [json!(1), json!(2), json!(3), json!(4), json!(5)]
     );
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -347,7 +292,6 @@ async fn multi_drop_numbering_a_drop_numbers_after_the_tokens_the_tables_hold() 
     assert_eq!(numbers(&tokens), [json!(3), json!(4)]);
     // The sheet's name, trimmed.
     assert_eq!(tokens[0]["name"], "Loup 3");
-    scratch.drop().await;
 }
 
 // AC1: a token the engine tombstoned and the engine restarted, a drop that reuses
@@ -359,7 +303,7 @@ async fn multi_drop_numbering_a_token_removed_leaves_its_number_free_and_its_tom
     let scratch = Scratch::new("removed").await;
     let engine = scratch.serve().await;
     let tombstone = |partition: String| {
-        let client = &scratch.client;
+        let client = scratch.client();
         async move {
             client
                 .execute(
@@ -391,7 +335,7 @@ async fn multi_drop_numbering_a_token_removed_leaves_its_number_free_and_its_tom
     // The new tokens have ids of their own: what was removed stays so.
     for partition in [removed, elowen] {
         let tombstoned: bool = scratch
-            .client
+            .client()
             .query_one(
                 "SELECT tombstoned FROM dataguard_rows WHERE partition = $1",
                 &[&partition],
@@ -401,7 +345,6 @@ async fn multi_drop_numbering_a_token_removed_leaves_its_number_free_and_its_tom
             .get(0);
         assert!(tombstoned, "{partition}");
     }
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -426,7 +369,7 @@ async fn pj_hp_not_tracked_an_npc_copies_its_sheet_s_hp_max_and_a_pc_tracks_none
     }
     // The sheet itself is never written.
     let hp: i16 = scratch
-        .client
+        .client()
         .query_one(
             "SELECT hp_max FROM character WHERE entity_id = $1::text::uuid",
             &[&BANDIT],
@@ -435,7 +378,109 @@ async fn pj_hp_not_tracked_an_npc_copies_its_sheet_s_hp_max_and_a_pc_tracks_none
         .expect("the sheet")
         .get(0);
     assert_eq!(hp, 11);
-    scratch.drop().await;
+}
+
+/// What the `token` table stores of `character`'s tokens on `instance`, by
+/// number: its `character_type`, `hp_current` and `hp_max`.
+async fn stored(
+    scratch: &Scratch,
+    instance: &str,
+    character: &str,
+) -> Vec<(String, Option<i16>, Option<i16>)> {
+    scratch
+        .client()
+        .query(
+            "SELECT character_type, hp_current, hp_max FROM token
+             WHERE instance_id = $1::text::uuid AND character_id = $2::text::uuid
+             ORDER BY number NULLS FIRST",
+            &[&instance, &character],
+        )
+        .await
+        .expect("the token table")
+        .iter()
+        .map(|row| (row.get(0), row.get(1), row.get(2)))
+        .collect()
+}
+
+// AC1: a PC present in the session, dropped, is stored 'pj' with no HP.
+#[tokio::test]
+async fn pj_hp_not_tracked_a_pc_token_is_stored_pj_with_no_hp() {
+    let scratch = Scratch::new("pc_type").await;
+    let engine = scratch.serve().await;
+
+    place(&engine, INSTANCE, dropped(ELOWEN, 1)).await;
+    let tokens = scratch.tokens(INSTANCE, ELOWEN).await;
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0]["characterType"], "pj");
+    assert_eq!(
+        stored(&scratch, INSTANCE, ELOWEN).await,
+        [("pj".into(), None, None)]
+    );
+}
+
+// AC2: an NPC with an hp_max on its sheet, dropped × 3, is stored three times
+// 'pnj', its HP max the sheet's and its current HP the same.
+#[tokio::test]
+async fn pj_hp_not_tracked_an_npc_dropped_three_times_is_stored_pnj_with_the_sheet_s_hp() {
+    let scratch = Scratch::new("npc_type").await;
+    let engine = scratch.serve().await;
+
+    place(&engine, INSTANCE, dropped(BANDIT, 3)).await;
+    for token in scratch.tokens(INSTANCE, BANDIT).await {
+        assert_eq!(token["characterType"], "pnj");
+    }
+    assert_eq!(
+        stored(&scratch, INSTANCE, BANDIT).await,
+        [
+            ("pnj".to_owned(), Some(11), Some(11)),
+            ("pnj".to_owned(), Some(11), Some(11)),
+            ("pnj".to_owned(), Some(11), Some(11)),
+        ]
+    );
+}
+
+// AC3: a PC that already has its token on the instance, dropped again, is
+// rejected (token-roster) and its stored token is the first one alone.
+#[tokio::test]
+async fn token_roster_a_second_drop_of_a_pc_is_rejected_and_the_first_token_stays() {
+    let scratch = Scratch::new("pc_twice").await;
+    let engine = scratch.serve().await;
+
+    place(&engine, INSTANCE, dropped(ELOWEN, 1)).await;
+    let message = refused(
+        post(&engine, INSTANCE, dropped(ELOWEN, 1)).await,
+        RefusalKind::Unprocessable,
+    );
+    assert!(message.contains("token-roster"), "{message}");
+    settle(&engine).await;
+    assert_eq!(stored(&scratch, INSTANCE, ELOWEN).await.len(), 1);
+}
+
+// AC5: the Battlemap's version 1 payload — instance, character, q, r, count,
+// no characterType — and no target: the tokens are placed as before.
+#[tokio::test]
+async fn a_version_1_payload_places_its_tokens_as_before() {
+    let scratch = Scratch::new("v1_payload").await;
+    let engine = scratch.serve().await;
+
+    let body = json!({
+        "dataCapability": "table.placeTokens@1",
+        "payload": { "instance": INSTANCE, "character": BANDIT, "q": 2, "r": 3, "count": 2 },
+        "caller": { "by": "dm", "from": "Battlemap", "roles": ["role:approver"] },
+    });
+    let submitted = engine
+        .submit(serde_json::from_value::<Submission>(body).expect("a submission"))
+        .await
+        .expect("queued");
+    assert_eq!(submitted.then.len(), 1);
+    settle(&engine).await;
+
+    let tokens = scratch.tokens(INSTANCE, BANDIT).await;
+    assert_eq!(numbers(&tokens), [json!(1), json!(2)]);
+    for token in &tokens {
+        assert_eq!((&token["q"], &token["r"]), (&json!(2), &json!(3)));
+        assert_eq!(token["characterType"], "pnj");
+    }
 }
 
 #[tokio::test]
@@ -471,14 +516,13 @@ async fn token_roster_a_pc_absent_from_the_session_or_placed_already_is_refused(
     assert!(message.contains("token-roster"), "{message}");
     assert!(scratch.tokens(INSTANCE, KAEL).await.is_empty());
     assert_eq!(scratch.tokens(INSTANCE, ELOWEN).await.len(), 1);
-    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn token_roster_a_pc_the_tables_hold_on_the_instance_is_refused() {
     let scratch = Scratch::new("tabled").await;
     scratch
-        .client
+        .client()
         .batch_execute(&format!(
             "INSERT INTO token (id, instance_id, character_id, number, name, q, r, visible,
                  hp_current, hp_max, conditions)
@@ -497,14 +541,13 @@ async fn token_roster_a_pc_the_tables_hold_on_the_instance_is_refused() {
     // On another instance of the session she is not placed yet.
     place(&engine, ENGINE_INSTANCE, dropped(ELOWEN, 1)).await;
     assert_eq!(scratch.tokens(ENGINE_INSTANCE, ELOWEN).await.len(), 1);
-    scratch.drop().await;
 }
 
 #[tokio::test]
 async fn token_roster_a_pc_made_present_by_the_engine_is_placed() {
     let scratch = Scratch::new("present").await;
     scratch
-        .client
+        .client()
         .execute(
             "INSERT INTO dataguard_rows (partition, fields) VALUES ($1, $2::text::jsonb)",
             &[
@@ -522,7 +565,6 @@ async fn token_roster_a_pc_made_present_by_the_engine_is_placed() {
 
     place(&engine, INSTANCE, dropped(KAEL, 1)).await;
     assert_eq!(scratch.tokens(INSTANCE, KAEL).await.len(), 1);
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -579,7 +621,6 @@ async fn what_the_tables_do_not_hold_is_refused_before_it_is_queued() {
     }
     assert!(scratch.tokens(INSTANCE, NOYEE).await.is_empty());
     assert!(scratch.tokens(INSTANCE, BANDIT).await.is_empty());
-    scratch.drop().await;
 }
 
 #[tokio::test]
@@ -592,7 +633,7 @@ async fn what_the_engine_deleted_is_not_there_any_more() {
         format!("Entity/{BANDIT}"),
     ] {
         scratch
-            .client
+            .client()
             .execute(
                 "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ($1, true)
                  ON CONFLICT (partition) DO UPDATE SET tombstoned = true",
@@ -612,11 +653,10 @@ async fn what_the_engine_deleted_is_not_there_any_more() {
         );
         assert!(message.contains(words), "{instance}: {message}");
     }
-    scratch.drop().await;
 
     let scratch = Scratch::new("entity_gone").await;
     scratch
-        .client
+        .client()
         .execute(
             "INSERT INTO dataguard_rows (partition, tombstoned) VALUES ($1, true)",
             &[&format!("Entity/{BANDIT}")],
@@ -629,7 +669,6 @@ async fn what_the_engine_deleted_is_not_there_any_more() {
         RefusalKind::NotFound,
     );
     assert!(message.contains("personnage"), "{message}");
-    scratch.drop().await;
 }
 
 #[tokio::test]

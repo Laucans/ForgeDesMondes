@@ -26,6 +26,8 @@
 //! - a PC is dropped once, only when present at the instance's session, and
 //!   only when it has no token on the instance yet (`token-roster`); its
 //!   token has no number, its name is the character's, and it tracks no HP;
+//! - every token records which it is, `characterType` — the character's
+//!   `entity.type`, `pj` or `pnj` — which the tables check against its HP;
 //! - every token stands on the hex dropped on, visible, with no condition;
 //! - what the tables could never hold, or what the roster forbids, is refused
 //!   before anything is queued ([`Refusal`]).
@@ -342,6 +344,7 @@ pub fn prepare(request: &Request, roster: &Roster) -> Result<Vec<Row>, Refusal> 
             ),
             ("tokenInstanceId".to_owned(), json!(request.instance)),
             ("characterId".to_owned(), json!(request.character)),
+            ("characterType".to_owned(), json!(character.kind)),
             ("number".to_owned(), json!(number)),
             ("name".to_owned(), json!(name)),
             ("q".to_owned(), json!(request.q)),
