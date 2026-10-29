@@ -4,14 +4,15 @@
 //! `diffusion` row is the base, the floating window with its derived height
 //! and the framing; a session with no row shows the campaign's cover; the
 //! same values answer view 'dm' and view 'player'. Each test works in a
-//! database of its own, dropped when it ends.
+//! `ScratchDb` of its own, dropped even when an assertion fails.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use get_diffusion::{SQL, answer};
 use harness_dataguard::tokio_postgres::types::Type;
-use harness_dataguard::tokio_postgres::{self, Client, NoTls};
+use harness_dataguard::tokio_postgres::{self, Client};
+use platform_scratch_db::ScratchDb;
 use serde_json::{Value, json};
 
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
@@ -24,48 +25,21 @@ const SEANCE_1: &str = "51000000-0000-4000-8000-000000000001";
 const SEANCE: &str = "51000000-0000-4000-8000-000000000002";
 const INSTANCE: &str = "b1000000-0000-4000-8000-000000000002";
 
-fn url() -> String {
-    std::env::var("DATABASE_URL").expect("DATABASE_URL names the harness's PostgreSQL")
-}
-
-fn naming(name: &str) -> String {
-    let url = url();
-    let (address, query) = url.split_once('?').unwrap_or((&url, ""));
-    let (server, _) = address.rsplit_once('/').expect("a URL naming its database");
-    if query.is_empty() {
-        format!("{server}/{name}")
-    } else {
-        format!("{server}/{name}?{query}")
-    }
-}
-
-async fn connect(url: &str) -> Client {
-    let (client, connection) = tokio_postgres::connect(url, NoTls)
-        .await
-        .expect("PostgreSQL");
-    tokio::spawn(connection);
-    client
-}
-
 /// A database of its own: Valombre (its cover the portrait), its closed
 /// session 1 and its live session 2 with a battlemap instance; Brumes, with
 /// no session.
 struct Scratch {
-    name: String,
     client: Client,
+    /// Last field: the connection closes before the database is dropped.
+    _db: ScratchDb,
 }
 
 impl Scratch {
     async fn new(name: &str) -> Scratch {
-        let name = format!("get_diffusion_test_{name}_{}", std::process::id());
-        let admin = connect(&url()).await;
-        for sql in [
-            format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
-            format!("CREATE DATABASE {name}"),
-        ] {
-            admin.batch_execute(&sql).await.expect("a scratch database");
-        }
-        let mut client = connect(&naming(&name)).await;
+        let db = ScratchDb::create(&format!("get_diffusion_{name}"))
+            .await
+            .expect("a scratch database");
+        let mut client = db.connect().await.expect("PostgreSQL");
         let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/migrations");
         data::migrate(&mut client, &migrations)
             .await
@@ -91,7 +65,7 @@ impl Scratch {
             ))
             .await
             .expect("Valombre, its sessions, its media and its instance");
-        Scratch { name, client }
+        Scratch { client, _db: db }
     }
 
     async fn diffusion(&self, row: &str) {
@@ -157,23 +131,6 @@ impl Scratch {
         ]);
         answer(&self.rows(campaign).await, &variables)
     }
-
-    /// Dropped with a retry: an autovacuum worker still on the database
-    /// makes the first attempts fail.
-    async fn drop(self) {
-        drop(self.client);
-        let admin = connect(&url()).await;
-        let sql = format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.name);
-        let mut last = None;
-        for _ in 0..20 {
-            match admin.batch_execute(&sql).await {
-                Ok(()) => return,
-                Err(e) => last = Some(e),
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-        }
-        panic!("the scratch database dropped: {last:?}");
-    }
 }
 
 #[tokio::test]
@@ -183,7 +140,6 @@ async fn a_session_with_no_diffusion_row_shows_the_cover_and_no_window() {
     assert_eq!(got["base"], json!({ "kind": "cover", "id": PORTRAIT }));
     assert_eq!(got["window"], Value::Null);
     assert_eq!(got["view"], Value::Null);
-    db.drop().await;
 }
 
 #[tokio::test]
@@ -194,7 +150,6 @@ async fn a_campaign_with_no_live_session_shows_a_bare_cover() {
         got,
         json!({ "base": { "kind": "cover", "id": "" }, "window": null, "view": null })
     );
-    db.drop().await;
 }
 
 #[tokio::test]
@@ -215,7 +170,6 @@ async fn the_window_comes_with_its_height_derived_from_the_illustration() {
         got["view"],
         json!({ "zoom": 1.5, "panX": -40.0, "panY": 12.5 })
     );
-    db.drop().await;
 }
 
 #[tokio::test]
@@ -233,7 +187,6 @@ async fn view_dm_and_view_player_read_the_same_values() {
         json!({ "kind": "illustration", "id": PORTRAIT })
     );
     assert_eq!(dm["window"]["h"], json!(0.45));
-    db.drop().await;
 }
 
 #[tokio::test]
@@ -244,7 +197,6 @@ async fn a_base_whose_instance_was_deleted_shows_the_cover() {
     let got = db.read(VALOMBRE, "player").await;
     assert_eq!(got["base"], json!({ "kind": "cover", "id": PORTRAIT }));
     assert_eq!(got["window"], Value::Null);
-    db.drop().await;
 }
 
 #[tokio::test]
@@ -256,7 +208,6 @@ async fn with_no_campaign_the_live_session_is_read() {
     .await;
     let got = db.read("", "player").await;
     assert_eq!(got["base"], json!({ "kind": "battlemap", "id": INSTANCE }));
-    db.drop().await;
 }
 
 // AC1: a battlemap on the diffusion row, read with no variables, answers the
@@ -274,7 +225,6 @@ async fn with_no_campaign_variable_the_live_session_is_read_as_with_an_empty_one
         json!({ "kind": "battlemap", "id": INSTANCE })
     );
     assert_eq!(db.read("", "dm").await, absent);
-    db.drop().await;
 }
 
 // AC2: the illustration the DM sent as a floating window, read with no
@@ -291,8 +241,10 @@ async fn with_no_campaign_variable_the_floating_window_is_answered() {
         got["window"],
         json!({ "media": PORTRAIT, "x": 0.1, "y": 0.2, "w": 0.4, "h": 0.6 })
     );
-    assert_ne!(got["base"]["kind"], "cover");
-    db.drop().await;
+    assert_eq!(
+        got["base"],
+        json!({ "kind": "illustration", "id": PORTRAIT })
+    );
 }
 
 // AC3: no live session, read with no variables, answers the bare cover.
@@ -309,5 +261,39 @@ async fn with_no_campaign_variable_and_no_live_session_the_cover_is_bare() {
         db.read_without_campaign("player").await,
         json!({ "base": { "kind": "cover", "id": "" }, "window": null, "view": null })
     );
-    db.drop().await;
+}
+
+// Two campaigns live, `$1` NULL: the session started last is read, whichever
+// campaign it belongs to.
+#[tokio::test]
+async fn with_no_campaign_variable_and_two_live_sessions_the_last_started_is_read() {
+    let mut db = Scratch::new("absent_two_live").await;
+    let brumes_cover = "d1000000-0000-4000-8000-000000000003";
+    db.client
+        .batch_execute(&format!(
+            "INSERT INTO media (id, campaign_id, kind, title, file_path, width_px, height_px) VALUES \
+             ('{brumes_cover}', '{BRUMES}', 'illustration', 'Brume', 'brume.png', 800, 1200); \
+             UPDATE campaign SET cover_media_id = '{brumes_cover}' WHERE id = '{BRUMES}'; \
+             INSERT INTO session (id, campaign_id, position, title, status, microphone_on) VALUES \
+             ('51000000-0000-4000-8000-000000000003', '{BRUMES}', 1, 'Le Gué', 'live', false)"
+        ))
+        .await
+        .expect("a second live session");
+    let valombre =
+        json!({ "base": { "kind": "cover", "id": PORTRAIT }, "window": null, "view": null });
+    let brumes =
+        json!({ "base": { "kind": "cover", "id": brumes_cover }, "window": null, "view": null });
+    for (valombre_at, brumes_at, expected) in [
+        ("2026-01-02", "2026-01-01", &valombre),
+        ("2026-01-01", "2026-01-02", &brumes),
+    ] {
+        db.client
+            .batch_execute(&format!(
+                "UPDATE session SET started_at = '{valombre_at}' WHERE id = '{SEANCE}'; \
+                 UPDATE session SET started_at = '{brumes_at}' WHERE id = '51000000-0000-4000-8000-000000000003'"
+            ))
+            .await
+            .expect("the start times");
+        assert_eq!(&db.read_without_campaign("player").await, expected);
+    }
 }
