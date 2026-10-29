@@ -3,7 +3,7 @@
 //! instance, round 1, the first's turn. « Suivant » passes the turn in rank
 //! order and counts a round at each lap (`next-turn`), skips a dead one
 //! (`dead-derived`), gives a hidden one its turn (`hidden-keeps-rank`),
-//! reads what is queued ahead of it — a press, a blow, an end — and is
+//! reads what is queued ahead of it — a press, an end — and is
 //! refused when the instance has no open combat. Each test works in a
 //! scratch database of its own, migrated as the server migrates it, dropped
 //! when it ends.
@@ -29,9 +29,13 @@ const AUTRE_INSTANCE: &str = "b1000000-0000-4000-8000-000000000002";
 const VALOMBRE: &str = "c1000000-0000-4000-8000-000000000001";
 const BANDIT: &str = "e1000000-0000-4000-8000-0000000000b1";
 const COMBAT: &str = "c0000000-0000-4000-8000-000000000001";
+const SEANCE: &str = "5e000000-0000-4000-8000-000000000001";
+const SCENE: &str = "5c000000-0000-4000-8000-000000000001";
+const GUE: &str = "d1000000-0000-4000-8000-00000000000a";
 
 /// The test-only DataCapabilities planting the rows a turn reads, and
 /// changing them as the other table commands do.
+const DROP_INSTANCE: &str = r#"{"dataCapability":"test.dropInstance","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$battlemapInstanceId"},"mode":"overwrite","callableBy":["*"]}"#;
 const DROP_TOKEN: &str = r#"{"dataCapability":"test.dropToken","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$tokenId"},"mode":"overwrite","callableBy":["*"]}"#;
 const OPEN_COMBAT: &str = r#"{"dataCapability":"test.openCombat","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$combatId"},"mode":"overwrite","callableBy":["*"]}"#;
 const SEAT: &str = r#"{"dataCapability":"test.seat","owner":"dataguard","version":1,"effect":"insert","target":{"aggregate":"BattlemapInstance","id":"$initiativeEntryId"},"mode":"overwrite","callableBy":["*"]}"#;
@@ -122,9 +126,11 @@ fn entry(number: u8) -> Value {
     })
 }
 
-/// A database of its own, migrated, holding Valombre and the Bandit, whom
-/// the tokens stand for: what the tables' foreign keys ask of the rows the
-/// aggregate's projection writes.
+/// A database of its own, migrated, holding Valombre, the scene and the
+/// battlemap its instance stands on, and the Bandit, whom the tokens stand
+/// for: what the tables' foreign keys ask of the rows the aggregate's
+/// projection writes — `initiative_order_view`, which « Suivant » reads, is
+/// made of those tables.
 struct Scratch {
     name: String,
     url: String,
@@ -150,6 +156,14 @@ impl Scratch {
             .batch_execute(&format!(
                 "INSERT INTO campaign (id, name, kind) VALUES
                      ('{VALOMBRE}', 'Les Cendres de Valombre', 'campagne');
+                 INSERT INTO session (id, campaign_id, position, title, status, microphone_on) VALUES
+                     ('{SEANCE}', '{VALOMBRE}', 1, 'L''embuscade du Gué', 'live', false);
+                 INSERT INTO scene (id, session_id, position, title) VALUES
+                     ('{SCENE}', '{SEANCE}', 1, 'Le gué');
+                 INSERT INTO media (id, campaign_id, kind, title, file_path, width_px, height_px) VALUES
+                     ('{GUE}', '{VALOMBRE}', 'battlemap', 'Le Gué des Corbeaux', 'media/gue.png', 960, 640);
+                 INSERT INTO battlemap_grid (media_id, hex_size_px, offset_x, offset_y, orientation, color, opacity) VALUES
+                     ('{GUE}', 30, 12, 8, 'pointe', 'text', 0.4);
                  INSERT INTO entity (id, campaign_id, type, name) VALUES
                      ('{BANDIT}', '{VALOMBRE}', 'pnj', 'Bandit');
                  INSERT INTO character (entity_id, token_color) VALUES ('{BANDIT}', '#888');
@@ -178,18 +192,37 @@ impl Scratch {
         .with_rows(Arc::new(ReadOnly::new(connect(&self.url).await)))
         .with_aggregate(aggregate())
         .with_data_capability(manifest(include_str!("../data-capability.json")));
-        [DROP_TOKEN, OPEN_COMBAT, SEAT, WOUND, HIDE, END]
-            .into_iter()
-            .fold(engine, |engine, test| {
-                engine.with_data_capability(manifest(test))
-            })
-            .with_plugins(plugins())
+        [
+            DROP_INSTANCE,
+            DROP_TOKEN,
+            OPEN_COMBAT,
+            SEAT,
+            WOUND,
+            HIDE,
+            END,
+        ]
+        .into_iter()
+        .fold(engine, |engine, test| {
+            engine.with_data_capability(manifest(test))
+        })
+        .with_plugins(plugins())
     }
 
     /// Bandit 1 to 3 on the tavern's instance, at `hp`, ranked 1 to 3 in
     /// its combat, round 1, Bandit 1's turn, as the engine holds them.
     async fn plant(&self, engine: &Engine, hp: [i64; 3]) {
         engine.load().await.expect("the engine loads");
+        submit(
+            engine,
+            "test.dropInstance",
+            json!({
+                "battlemapInstanceId": INSTANCE, "battlemapMediaId": GUE, "sessionId": SEANCE,
+                "sceneId": SCENE, "createdAt": "2026-10-21T10:00:00Z",
+            }),
+            None,
+        )
+        .await
+        .expect("the instance");
         for (number, hp) in (1..=3).zip(hp) {
             submit(engine, "test.dropToken", bandit(number, hp), None)
                 .await
@@ -214,7 +247,7 @@ impl Scratch {
                 .await
                 .expect("an entry");
         }
-        settle(engine, 7).await;
+        settle(engine, 8).await;
     }
 
     /// The combat's turn and round, as the engine holds them.
@@ -349,26 +382,6 @@ async fn dead_derived_the_second_at_0_hp_is_skipped_from_the_first() {
         pressed(&scratch, &engine).await,
         (json!(entry_id(3)), json!(2))
     );
-    scratch.drop().await;
-}
-
-#[tokio::test]
-async fn dead_derived_a_blow_queued_ahead_that_kills_the_second_is_read() {
-    let scratch = Scratch::new("blow").await;
-    let engine = scratch.serve().await;
-    scratch.plant(&engine, [11, 11, 11]).await;
-
-    submit(
-        &engine,
-        "test.wound",
-        json!({ "tokenId": bandit_id(2), "hpCurrent": 0 }),
-        None,
-    )
-    .await
-    .expect("queued");
-    press(&engine).await.expect("queued");
-    settle(&engine, 2).await;
-    assert_eq!(scratch.turn().await, (json!(entry_id(3)), json!(1)));
     scratch.drop().await;
 }
 

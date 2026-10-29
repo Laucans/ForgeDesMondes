@@ -1608,6 +1608,7 @@ dependencies = [
  "data",
  "harness-dataguard",
  "platform-conformance",
+ "platform-test-kit",
  "serde_json",
  "tokio",
  "uuid",
