@@ -1,11 +1,12 @@
 //! `table.nextTurn`'s judgement before a command is queued: what the DM
-//! sends, read ([`request`]); the combat and its participants, read off
-//! their rows as the queue leaves them ([`combat`], [`participant`]); and
-//! the turn written on the combat's partition ([`prepare`]).
+//! sends, read ([`request`]); the combat, read off its row as the queue
+//! leaves it ([`combat`]), and its participants, read off the rows of
+//! `initiative_order_view` ([`participants`]); and the turn written on the
+//! combat's partition ([`prepare`]).
 
 use next_turn::{
     Combat, DATA_CAPABILITY, Participant, Prepared, Refusal, Request, Row, combat, next,
-    participant, partition, prepare, request,
+    participants, partition, prepare, request,
 };
 use serde_json::{Value, json};
 
@@ -63,30 +64,9 @@ fn combat_row(current: Value) -> Row {
     }))
 }
 
-/// The first entry's row, rank 2, Bandit's.
-fn entry_row() -> Row {
-    row(json!({
-        "initiativeEntryId": FIRST,
-        "initiativeEntryCombatId": COMBAT,
-        "initiativeEntryTokenId": BANDIT,
-        "roll": 10,
-        "initiative": 11,
-        "dexScore": 12,
-        "tiebreak": 0.5,
-        "rank": 2,
-    }))
-}
-
-/// Bandit's token at `hp`; `null` for a PC's, which tracks none.
-fn token_row(hp: Value, visible: bool) -> Row {
-    row(json!({
-        "tokenId": BANDIT,
-        "tokenInstanceId": INSTANCE,
-        "name": "Bandit 1",
-        "visible": visible,
-        "hpCurrent": hp,
-        "hpMax": 11,
-    }))
+/// The view's row of the entry `entry`, at `rank`.
+fn listed(entry: &str, rank: i64, skipped: Value) -> Value {
+    json!({ "entry": entry, "rank": rank, "skipped": skipped })
 }
 
 #[test]
@@ -259,53 +239,53 @@ fn the_combat_is_its_row_s_when_it_is_an_open_combat_of_the_instance() {
     ended.insert("endedAt".to_owned(), json!("2026-10-21T11:00:00Z"));
     assert_eq!(combat(&ended, INSTANCE), None);
     assert_eq!(combat(&Row::new(), INSTANCE), None);
-    assert_eq!(combat(&token_row(json!(11), true), INSTANCE), None);
+    let token = row(json!({ "tokenId": BANDIT, "tokenInstanceId": INSTANCE, "name": "Bandit 1" }));
+    assert_eq!(combat(&token, INSTANCE), None);
+}
+
+// AC1, AC3, AC6: a participant takes a turn unless the view skips it, hidden or not
+#[test]
+fn next_turn_a_participant_is_listed_alive_unless_the_view_skips_it() {
+    let order = json!([
+        listed(FIRST, 1, json!(false)),
+        listed(SECOND, 2, json!(true)),
+        listed(&THIRD.to_uppercase(), 3, json!(false)),
+    ]);
+    assert_eq!(
+        participants(&order),
+        [
+            Participant {
+                entry: FIRST.to_owned(),
+                rank: 1,
+                alive: true,
+            },
+            Participant {
+                entry: SECOND.to_owned(),
+                rank: 2,
+                alive: false,
+            },
+            Participant {
+                entry: THIRD.to_owned(),
+                rank: 3,
+                alive: true,
+            },
+        ]
+    );
 }
 
 #[test]
-fn a_participant_is_alive_until_its_hp_reach_0_hidden_or_not() {
-    let alive = |token: &Row| participant(&entry_row(), token, COMBAT, INSTANCE).map(|p| p.alive);
-    assert_eq!(
-        participant(&entry_row(), &token_row(json!(11), true), COMBAT, INSTANCE),
-        Some(Participant {
-            entry: FIRST.to_owned(),
-            rank: 2,
-            alive: true,
-        })
-    );
-    // hidden-keeps-rank: a hidden token takes its turn.
-    assert_eq!(alive(&token_row(json!(1), false)), Some(true));
-    // dead-derived: at 0 HP.
-    assert_eq!(alive(&token_row(json!(0), true)), Some(false));
-    // A PC tracks no HP: always alive.
-    assert_eq!(alive(&token_row(Value::Null, true)), Some(true));
-    // A token off the map takes no turn, and keeps its rank; so does one on
-    // another instance (instance-isolated).
-    assert_eq!(alive(&Row::new()), Some(false));
-    let mut elsewhere = token_row(json!(11), true);
-    elsewhere.insert("tokenInstanceId".to_owned(), json!(AUTRE_INSTANCE));
-    assert_eq!(alive(&elsewhere), Some(false));
-    let mut upper = token_row(json!(11), true);
-    upper.insert("tokenInstanceId".to_owned(), json!(INSTANCE.to_uppercase()));
-    assert_eq!(alive(&upper), Some(true));
-}
-
-#[test]
-fn an_entry_that_is_no_longer_the_combat_s_is_no_participant() {
-    let token = token_row(json!(11), true);
-    assert_eq!(participant(&Row::new(), &token, COMBAT, INSTANCE), None);
-    assert_eq!(
-        participant(
-            &entry_row(),
-            &token,
-            "c0000000-0000-4000-8000-000000000002",
-            INSTANCE
-        ),
-        None
-    );
-    let mut unranked = entry_row();
-    unranked.remove("rank");
-    assert_eq!(participant(&unranked, &token, COMBAT, INSTANCE), None);
+fn a_row_of_the_view_that_says_less_than_its_entry_rank_and_skipped_is_no_participant() {
+    let order = json!([
+        listed("taverne", 1, json!(false)),
+        listed(FIRST, 1, Value::Null),
+        json!({ "entry": FIRST, "skipped": false }),
+        json!({ "rank": 1, "skipped": false }),
+        listed(SECOND, 2, json!(false)),
+    ]);
+    let kept: Vec<String> = participants(&order).into_iter().map(|p| p.entry).collect();
+    assert_eq!(kept, [SECOND]);
+    assert!(participants(&json!([])).is_empty());
+    assert!(participants(&Value::Null).is_empty());
 }
 
 #[test]
