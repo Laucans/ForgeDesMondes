@@ -85,7 +85,7 @@ une archive*), opens one (*Ouvrir*) or exports it (*Exporter*). It is the entry 
 ### What slows the DM down
 
 - **`.kit-card` ×3, button *Ouvrir*.** All three cards carry the same filled primary button; with *Nouvelle
-  campagne* that is four filled orange buttons at once at 1280 px. The card of the next session is not
+  campagne* that is four filled orange buttons at once at 1280 px, plus the filled *Campagne* badge of two of the cards. The card of the next session is not
   distinguished from the old campaign (*Les héritiers de la Tour d'Ébène*, 23 séances) except by a text line
   (*Prochaine séance : 17 octobre 2026*).
 - **Card meta line.** It begins with a middle dot (`· jouée le 3 octobre 2026`) and is 14 px.
@@ -145,9 +145,9 @@ treats the entities to create (*Créer depuis le brief*, *Affiner*, *Ouvrir la f
 ### What slows the DM down
 
 - **Hero buttons `Lancer la séance 4 en direct` / `Préparer la séance 4` and session-4 buttons `Lancer en
-  direct` / `Préparer`.** The same two actions twice on the first screen; seven filled orange elements at 1280 px
+  direct` / `Préparer`.** The same two actions twice on the first screen; eight filled orange elements at 1280 px
   (those two, *Nouvelle séance*, the active tab *Personnages (9)*, two *Créer depuis le brief*, *Extraire les
-  éléments*).
+  éléments*, and the filled *Campagne* badge of the overview).
 - **Active tab `PERSONNAGES (9)`.** The selected tab has the same orange fill as the action buttons.
 - **Sessions 1–3, button *Résumé et journal*.** The only action on a played session is a text button with no fill
   and no outline.
@@ -622,7 +622,9 @@ DM.
   *Player view pilotée*, *Annuler les changements*, *Ajouter le lieu à la séance*), and filled red (danger: *Clore la
   séance*, *Tout arrêter*, *Supprimer*, *Retirer de la carte*, *− Dégâts*). Filled orange is also used for the
   active tab, the current menu link, the state button *Mis à jour* and the table header of *soundbox*.
-- **Filled-orange elements visible at 1280 px** (buttons and pills, menu excluded): *campagnes* 4, *campagne* 7, *fiche-entite* 3,
+- **Filled-orange elements visible at 1280 px** (buttons and pills, menu excluded; the kit badge `.kit-badge .primary`, `kit.css:136`,
+  is a filled orange pill: the *Campagne* badge of campaign-list cards, two of the three in the fixtures, and the one of campaign-overview):
+  *campagnes* 6, *campagne* 8, *fiche-entite* 3,
   *preparation-seance* 4, *medias* 3, *soundbox* 1, *parametres-ia* 1, *dm-view* 1 (the active tab).
 
 ### 10.2 Contrast of the tokens on the dark surfaces
@@ -794,7 +796,7 @@ en cours…*, *Resynchronisation en cours…*, *Import en cours…* (entity-edit
 
 #### Error (a read that fails, or a command that fails)
 
-Each Micro-UI has its own wording: *Impossible de lire …* for a read (every one of the 22), *<Action> a échoué.* for a command that did
+Each Micro-UI has its own wording: *Impossible de lire …* for a read (21 of the 22; elements-panel says *Une partie du panneau n'a pas pu être lue.*), *<Action> a échoué.* for a command that did
 not reach the server, *Le test de connexion a échoué.*, *L'enregistrement a échoué.*, *La création a échoué.*. There is no retry
 control and no icon in any of them.
 - **campagnes:** *Impossible de lire les campagnes.*, *La création / L'export / L'import a échoué.* (red text in the dialog or
@@ -831,11 +833,26 @@ and no Micro-UI offers the author a control to confirm an overwrite. This holds 
 
 #### Applied
 
-A plain success sentence exists in four Micro-UIs, in a green-outlined box (`.is-ok`) or a line: *Paramètres enregistrés.*
-(parametres-ia, beside the last-test box *Dernier test réussi …*), *Fiche enregistrée.* (fiche-entite), *Réglage enregistré.* (medias,
-grid-settings), *Son enregistré.* (soundbox, sound-library). The export flow of campagnes writes *Export effectué, mais …* only for a
-partly failed export. On the other screens the applied command shows by its effect (a session, a scene, a PJ, a token moved or
-removed, a sound playing, the picture on the player-view) and by the end of the *… en cours…* line; there is no sentence.
+A plain success sentence exists in 12 of the 22 Micro-UIs, in a green-outlined box (`.is-ok`, `--color-success`) or a line:
+- **campagnes:** *Archive « <file> » enregistrée.* (campaign-list, after an export); *Export effectué, mais …* only for a partly failed export.
+- **campagne:** note-import *<N> élément(s) créé(s) · note brute conservée.*
+  and *Aucun élément trouvé dans cette note · note brute conservée.* (`.is-ok`, `render.ts:88`). campaign-overview's clean export writes no sentence (the line *Dernier export : <date>* is repainted);
+  session-list, campaign-elements and to-create-list write none on success (to-create-list clears its line).
+- **fiche-entite:** entity-editor *Fiche enregistrée.*, *Aucun champ de la fiche n'a changé.*, *Personnage importé : retrouvez-le dans
+  la liste des éléments.*; version-history *La v<N> est restaurée : la v<M> est en tête de l'historique.* (`.is-ok`).
+- **preparation-seance:** oral-brief *Brief analysé · <N> scène(s), <M> à créer.* (`.is-ok`, `render.ts:95`); scene-board and
+  previous-summary write none.
+- **medias:** grid-settings *Réglage enregistré.*; media-library *« <title> » est ajouté à la campagne.*, *… est rattaché au lieu …*,
+  *… est dans la séance : ses médias y sont associés.*
+- **soundbox:** sound-library *Son enregistré.*, *« <name> » est dans la soundbox.*, *« <name> » est supprimé.*; live-soundbox clears its line.
+- **parametres-ia:** ai-settings *Paramètres enregistrés.* and *Connexion réussie.* / *Dernier test réussi …* (the last-test box).
+- **dm-view:** battlemap *Carte envoyée aux joueurs.* (`.bm-status.is-ok`); table-sheet *« <title> » est envoyée aux joueurs, en mode
+  scène|fenêtre.*; elements-panel *Battlemap envoyée aux joueurs.* / *« <name> » envoyée aux joueurs en scène|en fenêtre.*
+  live-session-bar and suggestion-pill write none (a closed session, a mic or a sound that starts shows by its effect).
+- **player-view:** none.
+
+Where there is no sentence, the applied command shows by its effect (a session, a scene, a PJ, a token moved or removed, a sound
+playing, the picture on the player-view) and by the end of the *… en cours…* line.
 
 #### Refused
 
@@ -843,8 +860,11 @@ A refused command is rendered as *… refusé(e) : <reasons from the DataGuard>.
 (campaigns, sessions, notes, entities to create), *Export refusé*, *Import refusé*, *Enregistrement refusé* (ai-settings, grid-settings,
 sound-library), *Restauration refusée* (version-history), *Envoi refusé* (table-sheet), *Clôture refusée* / *Refusé* (live-session-bar),
 *Action refusée* (scene-board), *Analyse refusée* (oral-brief), *<Action> refusé : …* (battlemap), *Fenêtre non modifiée* (player-stage).
-**No refusal sentence in the source** of campaign-elements, elements-panel (*L'envoi n'a pas abouti (état : …)*), previous-summary,
-suggestion-pill (*Le micro n'a pas changé : <why>*) and live-soundbox (*Le son n'a pas pu être lancé*, *Le volume … n'a pas pu être changé*).
+elements-panel (*Pas envoyé : <reasons>.* on `rejected`, `index.ts:191`; *L'envoi n'a pas abouti (état : …)* for any other state),
+suggestion-pill (*Le micro n'a pas changé : <reasons or state>.*, *« <name> » n'a pas pu être joué : <reasons or state>.*) and
+live-soundbox (*Le son n'a pas pu être lancé : <reasons or state>.*, *Le volume … n'a pas pu être changé*) give the DataGuard's reasons
+in a sentence that does not use the word *refusé*. **No refusal sentence** in campaign-elements and previous-summary, which send no
+command.
 
 #### Destructive actions
 
