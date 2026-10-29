@@ -4,7 +4,8 @@ A written, factual picture of the interface as it stands. It describes and measu
 type scale, the accent rule, the treatment of states and the DM-view brief are the next slices' to argue
 (`DESIGN-DIRECTION.md`), from this file.
 
-- Audited tree: `milestone/739-ui-audit-and-design-direction-written-in-the-repository` at `36766f7`, 2026-10-29.
+- Audited tree: the tip of `milestone/739-ui-audit-and-design-direction-written-in-the-repository`, `36766f7` (the parent of the
+  commit that adds this file), 2026-10-29.
 - Nothing was changed to take these measures: no token, kit component, mock file or `apps/` file.
 
 ## How it was measured
@@ -21,8 +22,9 @@ type scale, the accent rule, the treatment of states and the DM-view brief are t
 - **What each width means here.** The shared CSS changes layout at 960 px (`mock/style.css`: `.layout-2`,
   `.dm-layout`, `.entity-layout`, `.page-main` padding, the menu) and at 560 px (the menu padding). So **768 px
   renders the same single-column layouts as 360 px**, on wider panels; 1280 px renders the two-column ones.
-  Widths between 961 and 1279 px (a tablet in landscape) were not rendered. Micro-UIs add breakpoints of their own
-  (`max-width` 420, 760, 900, 960, 1100; `min-width` 961), which the renders include.
+  Widths between 961 and 1279 px (a tablet in landscape) were not rendered. The Micro-UIs add breakpoints of their own
+  (`max-width` 760, 900, 960, 1100; `min-width` 961), the kit one at 420 px (`kit.css`), and the shell host one at 560 and 960 px
+  (`apps/shell/src/client/shell.css`, not loaded by the mock pages); the renders include those of the pages and the kit.
 - **Contrast** is the WCAG 2.x relative-luminance ratio of the token hex values of `mock/design/tokens.css`. For text
   in a page, the computed colour of every visible text node against the nearest opaque ancestor background;
   text over a gradient (the covers, the player-view) was sampled from the rendered pixels.
@@ -40,7 +42,7 @@ or hides** and **Stays usable**; **What slows the DM down**, each point naming t
 differs from the other screens**.
 
 Every screen but the last shows the same site menu (`#site-header`, kit Menu: brand, *Campagnes*, *Médias*,
-*Soundbox*, *Paramètres IA*). Its measures are in section "Cross-screen findings", 10.1, and apply to every
+*Soundbox*, *Paramètres IA*). Its measures are in section 10.1 and apply to every
 screen section that does not say otherwise.
 
 ---
@@ -74,7 +76,7 @@ une archive*), opens one (*Ouvrir*) or exports it (*Exporter*). It is the entry 
 
 - **Fits.** Three cards 282 px wide at `x = 40 / 346 / 652`, on one row, with the toolbar buttons beside the
   section title. The page is 834 px high, a viewport plus 34 px.
-- **Overflows, wraps or hides.** The three cards fill 934 px of the 1200 px content width; 346 px on the right
+- **Overflows, wraps or hides.** The three cards fill 894 px (x = 40 to 934) of the 1200 px content width; 306 px on the right
   stay empty. Two cards have a two-line title and one a one-line title: the description of the first starts higher
   than the other two.
 - **Stays usable.** Yes. The header is 76 px (menu on one row). All 13 interactive elements are under 44 px
@@ -586,7 +588,7 @@ DM.
 
 ---
 
-## Cross-screen findings
+## 10. Cross-screen findings
 
 ### 10.1 The frame every DM screen shares
 
@@ -875,4 +877,6 @@ No undo for a removal was found in the source of any screen other than the sheet
 `http://localhost:8741/pages/<screen>.html`; a script collected, per page and width, the scroll width, the elements right of the
 viewport, the computed font sizes and weights, margins, paddings and gaps, the interactive elements' boxes, the elements whose
 computed colour is `rgb(245, 184, 61)`, and the contrast of every text node; the ratios of section 10.2 come from
-`mock/design/tokens.css`. The player-view's sent-map state was rendered by answering `live.getDiffusion` with a battlemap.
+`mock/design/tokens.css`. The player-view's sent-map state was rendered by answering `live.getDiffusion` with a battlemap
+(`base: { kind: 'battlemap', id: 'bmi-gue-s4' }`). The scripts are not committed: this change adds one file, and the numbers are
+measures of the tree named at the top, not of a later one.
