@@ -2,7 +2,7 @@
   "version": 1,
   "heads": {
     "main": "20ffc690d4c917f5269b698863c9c3031f55367f",
-    "main_agent": "05225c25209538855019362d898f2a069b1d718b",
+    "main_agent": "f3cbcc4f43df0ff05636c504751e776a7513059d",
     "milestone/16-product-skeleton-one-server-binary-the-shell-the-data-layer": "d09673e7340a5e4180583e28ecc7b2ffc86438ec",
     "milestone/17-ai-provider-settings-api-or-binary-connection-test": "8231e1957a1c7f5f44be11679c0f3bf1380ff473",
     "milestone/18-campaigns-players-and-characters-with-versioned-history": "84e4f9939f92ec443a49d0e0b71400bbe25f18be",
@@ -24,7 +24,7 @@
     "milestone/702-llm-port-claude-code-adapter-claude-p-claude-haiku-5-5-effort-medium-replaces-the-anthropic-api-adapter": "f064580a2e090dce3c19bdd1ce0cee586a037e23",
     "milestone/711-shell-frame-the-design-system-s-site-menu-above-every-dm-screen": "aac76d1e920712784a7efe8783955215537960be",
     "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "28181180e150e5f67b429d494c3ab0cec234ca82",
-    "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "698e8932363c84eeb0661ded21a3cd66913dc323",
+    "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "7befd2b1ea5ca548c4ac522db89f6dc2eb248bc8",
     "milestone/739-ui-audit-and-design-direction-written-in-the-repository": "8a17c6724acc150a9fb1e423ceaacac37192372c",
     "milestone/740-design-system-v2-type-scale-aa-contrast-state-and-focus-primitives-in-tokens-and-kit": "f8c725128b6ee93d3f2537e2be73d17146b7d0e8",
     "milestone/745-settings-screen-brought-to-the-direction-ai-settings-with-guidance-and-ranked-actions": "619a2ee261a3eaad560e9b7233619d70af0d687e"
