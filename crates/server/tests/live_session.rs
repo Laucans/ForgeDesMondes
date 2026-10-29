@@ -3,25 +3,15 @@
 //! by the names the Micro-UIs know them by. A `ScratchDb` of each test's own.
 
 use std::path::Path;
-use std::sync::Arc;
 
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use dataguard_server::MEMORY;
 use platform_scratch_db::ScratchDb;
-use ports_character_sheets::SharedCharacterSheets;
-use ports_character_sheets::fake::FakeCharacterSheets;
-use ports_llm::SharedLlm;
-use ports_llm::fake::FakeLlm;
-use ports_speech_to_text::SharedSpeechToText;
-use ports_speech_to_text::fake::FakeSpeechToText;
 use serde_json::{Value, json};
-use server::{Config, Names, app, fixtures, id as uuid_of, plant, renaming, shared};
-use tower::ServiceExt;
+use server::{fixtures, id as uuid_of};
 
-fn folder() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mock/fixtures")
-}
+#[path = "common/served.rs"]
+mod served;
+
+use served::{folder, read, served};
 
 fn fixture(name: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(folder().join(name)).expect("a fixture"))
@@ -41,49 +31,6 @@ async fn loaded(label: &str) -> (ScratchDb, data::Client) {
         .await
         .expect("the fixtures are inserted");
     (db, client)
-}
-
-/// What `app` answers to a read of `capability` with `variables`.
-async fn read(app: &axum::Router, capability: &str, variables: Value) -> Value {
-    let request = Request::post(format!("/capabilities/{capability}"))
-        .header("content-type", "application/json")
-        .body(Body::from(json!({ "variables": variables }).to_string()))
-        .expect("a request");
-    let response = app.clone().oneshot(request).await.expect("an answer");
-    assert_eq!(response.status(), StatusCode::OK, "{capability}");
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("a body");
-    serde_json::from_slice::<Value>(&bytes).expect("JSON")["data"].clone()
-}
-
-/// The server as the binary plants it over `db`, its reads named by the fixtures' slugs.
-async fn served(db: &ScratchDb) -> axum::Router {
-    // `session.listScenes` leaves out a tombstoned battlemap, in the engine's rows table.
-    db.connect()
-        .await
-        .expect("PostgreSQL")
-        .batch_execute(
-            "CREATE TABLE IF NOT EXISTS dataguard_rows (partition text PRIMARY KEY, \
-             fields jsonb NOT NULL DEFAULT '{}'::jsonb, tombstoned boolean NOT NULL DEFAULT false)",
-        )
-        .await
-        .expect("the engine's rows table");
-    let url = db.url().to_string();
-    let config = Config::read(|var| match var {
-        "DATABASE_URL" => Some(MEMORY.to_string()),
-        "DATABASE_URL_READONLY" => Some(url.clone()),
-        _ => None,
-    })
-    .expect("a valid configuration");
-    let llm = SharedLlm::new(FakeLlm::new());
-    let speech = SharedSpeechToText::new(FakeSpeechToText::new(String::new()));
-    let sheets = SharedCharacterSheets::new(FakeCharacterSheets::new());
-    let planted = plant(&config, shared(&llm, &speech, &sheets))
-        .await
-        .expect("the in-memory engine");
-    let names = fixtures(&folder()).expect("the fixtures").names;
-    renaming(app(&planted, Arc::new(llm)), Names::new(names))
 }
 
 #[tokio::test]
@@ -142,6 +89,7 @@ async fn the_real_store_has_the_session_under_way_its_scenes_and_the_live_battle
 #[tokio::test]
 async fn a_restart_loads_nothing_twice_and_leaves_the_session_the_dm_closed() {
     let (db, mut client) = loaded("live_session_restart").await;
+    let plan = fixtures(&folder()).expect("the fixtures");
     let count = |sql: &'static str| {
         let client = &client;
         async move {
@@ -158,8 +106,26 @@ async fn a_restart_loads_nothing_twice_and_leaves_the_session_the_dm_closed() {
         count("SELECT count(*) FROM battlemap_instance").await,
         count("SELECT count(*) FROM token").await,
     );
-    // Four sessions of the list and the one a oneshot's creation writes.
-    assert_eq!(before, (5, 3, 1, 8));
+    // What the fixtures plan: the list's sessions and the one a oneshot's creation writes.
+    let planned = |table: &str| -> i64 {
+        let rows: usize = plan
+            .tables
+            .iter()
+            .filter(|t| t.name == table)
+            .map(|t| t.rows.len())
+            .sum();
+        i64::try_from(rows).expect("a count")
+    };
+    assert_eq!(
+        before,
+        (
+            planned("session"),
+            planned("scene"),
+            planned("battlemap_instance"),
+            planned("token")
+        )
+    );
+    assert!(before.0 > 0 && before.1 > 0 && before.2 > 0 && before.3 > 0);
 
     // AC4: the same plan again inserts nothing.
     let again = fixtures(&folder()).expect("the fixtures");
@@ -170,14 +136,26 @@ async fn a_restart_loads_nothing_twice_and_leaves_the_session_the_dm_closed() {
         0
     );
 
-    // AC4: the DM closed the session since; the load leaves their row alone.
+    // The store's live session is the one under way, until the DM closes it.
     let s4 = uuid_of("session", "s4");
+    assert_eq!(
+        server::held_live_sessions(&client).await.expect("held"),
+        std::slice::from_ref(&s4)
+    );
+
+    // AC4: the DM closed the session since; the load leaves their row alone.
     client
         .batch_execute(&format!(
             "UPDATE session SET status = 'closed', closed_at = now() WHERE id = '{s4}'"
         ))
         .await
         .expect("the DM closes the session");
+    assert!(
+        server::held_live_sessions(&client)
+            .await
+            .expect("held")
+            .is_empty()
+    );
     let restarted = fixtures(&folder()).expect("the fixtures");
     assert_eq!(
         data::insert_missing(&mut client, &restarted.tables)
