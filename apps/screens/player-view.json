@@ -1,7 +1,7 @@
 {
   "screen": "player-view",
   "generatedFrom": "Les joueurs voient la couverture, la battlemap ou l’illustration envoyée par le DM ; dans l’onglet piloté, le DM y déplace tokens et fenêtre et cadre la carte",
-  "version": 1,
+  "version": 2,
   "surface": "player",
   "pilot": { "surface": "dm", "query": "pilote" },
   "layout": [
