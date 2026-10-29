@@ -463,6 +463,223 @@ All proposals; none is in `mock/design/tokens.css` today. "New" is a token to ad
 
 ## DM view
 
-> Reserved for the next slice (#750): the DM-view layout brief — what is always visible, what folds away, the single place
-> for the live state, the pill and the microphone out of what the DM reads, the keyboard shortcuts. This slice writes nothing
-> here.
+The screen the DM uses live, at the table, with a sheet to read, a map to move tokens on and a microphone listening. This
+brief keeps their attention on what they read: they always know where to look for the live state, what they do not need
+at the moment folds away, and the suggestion pill and the microphone never cover or push what they read.
+
+- **Status.** Proposal, like the rest of this document: it changes no token, kit component, mock page or file under `apps/`.
+  The build tasks that follow carry it into the mock-up and the Micro-UIs.
+- **Read from.** `mock/pages/dm-view.html`, `apps/screens/dm-view.json` (the six Micro-UIs `LiveSessionBar`,
+  `ElementsPanel`, `TableSheet`, `Battlemap`, `LiveSoundbox`, `SuggestionPill`), the audit's §8 (`UI-AUDIT.md`) and the
+  rules of `rules.json` that name the DM view (R17, R18, R22, R98, R109, R110).
+- **Widths.** As the audit measured them: **360 px** (phone), **tablet** (768 px; every width from 561 to 960 px, where the shared CSS is
+  already one column) and **1280 px** (every width from 961 px up; 961–1279 px was not rendered by the audit and takes this
+  layout, which is why the left column below has a minimum width).
+- **Not decided here.** The DM view's *density* ([§9](#9-the-owners-choices)) and the options for it belong to the next slices. Nothing below depends on a
+  density: a density changes the spacing inside a region by one step, never which region is visible or folded.
+- **The pill is held to R98, as written.** *In the DM view, the suggestion pill and the mic on/off button form a layer over
+  the page, fixed at the bottom right of the window, keeping that position whatever the centre shows and while the page or
+  the left panel scrolls, passing over the content without shifting it, and staying clickable.* Nothing in this brief moves
+  the pill, changes how it is anchored or makes it less reachable; see [the pill and the microphone](#the-pill-and-the-microphone-r98) for the
+  check, and [when R98 would have to change](#when-r98-would-have-to-change).
+
+### What the audit found that this brief answers
+
+At 360 px the sticky header (site menu + live bar) is 517 px and the pill 524 px of an 800 px window: together **784 px**, so
+the page shows in 16 px. The centre's tab bar comes after the whole elements panel (2256 px down the page). At 1280 px the
+header is 231 px (29 % of the window) and the pill covers the *Soundbox* tab, the right of the sheet's title and the end of
+its action row. The session bar puts *Clore la séance* beside *Player view pilotée* (audit §8; [§7.2](#72-the-one-treatment) forbids it). The microphone's
+state is written in the live bar (*Micro actif*) and again in the pill (*Écoute en local*, *J'écoute…*, *Micro en pause*), and
+the current scene in the bar's chips, the panel's `is-current` mark and the battlemap's own title.
+
+### Regions: always visible, and what folds away
+
+"Always visible" means in the window without a scroll, at any scroll position of the page. "Folds" means closed by default,
+opened by one action named in the last column, and closed again by the same action, by *Échap*, or by what the opening was for.
+Opening or closing a region that is **not** the page's flow (a drawer, a menu, the pill's card) never moves the centre.
+
+| region (today's id) | 360 px | tablet | 1280 px | folds / unfolds |
+|---|---|---|---|---|
+| **Live strip** (`#session-bar`, [below](#the-live-strip-the-one-place-for-the-live-state)) | always, sticky, 2 rows | always, sticky, 1 row | always, sticky, 1 row | does not fold |
+| **Site menu** (`#site-header` menu) | not sticky: scrolls away, brand and menu button only | not sticky | not sticky, one row | the menu button (the kit Menu as it renders at each width) |
+| **Centre tab bar** (*Fiche · Battlemap · Soundbox*, `#dm-center-tabs`) | always, sticky under the strip | always, sticky under the strip | always, sticky under the strip | does not fold; it is what switches the centre |
+| **Centre content** (sheet, battlemap, Soundbox) | always | always | always | one of three, by the tab |
+| **Elements panel** (`#dm-elements`) | folded, a drawer | folded, a drawer | open, left column, sticky, scrolls inside | 360 and tablet: the *Éléments* button at the start of the tab bar; 1280: the *Éléments* button on the column's edge folds it to a `--space-5` rail |
+| **Elements panel, scenes other than the current one** | closed | closed | closed | the scene's own `summary` (native disclosure); the current scene is open |
+| **Session actions** (*Ouvrir la player view*, *Player view pilotée*, *Clore la séance*) | folded | folded | folded | the *Séance* menu button in the strip |
+| **Broadcast undo** (*Revenir à la couverture*, *Fermer la fenêtre*), only while something is sent | in the *Séance* menu | in the strip, beside the sentence they undo | same | the menu at 360 px; inline otherwise |
+| **Sheet actions** (*Modifier*, *Envoyer l'illustration* in *Scène* / *Fenêtre*) | *Modifier* visible; the sends fold | *Modifier* visible; the sends fold | *Modifier* visible; the sends fold | *Envoyer aux joueurs* menu button in the sheet's title row |
+| **Battlemap tools** (*Lancer le combat*, *Terminer le combat*, *Réinitialiser la carte*, *Envoyer aux joueurs*) | the map and the token inspector; the tools fold | same | same | the *Carte* menu button in `#battlemap-toolbar` |
+| **Initiative carousel** (`#initiative-carousel`) | shown only while a combat runs (as today) | same | same | appears with *Lancer le combat*, leaves with *Terminer le combat* |
+| **Pill and microphone layer** (`<aside>` of `SuggestionPill`) | always, fixed, bottom right, folded to one row | always, fixed, bottom right, folded to one row | always, fixed, bottom right, open | its chevron, [below](#the-pill-and-the-microphone-r98) |
+
+Rules behind the table:
+
+1. **Order in the page is the order of attention.** In the markup and on screen: strip, tab bar, centre, then the drawer.
+   Today the elements panel comes first, so at 360 px and tablet the DM scrolls past every element to reach the tab bar. The
+   drawer is not in the flow: it opens over the centre from the left, no wider than the window minus `--space-5`, moves the focus
+   into itself and gives it back to its button on close (it is not modal: the pill stays usable above it), and closes by
+   itself when the DM picks an element, since picking an element opens it in the centre (R17).
+2. **The elements panel keeps its content and R17's order**: the session's elements first, the scenes one by one. What
+   changes is that only the current scene is open. The search field stays at the top of the panel, always shown.
+3. **A destructive action folds and keeps [§7.2](#72-the-one-treatment)'s treatment inside**: *Clore la séance* and *Réinitialiser la carte* are the
+   last item of their menu, in a group of their own at least `--space-4` from the others, outlined danger with the trash
+   glyph, with the dialog of §7.2 (*Garder* first). A menu is never the way a destructive action skips its confirmation.
+4. **Nothing the DM does during a fight is behind a fold.** *Suivant ▸*, the round, the order, a token's *PV* and its
+   visible/hidden switch stay where they are, with the map: a fold is for what is done once or rarely per session.
+5. **Menus are the kit's.** *Séance*, *Envoyer aux joueurs* and *Carte* are one component (a button with `aria-expanded`
+   and a list of buttons, `Échap` closes, the focus returns to the button), not three inventions. It is a kit component to write
+   on `design-system` (contract O); until it exists a screen task recodes it as [the kit instruction](../mock/kit/kit.json) says.
+6. **Sticky budget.** The strip and the tab bar together are the only sticky header: at most **25 %** of the window's height at 360 px
+   (200 px of 800) and at most **13 %** at tablet and 1280 px (about 100 px of 800), against 517, 335 and 231 px today. The
+   page's `scroll-padding-top` is that height plus `--space-3` ([§8.1](#81-focus)).
+
+### The live strip: the one place for the live state
+
+The live state is told in **one place**, the strip (`#session-bar`, `LiveSessionBar`), and nowhere else. It is the first
+thing in the page, sticky, the same position at every width, and the DM looks there for any of these five facts:
+
+| fact | wording | where it is told |
+|---|---|---|
+| **The session runs** | *Séance 4 — La Taverne · En direct depuis 19:02* (*Close* / *Clôturée* when it is closed) | the strip's title |
+| **The microphone** | *Micro actif* or *Micro en pause* (or *Micro éteint* before the first start) | the strip, as a sentence with the state's shape ([§6.2](#62-telling-them-apart-without-colour)), `aria-live="polite"` |
+| **The current scene** | *Scène 2 / 5 · La taverne*, with *‹* and *›* to step to the previous or next scene | the strip; the chips of every scene are removed from it (that was the wrap onto many rows at 360 px) |
+| **The combat turn** | *Combat · round 3 · tour de Bandit 2*, only while a combat runs | the strip, `aria-live="polite"` |
+| **What the players see** | *Les joueurs voient la battlemap + une illustration*, with its undo | the strip (today's `#session-bar-showing`) |
+
+**No other region repeats it.** The rule is: *a fact of the table above is stated as a sentence once*. The other regions
+may carry a **mark** on the thing the fact is about, never a second sentence:
+
+- The elements panel marks the current scene's `summary` (`is-current`, a shape and `aria-current="true"`) but writes no
+  *Scène en cours* line. The scene list lives only in the panel; the strip steps through it.
+- The initiative carousel marks the active participant, as the thing it lists, and keeps the round counter that R22 asks of it
+  (« un compteur de rounds »): they are the instrument's own values, not a sentence, and the brief does not remove them. It writes
+  no *Tour de …*; the strip's *Combat · round 3 · tour de Bandit 2* is the statement, and the one the DM reads when the
+  centre shows the sheet or the Soundbox.
+- The microphone button of the pill is the control (its icon and `aria-pressed`, [below](#the-pill-and-the-microphone-r98)). The words
+  *Écoute en local*, *J'écoute…* and *Micro en pause* leave the pill; what the microphone heard stays in the pill as the
+  suggestion's own `via` (« la taverne »).
+- The battlemap's title and the sheet's title name their content, not the session or the scene.
+
+The strip is a state, not a toolbar: apart from the scene steppers its only control is the *Séance* menu button, which holds
+the player-view links, the broadcast undo at 360 px, and *Clore la séance* as its last, separated item.
+
+### The pill and the microphone (R98)
+
+The `SuggestionPill` is a layer over the page. It is already built so (`position: fixed; right: var(--space-3); bottom:
+var(--space-3); z-index: 1000`, the last child of `<body>`/the shell, a `complementary` landmark); the brief keeps that and
+adds only what is inside the layer.
+
+| R98 says | the brief |
+|---|---|
+| **a layer over the page, fixed at the bottom right of the window** | `position: fixed`, `right` and `bottom` of `--space-3`, never `static`, `sticky` or `absolute`; the same box at every width and in every state of the centre. Nothing is added to the pill that anchors it to another region (not the strip, not the centre, not the left panel) |
+| **whatever the centre shows** | the same anchor for the long sheet scrolled to its end, the battlemap and the *Soundbox* tab; no tab of the centre moves it, resizes it or hides it |
+| **while the page or the left panel scrolls** | it does not scroll with either; the drawer and the menus open **under** it (the pill's `z-index` is above theirs) so that it stays clickable |
+| **passing over the content without shifting it** | the layer is out of the grid: opening, folding or filling it changes the centre's size by no pixel. The room the DM needs to read behind it is [a reserve](#what-the-dm-reads-keeps-room) fixed in advance, not a size that follows the pill |
+| **staying clickable** | no other element has a `z-index` or a `pointer-events` that catches a click meant for it; a click on a suggested entity opens it in the centre (the `fdm:open` of today's page), on the *Fiche* tab, whichever tab was open |
+
+What is inside the layer, and the two states of its card:
+
+- **The microphone button** is always shown in the layer's bottom row, the same size in both states (compact
+  `kit-micbutton`, 48 px), the one control of the page that starts the listening. It carries the *action* (a microphone
+  icon, a pause icon, `aria-pressed`, `aria-label` *Micro de séance*), not the *state in words* (the strip's).
+- **The card of suggestions** has two states, and R98's box is the same in both (anchor, right edge, bottom edge):
+  - **Open**: the stack of the last five (R18), the history icon at the top right of the card (R109), a card height capped at
+    **40 %** of the window's height, scrolling inside. Default at 1280 px, since the layer there covers the right of the centre
+    least and the rules' journeys read the stack without a click.
+  - **Folded**: one row, the newest suggestion (its name and kind) beside the microphone button, so the entity stays one click
+    from the centre. Default at 360 px and tablet, where the open card would hide the page (524 of 800 px today).
+  - The chevron at the card's top edge, `aria-expanded`, switches them; the choice is kept for the session per width class.
+    Picking an entity or an armed sound **folds** the card, so that what the DM asked to read is not behind it.
+    A new suggestion does not unfold a folded card: it replaces the row, with a short, `prefers-reduced-motion`-safe, pulse.
+- **The pill does not carry** a status paragraph of its own for the microphone ([above](#the-live-strip-the-one-place-for-the-live-state)); its
+  refusal line (*Le micro n'a pas changé : …*) stays, since it is the answer to the pill's own control (the status line of §6).
+- **The pill does not hold** any control of the sheet, the map or the Soundbox; *Tout arrêter* belongs to the Soundbox tab.
+
+The check against R98's wording: every line above keeps the layer, its anchor, its independence from the centre and from
+scrolling, the absence of any shift, and the click on the suggested entity. Folding changes what is *drawn in* the layer,
+not where it is or whether it can be clicked, so it is not a change of R98. The journey of R98 (`tests/rules/journey/R98-…spec.ts`)
+runs at the default 1280 px window, where the card is open; it reads `#suggestions-stack button[data-kind="entity"]`,
+`#suggestions-mic` and the layer's `position: fixed`, which the brief leaves as they are. The build task keeps those ids.
+
+#### When R98 would have to change
+
+The brief needs **no** change to R98, so no `harness:rules` issue stands behind it: [the list of facts](#the-live-strip-the-one-place-for-the-live-state)
+and the layer's states hold inside the rule's wording. The section keeps R98's wording as it is. If a later slice, the owner's
+choice of density or a build task finds that the pill must be somewhere else (another corner, docked in the strip, not over
+the content) or must behave otherwise (shift the content, scroll with it, hide while the map is shown), it does not write that layout.
+It opens a `harness:rules` issue stating the change and why, links it here, and this section keeps R98's wording until that issue is
+settled. A layout that works around R98 is a violation of the rules' process: a rule is changed through its own issue, never beside it.
+
+### What the DM reads keeps room
+
+The three things the DM reads (the sheet, the battlemap, the Soundbox) each end with a **reserve**: empty space inside the
+centre, after the last line and the last control, at least as tall as the layer in its **tallest resting state**, so that
+scrolled to its end nothing is under the pill. The pill never moves for it; the reserve is the centre's.
+
+- **The size.** The layer's tallest resting state, plus `--space-3`, rounded up to a multiple of `--space-5`:
+  - at 360 px and tablet (folded: one row of about 56 px): `calc(var(--space-5) * 3)`, 120 px;
+  - at 1280 px (open: the card at its 40 % cap plus the microphone row): `calc(40vh + var(--space-5) * 3)`, 440 px of a 800 px window.
+  The values are the starting ones; the build task measures the rendered layer and takes the next multiple up. The reserve
+  is fixed per width class: folding or unfolding the card changes none of it, since a reserve that follows the pill would shift
+  the content, and R98 forbids it.
+- **Where it goes.**
+  - *Sheet*: `padding-bottom` of the sheet's body (today the centre has a flat `calc(var(--space-5) * 7)`, 280 px, which is below
+    the open card's 524 px: replace it by the two values above). The last statblock line and the last action are reachable.
+  - *Battlemap*: the map is not scrolled, so the reserve is a band under the map and the carousel in the panel's flow, and the
+    battlemap's own controls (`#battlemap-toolbar`, `#carousel-controls`, the token inspector) are placed **top and left of the
+    map**, never in the bottom-right corner of the centre where the layer stands.
+  - *Soundbox*: `padding-bottom` of the grid, and the controls of the whole tab (search, tags, the global volume, *Tout
+    arrêter*) sit in its top row, so that the one control a DM must reach in a second is never under the layer.
+- **Focus is never hidden under the layer either**: `scroll-padding-bottom` of the page equals the reserve, as
+  [§8.1](#81-focus)'s `scroll-padding-top` equals the header. A control focused by `Tab` at the bottom of a sheet scrolls into view above
+  the layer, not under it. The layer is last in the tab order and reachable by shortcut ([below](#keyboard)).
+- **What the reserve does not do.** It covers the *end* of a content. While a sheet scrolls, its lines pass under the layer;
+  that is R98's "passing over the content", and the lines come out from under it as they scroll. This is why the map's and
+  the Soundbox's controls, which do not scroll, are never placed in the bottom-right corner.
+
+### Keyboard
+
+Every action a DM repeats at the table has a key, so they do not hunt for a button. The keys are chords of
+**Alt+Shift** (Option+Shift on a Mac) and a letter or a digit:
+
+- No shortcut is a bare character key: a bare letter is the screen readers' quick navigation (NVDA and JAWS in browse mode take
+  `M`, `N`, `H`, `B`, `1`–`6`…) and the browser's typing, and WCAG 2.1.4 would then ask for a way to turn it off. A chord
+  with a modifier needs none.
+- The shortcuts work wherever the focus is **except** in a text field, a `select` or a `contenteditable` (the search of the
+  panel, the notes), and while a dialog is open (where only *Échap* and the dialog's own keys act). They ignore a key held
+  down (`event.repeat`), so *Tour suivant* advances once.
+- The chord is read from `event.key` when it is a letter and, when it is not (Option+Shift on a Mac types another character),
+  from `event.code`. A French DM on an AZERTY keyboard presses the key *labelled* with the letter; digits are the top row.
+- No page defines an `accesskey`, so Firefox's Alt+Shift accesskeys have nothing to fire on.
+- Each shortcut is written in the control's `aria-keyshortcuts` and in its tooltip, and a *Raccourcis* item of the *Séance*
+  menu lists them.
+- **No shortcut closes the session, resets the map, removes a token or a participant, or plays a sound** ([§7](#7-destructive-actions): a
+  destructive action is reached by its button and confirmed).
+
+| keys | action | scope | checked against |
+|---|---|---|---|
+| **Alt+Shift+M** | microphone on / off (`live.setMicrophone`); the strip's *Micro actif / en pause* announces the result | the whole DM view, whatever the centre shows | Chrome and Edge: Alt+Shift+T and B are theirs (toolbar and bookmarks focus), not M; Firefox: Alt+Shift accesskeys, none defined. NVDA, JAWS and VoiceOver: no Alt+Shift+M. Mac: Option+Shift+M types « Â » in a field, which is why the shortcut is off in fields |
+| **Alt+Shift+N** | next turn (`table.nextTurn`, the same as *Suivant ▸*); the strip announces *tour de …* | only while a combat runs; otherwise nothing happens and nothing is announced | in no published list of those browsers or screen readers. It has no inverse, as the button has none: the key repeat is ignored and the result is read aloud |
+| **Alt+Shift+O** | open the top suggestion (the pill's newest entity) in the centre, on the *Fiche* tab; for a sound it only arms it (the second click, not a key, plays) | the whole DM view; when there is no suggestion, nothing happens | in no published list of those browsers or screen readers |
+| **Alt+Shift+1 / 2 / 3** | switch the centre to *Fiche* / *Battlemap* / *Soundbox* | the whole DM view | the digits are the top row on any layout (on AZERTY with the Shift the chord already holds). Chrome and Firefox switch browser tabs with Ctrl+1–8, Firefox on Linux with Alt+1–8, never with Alt+Shift; NVDA's `1`–`6` are bare keys |
+| **← → Home End** | move between the three tabs once a tab has the focus (WAI-ARIA tablist) | the tab bar, focused | the tablist's own keys; Alt+Left / Right (browser back / forward) are not used |
+| **Alt+Shift+L** | fold or unfold the elements panel (the drawer at 360 px and tablet, the column at 1280 px) | the whole DM view | in no published list of those browsers or screen readers |
+| **Alt+Shift+P** | unfold or fold the pill's card | the whole DM view | in no published list of those browsers or screen readers |
+| **Échap** | close the open menu, drawer or pill card, in that order of nesting; focus returns to the button that opened it | when one is open | already the dialogs' key in the Micro-UIs |
+
+**What "checked" means here.** The table was checked against the published shortcut lists of Chrome, Edge and Firefox and the
+quick-navigation and modifier keys of NVDA (Insert or Caps Lock), JAWS (Insert) and VoiceOver (Control+Option); this is a reading
+of their documentation. No screen reader was run for this document. The build task runs each row on Chrome, Firefox
+and Safari and with NVDA and VoiceOver, on a QWERTY and an AZERTY layout, and a row that clashes changes its key (the
+table is the contract, the letters are not). The shortcuts are the only keyboard additions: the Micro-UIs add the key handler,
+and it is a Micro-UI that calls the DataCapability, never the shell's page script.
+
+### Reading it back: the acceptance of this brief
+
+- At each width, the DM sees without scrolling: the strip, the tab bar, the start of the centre content and the layer
+  (folded at 360 px and tablet). The elements, the session actions, the sends and the map's tools are one action away.
+- The live state is one sentence per fact, in the strip. The pill has the microphone's button and the suggestions, no state sentence.
+- The layer is the R98's layer. The three contents end with a reserve, and nothing the DM needs a second after another is under
+  the layer's corner.
+- Every shortcut is a chord, outside fields and dialogs, none destructive, and the table names its checks.
