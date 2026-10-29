@@ -73,8 +73,9 @@
 //! The instance of a scene's battlemap (`table.getBattlemapInstance.json`; the
 //! same one is in `Battlemap.json`, not read) is one `battlemap_instance` row of
 //! the scene and the battlemap medium it is a copy of, and one `token` row per
-//! token, at its hex: the scene names it as its `battlemap`, and
-//! `session.listScenes` answers the row. Its roster belongs to a combat
+//! token, at its hex, marked PC or NPC (`character_type`, the token's kind: « pj »
+//! or « pnj », the type of its character): the scene names it as its
+//! `battlemap`, and `session.listScenes` answers the row. Its roster belongs to a combat
 //! starting; one already running is not loaded, and a file that has one is
 //! skipped. The initiative each PC was last given (`pjInitiative`) is the
 //! seat of one combat that ended on the instance — round 1, its two stamps
@@ -285,6 +286,7 @@ const TOKEN: &[&str] = &[
     "id",
     "instance_id",
     "character_id",
+    "character_type",
     "number",
     "name",
     "q",
@@ -2020,6 +2022,7 @@ impl Read {
                         json!({
                             "id": token_row, "instance_id": row,
                             "character_id": id("entity", &token.character),
+                            "character_type": token.kind,
                             "number": token.number, "name": token.name,
                             "q": token.q, "r": token.r, "visible": token.visible,
                             "hp_current": token.hp, "hp_max": token.hp_max,
@@ -5648,6 +5651,11 @@ mod tests {
             ] {
                 assert_eq!(row[column], token[key], "{slug}.{column}");
             }
+            // AC1: every token row names its character's type, the fixture token's kind
+            assert_eq!(
+                row["character_type"], token["kind"],
+                "{slug}.character_type"
+            );
             assert!(plan.names.contains(&(slug.to_string(), id("token", slug))));
         }
         assert!(plan.names.contains(&("bmi-gue-s4".to_string(), instance)));
