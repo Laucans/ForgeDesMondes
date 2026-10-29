@@ -78,7 +78,8 @@
 //! starting; one already running is not loaded, and a file that has one is
 //! skipped. The initiative each PC was last given (`pjInitiative`) is the
 //! seat of one combat that ended on the instance — round 1, its two stamps
-//! those of the session's start, a microsecond apart —, one `initiative_entry`
+//! those of the session's start (the first stamp of the fixtures when the
+//! instance is of another session), a microsecond apart —, one `initiative_entry`
 //! per PC, ranked from the highest: the next combat starts from them. A figure
 //! outside 1 to 40, or a key that is no PC's character with a token, skips the
 //! file. The tokens obey the aggregate's invariants as
@@ -89,11 +90,16 @@
 //! fixture's instance, its tokens, its combat and the combat's seats before
 //! the load.
 //!
+//! The session under way is loaded live only if the store holds no other live
+//! session, of any campaign: [`Fixtures::leave_out_second_live`] leaves it in
+//! preparation, with its diffusion, before the load.
+//!
 //! What the session under way has shown its players (`live.getDiffusion.json`)
 //! is one `diffusion` row of that session: the cover, no window, the framing
 //! at rest (zoom 1, pan 0). It is what `live.showWindowOnPlayerView` finds to
-//! open a window on; a file that shows more than the cover, or that no session
-//! under way receives, is skipped. A restart leaves the row the players' view
+//! open a window on; a file that shows more than the cover, a cover other than
+//! the one `campaign.getCampaign.json` gives the session's campaign, or that no
+//! session under way receives, is skipped. A restart leaves the row the players' view
 //! has since changed alone.
 //!
 //! The summary of the closed session, its model and the day it was edited
@@ -432,7 +438,7 @@ pub fn fixtures(dir: &Path) -> std::io::Result<Fixtures> {
         withdraw(&mut plan, LIVE_FILE, &why);
     }
     if let Err(why) = read.shown_fits() {
-        read.diffusion = false;
+        read.diffusion = None;
         withdraw(&mut plan, DIFFUSION_FILE, &why);
     }
     if let Err(why) = read.instance_fits() {
@@ -611,6 +617,45 @@ impl Fixtures {
         ));
     }
 
+    /// Leaves the session under way in preparation when the store already
+    /// holds a live session under another id, in any campaign: two sessions
+    /// live at once is not a state the app reaches. `held` is the id of every
+    /// live session of the store, see [`held_live_sessions`]; the session's
+    /// diffusion goes with its start.
+    pub fn leave_out_second_live(&mut self, held: &[String]) {
+        let mut left = BTreeSet::new();
+        for table in self.tables.iter().filter(|t| t.name == "session") {
+            for row in &table.rows {
+                if let Some(row_id) = row["id"].as_str()
+                    && row["status"] == "live"
+                    && held.iter().any(|live| live != row_id)
+                {
+                    left.insert(row_id.to_string());
+                }
+            }
+        }
+        if left.is_empty() {
+            return;
+        }
+        for table in self.tables.iter_mut().filter(|t| t.name == "session") {
+            for row in &mut table.rows {
+                if row["id"].as_str().is_some_and(|id| left.contains(id)) {
+                    row["status"] = json!("prep");
+                    row["started_at"] = Value::Null;
+                }
+            }
+        }
+        for table in self.tables.iter_mut().filter(|t| t.name == "diffusion") {
+            table.rows.retain(|row| {
+                !row["session_id"]
+                    .as_str()
+                    .is_some_and(|id| left.contains(id))
+            });
+        }
+        self.withdraw_with(LIVE_FILE, "another session is live in the store");
+        self.withdraw_with(DIFFUSION_FILE, "no session under way receives it");
+    }
+
     fn withdraw_with(&mut self, file: &str, why: &str) {
         self.loaded.retain(|name| name != file);
         self.skipped.push((file.to_string(), why.to_string()));
@@ -644,6 +689,19 @@ pub async fn held_versions(client: &data::Client) -> Result<Vec<(String, String)
         .await
         .map_err(data::Error::Database)?;
     Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
+}
+
+/// The id of every session the store holds live.
+///
+/// # Errors
+///
+/// [`data::Error::Database`] when the query fails.
+pub async fn held_live_sessions(client: &data::Client) -> Result<Vec<String>, data::Error> {
+    let rows = client
+        .query("SELECT id::text FROM session WHERE status = 'live'", &[])
+        .await
+        .map_err(data::Error::Database)?;
+    Ok(rows.iter().map(|row| row.get(0)).collect())
 }
 
 /// Takes `file` back out of the files planned: it is skipped, with `why`.
@@ -684,6 +742,8 @@ struct Read {
     /// The days the campaign list gives each campaign, by slug: the last it
     /// was played, and the next.
     days: BTreeMap<String, (Value, Value)>,
+    /// The cover a campaign's details name, by slug (the media id it shows).
+    covers: BTreeMap<String, String>,
     entities: Option<Entities>,
     history: Option<History>,
     /// The version rows of each element `history` gives a history, by slug,
@@ -698,9 +758,9 @@ struct Read {
     to_create: Option<ToCreate>,
     instance: Option<Instance>,
     running: Option<Running>,
-    /// Whether `live.getDiffusion.json` shows the cover alone, which the
-    /// session under way has received.
-    diffusion: bool,
+    /// The cover `live.getDiffusion.json` shows alone, which the session
+    /// under way has received: the id the file gives it.
+    diffusion: Option<String>,
 }
 
 /// The `session.getLiveSession.json` document, mapped: the session under way.
@@ -942,7 +1002,11 @@ impl Read {
             "created_at": date(value, "createdAt")?,
             "last_exported_at": date(value, "lastExport")?,
         });
-        self.campaign(required(value, "id")?, &row);
+        let slug = required(value, "id")?;
+        if let Some(cover) = value["cover"].as_str() {
+            self.covers.insert(slug.to_string(), cover.to_string());
+        }
+        self.campaign(slug, &row);
         Ok(())
     }
 
@@ -1174,15 +1238,31 @@ impl Read {
         if !value["window"].is_null() || !value["view"].is_null() {
             return Err("a window or a framing is not loaded".to_string());
         }
-        self.diffusion = true;
+        let cover = required(&value["base"], "id")?;
+        self.diffusion = Some(cover.to_string());
         Ok(())
     }
 
+    /// Whether the cover shown is the one of the campaign of the session
+    /// under way: the row names no media, so another cover would be dropped.
     fn shown_fits(&self) -> Result<(), String> {
-        if self.diffusion && self.running.is_none() {
+        let Some(shown) = &self.diffusion else {
+            return Ok(());
+        };
+        let Some(running) = &self.running else {
             return Err("no fixture describes the session under way".to_string());
+        };
+        match self.covers.get(&running.campaign) {
+            Some(cover) if cover == shown => Ok(()),
+            Some(cover) => Err(format!(
+                "the cover {shown:?} is not {cover:?}, the one of the campaign {:?}",
+                running.campaign
+            )),
+            None => Err(format!(
+                "no fixture gives the cover of the campaign {:?}",
+                running.campaign
+            )),
         }
-        Ok(())
     }
 
     fn running(&mut self, value: &Value) -> Result<(), String> {
@@ -1895,7 +1975,7 @@ impl Read {
             ]);
             // What the session under way has shown its players: the cover, no
             // window, the framing at rest.
-            if let (Some(running), true) = (&self.running, self.diffusion) {
+            if let (Some(running), Some(_)) = (&self.running, &self.diffusion) {
                 tables.push(table(
                     "diffusion",
                     "session_id",
@@ -3076,7 +3156,7 @@ mod tests {
                 "table.getBattlemapInstance.json"
             ]
         );
-        assert!(plan.skipped.len() > 25, "{}", plan.skipped.len());
+        assert!(plan.skipped.len() > 29, "{}", plan.skipped.len());
         assert!(
             plan.skipped
                 .iter()
@@ -5695,6 +5775,11 @@ mod tests {
                 "only the cover",
             ),
             (
+                "a cover that is not the campaign's",
+                vec![edited(&|v| v["base"]["id"] = json!("ill-moulin"))],
+                "is not \"ill-cover\"",
+            ),
+            (
                 "a window",
                 vec![edited(
                     &|v| {
@@ -5732,6 +5817,63 @@ mod tests {
             // The instance and its combat stay planned.
             assert_eq!(rows(&plan, "token").len(), 8, "{what}");
         }
+    }
+
+    // The combat of an instance on another session than the one under way is stamped at the fixtures' first stamp
+    #[test]
+    fn the_combat_of_an_instance_on_no_session_under_way_is_stamped_at_the_first_stamp() {
+        let plan = replaced(&[(
+            LIVE_FILE,
+            json!({ "id": "s4", "date": "not a day", "startedAt": "20:02" }),
+        )]);
+        assert_eq!(
+            rows(&plan, "combat"),
+            [&json!({
+                "id": id("combat", "bmi-gue-s4"), "instance_id": id("battlemap_instance", "bmi-gue-s4"),
+                "round": 1,
+                "started_at": "2026-08-20T10:00:00.000000Z",
+                "ended_at": "2026-08-20T10:00:00.000001Z",
+            })]
+        );
+        assert_eq!(rows(&plan, "initiative_entry").len(), 4);
+    }
+
+    // The store's live session comes first: the one under way stays in preparation
+    #[test]
+    fn a_live_session_of_the_store_keeps_the_one_under_way_in_preparation() {
+        let s4 = id("session", "s4");
+        let before = stated(&mock());
+        assert!(before.contains(&(json!(s4), json!("live"), json!("2026-10-17T20:02:00Z"))));
+        // Nothing live, or its own row after a restart: planned as is.
+        for held in [vec![], vec![s4.clone()]] {
+            let mut plan = mock();
+            plan.leave_out_second_live(&held);
+            assert_eq!(stated(&plan), before, "{held:?}");
+            assert_eq!(rows(&plan, "diffusion").len(), 1, "{held:?}");
+            assert!(unmapped(&plan).is_empty(), "{:?}", plan.skipped);
+        }
+        // Another session live, of this campaign or another.
+        let mut plan = mock();
+        plan.leave_out_second_live(&[id("session", "elsewhere")]);
+        assert!(
+            stated(&plan)
+                .iter()
+                .all(|(_, status, started)| status != "live" && started.is_null()),
+            "{:?}",
+            stated(&plan)
+        );
+        assert_eq!(stated(&plan).len(), before.len());
+        assert!(rows(&plan, "diffusion").is_empty());
+        let files: Vec<&str> = unmapped(&plan).iter().map(|(f, _)| f.as_str()).collect();
+        assert_eq!(files, [LIVE_FILE, DIFFUSION_FILE]);
+        assert!(
+            !plan
+                .loaded
+                .iter()
+                .any(|n| n == LIVE_FILE || n == DIFFUSION_FILE)
+        );
+        // The instance and its tokens stay planned.
+        assert_eq!(rows(&plan, "token").len(), 8);
     }
 
     // AC3: a scene the store gave another instance loads neither the instance nor its tokens, combat or seats
