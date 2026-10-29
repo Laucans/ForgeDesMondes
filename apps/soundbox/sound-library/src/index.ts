@@ -95,29 +95,35 @@ export function mount(host: HTMLElement, props: Record<string, unknown>, shell: 
     }
   };
 
+  /** True while the campaign found in the session is not yet in the screen's context. */
+  let unpublished = false;
   /** Finds the campaign when none was given: the screen's context first, the running session's then, which it publishes for the others. */
   const locate = async (): Promise<void> => {
-    if (campaign !== '') return;
+    if (campaign !== '' && !unpublished) return;
     // Whatever goes wrong here leaves the library to its plain read: the sounds are listed all the same.
     try {
-      const named = shell.context.get(CAMPAIGN_CONTEXT);
-      if (typeof named === 'string' && named !== '') {
-        campaign = named;
-        return;
+      if (!unpublished) {
+        const named = shell.context.get(CAMPAIGN_CONTEXT);
+        if (typeof named === 'string' && named !== '') {
+          campaign = named;
+          return;
+        }
+        campaign = campaignOf((await shell.capability(GET_LIVE_SESSION, undefined)).data);
+        if (campaign === '') return;
+        part('sounds-campaign').textContent = `Campagne : ${campaign}`;
+        unpublished = true;
       }
-      campaign = campaignOf((await shell.capability(GET_LIVE_SESSION, undefined)).data);
-      if (campaign === '') return;
-      part('sounds-campaign').textContent = `Campagne : ${campaign}`;
       shell.context.set(CAMPAIGN_CONTEXT, campaign);
+      unpublished = false;
     } catch {
-      // The next read asks again while no campaign is known.
+      // The next read asks again while no campaign is known or published.
     }
   };
   let located: Promise<void> | null = null;
-  /** Waits for the campaign; asked again by the next read while no session was found, since one may start. */
+  /** Waits for the campaign; asked again by the next read while no session was found or its campaign is not published, since one may start. */
   const campaignKnown = (): Promise<void> => {
     located ??= locate().then(() => {
-      if (campaign === '') located = null;
+      if (campaign === '' || unpublished) located = null;
     });
     return located;
   };

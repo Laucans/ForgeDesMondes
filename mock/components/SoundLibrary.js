@@ -430,25 +430,30 @@
         control.disabled = locked;
       }
     };
+    let unpublished = false;
     const locate = async () => {
-      if (campaign !== "") return;
+      if (campaign !== "" && !unpublished) return;
       try {
-        const named = shell2.context.get(CAMPAIGN_CONTEXT);
-        if (typeof named === "string" && named !== "") {
-          campaign = named;
-          return;
+        if (!unpublished) {
+          const named = shell2.context.get(CAMPAIGN_CONTEXT);
+          if (typeof named === "string" && named !== "") {
+            campaign = named;
+            return;
+          }
+          campaign = campaignOf((await shell2.capability(GET_LIVE_SESSION, void 0)).data);
+          if (campaign === "") return;
+          part("sounds-campaign").textContent = `Campagne : ${campaign}`;
+          unpublished = true;
         }
-        campaign = campaignOf((await shell2.capability(GET_LIVE_SESSION, void 0)).data);
-        if (campaign === "") return;
-        part("sounds-campaign").textContent = `Campagne : ${campaign}`;
         shell2.context.set(CAMPAIGN_CONTEXT, campaign);
+        unpublished = false;
       } catch {
       }
     };
     let located = null;
     const campaignKnown = () => {
       located ??= locate().then(() => {
-        if (campaign === "") located = null;
+        if (campaign === "" || unpublished) located = null;
       });
       return located;
     };
