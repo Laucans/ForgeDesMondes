@@ -410,7 +410,7 @@ shapes and words.
 ## 9. The owner's choices
 
 Three values are taste. Each has its rule here; the value is **left open** and pending the owner's answer to #753 (the
-`harness:human` task), who chooses among the options drawn by #752. A later task writes the answers into this section and
+`harness:human` task), who chooses among the options drawn by #752 (two or three for each choice, in [`design-options/index.html`](design-options/index.html)). A later task writes the answers into this section and
 the tokens.
 
 | choice | the rule this document sets | working value, until #753 | open |

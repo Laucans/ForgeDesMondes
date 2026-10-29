@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=1280"><title>Design options for the owner</title>
+<!-- Static drawing for docs/DESIGN-DIRECTION.md §9. Self-contained: the tokens of mock/design/tokens.css are copied below, not imported; no network request. -->
+<style>
+:root{
+  --border-width:1px;--color-border:#3d2b57;--color-danger:#ff5a5f;--color-primary:#e8702a;--color-primary-contrast:#14081f;
+  --color-secondary:#8b3fd9;--color-success:#3ecf8e;--color-surface:#120a1c;--color-surface-2:#1f1331;
+  --color-text:#f5ecf7;--color-text-muted:#b9a6c9;--color-text-disabled:#9a87ad;--color-border-strong:#7d6a96;--color-focus:#27d7f0;
+  --font-family:system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;--font-family-heading:Impact, 'Arial Narrow Bold', 'Helvetica Neue', Arial, sans-serif;
+  --font-size-base:1rem;--font-size-heading:2rem;--font-size-large:1.25rem;--font-size-small:.875rem;
+  --font-size-display:clamp(2.5rem,1.75rem + 3vw,4.5rem);--font-size-stage:clamp(1.25rem,1rem + 1.2vw,2rem);
+  --font-weight-heading:700;--font-weight-regular:400;--font-weight-semibold:600;
+  --line-height-tight:1.15;--line-height-snug:1.35;--line-height-body:1.5;
+  --radius-large:20px;--radius-medium:12px;--radius-pill:999px;--radius-small:6px;
+  --shadow-high:0 12px 32px rgba(139,63,217,.35),0 4px 12px rgba(0,0,0,.6);--shadow-low:0 2px 6px rgba(0,0,0,.5);
+  --space-1:4px;--space-2:8px;--space-3:16px;--space-4:24px;--space-5:40px;
+  --focus-ring-width:2px;--focus-ring-offset:2px;--state-hover:rgb(245 236 247 / .08);--state-hover-brightness:1.12;
+}*{box-sizing:border-box}html{background:#120a1c}body{margin:0;background:var(--color-surface);color:var(--color-text);font:400 var(--font-size-base)/var(--line-height-body) var(--font-family)}
+h1,h2,h3,p,ul,ol,dl,figure{margin:0}a{color:var(--color-text);text-decoration:underline}
+.doc{width:1280px;margin:0 auto;padding:var(--space-4) var(--space-5) var(--space-5);display:grid;gap:var(--space-4)}
+.doc>header{display:grid;gap:var(--space-2)}.doc h1{font-size:var(--font-size-heading);font-weight:700;line-height:var(--line-height-tight)}
+.crumb{font-size:var(--font-size-small);color:var(--color-text-muted)}
+.doc h2{font-size:var(--font-size-large);font-weight:700;line-height:var(--line-height-snug)}
+.doc h3{font-size:var(--font-size-base);font-weight:700;line-height:var(--line-height-snug)}
+.small{font-size:var(--font-size-small);line-height:var(--line-height-snug)}.muted{color:var(--color-text-muted)}
+.tradeoffs{border:1px solid var(--color-border);border-radius:var(--radius-medium);padding:var(--space-3) var(--space-4);display:grid;gap:var(--space-2);background:var(--color-surface-2)}
+.tradeoffs ul{margin:0;padding-left:var(--space-4);display:grid;gap:var(--space-1)}
+.facts{display:grid;grid-template-columns:max-content 1fr;gap:var(--space-1) var(--space-3);font-size:var(--font-size-small)}.facts dt{font-weight:600;color:var(--color-text-muted)}.facts dd{margin:0}
+table{border-collapse:collapse;width:100%;font-size:var(--font-size-small)}th,td{text-align:left;padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--color-border)}th{font-weight:600;background:var(--color-surface-2)}td.n{font-variant-numeric:tabular-nums}
+small{font-size:var(--font-size-small);line-height:var(--line-height-snug)}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}
+/* the kit's look, as the direction draws it */
+.btn{font:inherit;font-weight:600;line-height:var(--line-height-tight);padding:var(--space-2) var(--space-3);border-radius:var(--radius-medium);border:1px solid var(--color-border-strong);background:none;color:var(--color-text);cursor:pointer}
+.btn.primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-primary-contrast)}
+.btn.danger{border-color:var(--color-danger);color:var(--color-danger)}
+.btn.small{font-size:var(--font-size-small);padding:var(--space-1) var(--space-2)}
+.btn.is-hover.primary{filter:brightness(var(--state-hover-brightness))}.btn.is-hover:not(.primary){background:var(--state-hover);border-color:var(--color-text-muted)}
+.btn.is-focus{outline:var(--focus-ring-width) solid var(--color-focus);outline-offset:var(--focus-ring-offset)}
+.btn.is-disabled{border:1px dashed var(--color-border-strong);color:var(--color-text-disabled);background:none;cursor:not-allowed}
+.badge{display:inline-block;font-size:var(--font-size-small);font-weight:600;line-height:var(--line-height-snug);padding:0 var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-pill);color:var(--color-text-muted)}
+.opts{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-4);align-items:start}.opts li{display:grid;gap:var(--space-2)}
+.opts a{display:grid;gap:var(--space-2);text-decoration:none;color:var(--color-text)}.opts img{width:100%;height:240px;object-fit:cover;object-position:top;border:1px solid var(--color-border-strong);border-radius:var(--radius-medium)}.opts .lbl{font-weight:600;text-decoration:underline}
+section{display:grid;gap:var(--space-3)}</style></head><body><main class="doc"><header><h1>Design options for the owner</h1><p class="muted">Three choices in <a href="../DESIGN-DIRECTION.md#9-the-owners-choices">DESIGN-DIRECTION.md §9</a> are the owner’s taste. Each is drawn below as options A, B and C on the product’s own content, with its trade-offs written beside it. Every option already meets the direction’s contrast and hierarchy rules, so whichever is picked can be built as it is. Nothing here is chosen. Click a picture to open the option; the PNG beside each page is the same drawing rendered at 1280 px.</p></header>
+<section><h2>1. The accent colour</h2><p class="muted">The fill of the one primary action of a view (§3). Drawn on the campaign list.</p><ul class="opts"><li><a href="accent-a.html"><img src="accent-a.png" alt="1. The accent colour, option A: Ember orange" width="400"><span class="lbl"><b>A</b> — Ember orange</span></a><span class="small muted"><code>#e8702a</code>. today’s --color-primary, kept.</span></li><li><a href="accent-b.html"><img src="accent-b.png" alt="1. The accent colour, option B: Rose" width="400"><span class="lbl"><b>B</b> — Rose</span></a><span class="small muted"><code>#f0609f</code>. a new value for --color-primary.</span></li><li><a href="accent-c.html"><img src="accent-c.png" alt="1. The accent colour, option C: Parchment" width="400"><span class="lbl"><b>C</b> — Parchment</span></a><span class="small muted"><code>#e9d8ae</code>. a new value for --color-primary.</span></li></ul></section>
+<section><h2>2. The display face</h2><p class="muted">The face of the <code>display</code> and <code>title</code> steps (§2). Drawn as the type scale, beside today’s Impact.</p><ul class="opts"><li><a href="face-a.html"><img src="face-a.png" alt="2. The display face, option A: Barlow Condensed" width="400"><span class="lbl"><b>A</b> — Barlow Condensed</span></a><span class="small muted">OFL 1.1, self-hosted file, no CDN.</span></li><li><a href="face-b.html"><img src="face-b.png" alt="2. The display face, option B: Fraunces" width="400"><span class="lbl"><b>B</b> — Fraunces</span></a><span class="small muted">OFL 1.1, self-hosted file, no CDN.</span></li><li><a href="face-c.html"><img src="face-c.png" alt="2. The display face, option C: System sans, bold" width="400"><span class="lbl"><b>C</b> — System sans, bold</span></a><span class="small muted">System font, no file, no licence to carry.</span></li></ul></section>
+<section><h2>3. The DM view’s density</h2><p class="muted">The spacing inside the DM view’s panels and the size of the sheet’s <code>reading</code> step (§9). Drawn live at 1280 × 800 with the pill.</p><ul class="opts"><li><a href="density-a.html"><img src="density-a.png" alt="3. The DM view’s density, option A: Compact" width="400"><span class="lbl"><b>A</b> — Compact</span></a><span class="small muted">Every gap inside the panels one step under the standard (§4); the reading step moves one step down, from 1.25 rem to 1 rem (the body size).</span></li><li><a href="density-b.html"><img src="density-b.png" alt="3. The DM view’s density, option B: Standard" width="400"><span class="lbl"><b>B</b> — Standard</span></a><span class="small muted">The spacing of §4 as written (card --space-3, panel and group --space-4, section --space-5) and the reading step at 1.25 rem, as the direction’s scale has it.</span></li><li><a href="density-c.html"><img src="density-c.png" alt="3. The DM view’s density, option C: Roomy" width="400"><span class="lbl"><b>C</b> — Roomy</span></a><span class="small muted">Every gap inside the panels one step over the standard (§4: card --space-4, panel and group --space-5); reading stays at 1.25 rem, since the next step of the scale (2 rem) is a title’s.</span></li></ul></section>
+<section><h2>How to read these files</h2><ul><li>Each page is self-contained: its CSS is inline and copies the values of <code>mock/design/tokens.css</code> and the direction’s proposed tokens (§10); it imports no stylesheet and makes no network request. The two OFL fonts load from <code>fonts/</code>, which carries their licences.</li><li>The PNGs are rendered with headless Chromium at a 1280 px window.</li><li>The interface is French, as in the product; this page and the notes are in English, as the direction is.</li></ul></section></main></body></html>
