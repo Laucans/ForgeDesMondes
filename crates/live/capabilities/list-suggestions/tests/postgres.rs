@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use harness_dataguard::tokio_postgres::Client;
-use harness_dataguard::tokio_postgres::types::Type;
+use harness_dataguard::tokio_postgres::types::{ToSql, Type};
 use list_suggestions::{SQL, answer};
 use platform_scratch_db::ScratchDb;
 use serde_json::{Value, json};
@@ -90,6 +90,12 @@ impl Scratch {
     /// read-only connection answers them: the columns of the types it reads,
     /// as JSON.
     async fn rows(&mut self, campaign: &str) -> Value {
+        self.rows_of(&campaign).await
+    }
+
+    /// The same, with `campaign` bound as the registry binds it: `None` is a
+    /// request without the variable, a SQL `NULL`.
+    async fn rows_of(&mut self, campaign: &(dyn ToSql + Sync)) -> Value {
         let tx = self
             .client
             .build_transaction()
@@ -97,7 +103,7 @@ impl Scratch {
             .start()
             .await
             .expect("a read only transaction");
-        let rows = tx.query(SQL, &[&campaign]).await.expect("the SQL runs");
+        let rows = tx.query(SQL, &[campaign]).await.expect("the SQL runs");
         tx.rollback().await.expect("rolled back");
         let rows = rows.iter().map(|row| {
             let mut object = serde_json::Map::new();
@@ -223,6 +229,17 @@ async fn no_campaign_reads_the_live_session_and_a_non_uuid_finds_nothing() {
     assert_eq!(
         db.read("pas-un-uuid").await,
         json!({ "suggestions": [], "history": [] })
+    );
+}
+
+#[tokio::test]
+async fn a_request_without_the_campaign_variable_reads_the_live_session() {
+    let mut db = Scratch::new("campaign_null").await;
+    db.suggest(SEANCE, GASPARD, "Gaspard", 1).await;
+    let rows = db.rows_of(&None::<String>).await;
+    assert_eq!(
+        vias(&answer(&rows, &BTreeMap::new())["history"]),
+        ["Gaspard"]
     );
 }
 
