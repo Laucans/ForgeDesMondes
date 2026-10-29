@@ -26,7 +26,7 @@ const PILE: usize = 5;
 /// session of the campaign bound to `$1` — of two, the last one planned, as
 /// the DataCapabilities that write find it, a session the engine deleted (its
 /// tombstone) being none; the last one started, among the campaigns', when `$1`
-/// is the empty text — and its suggestions, newest first,
+/// is the empty text or null (a request without the `campaign` variable) — and its suggestions, newest first,
 /// each with the element or the sound it names and the words that were heard.
 /// A row that names not exactly one of them, or one of another campaign, breaks
 /// suggestion-target and is left out; so is a suggestion, an element or a sound
@@ -35,10 +35,10 @@ const PILE: usize = 5;
 pub const SQL: &str = r#"WITH live AS (
     SELECT s.id, s.campaign_id
     FROM session s
-    WHERE s.status = 'live' AND ($1 = '' OR s.campaign_id::text = $1)
+    WHERE s.status = 'live' AND (coalesce($1, '') = '' OR s.campaign_id::text = $1)
         AND NOT EXISTS (SELECT 1 FROM dataguard_rows r
             WHERE r.partition = 'Session/' || s.id::text AND r.tombstoned)
-    ORDER BY CASE WHEN $1 = '' THEN s.started_at END DESC NULLS LAST, s.position DESC, s.id
+    ORDER BY CASE WHEN coalesce($1, '') = '' THEN s.started_at END DESC NULLS LAST, s.position DESC, s.id
     LIMIT 1
 )
 SELECT
