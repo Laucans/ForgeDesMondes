@@ -373,7 +373,9 @@ pub fn prepare(request: &Request, roster: &Roster) -> Result<Vec<Row>, Refusal> 
     if i16::try_from(last).is_err() {
         return Err(Refusal::NoNumberLeft);
     }
-    // An HP max the tables could not hold, or below 0, is none to copy.
+    // An HP max the tables could not hold, or below 0, is none to copy; an NPC
+    // marked `pnj` with no HP is then refused by `pj-hp-not-tracked`, the
+    // aggregate's judge and the tables' check, never stored.
     let hp = character
         .hp_max
         .filter(|hp| *hp >= 0 && i16::try_from(*hp).is_ok())

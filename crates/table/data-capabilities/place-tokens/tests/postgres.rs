@@ -457,7 +457,8 @@ async fn token_roster_a_second_drop_of_a_pc_is_rejected_and_the_first_token_stay
 }
 
 // AC5: the Battlemap's version 1 payload — instance, character, q, r, count,
-// no characterType — and no target: the tokens are placed as before.
+// no characterType — and no target: the tokens are placed as before. The
+// engine reads the id without its `@version`, so `@1` still names the command.
 #[tokio::test]
 async fn a_version_1_payload_places_its_tokens_as_before() {
     let scratch = Scratch::new("v1_payload").await;
@@ -653,6 +654,9 @@ async fn what_the_engine_deleted_is_not_there_any_more() {
         );
         assert!(message.contains(words), "{instance}: {message}");
     }
+
+    drop(engine);
+    drop(scratch);
 
     let scratch = Scratch::new("entity_gone").await;
     scratch
