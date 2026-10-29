@@ -380,7 +380,8 @@ const UNPROJECTED: &str = concat!(
             WHEN lower(h.v ->> 'initiativeEntryId') THEN 3
         END AS kind) of
     CROSS JOIN LATERAL (SELECT t.v - 'createdAt' - 'resetAt'
-            - CASE WHEN h.v ->> 'characterType' IS NULL THEN 'characterType' ELSE '' END AS v) read
+            - CASE WHEN h.v ->> 'characterType' IS NULL
+                THEN ARRAY['characterType'] ELSE ARRAY[]::text[] END AS v) read
     WHERE CASE WHEN h.tombstoned THEN t.id IS NOT NULL
         ELSE of.kind IS NOT NULL AND (t.id IS NULL
             OR jsonb_strip_nulls(read.v) IS DISTINCT FROM jsonb_strip_nulls((

@@ -36,6 +36,12 @@ DECLARE
     kind text;
 BEGIN
     SELECT e.type INTO kind FROM entity e WHERE e.id = NEW.character_id;
+    -- A token pointed at another character, its marker left as it was,
+    -- follows its new character.
+    IF TG_OP = 'UPDATE' AND NEW.character_id IS DISTINCT FROM OLD.character_id
+            AND NEW.character_type IS NOT DISTINCT FROM OLD.character_type THEN
+        NEW.character_type := NULL;
+    END IF;
     IF NEW.character_type IS NULL THEN
         NEW.character_type := kind;
     ELSIF kind IS NOT NULL AND NEW.character_type <> kind THEN

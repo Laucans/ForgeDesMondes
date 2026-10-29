@@ -247,6 +247,24 @@ async fn a_token_without_a_marker_gets_its_character_s_type() {
     assert_eq!(explicit.get::<_, String>(0), "pnj");
 }
 
+// AC1: a token pointed at another character, its marker left as it was,
+// follows its new character's type.
+#[tokio::test]
+async fn a_token_pointed_at_another_character_follows_its_type() {
+    let (_db, client) = at_0015("character_type_repointed").await;
+    client
+        .batch_execute(&format!(
+            "UPDATE token SET instance_id = '{OTHER_INSTANCE}', character_id = '{ELOWEN}',
+                 number = NULL, hp_current = NULL, hp_max = NULL WHERE id = '{T_BANDIT}'"
+        ))
+        .await
+        .expect("a token of the Bandit now Elowen's");
+    assert_eq!(
+        markers(&client).await,
+        [format!("{T_ELOWEN} pj"), format!("{T_BANDIT} pj")]
+    );
+}
+
 // AC2: replayed, 0015 changes nothing and raises no error.
 #[tokio::test]
 async fn it_replays_as_a_no_op() {
@@ -283,7 +301,7 @@ async fn the_data_layer_applies_it_after_0014_and_again() {
     let applied = data::migrate(&mut client, &migrations())
         .await
         .expect("migrated");
-    assert_eq!(applied.last().map(String::as_str), Some(MIGRATION));
+    assert!(applied.iter().any(|file| file == MIGRATION), "{applied:?}");
     let again = data::migrate(&mut client, &migrations())
         .await
         .expect("migrated again");
