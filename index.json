@@ -24,7 +24,7 @@
     "milestone/702-llm-port-claude-code-adapter-claude-p-claude-haiku-5-5-effort-medium-replaces-the-anthropic-api-adapter": "f064580a2e090dce3c19bdd1ce0cee586a037e23",
     "milestone/711-shell-frame-the-design-system-s-site-menu-above-every-dm-screen": "aac76d1e920712784a7efe8783955215537960be",
     "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "28181180e150e5f67b429d494c3ab0cec234ca82",
-    "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "00e7746073907cd447c2458de4e974be44ba5f20",
+    "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "ab58580584fa4c67f00fc3ee594dcfae41273e93",
     "milestone/739-ui-audit-and-design-direction-written-in-the-repository": "beb0ac56ee5bfaf170f5172e4a378ad70f0dc335",
     "milestone/740-design-system-v2-type-scale-aa-contrast-state-and-focus-primitives-in-tokens-and-kit": "f640d48be6612b5b1d4b36867f6a08c32daa110b",
     "milestone/745-settings-screen-brought-to-the-direction-ai-settings-with-guidance-and-ranked-actions": "150996ccf270420b16cbbe7b8321a75889c60c9a"
