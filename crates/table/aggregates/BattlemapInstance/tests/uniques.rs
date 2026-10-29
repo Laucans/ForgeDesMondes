@@ -284,8 +284,9 @@ async fn multi_drop_numbering_is_refused_by_the_tables_across_two_rows() {
         duplicate_of(
             &scratch,
             &format!(
-                "INSERT INTO token (id, instance_id, character_id, number, name, q, r, visible, conditions)
-                 VALUES ('{TOKEN_2}', '{INSTANCE}', '{BANDIT}', 1, 'Jeton 1', 0, 0, true, '{{}}')"
+                "INSERT INTO token (id, instance_id, character_id, number, name, q, r, visible,
+                     hp_current, hp_max, conditions)
+                 VALUES ('{TOKEN_2}', '{INSTANCE}', '{BANDIT}', 1, 'Jeton 1', 0, 0, true, 11, 11, '{{}}')"
             )
         )
         .await,
@@ -308,13 +309,14 @@ async fn multi_drop_numbering_is_refused_by_the_tables_across_two_rows() {
     )
     .await;
     assert_eq!(count(&scratch, "token").await, 3);
-    // A PC's token carries no number: the index leaves its roster to the
-    // DataGuard (token-roster).
+    // A PC's token carries no number, so this index does not tell two of them
+    // apart: its roster is migration 0015's (`tests/pj_roster.rs`). One PC on
+    // two instances is accepted.
     scratch
         .seed(&format!(
             "INSERT INTO token (id, instance_id, character_id, name, q, r, visible, conditions)
              VALUES (gen_random_uuid(), '{INSTANCE}', '{ELOWEN}', 'Elowen', 0, 0, true, '{{}}'),
-                    (gen_random_uuid(), '{INSTANCE}', '{ELOWEN}', 'Elowen', 1, 0, true, '{{}}')"
+                    (gen_random_uuid(), '{OTHER_INSTANCE}', '{ELOWEN}', 'Elowen', 1, 0, true, '{{}}')"
         ))
         .await;
 }

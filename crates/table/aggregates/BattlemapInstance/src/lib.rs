@@ -47,10 +47,11 @@ const INSTANCE: [&str; 6] = [
 ];
 
 /// The fields of a token, `token`'s.
-const TOKEN: [&str; 14] = [
+const TOKEN: [&str; 15] = [
     "tokenId",
     "tokenInstanceId",
     "characterId",
+    "characterType",
     "number",
     "name",
     "q",
@@ -310,14 +311,22 @@ fn multi_drop_numbering(state: &BTreeMap<String, Value>, entry: &Entry) -> bool 
 }
 
 /// A PC's token tracks no HP, neither current nor maximum; an NPC's tracks
-/// both, its current HP from 0 to its maximum.
+/// both, its current HP from 0 to its maximum. A token that does not say
+/// which it is (`characterType`, copied from its character's sheet) is judged
+/// by its HP alone: none, or both within bounds; the tables, which know the
+/// character's type, judge the rest.
 fn pj_hp_not_tracked(state: &BTreeMap<String, Value>, _entry: &Entry) -> bool {
-    match (value(state, "hpCurrent"), value(state, "hpMax")) {
-        (Value::Null, Value::Null) => true,
-        (current, max) => match (smallint(current), smallint(max)) {
-            (Some(current), Some(max)) => 0 <= current && current <= max,
-            _ => false,
-        },
+    let (current, max) = (value(state, "hpCurrent"), value(state, "hpMax"));
+    let untracked = current.is_null() && max.is_null();
+    let tracked = || match (smallint(current), smallint(max)) {
+        (Some(current), Some(max)) => 0 <= current && current <= max,
+        _ => false,
+    };
+    match value(state, "characterType") {
+        Value::Null => untracked || tracked(),
+        Value::String(kind) if kind == "pj" => untracked,
+        Value::String(kind) if kind == "pnj" => tracked(),
+        _ => false,
     }
 }
 

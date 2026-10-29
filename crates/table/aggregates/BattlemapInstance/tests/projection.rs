@@ -708,8 +708,10 @@ async fn a_start_projects_again_what_the_tables_lost() {
                  VALUES ('{FIXTURE_SCENE}', '{SEANCE}', 2, 'La forêt');
              INSERT INTO battlemap_instance (id, battlemap_media_id, session_id, scene_id)
                  VALUES ('{FIXTURE}', '{GUE}', '{SEANCE}', '{FIXTURE_SCENE}');
-             INSERT INTO token (id, instance_id, character_id, name, q, r, visible, conditions)
-                 VALUES ('{T_BANDIT_2}', '{FIXTURE}', '{BANDIT}', 'Bandit 2', 0, 0, true, '{{}}');
+             INSERT INTO token (id, instance_id, character_id, name, q, r, visible, hp_current,
+                     hp_max, conditions)
+                 VALUES ('{T_BANDIT_2}', '{FIXTURE}', '{BANDIT}', 'Bandit 2', 0, 0, true, 11, 11,
+                     '{{}}');
              INSERT INTO dataguard_rows (partition, fields) VALUES
                  ('BattlemapInstance/{ELSEWHERE}', '{{\"battlemapInstanceId\": \"{ELSEWHERE}\",
                     \"battlemapMediaId\": \"{GUE}\", \"sessionId\": \"{SEANCE}\",
@@ -984,8 +986,8 @@ async fn a_row_only_the_tables_hold_is_the_engine_s_row_until_a_command_writes_i
         row(T_BANDIT_1).await,
         json!({
             "tokenId": T_BANDIT_1, "tokenInstanceId": INSTANCE, "characterId": BANDIT,
-            "number": 1, "name": "Bandit 1", "q": 3, "r": 4, "visible": true,
-            "hpCurrent": 6, "hpMax": 11, "conditions": ["à terre"],
+            "characterType": "pnj", "number": 1, "name": "Bandit 1", "q": 3, "r": 4,
+            "visible": true, "hpCurrent": 6, "hpMax": 11, "conditions": ["à terre"],
         })
     );
     let combat = row(COMBAT).await;
