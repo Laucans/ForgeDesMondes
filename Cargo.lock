@@ -933,6 +933,7 @@ version = "0.1.0"
 dependencies = [
  "data",
  "harness-dataguard",
+ "platform-scratch-db",
  "serde_json",
  "tokio",
 ]
