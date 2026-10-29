@@ -20,4 +20,6 @@ aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
 data = { path = "../../../data" }
 # The Concept's fixtures `next` is held to.
 platform-conformance = { path = "../../../platform/conformance" }
+# The bench over a scratch database its view test plants the unit on (rules 19, 21).
+platform-test-kit = { path = "../../../platform/test-kit" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }

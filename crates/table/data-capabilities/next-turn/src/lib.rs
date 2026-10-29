@@ -3,35 +3,36 @@
 //! Initiative@1's NEXT says.
 //!
 //! The engine writes one partition per command and judges a row alone: a
-//! combat is its own row, `BattlemapInstance/<its id>`, and so is each
-//! participant's place in it, `BattlemapInstance/<its entry id>`, and each
-//! token, `BattlemapInstance/<its id>`, as `table.startCombat` and
-//! `table.placeTokens` write them. A turn is one command on the combat's
-//! row, carrying the entry whose turn it now is and the round's step. The
-//! command is relative: the engine adds the step to the round as the
-//! commands ahead leave it, so two « Suivant » sent one after the other both
-//! count.
+//! combat is its own row, `BattlemapInstance/<its id>`, as `table.startCombat`
+//! writes it. A turn is one command on the combat's row, carrying the entry
+//! whose turn it now is and the round's step. The command is relative: the
+//! engine adds the step to the round as the commands ahead leave it, so two
+//! « Suivant » sent one after the other both count.
 //!
 //! What the DM sends names the instance, as the command's target or under
-//! `instance`; [`request`] reads it. The instance's open combats and their
-//! entries are found among the engine's rows ([`COMBATS`]), then each is
-//! read as the queue leaves it — an end, a removal or a blow queued ahead is
-//! in it ([`combat`], [`participant`]) — and [`prepare`] makes the command:
+//! `instance`; [`request`] reads it. The instance's open combats are found
+//! among the engine's rows ([`COMBATS`]), then each is read as the queue
+//! leaves it — an end or a removal queued ahead is in it ([`combat`]) — and
+//! its participants are read from `initiative_order_view` ([`ORDER`]), the
+//! very view the initiative carousel shows: its rank order is the order of
+//! the turns, its `skipped` column says who is passed over. Who is dead is
+//! the tables' to say, once, there — this DataCapability derives nothing of
+//! it. [`prepare`] makes the command:
 //!
 //! - an instance not named by a uuid is refused before it is queued
 //!   ([`Refusal::NotAnId`]); one with no open combat has no turn to pass
 //!   ([`Refusal::NoOpenCombat`]), and a combat whose participants are all
-//!   dead none to pass it to ([`Refusal::NoOneAlive`]);
-//! - the turn goes to the next living participant after the current one in
-//!   rank order (`next-turn`): a dead NPC — at 0 HP — is skipped
-//!   (`dead-derived`), a hidden one takes its turn at its rank
-//!   (`hidden-keeps-rank`), one whose token left the map keeps its rank and
-//!   takes no turn;
+//!   skipped none to pass it to ([`Refusal::NoOneAlive`]);
+//! - the turn goes to the next participant after the current one in rank
+//!   order that the view does not skip (`next-turn`, `dead-derived`); a
+//!   hidden one is not skipped, it takes its turn at its rank
+//!   (`hidden-keeps-rank`);
 //! - when the search wraps past the last rank, the round goes up by one,
-//!   even when the first participants are dead and the turn lands later.
+//!   even when the first participants are skipped and the turn lands later.
 //!
-//! No rank, participant or token is written: the command moves the turn and
-//! the round alone.
+//! The view reads the rows the engine has applied: a blow still queued ahead
+//! of the press is not in it yet. No rank, participant or token is written:
+//! the command moves the turn and the round alone.
 
 use std::collections::BTreeMap;
 
@@ -47,23 +48,24 @@ pub const DATA_CAPABILITY: &str = "table.nextTurn";
 const AGGREGATE: &str = "BattlemapInstance";
 
 /// The instance `$1`'s combats with no end among the engine's rows, the
-/// latest started first, each with its entries' ids: what the engine
-/// tombstoned is not there. A combat or an entry queued and not yet applied
-/// is not either: « Suivant » follows a start.
-pub const COMBATS: &str = "SELECT lower(c.fields ->> 'combatId') AS combat,
-        coalesce((SELECT jsonb_agg(lower(e.fields ->> 'initiativeEntryId')
-                ORDER BY lower(e.fields ->> 'initiativeEntryId'))
-            FROM dataguard_rows e
-            WHERE e.partition LIKE 'BattlemapInstance/%' AND NOT e.tombstoned
-                AND e.partition = 'BattlemapInstance/' || lower(e.fields ->> 'initiativeEntryId')
-                AND lower(e.fields ->> 'initiativeEntryCombatId') = lower(c.fields ->> 'combatId')),
-            '[]') AS entries
+/// latest started first: what the engine tombstoned is not there. A combat
+/// queued and not yet applied is not either: « Suivant » follows a start.
+pub const COMBATS: &str = "SELECT lower(c.fields ->> 'combatId') AS combat
     FROM dataguard_rows c
     WHERE c.partition LIKE 'BattlemapInstance/%' AND NOT c.tombstoned
         AND c.partition = 'BattlemapInstance/' || lower(c.fields ->> 'combatId')
         AND lower(c.fields ->> 'combatInstanceId') = $1::text
         AND c.fields ->> 'endedAt' IS NULL
     ORDER BY c.fields ->> 'startedAt' DESC NULLS LAST, 1";
+
+/// The combat `$1`'s participants as the initiative carousel shows them: each
+/// entry with its place in the rank order (`order_index`, ties broken by the
+/// entry's id) and whether the view skips it (`skipped`, the token's death).
+/// The id is bound as text and cast, so that it is read once, whatever it is.
+pub const ORDER: &str = "SELECT entry_id::text AS entry, order_index AS rank, skipped
+    FROM initiative_order_view
+    WHERE combat_id = $1::text::uuid
+    ORDER BY order_index";
 
 /// One partition's row, or a payload, by field.
 pub type Row = BTreeMap<String, Value>;
@@ -84,16 +86,15 @@ pub struct Combat {
     pub current: Option<String>,
 }
 
-/// One participant of the combat: its entry, its rank, and whether it takes
-/// a turn — a PC always does, an NPC until its HP reach 0, and a token off
-/// the map never.
+/// One participant of the combat, as `initiative_order_view` lists it: its
+/// entry, its place in the rank order, and whether it takes a turn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Participant {
     /// The entry's id, lowercase.
     pub entry: String,
-    /// Its rank, 1 first.
+    /// Its place in the rank order, 1 first.
     pub rank: i64,
-    /// Whether its token is on the map and alive.
+    /// Whether the view leaves it unskipped: it takes a turn.
     pub alive: bool,
 }
 
@@ -115,7 +116,7 @@ pub enum Refusal {
     NotAnId,
     /// The instance has no open combat.
     NoOpenCombat,
-    /// Every participant of the combat is dead, or it has none.
+    /// Every participant of the combat is skipped, or it has none.
     NoOneAlive,
 }
 
@@ -175,42 +176,30 @@ pub fn combat(row: &Row, instance: &str) -> Option<Combat> {
     })
 }
 
-/// The participant `entry` is in `combat`, `token` being its token's row,
-/// both as the queue leaves them: `None` when the entry is no longer one of
-/// the combat's. A token off the map — no row, or a row on another instance
-/// than `instance` (`instance-isolated`) — takes no turn; one at 0 HP is
-/// dead (`dead-derived`); a PC's, which tracks no HP, is always alive.
-/// Whether it is hidden does not count (`hidden-keeps-rank`).
+/// The participants `order` lists — [`ORDER`]'s rows, `entry`, `rank` and
+/// `skipped` — in the order it gives them. A row that says none of the three
+/// is none of the combat's participants.
 #[must_use]
-pub fn participant(entry: &Row, token: &Row, combat: &str, instance: &str) -> Option<Participant> {
-    let text = |field: &str| entry.get(field).and_then(Value::as_str).and_then(uuid);
-    let id = text("initiativeEntryId")?;
-    if text("initiativeEntryCombatId").as_deref() != Some(combat) {
-        return None;
-    }
-    let rank = entry.get("rank").and_then(Value::as_i64)?;
-    let on_map = token
-        .get("tokenInstanceId")
-        .and_then(Value::as_str)
-        .and_then(uuid)
-        .is_some_and(|on| on == instance);
-    let alive = on_map
-        && token
-            .get("hpCurrent")
-            .and_then(Value::as_i64)
-            .is_none_or(|hp| hp > 0);
-    Some(Participant {
-        entry: id,
-        rank,
-        alive,
-    })
+pub fn participants(order: &Value) -> Vec<Participant> {
+    order
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            Some(Participant {
+                entry: row["entry"].as_str().and_then(uuid)?,
+                rank: row["rank"].as_i64()?,
+                alive: !row["skipped"].as_bool()?,
+            })
+        })
+        .collect()
 }
 
-/// Initiative@1's NEXT over the participants in rank order, alive or dead:
+/// Initiative@1's NEXT over the participants in rank order, skipped or not:
 /// the index the turn passes to, and whether the search wrapped past the
-/// last rank. From `current`, the next living one after it, wrapping to the
-/// start — itself last, when it is the only one alive; with no current turn,
-/// the first living one, no wrap. `None` when no one is alive.
+/// last rank. From `current`, the next unskipped one after it, wrapping to
+/// the start — itself last, when it is the only one; with no current turn,
+/// the first unskipped one, no wrap. `None` when every one is skipped.
 #[must_use]
 pub fn next(alive: &[bool], current: Option<usize>) -> Option<(usize, bool)> {
     let living = |at: &usize| alive[*at];
@@ -225,13 +214,13 @@ pub fn next(alive: &[bool], current: Option<usize>) -> Option<(usize, bool)> {
 
 /// The command written on the combat's partition, against `combat`, the
 /// instance's open combat, and `participants`, its entries, as the queue
-/// leaves them. The participants are taken in rank order — a tie by entry
+/// leaves it and the view lists them. The participants are taken in rank order — a tie by entry
 /// id; a current entry that is none of them is no current turn.
 ///
 /// # Errors
 ///
 /// [`Refusal::NoOpenCombat`] when `combat` is none, [`Refusal::NoOneAlive`]
-/// when no participant is alive.
+/// when no participant is left unskipped.
 pub fn prepare(combat: Option<&Combat>, participants: &[Participant]) -> Result<Prepared, Refusal> {
     let combat = combat.ok_or(Refusal::NoOpenCombat)?;
     let mut order: Vec<&Participant> = participants.iter().collect();
@@ -261,10 +250,11 @@ fn uuid(text: &str) -> Option<String> {
 }
 
 /// A « Suivant » made the command on its combat's partition ([`prepare`]),
-/// against the combat and its participants as the queue leaves them: one
-/// naming no instance is refused, 422; one on an instance with no open
-/// combat, or none alive in it, 422 — nothing queued. Over memory the engine
-/// holds no SQL to find a combat by: no combat is open.
+/// against the combat as the queue leaves it and its participants as
+/// `initiative_order_view` lists them: one naming no instance is refused, 422;
+/// one on an instance with no open combat, or none unskipped in it, 422 —
+/// nothing queued. Over memory the engine holds no SQL to find a combat by:
+/// no combat is open.
 struct Turns;
 
 #[async_trait]
@@ -291,23 +281,11 @@ impl Prepare for Turns {
             let Some(combat) = combat(&row, &request.instance) else {
                 continue;
             };
-            let mut participants = Vec::new();
-            for entry in found["entries"].as_array().into_iter().flatten() {
-                let Some(entry) = entry.as_str() else {
-                    continue;
-                };
-                let entry = context.row(&partition(entry)).await?;
-                let token = match entry
-                    .get("initiativeEntryTokenId")
-                    .and_then(Value::as_str)
-                    .and_then(uuid)
-                {
-                    Some(token) => context.row(&partition(&token)).await?,
-                    None => Row::new(),
-                };
-                participants.extend(participant(&entry, &token, &combat.id, &request.instance));
-            }
-            let prepared = prepare(Some(&combat), &participants).map_err(refused)?;
+            let order = rows
+                .rows(ORDER, &[Value::from(combat.id.as_str())])
+                .await
+                .map_err(|e| plugins::Refusal::unprocessable(e.to_string()))?;
+            let prepared = prepare(Some(&combat), &participants(&order)).map_err(refused)?;
             return Ok(plugins::Prepared {
                 target_id: Some(prepared.target_id),
                 payload: prepared.payload,
