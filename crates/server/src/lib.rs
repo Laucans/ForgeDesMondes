@@ -69,7 +69,9 @@ use dataguard_server::engine::postgres::ReadOnly;
 use dataguard_server::engine::reads::Reads;
 use dataguard_server::engine::tokio_postgres;
 use dataguard_server::{MEMORY, Planted};
-pub use fixtures::{Fixtures, NAMESPACE, Skipped, fixtures, held_instances, held_versions, id};
+pub use fixtures::{
+    Fixtures, NAMESPACE, Skipped, fixtures, held_instances, held_live_sessions, held_versions, id,
+};
 pub use hearing::Hearing;
 pub use names::{Names, renaming};
 use ports_character_sheets::fake::FakeCharacterSheets;
