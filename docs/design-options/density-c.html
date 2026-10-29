@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=1280"><title>DM view density C — Roomy</title>
+<!-- Static drawing for docs/DESIGN-DIRECTION.md §9. Self-contained: the tokens of mock/design/tokens.css are copied below, not imported; no network request. -->
+<style>
+:root{
+  --border-width:1px;--color-border:#3d2b57;--color-danger:#ff5a5f;--color-primary:#e8702a;--color-primary-contrast:#14081f;
+  --color-secondary:#8b3fd9;--color-success:#3ecf8e;--color-surface:#120a1c;--color-surface-2:#1f1331;
+  --color-text:#f5ecf7;--color-text-muted:#b9a6c9;--color-text-disabled:#9a87ad;--color-border-strong:#7d6a96;--color-focus:#27d7f0;
+  --font-family:system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;--font-family-heading:Impact, 'Arial Narrow Bold', 'Helvetica Neue', Arial, sans-serif;
+  --font-size-base:1rem;--font-size-heading:2rem;--font-size-large:1.25rem;--font-size-small:.875rem;
+  --font-size-display:clamp(2.5rem,1.75rem + 3vw,4.5rem);--font-size-stage:clamp(1.25rem,1rem + 1.2vw,2rem);
+  --font-weight-heading:700;--font-weight-regular:400;--font-weight-semibold:600;
+  --line-height-tight:1.15;--line-height-snug:1.35;--line-height-body:1.5;
+  --radius-large:20px;--radius-medium:12px;--radius-pill:999px;--radius-small:6px;
+  --shadow-high:0 12px 32px rgba(139,63,217,.35),0 4px 12px rgba(0,0,0,.6);--shadow-low:0 2px 6px rgba(0,0,0,.5);
+  --space-1:4px;--space-2:8px;--space-3:16px;--space-4:24px;--space-5:40px;
+  --focus-ring-width:2px;--focus-ring-offset:2px;--state-hover:rgb(245 236 247 / .08);--state-hover-brightness:1.12;
+}*{box-sizing:border-box}html{background:#120a1c}body{margin:0;background:var(--color-surface);color:var(--color-text);font:400 var(--font-size-base)/var(--line-height-body) var(--font-family)}
+h1,h2,h3,p,ul,ol,dl,figure{margin:0}a{color:var(--color-text);text-decoration:underline}
+.doc{width:1280px;margin:0 auto;padding:var(--space-4) var(--space-5) var(--space-5);display:grid;gap:var(--space-4)}
+.doc>header{display:grid;gap:var(--space-2)}.doc h1{font-size:var(--font-size-heading);font-weight:700;line-height:var(--line-height-tight)}
+.crumb{font-size:var(--font-size-small);color:var(--color-text-muted)}
+.doc h2{font-size:var(--font-size-large);font-weight:700;line-height:var(--line-height-snug)}
+.doc h3{font-size:var(--font-size-base);font-weight:700;line-height:var(--line-height-snug)}
+.small{font-size:var(--font-size-small);line-height:var(--line-height-snug)}.muted{color:var(--color-text-muted)}
+.tradeoffs{border:1px solid var(--color-border);border-radius:var(--radius-medium);padding:var(--space-3) var(--space-4);display:grid;gap:var(--space-2);background:var(--color-surface-2)}
+.tradeoffs ul{margin:0;padding-left:var(--space-4);display:grid;gap:var(--space-1)}
+.facts{display:grid;grid-template-columns:max-content 1fr;gap:var(--space-1) var(--space-3);font-size:var(--font-size-small)}.facts dt{font-weight:600;color:var(--color-text-muted)}.facts dd{margin:0}
+table{border-collapse:collapse;width:100%;font-size:var(--font-size-small)}th,td{text-align:left;padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--color-border)}th{font-weight:600;background:var(--color-surface-2)}td.n{font-variant-numeric:tabular-nums}
+small{font-size:var(--font-size-small);line-height:var(--line-height-snug)}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}
+/* the kit's look, as the direction draws it */
+.btn{font:inherit;font-weight:600;line-height:var(--line-height-tight);padding:var(--space-2) var(--space-3);border-radius:var(--radius-medium);border:1px solid var(--color-border-strong);background:none;color:var(--color-text);cursor:pointer}
+.btn.primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-primary-contrast)}
+.btn.danger{border-color:var(--color-danger);color:var(--color-danger)}
+.btn.small{font-size:var(--font-size-small);padding:var(--space-1) var(--space-2)}
+.btn.is-hover.primary{filter:brightness(var(--state-hover-brightness))}.btn.is-hover:not(.primary){background:var(--state-hover);border-color:var(--color-text-muted)}
+.btn.is-focus{outline:var(--focus-ring-width) solid var(--color-focus);outline-offset:var(--focus-ring-offset)}
+.btn.is-disabled{border:1px dashed var(--color-border-strong);color:var(--color-text-disabled);background:none;cursor:not-allowed}
+.badge{display:inline-block;font-size:var(--font-size-small);font-weight:600;line-height:var(--line-height-snug);padding:0 var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-pill);color:var(--color-text-muted)}
+
+.win{width:1280px;height:800px;position:relative;overflow:hidden;transform:translateZ(0);background:var(--color-surface);border:1px solid var(--color-border-strong);display:grid;grid-template-rows:auto auto 1fr}
+.strip{display:grid;gap:var(--space-1);padding:var(--space-2) var(--space-4);background:var(--color-surface-2);border-bottom:1px solid var(--color-border)}
+.strip .r{display:flex;align-items:center;gap:var(--space-4);min-width:0}.strip .r>*{white-space:nowrap}
+.strip h1{font-size:var(--font-size-large);font-weight:700;line-height:var(--line-height-snug);overflow:hidden;text-overflow:ellipsis;max-width:520px}
+.strip .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.live{display:flex;gap:var(--space-2);align-items:center}.live .g{color:var(--color-success)}.live .q{color:var(--color-secondary-text)}
+.stepper{display:flex;align-items:center;gap:var(--space-2)}.stepper .btn{padding:0 var(--space-2)}
+.tabs{display:flex;gap:var(--space-4);align-items:end;padding:0 var(--space-4);border-bottom:1px solid var(--color-border);background:var(--color-surface)}
+.tabs button{font:inherit;font-weight:600;background:none;border:0;color:var(--color-text-muted);padding:var(--space-2) 0;border-bottom:2px solid transparent;cursor:pointer}
+.tabs button[aria-selected=true]{color:var(--color-text);border-bottom-color:var(--color-text)}
+.cols{display:grid;grid-template-columns:320px 1fr;min-height:0}
+.elements{border-right:1px solid var(--color-border);padding:var(--space-3);display:grid;gap:var(--space-3);align-content:start;overflow:hidden;min-height:0}
+.elements h2{font-size:var(--font-size-large);font-weight:700}
+.field{display:grid;gap:var(--space-1)}.field label{font-size:var(--font-size-small);font-weight:600}.field input{font:inherit;background:var(--color-surface-2);color:var(--color-text);border:1px solid var(--color-border-strong);border-radius:var(--radius-small);padding:var(--space-2) var(--space-3)}
+.scene{border:1px solid var(--color-border);border-radius:var(--radius-medium);background:var(--color-surface)}
+.scene.is-current{border-color:var(--color-text-muted)}
+.scene summary{padding:var(--space-2) var(--space-3);font-weight:700;list-style:none}.scene summary small{display:block;font-weight:400;color:var(--color-text-muted)}
+.scene .mark{font-size:var(--font-size-small);font-weight:600;color:var(--color-text)}
+.scene ul{list-style:none;margin:0;padding:0 var(--space-3) var(--space-2);display:grid;gap:var(--dm-rowgap)}
+.scene li.row{display:flex;justify-content:space-between;gap:var(--space-2);align-items:center;padding:var(--dm-row) var(--space-2);border-radius:var(--radius-small)}
+.scene li.row:hover{background:var(--state-hover)}
+.scenes{display:grid;gap:var(--space-2)}
+.centre{overflow:hidden;padding:var(--dm-panel);padding-bottom:0;display:grid;gap:var(--dm-section);align-content:start;min-height:0}
+.centre .reserve{height:440px}
+.sh-head{display:flex;align-items:center;gap:var(--dm-group)}
+.disc{width:calc(var(--space-5) + var(--space-3));height:calc(var(--space-5) + var(--space-3));border-radius:var(--radius-large);background:var(--color-secondary);color:var(--color-text);display:grid;place-items:center;font-weight:700;font-size:var(--font-size-large)}
+.sh-head .t{display:grid;gap:var(--dm-head);flex:1}.sh-head h2{font-family:var(--font-family-heading);font-size:var(--font-size-heading);font-weight:700;line-height:var(--line-height-tight)}
+.sh-actions{display:flex;gap:var(--space-2)}
+.sheet-body{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--dm-group);align-items:start}
+.text{display:grid;gap:var(--dm-group);font-size:var(--dm-reading);line-height:var(--line-height-body)}
+.blk{display:grid;gap:var(--dm-head)}.blk h3{font-size:var(--font-size-base);font-weight:700;line-height:var(--line-height-snug)}
+.notes{padding:var(--dm-card);border:1px dashed var(--color-border-strong);border-radius:var(--radius-medium);font-size:var(--font-size-base)}
+.stat{border:1px solid var(--color-border);border-radius:var(--radius-medium);padding:var(--dm-card);display:grid;gap:var(--dm-card);background:var(--color-surface-2)}
+.stat .l{display:flex;gap:var(--space-4);flex-wrap:wrap}.stat .l b{font-weight:600}
+.abil{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--space-2);text-align:center}.abil span{display:grid}.abil .lb{font-size:var(--font-size-small);font-weight:600;color:var(--color-text-muted)}
+.stat h3{font-size:var(--font-size-base);font-weight:700}.stat p{font-size:var(--font-size-base)}
+.pill{position:fixed;right:var(--space-3);bottom:var(--space-3);z-index:1000;width:320px;display:grid;gap:var(--space-2);justify-items:end}
+.pcard{width:100%;max-height:320px;overflow:auto;display:grid;gap:var(--space-2);padding:var(--space-3);background:var(--color-surface);border:1px solid var(--color-secondary);border-radius:var(--radius-large);box-shadow:var(--shadow-high)}
+.pcard .ph{display:flex;justify-content:space-between;align-items:center}.pcard h2{font-size:var(--font-size-base);font-weight:700}
+.icon{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--color-border-strong);border-radius:var(--radius-small);background:none;color:var(--color-text);font:inherit;cursor:pointer}
+.pcard ol{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-1)}
+.pcard li{display:grid;grid-template-columns:auto 1fr;gap:var(--space-2);align-items:center;padding:var(--space-2) var(--space-3);background:var(--color-surface-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-medium)}
+.pcard li b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pcard li small{display:block;color:var(--color-text-muted)}
+.pi{width:32px;height:32px;border-radius:var(--radius-pill);display:grid;place-items:center;background:var(--color-secondary);color:var(--color-text);font-weight:700}.pi.s{background:var(--color-success);color:var(--color-primary-contrast)}
+.mic{width:48px;height:48px;border-radius:var(--radius-pill);border:1px solid var(--color-border-strong);background:var(--color-surface);color:var(--color-text);display:grid;place-items:center;font-size:var(--font-size-large);box-shadow:var(--shadow-high)}
+.facts2{display:grid;gap:var(--space-2)}.doc section{display:grid;gap:var(--space-3)}
+.visible ul{margin:0;padding-left:var(--space-4);display:grid;gap:var(--space-1)}
+.doc{width:1280px;padding:var(--space-4) 0 var(--space-5)}.doc>section.tradeoffs{display:grid}.doc>header,.doc>section{margin:0 var(--space-5)}.doc>section.frame{margin:0}</style></head><body><main class="doc"><header><p class="crumb"><a href="index.html">Design options</a> · DM view density</p><h1>DM view density C — Roomy</h1><p class="muted">The DM view at 1280 × 800, laid out as the brief of DESIGN-DIRECTION.md (§ “DM view”) says: the live strip, the tab bar, the elements column open on the left, the sheet of <em>Morlox</em> (fixture content) in the centre, and the suggestions pill and the microphone fixed at the bottom right (R98). Only the density differs between the three options.</p></header>
+<section class="tradeoffs"><h2>Trade-offs</h2><ul><li>The easiest to read at a glance: the blocks are clearly separated, a row is a comfortable tap target (40 px, with a gap between rows) and nothing is dense.</li><li>Shows the least: the sheet down to <em>Comportement</em> (the <em>Histoire</em> block is cut by the bottom edge) and the first two scenes, so the DM scrolls most.</li><li>The same 320 px open card covers the same area of a window that shows less, so a larger share of what is shown sits next to the pill.</li></ul></section>
+<section><dl class="facts"><dt>What changes</dt><dd>Every gap inside the panels one step over the standard (§4: card <code>--space-4</code>, panel and group <code>--space-5</code>); <code>reading</code> stays at 1.25 rem, since the next step of the scale (2 rem) is a title’s.</dd><dt>What does not</dt><dd>Regions, colours, states and destructive treatment; no text under 14 px; no control under 24 × 24 px (§9). The 440 px reserve under the sheet is the same in the three, so the end of the sheet clears the pill.</dd><dt>The pill</dt><dd><code>position: fixed</code>, <code>right</code> and <code>bottom</code> at <code>--space-3</code>, open card capped at 40 % of the window (320 px), over the content and out of the grid. The statblock and the lower right of the sheet pass under it, which R98 allows.</dd></dl></section>
+<section class="visible"><h2>Visible without scrolling (a 1280 × 800 window)</h2><ul><li><strong>Always:</strong> the live strip (title, microphone sentence, scene stepper, combat turn, what the players see, <em>Séance</em> menu) and the tab bar, ending at 111 px of the 800.</li><li><strong>Sheet:</strong> the title row, Description, Comportement, Statblock in full; Histoire cut by the bottom edge.</li><li><strong>Statblock:</strong> CA, PV, the six scores and 0 of its 3 features are clear of the pill; 3 features are under it (they come out from under it as the sheet scrolls).</li><li><strong>Elements column:</strong> 7 of 11 rows in full, scene summaries visible: Scène 1, Scène 2; the current scene (Scène 3) is cut by the bottom edge, one scroll of the column away.</li><li><strong>Pill:</strong> the open card and the microphone cover the lower right of the window, 320 px wide from y = 407 px, over the sheet’s right column; the sheet’s last line clears it at the end of the scroll (reserve).</li></ul></section>
+<section class="frame"><h2 style="padding:0 var(--space-5)">The DM view live</h2><div class="win" style="--dm-panel:var(--space-5);--dm-card:var(--space-4);--dm-group:var(--space-5);--dm-section:var(--space-5);--dm-head:var(--space-3);--dm-row:var(--space-2);--dm-rowgap:var(--space-2);--dm-reading:var(--font-size-large)">
+<header class="strip" id="session-bar"><div class="r"><h1 title="Séance 4 — L’embuscade du Gué">Séance 4 — L’embuscade du Gué</h1><span class="small muted">En direct depuis 20:02</span><span class="live small grow"><span class="g" aria-hidden="true">●</span> Micro actif · transcription locale</span><button class="btn small" aria-expanded="false">Séance ▾</button></div>
+<div class="r small"><span class="stepper"><button class="btn small" aria-label="Scène précédente">‹</button><span>Scène 3 / 5 · L’embuscade au Gué</span><button class="btn small" aria-label="Scène suivante">›</button></span><span class="live"><span class="q" aria-hidden="true">◷</span> Combat · round 3 · tour de Bandit 2</span><span class="muted grow">Les joueurs voient la battlemap</span></div></header>
+<nav class="tabs" role="tablist" aria-label="Centre"><button role="tab" aria-selected="true">Fiche</button><button role="tab" aria-selected="false">Battlemap</button><button role="tab" aria-selected="false">Soundbox</button></nav>
+<div class="cols"><aside class="elements" id="dm-elements"><div class="field"><label for="q">Rechercher</label><input id="q" placeholder="Nom ou alias, même approximatif"></div><h2>Séance en cours</h2><div class="scenes">
+<details class="scene" open><summary>Scène 1 — Retour à la Taverne du Sanglier<small>Taverne du Sanglier · Gaspard · Morlox</small></summary><ul><li class="row" data-m="elt"><span>La Taverne du Sanglier</span><span class="badge">lieu</span></li><li class="row" data-m="elt"><span>Gaspard Grosmollet</span><span class="badge">PNJ</span></li><li class="row" data-m="elt"><span>Morlox</span><span class="badge">PNJ</span></li><li class="row" data-m="elt"><span>Le marché noir</span><span class="badge">événement</span></li></ul></details>
+<details class="scene" open><summary>Scène 2 — La route des Corbeaux<small>Valombre · L’incendie du moulin</small></summary><ul><li class="row" data-m="elt"><span>Valombre</span><span class="badge">lieu</span></li><li class="row" data-m="elt"><span>L’incendie du moulin</span><span class="badge">événement</span></li><li class="row" data-m="elt"><span>Frère Odric</span><span class="badge">À créer</span></li></ul></details>
+<details class="scene is-current" open aria-current="true"><summary>Scène 3 — L’embuscade au Gué <span class="mark">● en cours</span><small>Bandit · Vesna · Morlox</small></summary><ul><li class="row" data-m="elt"><span>Bandit</span><span class="badge">PNJ</span></li><li class="row" data-m="elt"><span>Vesna la Balafrée</span><span class="badge">PNJ</span></li><li class="row" data-m="elt"><span>Morlox</span><span class="badge">PNJ</span></li><li class="row" data-m="elt"><span>L’embuscade du gué</span><span class="badge">événement</span></li></ul></details>
+</div></aside>
+<main class="centre"><div class="sh-head" data-m="the title row"><div class="disc" aria-hidden="true">MO</div><div class="t"><h2>Morlox</h2><p class="small muted">Humanoïde (gobelinoïde) de taille P, neutre · PNJ</p></div><div class="sh-actions"><button class="btn small">Modifier</button><button class="btn small" aria-expanded="false">Envoyer aux joueurs ▾</button></div></div>
+<div class="sheet-body"><div class="text"><div class="blk" data-m="Description"><h3>Description</h3><p>Gobelin marchand du marché noir de Valombre. Rusé, couard, d’une politesse excessive ; il vend tout ce qui brille et rachète ce qui a brûlé.</p></div>
+<div class="blk" data-m="Comportement"><h3>Comportement</h3><p>Parle vite, se frotte les mains, recule d’un pas quand on hausse le ton. Ment par réflexe, mais dit la vérité si on lui promet une protection. Siffle ses « s » : « Ssseigneur ». Depuis qu’il a trahi le groupe, évite le regard de Kael et propose des rabais sans qu’on les demande.</p></div>
+<div class="blk" data-m="Histoire"><h3>Histoire</h3><p>Chassé de sa tribu pour avoir vendu la réserve de champignons du chef, Morlox s’est installé sous le pont de Valombre il y a six ans. Il y a bâti un petit marché noir où passent les objets tirés des ruines de la Tour d’Ébène. Depuis l’incendie du moulin, il a peur : il sait qui a payé les incendiaires.</p></div>
+<div class="notes blk" data-m="Notes du DM"><h3>Notes du DM</h3><p>Doit 40 po à Vesna. Connaît le passage sous le moulin. A vendu aux bandits le plan du gué contre l’effacement de sa dette.</p></div></div>
+<div class="stat" data-m="Statblock"><div class="l"><span><b>CA</b> 13</span><span><b>PV</b> 18</span><span><b>Vitesse</b> 9 m</span></div><div class="abil"><span><span class="lb">FOR</span>8</span><span><span class="lb">DEX</span>14</span><span><span class="lb">CON</span>10</span><span><span class="lb">INT</span>13</span><span><span class="lb">SAG</span>9</span><span><span class="lb">CHA</span>12</span></div>
+<div><h3>Fuite agile</h3><p>Il peut se désengager ou se cacher par une action bonus à chacun de ses tours.</p></div><div><h3>Marchandage</h3><p>Avantage aux jets de Charisme (Persuasion) pour négocier un prix.</p></div><div><h3>Dague</h3><p>Attaque au corps à corps : +4 pour toucher, allonge 1,5 m. Touché : 4 (1d4 + 2) dégâts perforants.</p></div></div></div>
+<div class="reserve" aria-hidden="true"></div></main></div>
+<aside class="pill" id="suggestions" aria-label="Suggestions et micro"><div class="pcard"><div class="ph"><h2>Suggestions</h2><button class="icon" aria-label="Historique des 5 dernières entités" title="Historique des 5 dernières entités">⟲</button></div>
+<ol id="suggestions-stack"><li><span class="pi" aria-hidden="true">L</span><span><b>La Taverne du Sanglier</b><small>lieu · « la taverne »</small></span></li><li><span class="pi" aria-hidden="true">P</span><span><b>Gaspard Grosmollet</b><small>PNJ · « Gaspard »</small></span></li><li><span class="pi s" aria-hidden="true">♪</span><span><b>Porte qui grince</b><small>son · « la porte grince »</small></span></li><li><span class="pi" aria-hidden="true">P</span><span><b>Morlox</b><small>PNJ · « Morlox »</small></span></li><li><span class="pi" aria-hidden="true">P</span><span><b>Bandit</b><small>PNJ · « les bandits »</small></span></li></ol></div>
+<button class="mic" id="suggestions-mic" aria-pressed="true" aria-label="Micro de séance"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></aside></div></section></main></body></html>
