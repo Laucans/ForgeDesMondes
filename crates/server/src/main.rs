@@ -12,7 +12,7 @@ use dataguard_server::MEMORY;
 use ports_character_sheets::SharedCharacterSheets;
 use ports_llm::SharedLlm;
 use server::{
-    Config, Error, Names, Ports, app, applier, character_sheets, fixtures, held_instances,
+    Config, Error, Names, Ports, Writes, app, applier, character_sheets, fixtures, held_instances,
     held_live_sessions, held_versions, inventory, listen, llm, plant, renaming, shared, speech,
     waking,
 };
@@ -151,12 +151,18 @@ async fn run() -> Result<(), Error> {
     // Woken by every write the wire answers: a command is applied at once,
     // not at the next second's tick.
     let wake = Arc::new(Notify::new());
-    let applier = applier(Arc::clone(&planted.engine), Arc::clone(&wake));
+    // Never applied while a write is answered: its follow-ups are queued too.
+    let writes = Writes::default();
+    let applier = applier(
+        Arc::clone(&planted.engine),
+        Arc::clone(&wake),
+        Arc::clone(&writes),
+    );
     // The microphone's streams submit their suggestions to this engine.
     let listening = listen(&shared, &planted, &wake);
     eprintln!("server: listening on {addr}");
     // The fixtures' slugs on the wire, their uuids in the store (D8).
-    let app = waking(renaming(app(&planted, Arc::new(llm)), names), wake);
+    let app = waking(renaming(app(&planted, Arc::new(llm)), names), wake, writes);
     let served = axum::serve(listener, app)
         .with_graceful_shutdown(stopped())
         .await
