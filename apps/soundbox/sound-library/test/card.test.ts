@@ -570,3 +570,35 @@ test('a context that fails still leaves the sounds listed', async () => {
   assert.deepEqual(fake.reads.map((r) => r.variables), [{}], 'the plain read is made');
   assert.equal(host.querySelector('#sounds-table')?.textContent?.includes('Chargement'), false, 'the list is not left loading');
 });
+
+test('a context that cannot be written still lists the campaign’s sounds, and the next read publishes again', async () => {
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div></div></body></html>');
+  const host = dom.window.document.querySelector('div') as HTMLElement;
+  const fake = fakeShell({ strict: true });
+  let writable = false;
+  const attempts: unknown[] = [];
+  const shaky: Shell = {
+    ...fake.shell,
+    context: {
+      get: () => undefined,
+      set: (name, value) => {
+        attempts.push([name, value]);
+        if (!writable) throw new Error('no context');
+        fake.shell.context.set(name, value);
+      },
+    },
+  };
+  mount(host, {}, shaky, timing);
+  await settle();
+  assert.deepEqual(fake.reads.map((r) => r.variables), [{ campaign: 'cendres-valombre' }], 'the sounds are read on the campaign found');
+  assert.equal(host.querySelector('#sounds-table')?.textContent?.includes('Chargement'), false, 'the list is not left loading');
+  assert.deepEqual(fake.published, []);
+  writable = true;
+  fake.moved(1); // the first notice only tells the version the screen opened on
+  fake.moved(2);
+  await settle();
+  assert.equal(attempts.length, 2, 'publishing is tried again');
+  assert.deepEqual(fake.published, [['campaign', 'cendres-valombre']]);
+  assert.equal(fake.lookups.length, 1, 'the session is not asked twice');
+  assert.deepEqual(fake.reads.at(-1)?.variables, { campaign: 'cendres-valombre' });
+});
