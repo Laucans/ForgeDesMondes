@@ -10,10 +10,12 @@
 //! `variables` in and its `data` out; on `POST /commands`, a command's
 //! target (`target`, `targetId`), its `payload` and the values it was
 //! `basedOn` in, and the whole answer out; on `GET /commands/{id}`, the
-//! whole answer. A whole text is renamed, nested or not, as a value or as the
-//! key of an object (`pjInitiative` is keyed by character, `startCombat`'s
-//! `initiative` too); a part of one never is. Nothing else is touched: no other route, no refusal, no other field,
-//! and a body nothing renames passes byte for byte.
+//! whole answer. A whole text is renamed, nested or not, as a value; as the
+//! key of an object only in the maps keyed by a named thing (`pjInitiative`,
+//! `startCombat`'s `initiative` by character and `rolls` by token), so that no other object can see two keys
+//! collapse into one name. A part of a text never is. Nothing else is touched:
+//! no other route, no refusal, no other field, and a body nothing renames
+//! passes byte for byte.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -36,6 +38,10 @@ const COMMANDS: &str = "/commands";
 /// payload and what its author read. Never its DataCapability, its caller or
 /// its idempotency key.
 const COMMAND: &[&str] = &["target", "targetId", "payload", "basedOn"];
+
+/// The fields whose object is keyed by a named thing (a character, an NPC
+/// token): its keys are renamed too.
+const KEYED: &[&str] = &["pjInitiative", "initiative", "rolls"];
 
 /// The largest body renamed: axum's own limit on a JSON body. A larger one
 /// passes as it is, for the route to refuse.
@@ -63,30 +69,37 @@ impl Names {
         names
     }
 
-    /// `value` with every text that is a wire name, a key included, turned
-    /// into its stored id.
+    /// `value` with every text that is a wire name turned into its stored
+    /// id, the keys of the maps keyed by character included.
     fn to_stored(&self, value: &Value) -> Value {
-        Self::rename(&self.stored, value)
+        Self::rename(&self.stored, value, false)
     }
 
-    /// `value` with every text that is a stored id, a key included, turned
-    /// into its wire name.
+    /// `value` with every text that is a stored id turned into its wire name,
+    /// the keys of the maps keyed by character included.
     fn to_wire(&self, value: &Value) -> Value {
-        Self::rename(&self.wire, value)
+        Self::rename(&self.wire, value, false)
     }
 
-    fn rename(by: &BTreeMap<String, String>, value: &Value) -> Value {
+    /// `value` renamed by `by`; its object keys too when `keyed`.
+    fn rename(by: &BTreeMap<String, String>, value: &Value, keyed: bool) -> Value {
         match value {
             Value::String(text) => by
                 .get(text)
                 .map_or_else(|| value.clone(), |to| to.clone().into()),
             Value::Array(items) => {
-                Value::Array(items.iter().map(|v| Self::rename(by, v)).collect())
+                Value::Array(items.iter().map(|v| Self::rename(by, v, keyed)).collect())
             }
             Value::Object(fields) => Value::Object(
                 fields
                     .iter()
-                    .map(|(k, v)| (by.get(k).unwrap_or(k).clone(), Self::rename(by, v)))
+                    .map(|(k, v)| {
+                        let key = if keyed { by.get(k).unwrap_or(k) } else { k };
+                        (
+                            key.clone(),
+                            Self::rename(by, v, KEYED.contains(&k.as_str())),
+                        )
+                    })
                     .collect(),
             ),
             _ => value.clone(),
@@ -271,10 +284,23 @@ mod tests {
             })
         );
         // Nested in an array, and a key that is no name stays.
-        let nested = json!([{ "uuid-elowen": { "uuid-julie": "uuid-elowen", "kind": "pj" } }]);
+        let nested = json!([{ "pjInitiative": { "uuid-julie": 9, "kind": 1 } }]);
         assert_eq!(
             names.to_wire(&nested),
-            json!([{ "elowen": { "julie": "elowen", "kind": "pj" } }])
+            json!([{ "pjInitiative": { "julie": 9, "kind": 1 } }])
+        );
+        // `startCombat`'s rolls are keyed by NPC token.
+        let rolls = json!({ "initiative": {}, "rolls": { "julie": 12 } });
+        assert_eq!(
+            names.to_stored(&rolls),
+            json!({ "initiative": {}, "rolls": { "uuid-julie": 12 } })
+        );
+        // Any other object keeps its keys: two of them could collapse into one name.
+        let other =
+            json!({ "counts": { "uuid-elowen": 1, "elowen": 2 }, "uuid-julie": "uuid-julie" });
+        assert_eq!(
+            names.to_wire(&other),
+            json!({ "counts": { "uuid-elowen": 1, "elowen": 2 }, "uuid-julie": "julie" })
         );
     }
 
