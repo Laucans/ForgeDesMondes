@@ -25,7 +25,7 @@
     "milestone/711-shell-frame-the-design-system-s-site-menu-above-every-dm-screen": "aac76d1e920712784a7efe8783955215537960be",
     "milestone/719-battlemapinstance-migration-0014-adds-the-database-s-unique-constraints-and-the-flaky-combat-test-stops-failing": "28181180e150e5f67b429d494c3ab0cec234ca82",
     "milestone/720-battlemapinstance-the-token-row-tells-a-pc-from-an-npc-pc-tokens-track-no-hp-and-next-turn-reads-initiative-order-view-skipped": "069649f337a7e82f349d06ae2e20ad9f4d85c218",
-    "milestone/739-ui-audit-and-design-direction-written-in-the-repository": "af210926172ca7f77708402f62197d5141e79340",
+    "milestone/739-ui-audit-and-design-direction-written-in-the-repository": "c32056119ae120de00289996550c3935e7231fd7",
     "milestone/740-design-system-v2-type-scale-aa-contrast-state-and-focus-primitives-in-tokens-and-kit": "f8c725128b6ee93d3f2537e2be73d17146b7d0e8",
     "milestone/745-settings-screen-brought-to-the-direction-ai-settings-with-guidance-and-ranked-actions": "619a2ee261a3eaad560e9b7233619d70af0d687e"
   },
