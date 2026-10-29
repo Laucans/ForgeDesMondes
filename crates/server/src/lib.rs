@@ -58,7 +58,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub use applier::{applier, waking};
+pub use applier::{Writes, applier, waking};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
