@@ -348,3 +348,11 @@ async fn next_turn_with_no_participant_listed_is_refused() {
     );
     assert!(message.contains("dead-derived"), "{message}");
 }
+
+// AC6: deadness is no longer computed from hpCurrent in src/lib.rs
+#[test]
+fn the_unit_s_source_never_reads_hp_current() {
+    let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+        .expect("the unit's own source is beside its tests");
+    assert!(!source.contains("hpCurrent"), "src/lib.rs reads hpCurrent");
+}
