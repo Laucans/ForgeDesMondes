@@ -15,4 +15,6 @@ serde_json = "1"
 harness-dataguard = { workspace = true }
 # The migrations' applier the server runs: the tables its test reads.
 data = { path = "../../../data" }
+# The test's database, dropped even when an assertion fails.
+platform-scratch-db = { path = "../../../platform/scratch-db" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
