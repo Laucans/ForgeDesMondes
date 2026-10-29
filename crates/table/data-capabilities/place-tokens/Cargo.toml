@@ -18,6 +18,7 @@ uuid = { version = "1", default-features = false, features = ["v5"] }
 [dev-dependencies]
 # Its target aggregate, which its tests plant beside it.
 aggregate-battlemap-instance = { path = "../../aggregates/BattlemapInstance" }
-# The migrations' applier the server runs: the tables its tests read.
-data = { path = "../../../data" }
+# The tests' database (a `Scratch`, migrated by the Data layer) and the helpers
+# every unit's tests share.
+platform-test-kit = { path = "../../../platform/test-kit" }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
