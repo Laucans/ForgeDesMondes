@@ -27,6 +27,7 @@ import {
   reasons,
   resized,
   settled,
+  widest,
   type Settled,
 } from './model.ts';
 import { art, cover, mapSlot, scene, skeleton } from './render.ts';
@@ -116,7 +117,9 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   const campaignId = (): string => props.campaign || campaign?.id || '';
 
   // ---------- painting ----------
+  /** The status line is the DM's: the projected screen never shows a message. */
   function say(text: string): void {
+    if (!props.pilot) return;
     const box = part('player-status');
     if (!box) return;
     box.textContent = text;
@@ -169,15 +172,16 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     const figure = part('player-window');
     if (!figure) return;
     const win = current();
-    const image = windowImage();
-    if (win === null || image === undefined) {
+    const image = win && illustrationOf(media, win.media);
+    if (!win || !image) {
       figure.hidden = true;
       return;
     }
     figure.hidden = false;
     figure.style.left = `${win.x * 100}%`;
     figure.style.top = `${win.y * 100}%`;
-    figure.style.width = `${win.w * 100}%`;
+    // Drawn whole on the stage, even a short one where the stored width would clip the corner.
+    figure.style.width = `${Math.min(win.w, widest(win, image.ratio, stageSize())) * 100}%`;
     figure.style.aspectRatio = String(image.ratio);
     const bar = part('player-window-bar');
     if (bar) bar.textContent = image.title;
@@ -194,7 +198,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   }
 
   // ---------- reading ----------
-  /** The campaign's overview: the screen's campaign, else the live session's. Nothing when no session is running, never a read with no id. */
+  /** The campaign's id: the screen's, else the live session's (empty when none runs), and its overview when there is an id — never a read with no id. */
   async function readCampaign(): Promise<{ id: string; overview?: { asOf: number; data: unknown } }> {
     let id = props.campaign;
     try {
@@ -322,7 +326,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     }
   }
 
-  // ---------- the DM's gestures ----------
+  // ---------- the gestures: the corner on every stage, the bar in the DM's tab ----------
   host.addEventListener('pointerdown', (event) => {
     if (gesture || event.button !== 0) return;
     const target = event.target as Element | null;
