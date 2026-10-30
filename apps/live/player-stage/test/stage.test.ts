@@ -494,3 +494,25 @@ test('on a wide, short stage the window is drawn whole, corner included, at its 
   assert.ok(parseFloat(figure.style.width) < 30, 'narrower than the stored width');
   assert.ok(Math.abs(Number(figure.style.aspectRatio) - 2 / 3) < 1e-3, 'ratio kept');
 });
+
+// The gestures start from the width the window is drawn at, not the wider one it is stored at
+const SHORT = { width: 1920, height: 600 };
+const HIGH = { media: 'ill-tall', x: 0.1, y: 0.05, w: 0.3 };
+
+test('on a wide, short stage dragging the bar down does not throw the window up', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: HIGH, view: null } }, 'http://localhost/', SHORT);
+  // Drawn at 0.95 of the stage's height from y = 0.05: it has no room to go down, and must stay put.
+  await s.drag(s.$('#player-window-bar'), [200, 100], [200, 130]);
+  assert.equal(s.sent.length, 1);
+  assert.equal(s.sent[0]?.dataCapability, 'live.moveWindow@1');
+  assert.ok(Math.abs(Number(s.sent[0]?.payload.y) - 0.05) < 1e-6, 'y is unchanged, not thrown up to 0');
+});
+
+test('on a wide, short stage the corner shrinks the window from its drawn width at once', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } }, 'http://localhost/', SHORT);
+  const drawn = parseFloat(s.$('#player-window').style.width) / 100;
+  // 96 px left is 0.05 of the stage's width.
+  await s.drag(s.$('#player-window-resize'), [500, 500], [404, 500]);
+  assert.equal(s.sent.length, 1);
+  assert.ok(Math.abs(Number(s.sent[0]?.payload.w) - (drawn - 0.05)) < 1e-3, 'it shrinks by the dragged distance, with no dead zone');
+});

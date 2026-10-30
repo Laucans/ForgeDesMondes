@@ -464,6 +464,9 @@
     function windowImage() {
       return diffusion.window === null ? void 0 : illustrationOf(media, diffusion.window.media);
     }
+    function drawnWidth(win, ratio) {
+      return Math.min(win.w, widest(win, ratio, stageSize()));
+    }
     function paintWindow() {
       const figure = part("player-window");
       if (!figure) return;
@@ -476,7 +479,7 @@
       figure.hidden = false;
       figure.style.left = `${win.x * 100}%`;
       figure.style.top = `${win.y * 100}%`;
-      figure.style.width = `${Math.min(win.w, widest(win, image.ratio, stageSize())) * 100}%`;
+      figure.style.width = `${drawnWidth(win, image.ratio) * 100}%`;
       figure.style.aspectRatio = String(image.ratio);
       const bar = part("player-window-bar");
       if (bar) bar.textContent = image.title;
@@ -615,7 +618,7 @@
         void refresh();
         return;
       }
-      const from = { x: win.x, y: win.y, w: win.w };
+      const from = { x: win.x, y: win.y, w: drawnWidth(win, image.ratio) };
       gesture = { mode, x: event.clientX, y: event.clientY, from, ratio: image.ratio, stage: stageSize(), moved: false, to: from, box: { w: from.w, h: from.w / image.ratio } };
       part("player-window")?.setPointerCapture?.(event.pointerId);
     });

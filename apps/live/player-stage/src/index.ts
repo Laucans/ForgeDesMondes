@@ -168,6 +168,11 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     return diffusion.window === null ? undefined : illustrationOf(media, diffusion.window.media);
   }
 
+  /** The width the window is drawn at: the stored one, held to what keeps it whole on the stage. Gestures start from it. */
+  function drawnWidth(win: Box, ratio: number): number {
+    return Math.min(win.w, widest(win, ratio, stageSize()));
+  }
+
   function paintWindow(): void {
     const figure = part('player-window');
     if (!figure) return;
@@ -181,7 +186,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     figure.style.left = `${win.x * 100}%`;
     figure.style.top = `${win.y * 100}%`;
     // Drawn whole on the stage, even a short one where the stored width would clip the corner.
-    figure.style.width = `${Math.min(win.w, widest(win, image.ratio, stageSize())) * 100}%`;
+    figure.style.width = `${drawnWidth(win, image.ratio) * 100}%`;
     figure.style.aspectRatio = String(image.ratio);
     const bar = part('player-window-bar');
     if (bar) bar.textContent = image.title;
@@ -343,7 +348,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       void refresh();
       return;
     }
-    const from = { x: win.x, y: win.y, w: win.w };
+    const from = { x: win.x, y: win.y, w: drawnWidth(win, image.ratio) };
     gesture = { mode, x: event.clientX, y: event.clientY, from, ratio: image.ratio, stage: stageSize(), moved: false, to: from, box: { w: from.w, h: from.w / image.ratio } };
     part('player-window')?.setPointerCapture?.(event.pointerId);
   });
