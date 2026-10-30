@@ -29,7 +29,7 @@ const map = (() => {
 })();
 
 /** A shell over a small table: it answers the three reads and applies the commands as the table would. */
-function fakeShell(options: { diffusion?: unknown; tokens?: (all: Array<Record<string, unknown>>) => Array<Record<string, unknown>>; reject?: string; leaky?: boolean; omitId?: boolean } = {}) {
+function fakeShell(options: { diffusion?: unknown; tokens?: (all: Array<Record<string, unknown>>) => Array<Record<string, unknown>>; reject?: string; once?: boolean; leaky?: boolean; omitId?: boolean } = {}) {
   const instance = structuredClone(fixtureOf('table.getBattlemapInstance')) as Raw;
   if (options.tokens) instance.state.tokens = options.tokens(instance.state.tokens);
   const sent: Sent[] = [];
@@ -54,7 +54,7 @@ function fakeShell(options: { diffusion?: unknown; tokens?: (all: Array<Record<s
       const command = body as Sent;
       sent.push(command);
       assertDeclared(command);
-      if (options.reject) return { commandId: `c${sent.length}`, result: { status: 'rejected', violations: [options.reject] } };
+      if (options.reject && !(options.once && sent.length > 1)) return { commandId: `c${sent.length}`, result: { status: 'rejected', violations: [options.reject] } };
       const { payload } = command;
       switch (command.dataCapability) {
         case 'table.moveToken@1':
@@ -584,6 +584,45 @@ test('the pilot tab sends its zoom, wheel and pan once they rest, rounded as the
   const at = placeStage({ zoom: Number(zoom), panX: Number(panX), panY: Number(panY) }, PLAYER_VIEW, map);
   assert.equal(stage.style.transform, `translate(${Number(at.x.toFixed(3))}px, ${Number(at.y.toFixed(3))}px) scale(${Number(at.scale.toFixed(6))})`);
   assert.equal(document.querySelector('#battlemap-status')?.hasAttribute('hidden'), true, 'a frame sent on its own says nothing');
+});
+
+// R80: a frame that settles clears the message of the one that failed
+test('an applied quiet frame clears the error message of the frame before it', async () => {
+  const { document, fake, click } = await battlemap({ view: 'player', pilot: true, fill: true }, { reject: 'base-coherent', once: true });
+  await click('[data-act="out"]');
+  assert.match(document.querySelector('#battlemap-status')?.textContent ?? '', /refusé/);
+  await click('[data-act="in"]');
+  assert.equal(fake.sent.length, 2);
+  assert.equal(document.querySelector('#battlemap-status')?.hasAttribute('hidden'), true);
+});
+
+// R79: a frame waiting when the map is removed is never sent
+test('a frame waiting in the pilot tab is not sent once the map is removed', async () => {
+  const { host, fake } = await battlemap({ view: 'player', pilot: true, fill: true });
+  host.querySelector<HTMLElement>('[data-act="in"]')?.click();
+  host.remove();
+  await flush();
+  assert.equal(fake.sent.length, 0);
+});
+
+// R83: a frame resting while the pilot pans is sent once, on the release
+test('a zoom resting while the pilot pans sends no in-between frame: one frame, on the release', async () => {
+  const { document, fake, pointer } = await battlemap({ view: 'player', pilot: true, fill: true }, undefined, undefined, PLAYER_VIEW);
+  const view = document.querySelector<HTMLElement>('#battlemap-view') as HTMLElement;
+  document.querySelector<HTMLElement>('[data-act="in"]')?.click();
+  pointer('pointerdown', view, { x: 10, y: 10 });
+  pointer('pointermove', view, { x: 40, y: 25 });
+  await flush();
+  assert.equal(fake.sent.length, 0, 'nothing while the pan is under way');
+  pointer('pointerup', view, { x: 40, y: 25 });
+  await flush();
+  assert.equal(fake.sent.length, 1);
+});
+
+// R81: the projected view reads the diffusion of its own campaign
+test('the projected view reads the diffusion of its campaign when it has one', async () => {
+  const { fake } = await battlemap({ view: 'player', campaign: 'camp-corbeaux' }, undefined, undefined, PLAYER_VIEW);
+  assert.deepEqual(fake.reads.find((r) => r.id === 'live.getDiffusion')?.variables, { view: 'player', campaign: 'camp-corbeaux' });
 });
 
 // AC1: a frame the server refuses is told, not hidden

@@ -64,11 +64,11 @@ function participant(value: Record<string, unknown>): Participant {
   return { id: text(value.id), init: num(value.initiative, num(value.init, 0)), dex: num(value.dex, 0) };
 }
 
-/** The combat of an instance, or null when none is under way. */
+/** The combat of an instance, or null when none is under way; `current` is '' when the view hides whose turn it is. */
 export function parseCombat(value: unknown): Combat | null {
   if (!isRecord(value) || !Array.isArray(value.order)) return null;
   const order = value.order.filter(isRecord).map(participant).filter((p) => p.id !== '');
-  return order.length === 0 ? null : { round: Math.max(1, num(value.round, 1)), current: typeof value.current === 'string' ? value.current : (order[0]?.id ?? ''), order };
+  return order.length === 0 ? null : { round: Math.max(1, num(value.round, 1)), current: typeof value.current === 'string' ? value.current : '', order };
 }
 
 /** `table.getBattlemapInstance`: the tokens sit under `state` (or at the top), whichever side of the table asked. */
