@@ -423,6 +423,7 @@
     const scope = () => props2.campaign === "" ? {} : { campaign: props2.campaign };
     const campaignId = () => props2.campaign || campaign?.id || "";
     function say(text2) {
+      if (!props2.pilot) return;
       const box = part("player-status");
       if (!box) return;
       box.textContent = text2;
@@ -463,19 +464,22 @@
     function windowImage() {
       return diffusion.window === null ? void 0 : illustrationOf(media, diffusion.window.media);
     }
+    function drawnWidth(win, ratio) {
+      return Math.min(win.w, widest(win, ratio, stageSize()));
+    }
     function paintWindow() {
       const figure = part("player-window");
       if (!figure) return;
       const win = current();
-      const image = windowImage();
-      if (win === null || image === void 0) {
+      const image = win && illustrationOf(media, win.media);
+      if (!win || !image) {
         figure.hidden = true;
         return;
       }
       figure.hidden = false;
       figure.style.left = `${win.x * 100}%`;
       figure.style.top = `${win.y * 100}%`;
-      figure.style.width = `${win.w * 100}%`;
+      figure.style.width = `${drawnWidth(win, image.ratio) * 100}%`;
       figure.style.aspectRatio = String(image.ratio);
       const bar = part("player-window-bar");
       if (bar) bar.textContent = image.title;
@@ -614,7 +618,7 @@
         void refresh();
         return;
       }
-      const from = { x: win.x, y: win.y, w: win.w };
+      const from = { x: win.x, y: win.y, w: drawnWidth(win, image.ratio) };
       gesture = { mode, x: event.clientX, y: event.clientY, from, ratio: image.ratio, stage: stageSize(), moved: false, to: from, box: { w: from.w, h: from.w / image.ratio } };
       part("player-window")?.setPointerCapture?.(event.pointerId);
     });
