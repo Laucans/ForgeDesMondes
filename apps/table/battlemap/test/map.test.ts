@@ -383,7 +383,7 @@ test('player-view?pilote=1 is the DM’s pilot tab without the prop: the zoom ba
 // AC2: getByRole('button', {name: 'Zoomer'}) resolves to the zoom-in button alone
 test('the pilot tab’s zoom-out button is not named « Zoomer »: only the zoom-in button is', async () => {
   const { document } = await battlemap({ view: 'player', pilot: true, fill: true });
-  const names = Array.from(document.querySelectorAll('.hm-bar button')).map((b) => b.getAttribute('aria-label') ?? b.textContent ?? '');
+  const names = Array.from(document.querySelectorAll('button')).map((b) => b.getAttribute('aria-label') ?? b.textContent ?? '');
   assert.deepEqual(names, ['Réduire le zoom', 'Ajuster', 'Zoomer']);
   // Playwright matches a name as a case-insensitive substring.
   assert.equal(names.filter((n) => n.toLowerCase().includes('zoomer')).length, 1);
