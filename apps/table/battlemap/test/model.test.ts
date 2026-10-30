@@ -264,6 +264,7 @@ describe('the order of a combat', () => {
   test('the combat is read from the instance, or is none', () => {
     const combat = parseCombat({ round: 2, current: 'b', order: [{ id: 'a', init: 18, dex: 2 }, { id: 'b', init: 12 }, { nope: true }] });
     assert.deepEqual(combat, { round: 2, current: 'b', order: [{ id: 'a', init: 18, dex: 2 }, { id: 'b', init: 12, dex: 0 }] });
+    assert.equal(parseCombat({ round: 1, current: null, order: [{ id: 'a', init: 18 }] })?.current, '', 'a hidden turn highlights nobody');
     assert.equal(parseCombat(null), null);
     assert.equal(parseCombat({ round: 1, order: [] }), null);
     assert.equal(parseInstance({ id: 'i', state: { tokens: [], combat: { round: 1, current: 'a', order: [{ id: 'a', init: 3 }] } } })?.combat?.current, 'a');

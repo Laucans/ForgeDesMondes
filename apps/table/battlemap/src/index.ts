@@ -143,6 +143,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   /** The frame the players' view took from the diffusion, rather than its own fit. */
   let followed = false;
   let frameTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The last frame sent failed: its message is cleared when the next one settles. */
+  let frameFailed = false;
 
   const part = <T extends HTMLElement = HTMLElement>(id: string): T | null => host.querySelector<T>(`#${id}`);
   const canMove = (): boolean => props.view !== 'player' || props.pilot;
@@ -352,7 +354,7 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
   async function readFrame(): Promise<Frame | null | undefined> {
     if (dm() || props.pilot) return undefined;
     try {
-      return parseShownFrame((await shell.capability(GET_DIFFUSION, undefined, { view: 'player' })).data, props.instance);
+      return parseShownFrame((await shell.capability(GET_DIFFUSION, undefined, props.campaign === '' ? { view: 'player' } : { view: 'player', campaign: props.campaign })).data, props.instance);
     } catch {
       return undefined;
     }
@@ -630,7 +632,10 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
       if (state.status === 'rejected') say('error', `L’envoi aux joueurs est refusé : ${reasons(state.violations)}.`);
       else if (state.status !== 'applied') say('error', `L’envoi aux joueurs n’a pas abouti (état : ${state.status || 'inconnu'}).`);
       else if (!quiet) say('ok', 'Carte envoyée aux joueurs.');
+      else if (frameFailed) say('none');
+      frameFailed = state.status !== 'applied';
     } catch {
+      frameFailed = true;
       say('error', 'L’envoi aux joueurs a échoué.');
     }
   };
@@ -640,6 +645,8 @@ export function mount(host: HTMLElement, raw: Record<string, unknown>, shell: Sh
     if (!piloting()) return;
     clearTimeout(frameTimer);
     frameTimer = setTimeout(() => {
+      // The map was removed (the cover replaced it), or a pan is under way: its release sends the frame.
+      if (!host.isConnected || pan?.moved) return;
       frame = roundFrame(frame);
       applyFrame();
       void showOnPlayerView(true);
