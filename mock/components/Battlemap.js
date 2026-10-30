@@ -358,7 +358,7 @@
   function parseCombat(value) {
     if (!isRecord(value) || !Array.isArray(value.order)) return null;
     const order = value.order.filter(isRecord).map(participant).filter((p) => p.id !== "");
-    return order.length === 0 ? null : { round: Math.max(1, num(value.round, 1)), current: typeof value.current === "string" ? value.current : order[0]?.id ?? "", order };
+    return order.length === 0 ? null : { round: Math.max(1, num(value.round, 1)), current: typeof value.current === "string" ? value.current : "", order };
   }
   function parseInstance(data) {
     if (!isRecord(data)) return null;
@@ -727,6 +727,7 @@
     let observer = null;
     let followed = false;
     let frameTimer;
+    let frameFailed = false;
     const part = (id) => host2.querySelector(`#${id}`);
     const canMove = () => props2.view !== "player" || props2.pilot;
     const dm = () => props2.view !== "player";
@@ -895,7 +896,7 @@
     async function readFrame() {
       if (dm() || props2.pilot) return void 0;
       try {
-        return parseShownFrame((await shell2.capability(GET_DIFFUSION, void 0, { view: "player" })).data, props2.instance);
+        return parseShownFrame((await shell2.capability(GET_DIFFUSION, void 0, props2.campaign === "" ? { view: "player" } : { view: "player", campaign: props2.campaign })).data, props2.instance);
       } catch {
         return void 0;
       }
@@ -1125,7 +1126,10 @@
         if (state.status === "rejected") say("error", `L\u2019envoi aux joueurs est refus\xE9 : ${reasons(state.violations)}.`);
         else if (state.status !== "applied") say("error", `L\u2019envoi aux joueurs n\u2019a pas abouti (\xE9tat : ${state.status || "inconnu"}).`);
         else if (!quiet) say("ok", "Carte envoy\xE9e aux joueurs.");
+        else if (frameFailed) say("none");
+        frameFailed = state.status !== "applied";
       } catch {
+        frameFailed = true;
         say("error", "L\u2019envoi aux joueurs a \xE9chou\xE9.");
       }
     };
@@ -1133,6 +1137,7 @@
       if (!piloting()) return;
       clearTimeout(frameTimer);
       frameTimer = setTimeout(() => {
+        if (!host2.isConnected || pan?.moved) return;
         frame = roundFrame(frame);
         applyFrame();
         void showOnPlayerView(true);
