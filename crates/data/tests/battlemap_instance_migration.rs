@@ -25,7 +25,7 @@ use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
 /// Each field of the aggregate, and the column it is: `relation.column`.
-const COLUMNS: [(&str, &str); 39] = [
+const COLUMNS: [(&str, &str); 40] = [
     ("battlemapInstanceId", "battlemap_instance.id"),
     ("battlemapMediaId", "battlemap_instance.battlemap_media_id"),
     ("sessionId", "battlemap_instance.session_id"),
@@ -35,6 +35,7 @@ const COLUMNS: [(&str, &str); 39] = [
     ("tokenId", "token.id"),
     ("tokenInstanceId", "token.instance_id"),
     ("characterId", "token.character_id"),
+    ("characterType", "token.character_type"),
     ("number", "token.number"),
     ("name", "token.name"),
     ("q", "token.q"),
@@ -431,6 +432,8 @@ impl Scratch {
     }
 }
 
+// AC8: the token's marker, characterType, is a field aggregate.json declares
+// and token.character_type the column it is.
 #[tokio::test]
 async fn every_field_of_the_aggregate_is_a_column_of_its_tables_and_every_column_a_field() {
     let s = Scratch::new("columns").await;
