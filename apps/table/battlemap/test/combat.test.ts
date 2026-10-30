@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { mount, type Timing } from '../src/index.ts';
-import { STYLE } from '../src/style.ts';
 import type { Shell } from '../src/types.ts';
 import { assertDeclared } from './manifests.ts';
 
@@ -346,17 +345,34 @@ test('the sheet’s « Avancer » and « Reculer » move the chosen participant 
   assert.equal(fake.sent.length, 2, 'the first cannot go before the first');
 });
 
+/** The stylesheet as a narrow screen reads it: every `max-width` media block applied unconditionally, after the rest (jsdom evaluates no media query). */
+const narrowScreen = (dom: JSDOM): void => {
+  const { document } = dom.window;
+  const blocks = Array.from(document.styleSheets)
+    .flatMap((sheet) => Array.from(sheet.cssRules))
+    .filter((rule): rule is CSSMediaRule => 'media' in rule && /max-width/.test((rule as CSSMediaRule).media.mediaText))
+    .flatMap((rule) => Array.from(rule.cssRules).map((inner) => inner.cssText));
+  const style = document.createElement('style');
+  style.textContent = blocks.join('\n');
+  document.head.append(style);
+};
+
 // AC2: a combat saved with Bandit 2's sheet open is reopened with the tokens at the same places relative to the view
 test('a combat reopened with a sheet open lays the map out as it was, the sheet over it', async () => {
   const where = (document: Document) => ['t-elowen', 't-bandit-2'].map((id) => { const el = document.querySelector<HTMLElement>(`#token-${id}`); return `${el?.style.left}/${el?.style.top}`; });
-  const { $, open, document } = await battlemap({ view: 'dm' }, { combat: underWay() }, { width: 705, height: 520 });
-  const before = { places: where(document), stage: $('#battlemap-stage').style.transform };
+  const view = { width: 705, height: 520 };
+  const saved = await battlemap({ view: 'dm' }, { combat: underWay() }, view);
+  const before = { places: where(saved.document), stage: saved.$('#battlemap-stage').style.transform };
   assert.notEqual(before.stage, '', 'the map is laid out');
-  await open('t-bandit-2');
-  assert.equal($('#inspector-title').textContent, 'Bandit 2');
-  assert.deepEqual({ places: where(document), stage: $('#battlemap-stage').style.transform }, before, 'the sheet changes no place');
-  assert.match(STYLE, /\.bm #token-inspector \{ position: absolute;/);
-  assert.doesNotMatch(STYLE, /#token-inspector \{ position: static/, 'not even on a narrow screen');
+  // The reopen: the same saved combat mounted again, with Bandit 2's sheet open on it.
+  const reopened = await battlemap({ view: 'dm' }, { combat: underWay() }, view);
+  await reopened.open('t-bandit-2');
+  assert.equal(reopened.$('#inspector-title').textContent, 'Bandit 2');
+  assert.deepEqual({ places: where(reopened.document), stage: reopened.$('#battlemap-stage').style.transform }, before, 'the sheet changes no place');
+  const sheet = (): string => reopened.dom.window.getComputedStyle(reopened.$('#token-inspector')).position;
+  assert.equal(sheet(), 'absolute');
+  narrowScreen(reopened.dom);
+  assert.equal(sheet(), 'absolute', 'not even on a narrow screen');
 });
 
 test('a click on a participant opens the sheet of that very instance', async () => {
@@ -482,7 +498,8 @@ test('the carousel reads each participant’s initiative as the Capability answe
   const combat: Combat = { round: 1, current: 't-elowen', order: [{ id: 't-elowen', init: 18, dex: 0 }, { id: 't-sirielle', init: 14, dex: 0 }, { id: 't-bandit-2', init: 7, dex: 0 }] };
   const items = (document: Document): string[] =>
     Array.from(document.querySelectorAll('#carousel-track .kit-token__item')).map((el) => `${(el as HTMLElement).dataset.token}:${el.querySelector('.bm-init')?.textContent}`);
-  const before = await battlemap({ view: 'dm' }, { combat, wire: true });
+  // Before the reopen the answer carries `init`; after it, the Capability's own `initiative`.
+  const before = await battlemap({ view: 'dm' }, { combat });
   const reopened = await battlemap({ view: 'dm' }, { combat, wire: true });
   assert.deepEqual(items(before.document), ['t-elowen:18', 't-sirielle:14', 't-bandit-2:7']);
   assert.deepEqual(items(reopened.document), items(before.document));
@@ -490,15 +507,17 @@ test('the carousel reads each participant’s initiative as the Capability answe
 
 // AC1: the first .kit-token__item named Elowen is the map's token, the carousel being shown above it
 test('during a combat the first token named Elowen is the map’s, and the carousel comes after the body in the page', async () => {
-  const { $, document } = await battlemap({ view: 'dm' }, { combat: underWay() });
-  const named = Array.from(document.querySelectorAll<HTMLElement>('.kit-token__item')).filter((el) => el.textContent?.includes('Elowen'));
+  const { $, document, dom } = await battlemap({ view: 'dm' }, { combat: underWay() });
+  const named = Array.from(document.querySelectorAll<HTMLElement>('.kit-token__item')).filter((el) => el.querySelector('.kit-token__name')?.textContent === 'Elowen');
   assert.equal(named.length, 2);
   assert.equal(named[0]?.id, 'token-t-elowen');
   assert.ok(named[0]?.closest('#battlemap-map'));
   assert.ok(named[1]?.closest('#initiative-carousel'));
   assert.ok($('#battlemap-body').compareDocumentPosition($('#initiative-carousel')) & 4, 'the carousel follows the body');
-  assert.match(STYLE, /\.bm-toolbar \{ order: -2;/);
-  assert.match(STYLE, /\.bm-carousel \{ order: -1;/);
+  const flex = dom.window.getComputedStyle($('.bm'));
+  assert.deepEqual([flex.display, flex.flexDirection], ['flex', 'column'], 'the page is a flex column, so `order` places the carousel');
+  const order = (selector: string): string => dom.window.getComputedStyle($(selector)).getPropertyValue('order');
+  assert.ok(Number(order('#battlemap-toolbar')) < Number(order('#initiative-carousel')) && Number(order('#initiative-carousel')) < 0, 'the toolbar, then the carousel, before the body');
 });
 
 test('a refused combat command says why', async () => {
