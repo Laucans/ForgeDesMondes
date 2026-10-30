@@ -649,7 +649,7 @@
         "campaign": "string — id de la campagne ; absent, la séance en direct du serveur décide"
       },
       "source": "apps/live/player-stage",
-      "builtFrom": "f95ecd6996b0e237"
+      "builtFrom": "51e792605232d41a"
     }
   ]
 }

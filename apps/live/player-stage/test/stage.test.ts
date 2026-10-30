@@ -88,10 +88,10 @@ const settle = async (): Promise<void> => {
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
-async function stage(props: Record<string, unknown>, options?: Options, url = 'http://localhost/') {
+async function stage(props: Record<string, unknown>, options?: Options, url = 'http://localhost/', size = STAGE) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div data-component="PlayerStage"></div></body></html>', { url });
-  Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { get: () => STAGE.width });
-  Object.defineProperty(dom.window.HTMLElement.prototype, 'clientHeight', { get: () => STAGE.height });
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { get: () => size.width });
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'clientHeight', { get: () => size.height });
   const host = dom.window.document.querySelector<HTMLElement>('[data-component]') as HTMLElement;
   const fake = fakeShell(options);
   const composed: HTMLElement[] = [];
@@ -457,4 +457,62 @@ test('a window sent over the shown cover takes its title off the stage', async (
   assert.equal(s.$('#player-window').hidden, false);
   assert.equal(s.host.querySelector('h1'), null);
   assert.ok(s.$('#player-cover [role="img"]'));
+});
+
+// The pilot tab mirrors the projected screen: the title gives way to the window there too
+test('a floating window takes the cover’s title off the DM’s pilot tab too', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
+  assert.equal(s.$('#player-window').hidden, false);
+  assert.equal(s.host.querySelector('#player-cover-title'), null);
+  s.row.window = null;
+  s.moveOn();
+  await settle();
+  assert.equal(s.$('#player-cover-title').textContent, CAMPAIGN.name);
+});
+
+test('a refused corner drag says nothing on the projected screen', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: SMALL, view: null }, status: 'rejected', violations: ['window-fields-together'] });
+  await s.drag(s.$('#player-window-resize'), [300, 400], [420, 440]);
+  assert.equal(s.sent.length, 1);
+  assert.equal(s.$('#player-status').textContent, '');
+  assert.equal(s.$('#player-status').hidden, true);
+});
+
+test('a corner drag with no readable campaign says nothing on the projected screen', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: SMALL, view: null }, campaign: {} });
+  await s.drag(s.$('#player-window-resize'), [300, 400], [420, 440]);
+  assert.deepEqual(s.sent, []);
+  assert.equal(s.$('#player-status').textContent, '');
+});
+
+test('on a wide, short stage the window is drawn whole, corner included, at its ratio', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } }, 'http://localhost/', { width: 1920, height: 600 });
+  const figure = s.$('#player-window');
+  const width = (parseFloat(figure.style.width) / 100) * 1920;
+  const height = width / Number(figure.style.aspectRatio);
+  assert.ok(parseFloat(figure.style.top) / 100 * 600 + height <= 600 + 1e-6, 'the bottom edge is on the stage');
+  assert.ok(parseFloat(figure.style.width) < 30, 'narrower than the stored width');
+  assert.ok(Math.abs(Number(figure.style.aspectRatio) - 2 / 3) < 1e-3, 'ratio kept');
+});
+
+// The gestures start from the width the window is drawn at, not the wider one it is stored at
+const SHORT = { width: 1920, height: 600 };
+const HIGH = { media: 'ill-tall', x: 0.1, y: 0.05, w: 0.3 };
+
+test('on a wide, short stage dragging the bar down does not throw the window up', async () => {
+  const s = await stage({ pilot: true }, { diffusion: { base: { kind: 'cover' }, window: HIGH, view: null } }, 'http://localhost/', SHORT);
+  // Drawn at 0.95 of the stage's height from y = 0.05: it has no room to go down, and must stay put.
+  await s.drag(s.$('#player-window-bar'), [200, 100], [200, 130]);
+  assert.equal(s.sent.length, 1);
+  assert.equal(s.sent[0]?.dataCapability, 'live.moveWindow@1');
+  assert.ok(Math.abs(Number(s.sent[0]?.payload.y) - 0.05) < 1e-6, 'y is unchanged, not thrown up to 0');
+});
+
+test('on a wide, short stage the corner shrinks the window from its drawn width at once', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } }, 'http://localhost/', SHORT);
+  const drawn = parseFloat(s.$('#player-window').style.width) / 100;
+  // 96 px left is 0.05 of the stage's width.
+  await s.drag(s.$('#player-window-resize'), [500, 500], [404, 500]);
+  assert.equal(s.sent.length, 1);
+  assert.ok(Math.abs(Number(s.sent[0]?.payload.w) - (drawn - 0.05)) < 1e-3, 'it shrinks by the dragged distance, with no dead zone');
 });
