@@ -36,6 +36,8 @@ interface Options {
   firstTold?: number;
   /** Makes the diffusion read throw while it answers true. */
   failRead?: () => boolean;
+  /** Makes campaign.getCampaign throw. */
+  failCampaign?: boolean;
 }
 
 /** A shell over a one-row diffusion: reads answer it, a command applies to it as the DataGuard would. */
@@ -54,6 +56,7 @@ function fakeShell(options: Options = {}) {
       if (id === 'live.getDiffusion') return { asOf: options.readAt ?? 1, data: structuredClone(row) };
       if (id === 'session.getLiveSession') return { asOf: 1, data: 'session' in options ? options.session : { session: { id: 's4', campaign: CAMPAIGN.id }, microphone: { on: true } } };
       // The real read requires the campaign's id and has no answer without it.
+      if (id === 'campaign.getCampaign' && options.failCampaign) throw new Error('the campaign is not readable');
       if (id === 'campaign.getCampaign') return { asOf: 1, data: variables?.id === undefined ? null : (options.campaign ?? { ...CAMPAIGN, id: variables.id }) };
       // The real read lists nothing for no campaign.
       return { asOf: 1, data: variables?.campaign === undefined ? { cover: '', illustrations: [] } : (options.media ?? MEDIA) };
@@ -216,7 +219,11 @@ test('the projected screen’s corner resizes the window through live.resizeWind
 
 test('the projected screen’s bar-less window cannot be moved, only resized', async () => {
   const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null } });
-  await s.drag(s.$('#player-window-art'), [200, 100], [300, 180]);
+  // A real bar is planted on the projected screen: only the `pilot` guard keeps it from moving the window.
+  const bar = s.host.ownerDocument.createElement('figcaption');
+  bar.id = 'player-window-bar';
+  s.$('#player-window').append(bar);
+  await s.drag(bar, [200, 100], [300, 180]);
   assert.deepEqual(s.sent, []);
 });
 
@@ -340,6 +347,13 @@ test('with no live session the stage asks no campaign and draws no title', async
   const s = await stage({}, { session: null });
   assert.equal(s.reads.filter((r) => r.id === 'campaign.getCampaign').length, 0);
   assert.equal(s.host.querySelector('h1'), null);
+});
+
+test('a failing getCampaign does not hide the window', async () => {
+  const s = await stage({}, { diffusion: { base: { kind: 'cover' }, window: WINDOW, view: null }, failCampaign: true });
+  assert.ok(s.reads.some((r) => r.id === 'campaign.getCampaign'));
+  assert.equal(s.$('#player-window').hidden, false);
+  assert.ok(s.$('#player-window [aria-label="Gaspard"]'));
 });
 
 // AC1: the live session's campaign lists the library, so the window the DM opened shows its illustration
